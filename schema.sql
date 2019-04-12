@@ -61,11 +61,21 @@ SET default_with_oids = false;
 CREATE TABLE public.build_steps (
     id integer NOT NULL,
     build integer,
-    name text
+    name text,
+    is_timeout boolean
 );
 
 
 ALTER TABLE public.build_steps OWNER TO postgres;
+
+--
+-- Name: TABLE build_steps; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.build_steps IS 'There should be zero or one build steps associated with a build, depending on whether the CircleCI JSON build structure indicates that one of the steps failed.
+
+This is known before the console logs are "scanned".';
+
 
 --
 -- Name: matches; Type: TABLE; Schema: public; Owner: postgres
@@ -214,11 +224,11 @@ ALTER TABLE public.scanned_patterns OWNER TO postgres;
 -- Name: scanned_builds; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.scanned_builds AS
+CREATE VIEW public.scanned_builds WITH (security_barrier='false') AS
  SELECT builds.build_num,
     count(*) AS scanned_pattern_count
-   FROM (public.builds
-     LEFT JOIN public.scanned_patterns ON ((builds.build_num = scanned_patterns.build)))
+   FROM (public.scanned_patterns
+     LEFT JOIN public.builds ON ((builds.build_num = scanned_patterns.build)))
   GROUP BY builds.build_num
   ORDER BY (count(*)) DESC, builds.build_num DESC;
 
@@ -229,8 +239,9 @@ ALTER TABLE public.scanned_builds OWNER TO postgres;
 -- Name: idiopathic_build_failures; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.idiopathic_build_failures AS
- SELECT scanned_builds.build_num
+CREATE VIEW public.idiopathic_build_failures WITH (security_barrier='false') AS
+ SELECT scanned_builds.build_num,
+    build_steps.is_timeout
    FROM (public.scanned_builds
      LEFT JOIN public.build_steps ON ((scanned_builds.build_num = build_steps.build)))
   WHERE (build_steps.id IS NULL);
@@ -244,6 +255,21 @@ ALTER TABLE public.idiopathic_build_failures OWNER TO postgres;
 
 COMMENT ON VIEW public.idiopathic_build_failures IS 'Failed builds that have been scanned, but no specific step had failed';
 
+
+--
+-- Name: job_failure_frequencies; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.job_failure_frequencies AS
+ SELECT builds.job_name,
+    count(*) AS freq,
+    max(builds.queued_at) AS last
+   FROM public.builds
+  GROUP BY builds.job_name
+  ORDER BY (count(*)) DESC, builds.job_name;
+
+
+ALTER TABLE public.job_failure_frequencies OWNER TO postgres;
 
 --
 -- Name: match_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
@@ -290,50 +316,16 @@ ALTER SEQUENCE public.pattern_id_seq OWNED BY public.patterns.id;
 
 
 --
--- Name: pattern_tag_associations; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.pattern_tag_associations (
-    pattern integer,
-    tag integer
-);
-
-
-ALTER TABLE public.pattern_tag_associations OWNER TO postgres;
-
---
 -- Name: pattern_tags; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.pattern_tags (
-    id integer NOT NULL,
-    tag text
+    pattern integer NOT NULL,
+    tag character varying(20) NOT NULL
 );
 
 
 ALTER TABLE public.pattern_tags OWNER TO postgres;
-
---
--- Name: pattern_tags_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
---
-
-CREATE SEQUENCE public.pattern_tags_id_seq
-    AS integer
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
-ALTER TABLE public.pattern_tags_id_seq OWNER TO postgres;
-
---
--- Name: pattern_tags_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
---
-
-ALTER SEQUENCE public.pattern_tags_id_seq OWNED BY public.pattern_tags.id;
-
 
 --
 -- Name: scans; Type: TABLE; Schema: public; Owner: postgres
@@ -417,13 +409,6 @@ ALTER TABLE ONLY public.matches ALTER COLUMN id SET DEFAULT nextval('public.matc
 
 
 --
--- Name: pattern_tags id; Type: DEFAULT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.pattern_tags ALTER COLUMN id SET DEFAULT nextval('public.pattern_tags_id_seq'::regclass);
-
-
---
 -- Name: patterns id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
@@ -490,7 +475,7 @@ ALTER TABLE ONLY public.patterns
 --
 
 ALTER TABLE ONLY public.pattern_tags
-    ADD CONSTRAINT pattern_tags_pkey PRIMARY KEY (id);
+    ADD CONSTRAINT pattern_tags_pkey PRIMARY KEY (pattern, tag);
 
 
 --
@@ -524,17 +509,10 @@ CREATE INDEX fk_build_step_id ON public.matches USING btree (build_step);
 
 
 --
--- Name: fk_ptap; Type: INDEX; Schema: public; Owner: postgres
+-- Name: fk_tag_pattern; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE INDEX fk_ptap ON public.pattern_tag_associations USING btree (pattern);
-
-
---
--- Name: fk_ptat; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX fk_ptat ON public.pattern_tag_associations USING btree (tag);
+CREATE INDEX fk_tag_pattern ON public.pattern_tags USING btree (pattern);
 
 
 --
@@ -599,19 +577,11 @@ ALTER TABLE ONLY public.matches
 
 
 --
--- Name: pattern_tag_associations pattern_tag_associations_pattern_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+-- Name: pattern_tags pattern_tags_pattern_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY public.pattern_tag_associations
-    ADD CONSTRAINT pattern_tag_associations_pattern_fkey FOREIGN KEY (pattern) REFERENCES public.patterns(id);
-
-
---
--- Name: pattern_tag_associations pattern_tag_associations_tag_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.pattern_tag_associations
-    ADD CONSTRAINT pattern_tag_associations_tag_fkey FOREIGN KEY (tag) REFERENCES public.pattern_tags(id);
+ALTER TABLE ONLY public.pattern_tags
+    ADD CONSTRAINT pattern_tags_pattern_fkey FOREIGN KEY (pattern) REFERENCES public.patterns(id);
 
 
 --
@@ -707,6 +677,13 @@ GRANT ALL ON TABLE public.idiopathic_build_failures TO logan;
 
 
 --
+-- Name: TABLE job_failure_frequencies; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.job_failure_frequencies TO logan;
+
+
+--
 -- Name: SEQUENCE match_id_seq; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -718,13 +695,6 @@ GRANT ALL ON SEQUENCE public.match_id_seq TO logan;
 --
 
 GRANT ALL ON SEQUENCE public.pattern_id_seq TO logan;
-
-
---
--- Name: TABLE pattern_tag_associations; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.pattern_tag_associations TO logan;
 
 
 --

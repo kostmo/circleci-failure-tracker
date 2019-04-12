@@ -52,8 +52,6 @@ If you need to start over, you can drop the database with:
 
 ### TODO
 
-* Create pie chart of build failures by job
-* Create pie chart of build failures by build step
 * Why are "Unexplained" and "Timeouts" empty?
 
 ### Capturing the database schema
