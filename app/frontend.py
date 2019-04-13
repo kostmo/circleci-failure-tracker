@@ -3,8 +3,8 @@
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import os
 
-import apigen
-import pagegen
+import server.apigen as apigen
+import server.pagegen as pagegen
 
 
 CONTENT_TYPE_BY_EXTENSION = {
@@ -63,6 +63,8 @@ class LoganRequestHandler(BaseHTTPRequestHandler):
             elif path_parts[1] == "step":
                 message = apigen.gen_step_json()
 
+            elif path_parts[1] == "failed-commits-by-day":
+                message = apigen.gen_failed_commits_by_day_json()
         else:
             message = "Unrecognized path: " + self.path
 

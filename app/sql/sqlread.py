@@ -11,6 +11,17 @@ def get_single_value(conn, sql):
         return cur.fetchone()[0]
 
 
+def get_failed_commits_by_day(conn):
+    # Note that Highcharts expects the dates to be in ascending order
+
+    sql = """
+    SELECT queued_at::date AS date, COUNT(*)
+    FROM (SELECT vcs_revision, MAX(queued_at) queued_at FROM builds GROUP BY vcs_revision) foo
+    GROUP BY date ORDER BY date ASC
+    """
+    return get_rows(conn, sql)
+
+
 def get_builds(conn):
     sql = "SELECT build_num, vcs_revision, queued_at, job_name FROM builds ORDER BY build_num"
     return get_rows(conn, sql)
@@ -66,12 +77,6 @@ def get_match_frequencies(conn):
     """
     return get_rows(conn, sql)
 
-
-def get_job_failure_frequencies(conn):
-    sql = """
-    SELECT job_name, COUNT(*) AS freq FROM builds GROUP BY job_name ORDER BY freq DESC
-    """
-    return get_rows(conn, sql)
 
 
 def get_build_step_failure_frequencies(conn):

@@ -1,8 +1,9 @@
-import sqlread
-import sqlbase
-import htmlgen
+import sql.sqlread as sqlread
+import sql.sqlbase as sqlbase
 
-from htmlgen import tag
+import server.htmlgen as htmlgen
+
+from server.htmlgen import tag
 
 
 SCRIPT_URLS = [
@@ -76,7 +77,7 @@ def get_match_rows(conn):
         pattern_url = "/".join(["dynamic", "pattern", str(pattern_id)])
         pattern_link = htmlgen.make_link(pattern_url, str(frequency) + " builds")
 
-        pattern_text_wrapped = tag("span", pattern_text, {"class": "is_regex"} if is_regex else {})
+        pattern_text_wrapped = tag("span", tag("span", pattern_text, {"class": "is_regex"} if is_regex else {}), {"style": "font-family: sans-serif"})
 
         formatted_row = [
             ", ".join(tags),
@@ -199,6 +200,9 @@ def gen_toplevel_page():
                         "style": "min-width: 310px; height: 400px; max-width: 600px; margin: 0 auto"}),
 
         tag("div", "", {"id": "container-job-failures",
+                        "style": "min-width: 310px; height: 400px; max-width: 600px; margin: 0 auto"}),
+
+        tag("div", "", {"id": "container-failed-commits-by-day",
                         "style": "min-width: 310px; height: 400px; max-width: 600px; margin: 0 auto"}),
 
         gen_patterns_section(conn),

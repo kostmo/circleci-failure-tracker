@@ -7,11 +7,15 @@ ON CONFLICT (build_num) DO NOTHING;
 
 SAMPLE_PATTERNS = [
     (False, "FAILED: ", "Ninja build failed", False, []),
+    (True, r"([^\s]+):(\d+):(\d+): error:", "Compilation error", False, ["compile"]),
+
+
+
     (False, "[  FAILED  ]", "Failed test", False, ["runtime"]),
     (False, "Error: ", "Generic code error", False, []),
     (False, "ERROR: ", "Another Generic code error", False, []),
     (False, "Segmentation fault", "Segfault", False, ["runtime"]),
-    (True,  "find: (.*): No such file or directory", "find error", False, []),
+    (True,  "find: (.+): No such file or directory", "find error", False, []),
     (False, "unzip:  cannot find zipfile directory", "Unzip failed", False, []),
     (False, "RuntimeError: ", "Python runtime error", False, []),
     (False, "Build left local git repository checkout dirty", "Build dirtied the source tree", False, []),
@@ -21,6 +25,13 @@ SAMPLE_PATTERNS = [
     (False, "Waiting for a VM assignment", "CircleCI outage", True, ["circleci"]),
     (False, "Probably the package for the version we want does not exist", "Conda error", False, []),
     (False, "error: failed to push some refs to", "Git push failed", True, ["git"]),
+
+    (True, "Failed to recurse into submodule path '(.+)'", "Git submodules failure", True, ["git"]),
+    (True, "::(.+) FAILED", "Unit test failure", True, ["runtine"]),
+
+
+    (True, r"fatal: unable to access '(.+)': gnutls_handshake\(\) failed: Error in the pull function", "Git fetch failed", True, ["git"]),
+
     (False, "E: Unable to correct problems, you have held broken packages", "apt package incompatibility", True, ["apt"]),
 ]
 

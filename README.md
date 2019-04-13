@@ -8,8 +8,8 @@ This tool obtains a list of CircleCI builds run against a GitHub repository for
 a given branch, downloads their logs from AWS, and scans the logs for a
 predefined list of labeled patterns (regular expressions).
 
-The frequency of occurrence of each pattern are tracked and presented in a web
-UI.
+These patterns are curated by the user.  The frequency of occurrence of each
+pattern are tracked and presented in a web UI.
 
 The database tracks which builds have been already scanned for a given pattern,
 so that scanning may be performed incrementally, or resumed after abort.
@@ -22,6 +22,10 @@ On Ubuntu 18.04:
 
     # installs version 10
     sudo apt install postgresql
+    
+Get Python packages:
+
+    pip3 install --upgrade requests-cache
 
 ### Running
 
@@ -35,17 +39,21 @@ On Ubuntu 18.04:
 
 2. Run the scanning tool:
 
-        ./scan.py
+        app/scan.py
 
 3. Start the webservice:
 
-        ./frontend.py
+        app/frontend.py
 
 #### Troubleshooting
 
 If you need to start over, you can drop the database with:
 
     sudo -u postgres dropdb loganci
+
+## Features
+
+* Optionally caches downloaded logs to disk
 
 
 ## Development

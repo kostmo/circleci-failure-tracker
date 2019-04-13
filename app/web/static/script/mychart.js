@@ -53,7 +53,7 @@ function main() {
    });
 
 
-      $.getJSON('api/step', function (data) {
+   $.getJSON('api/step', function (data) {
 
 
       Highcharts.chart('container-step-failures', {
@@ -94,4 +94,60 @@ function main() {
 
    });
 
+
+   $.getJSON('api/failed-commits-by-day', function (data) {
+
+        var rows = [];
+
+        $.each(data.rows, function( index, value ) {
+
+                rows.push([Date.parse(value[0]), value[1]]);
+        });
+
+      Highcharts.chart('container-failed-commits-by-day', {
+
+           chart: {
+                type: 'spline'
+            },
+            title: {
+                text: 'Failed commits by day'
+            },
+            xAxis: {
+                type: 'datetime',
+                dateTimeLabelFormats: { // don't display the dummy year
+                    month: '%e. %b',
+                    year: '%b'
+                },
+                title: {
+                    text: 'Date'
+                }
+            },
+            yAxis: {
+                title: {
+                    text: 'Failure count'
+                },
+                min: 0
+            },
+            tooltip: {
+                headerFormat: '<b>{series.name}</b><br>',
+                pointFormat: '{point.x:%e. %b}: {point.y:.2f} m'
+            },
+
+            plotOptions: {
+                spline: {
+                    marker: {
+                        enabled: true
+                    }
+                }
+            },
+
+        credits: {
+            enabled: false
+        },
+        series: [{
+            name: "Broken commits",
+            data: rows,
+            }],
+      });
+   });
 }

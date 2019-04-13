@@ -1,7 +1,17 @@
+from datetime import date, datetime
 import json
 
-import sqlread
-import sqlbase
+import sql.sqlread as sqlread
+import sql.sqlbase as sqlbase
+
+
+# From here: https://stackoverflow.com/a/27058505/105137
+class DateTimeEncoder(json.JSONEncoder):
+    def default(self, o):
+        if isinstance(o, date) or isinstance(o, datetime):
+            return o.isoformat()
+
+        return json.JSONEncoder.default(self, o)
 
 
 def gen_step_json():
@@ -36,3 +46,15 @@ def gen_job_json():
     }
 
     return json.dumps(data_dict)
+
+
+def gen_failed_commits_by_day_json():
+
+    conn = sqlbase.get_conn()
+
+    rows = sqlread.get_failed_commits_by_day(conn)
+    data_dict = {
+        "rows": rows,
+    }
+
+    return json.dumps(data_dict, cls=DateTimeEncoder)

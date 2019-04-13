@@ -2,24 +2,29 @@
 
 import re
 import sys
-from concurrent.futures import ThreadPoolExecutor
-import requests
-import urllib.parse
+import os
 import threading
+from concurrent.futures import ThreadPoolExecutor
+import urllib.parse
+import json
 import argparse
+import requests
 
 import myutils
-import sqlbase
-import sqlread
-import sqlwrite
+import sql.sqlbase as sqlbase
+import sql.sqlread as sqlread
+import sql.sqlwrite as sqlwrite
 import circlefetch
+import requests_cache
+
+
+CACHE_LOGS_TO_DISK = True
 
 
 BRANCH_NAME = "master"
 # BRANCH_NAME = "merge-libtorch-libcaffe2-dev"
 
 
-MAX_BUILD_FETCH_COUNT = 100
 MAX_NETWORK_THREADS = 8
 
 
@@ -33,7 +38,7 @@ class CounterWrapper:
             self.val += count
 
 
-def populate_builds(conn, api_token, branch_name):
+def populate_builds(conn, api_token, branch_name, build_count):
     earliest_date_limit = 0
     earliest_date_found = float("inf")
 
@@ -43,7 +48,7 @@ def populate_builds(conn, api_token, branch_name):
 
     # FIXME
     # while counter_wrapper.val < 300 or earliest_date_found > earliest_date_limit:
-    while counter_wrapper.val < MAX_BUILD_FETCH_COUNT:
+    while counter_wrapper.val < build_count:
 
         def callback(r_json):
 
@@ -75,7 +80,7 @@ def populate_builds(conn, api_token, branch_name):
         earliest_date_found = earliest_date_limit
 
 
-def get_matches(regular_expressions, output_url):
+def get_matches(regular_expressions, output_url, cache_key):
 
     def callback(r_json):
 
@@ -105,8 +110,39 @@ def get_matches(regular_expressions, output_url):
 
         return line_count, matches
 
-    r = requests.get(output_url)
-    return circlefetch.get_json_or_fail(r, callback, "Console output fetch failed for URL: " + output_url)
+    return from_cache_or_download(output_url, cache_key, callback)
+
+
+def from_cache_or_download(url, cache_key, callback):
+    """
+    NOTE: We cannot cache the AWS URL, because it changes with the signature.
+    Instead, we cache based on the parameters that were used to request the AWS URL.
+    """
+
+    url_cache_basedir = os.path.join(os.path.dirname(__file__), "download-cache")
+
+    import hashlib
+    m = hashlib.md5()
+    m.update(cache_key.encode('utf-8'))
+
+    filepath = os.path.join(url_cache_basedir, m.hexdigest())
+    if CACHE_LOGS_TO_DISK and os.path.isfile(filepath):
+        with open(filepath) as fh:
+            return callback(json.load(fh))
+    else:
+        print("Downloading from:", url)
+
+        s = requests.Session()
+        r = s.get(url)
+
+        result = circlefetch.get_json_or_fail(r, callback, "Console output fetch failed for URL: " + url)
+
+        if CACHE_LOGS_TO_DISK:
+            os.makedirs(url_cache_basedir, exist_ok=True)
+            with open(filepath, "w") as fh:
+                fh.write(r.text)
+
+        return result
 
 
 # TODO This doesn't need to return a list;
@@ -122,7 +158,7 @@ def get_failed_build_step(regular_expressions, r_url, r_json):
                 output_url = action.get("output_url")
 
                 if output_url:
-                    line_count, matches = get_matches(regular_expressions, output_url)
+                    line_count, matches = get_matches(regular_expressions, output_url, r_url + build_step_name)
                     return [(build_step_name, False, (line_count, matches))]
 
                 else:
@@ -144,12 +180,10 @@ def search_log(api_token, patterns_by_id, unscanned_pattern_ids, build_number):
         compiled_pattern = re.compile(pattern) if is_regex else pattern
         regular_expressions.append((pattern_id, is_regex, compiled_pattern, description))
 
-    parms = {
-        "circle-token": api_token,
-    }
-
     r_url = "/".join([circlefetch.CIRCLECI_API_BASE, str(build_number)])
-    r = requests.get(r_url, params=parms)
+
+    s = requests_cache.core.CachedSession() if CACHE_LOGS_TO_DISK else requests.Session()
+    r = s.get(r_url, params={"circle-token": api_token})
 
     def callback(r_json):
 
@@ -203,13 +237,14 @@ def run(options):
 
     sqlwrite.populate_patterns(conn)
 
-    populate_builds(conn, options.token, BRANCH_NAME)
+    populate_builds(conn, options.token, BRANCH_NAME, options.count)
     find_matches(conn, options.token)
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Fetch CircleCI build logs')
-    parser.add_argument('--token', dest='token', help='CircleCI API token')
+    parser.add_argument('--token', dest='token', help='CircleCI API token (optional)')
+    parser.add_argument('--count', dest='count', type=int, default=100, help='How many builds to fetch')
 
     return parser.parse_args()
 
