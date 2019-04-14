@@ -21,11 +21,11 @@ so that scanning may be performed incrementally, or resumed after abort.
 On Ubuntu 18.04:
 
     # installs version 10
-    sudo apt install postgresql
+    sudo apt install postgresql libpq-dev
     
 Get Python packages:
 
-    pip3 install --upgrade requests-cache
+    pip3 install --upgrade requests-cache psycopg2
 
 ### Running
 
