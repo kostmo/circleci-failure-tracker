@@ -14,9 +14,9 @@ class DateTimeEncoder(json.JSONEncoder):
         return json.JSONEncoder.default(self, o)
 
 
-def gen_step_json():
+def gen_step_json(db_hostname):
 
-    conn = sqlbase.get_conn()
+    conn = sqlbase.get_conn(db_hostname)
 
     match_rows = sqlread.get_build_step_failure_frequencies(conn)
 
@@ -31,9 +31,9 @@ def gen_step_json():
     return json.dumps(data_dict)
 
 
-def gen_job_json():
+def gen_job_json(db_hostname):
 
-    conn = sqlbase.get_conn()
+    conn = sqlbase.get_conn(db_hostname)
 
     match_rows = sqlread.get_job_failure_frequencies(conn)
 
@@ -48,9 +48,9 @@ def gen_job_json():
     return json.dumps(data_dict)
 
 
-def gen_failed_commits_by_day_json():
+def gen_failed_commits_by_day_json(db_hostname):
 
-    conn = sqlbase.get_conn()
+    conn = sqlbase.get_conn(db_hostname)
 
     rows = sqlread.get_failed_commits_by_day(conn)
     data_dict = {

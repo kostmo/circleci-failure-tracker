@@ -2,6 +2,7 @@
 
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import os
+import argparse
 
 import server.apigen as apigen
 import server.pagegen as pagegen
@@ -15,6 +16,10 @@ CONTENT_TYPE_BY_EXTENSION = {
 
 class LoganRequestHandler(BaseHTTPRequestHandler):
 
+    def __init__(self, cli_options, *args):
+        self.cli_options = cli_options
+        BaseHTTPRequestHandler.__init__(self, *args)
+
     def do_GET(self):
 
         status_code = 200
@@ -26,7 +31,7 @@ class LoganRequestHandler(BaseHTTPRequestHandler):
 
         if self.path == "/":
 
-            message = pagegen.gen_toplevel_page()
+            message = pagegen.gen_toplevel_page(self.cli_options.hostname)
 
         elif path_parts[0] == "static":
 
@@ -51,20 +56,20 @@ class LoganRequestHandler(BaseHTTPRequestHandler):
 
             if path_parts[1] == "pattern":
                 pattern_id = int(path_parts[2])
-                message = pagegen.gen_pattern_page(pattern_id)
+                message = pagegen.gen_pattern_page(self.cli_options.hostname, pattern_id)
 
         elif path_parts[0] == "api":
 
             content_type = 'application/json'
 
             if path_parts[1] == "job":
-                message = apigen.gen_job_json()
+                message = apigen.gen_job_json(self.cli_options.hostname)
 
             elif path_parts[1] == "step":
-                message = apigen.gen_step_json()
+                message = apigen.gen_step_json(self.cli_options.hostname)
 
             elif path_parts[1] == "failed-commits-by-day":
-                message = apigen.gen_failed_commits_by_day_json()
+                message = apigen.gen_failed_commits_by_day_json(self.cli_options.hostname)
         else:
             message = "Unrecognized path: " + self.path
 
@@ -76,11 +81,23 @@ class LoganRequestHandler(BaseHTTPRequestHandler):
         self.wfile.write(bytes(message, "utf8"))
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description='Fetch CircleCI build logs')
+    parser.add_argument('--hostname', dest='hostname', default="localhost", help='Database hostname (default: localhost)')
+
+    return parser.parse_args()
+
+
 def run():
     print('starting server...')
 
+    parsed_args = parse_args()
+
+    def handler(*args):
+        LoganRequestHandler(parsed_args, *args)
+
     server_address = ('127.0.0.1', 8081)
-    httpd = HTTPServer(server_address, LoganRequestHandler)
+    httpd = HTTPServer(server_address, handler)
     print('running server...')
     httpd.serve_forever()
 

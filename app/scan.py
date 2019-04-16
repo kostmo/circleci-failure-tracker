@@ -231,7 +231,7 @@ def find_matches(conn, api_token):
 
 
 def run(options):
-    conn = sqlbase.get_conn()
+    conn = sqlbase.get_conn(options.hostname)
 
     sqlwrite.scrub_tables(conn)
 
@@ -245,6 +245,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Fetch CircleCI build logs')
     parser.add_argument('--token', dest='token', help='CircleCI API token (optional)')
     parser.add_argument('--count', dest='count', type=int, default=100, help='How many builds to fetch')
+    parser.add_argument('--hostname', dest='hostname', default="localhost", help='Database hostname (default: localhost)')
 
     return parser.parse_args()
 

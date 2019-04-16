@@ -23,8 +23,8 @@ HEAD_CONTENT = "\n".join([
 PAGE_HEADER = tag("head", tag("title", "Build Failure Analysis") + HEAD_CONTENT)
 
 
-def gen_pattern_page(pattern_id):
-    conn = sqlbase.get_conn()
+def gen_pattern_page(db_hostname, pattern_id):
+    conn = sqlbase.get_conn(db_hostname)
 
     rows = sqlread.get_pattern_occurrence_rows(conn, pattern_id)
 
@@ -189,8 +189,8 @@ def gen_unattributed_failures_section(conn):
     return "\n".join(lines)
 
 
-def gen_toplevel_page():
-    conn = sqlbase.get_conn()
+def gen_toplevel_page(db_hostname):
+    conn = sqlbase.get_conn(db_hostname)
 
     pattern_scan_histogram_rows = sqlread.get_pattern_scan_histogram(conn)
 
