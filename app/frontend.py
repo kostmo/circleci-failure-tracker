@@ -6,6 +6,8 @@ import argparse
 
 import server.apigen as apigen
 import server.pagegen as pagegen
+import scanner.scanlib as scanlib
+import sql.sqlbase as sqlbase
 
 
 CONTENT_TYPE_BY_EXTENSION = {
@@ -18,6 +20,8 @@ class LoganRequestHandler(BaseHTTPRequestHandler):
 
     def __init__(self, cli_options, *args):
         self.cli_options = cli_options
+        self.active_scan_engine = None
+
         BaseHTTPRequestHandler.__init__(self, *args)
 
     def do_GET(self):
@@ -70,6 +74,22 @@ class LoganRequestHandler(BaseHTTPRequestHandler):
 
             elif path_parts[1] == "failed-commits-by-day":
                 message = apigen.gen_failed_commits_by_day_json(self.cli_options.hostname)
+
+            elif path_parts[1] == "start-scan":
+
+                # FIXME
+                hostname = "localhost"
+
+                conn = sqlbase.get_conn(hostname)
+                
+                self.active_scan_engine = scanlib.Engine(conn)
+
+                # TODO start a thread
+                scanlib.run(self.active_scan_engine, options)
+
+            elif path_parts[1] == "get-scan-progress":
+                pass
+
         else:
             message = "Unrecognized path: " + self.path
 

@@ -70,28 +70,40 @@ VALUES(%s, %s, %s);
 """
 
 
-def insert_matches(conn, results):
+def insert_matches(engine, results):
 
-    with conn.cursor() as cur:
+    results_list = list(results)
+    with engine.conn.cursor() as cur:
 
         # There can be en entry for a build_num even if it had no matches.
-        for (build_num, searched_pattern_ids, scan_id, build_step_data_tuples) in results:
+        for i, (build_num, searched_pattern_ids, scan_id, build_step_data_tuples) in enumerate(results_list):
 
-            for step_name, is_timeout, (line_count, match_list) in build_step_data_tuples:
+            engine.logger.log("On %d/%d results..." % (i, len(results_list)))
 
-                step_id = insert_build_step(conn, build_num, step_name, is_timeout)
+            for j, (step_name, is_timeout, (line_count, match_list)) in enumerate(build_step_data_tuples):
 
-                for (pattern_id, line_number, line_text, match_span) in match_list:
+                engine.logger.log("\tOn %d/%d build_step_data_tuples..." % (j, len(build_step_data_tuples)))
+
+                step_id = insert_build_step(engine.conn, build_num, step_name, is_timeout)
+
+                for k, (pattern_id, line_number, line_text, match_span) in enumerate(match_list):
+
+                    engine.logger.log("\t\tOn %d/%d match_list..." % (k, len(match_list)))
+
                     match_start, match_end = match_span
                     vals = (step_id, pattern_id, line_number, line_text, match_start, match_end)
                     cur.execute(match_insertion_sql, vals)
 
-            for patt_id in searched_pattern_ids:
 
-                build_scan_vals = (build_num, scan_id, patt_id)
-                cur.execute(build_scan_record_insertion_sql, build_scan_vals)
+            # FIXME represent this differently
+            # for j, patt_id in enumerate(searched_pattern_ids):
+            #
+            #     engine.logger.log("\tXXXX On %d/%d searched_pattern_ids..." % (j, len(searched_pattern_ids)))
+            #
+            #     build_scan_vals = (build_num, scan_id, patt_id)
+            #     cur.execute(build_scan_record_insertion_sql, build_scan_vals)
 
-        conn.commit()
+        engine.conn.commit()
 
 
 def scrub_tables(conn):
