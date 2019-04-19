@@ -14,6 +14,7 @@ TABLE_NAMES = [
     "scanned_patterns",
     "scans",
     "matches",
+    "pattern_step_applicability",
     "build_steps",
     "builds",
     "pattern_tags",

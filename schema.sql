@@ -36,6 +36,19 @@ SET check_function_bodies = false;
 SET client_min_messages = warning;
 SET row_security = off;
 
+--
+-- Name: plpgsql; Type: EXTENSION; Schema: -; Owner: 
+--
+
+CREATE EXTENSION IF NOT EXISTS plpgsql WITH SCHEMA pg_catalog;
+
+
+--
+-- Name: EXTENSION plpgsql; Type: COMMENT; Schema: -; Owner: 
+--
+
+COMMENT ON EXTENSION plpgsql IS 'PL/pgSQL procedural language';
+
 
 SET default_tablespace = '';
 
@@ -303,6 +316,41 @@ ALTER SEQUENCE public.pattern_id_seq OWNED BY public.patterns.id;
 
 
 --
+-- Name: pattern_step_applicability; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.pattern_step_applicability (
+    id integer NOT NULL,
+    pattern integer,
+    step_name text
+);
+
+
+ALTER TABLE public.pattern_step_applicability OWNER TO postgres;
+
+--
+-- Name: pattern_step_applicability_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.pattern_step_applicability_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.pattern_step_applicability_id_seq OWNER TO postgres;
+
+--
+-- Name: pattern_step_applicability_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.pattern_step_applicability_id_seq OWNED BY public.pattern_step_applicability.id;
+
+
+--
 -- Name: pattern_tags; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -396,6 +444,13 @@ ALTER TABLE ONLY public.matches ALTER COLUMN id SET DEFAULT nextval('public.matc
 
 
 --
+-- Name: pattern_step_applicability id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.pattern_step_applicability ALTER COLUMN id SET DEFAULT nextval('public.pattern_step_applicability_id_seq'::regclass);
+
+
+--
 -- Name: patterns id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
@@ -458,6 +513,22 @@ ALTER TABLE ONLY public.patterns
 
 
 --
+-- Name: pattern_step_applicability pattern_step_applicability_pattern_step_name_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.pattern_step_applicability
+    ADD CONSTRAINT pattern_step_applicability_pattern_step_name_key UNIQUE (pattern, step_name);
+
+
+--
+-- Name: pattern_step_applicability pattern_step_applicability_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.pattern_step_applicability
+    ADD CONSTRAINT pattern_step_applicability_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: pattern_tags pattern_tags_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -493,6 +564,13 @@ CREATE INDEX fk_build_step_build ON public.build_steps USING btree (build);
 --
 
 CREATE INDEX fk_build_step_id ON public.matches USING btree (build_step);
+
+
+--
+-- Name: fk_pattern_step; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX fk_pattern_step ON public.pattern_step_applicability USING btree (pattern);
 
 
 --
@@ -561,6 +639,14 @@ ALTER TABLE ONLY public.matches
 
 ALTER TABLE ONLY public.matches
     ADD CONSTRAINT matches_build_step_fkey FOREIGN KEY (build_step) REFERENCES public.build_steps(id);
+
+
+--
+-- Name: pattern_step_applicability pattern_step_applicability_pattern_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.pattern_step_applicability
+    ADD CONSTRAINT pattern_step_applicability_pattern_fkey FOREIGN KEY (pattern) REFERENCES public.patterns(id);
 
 
 --
@@ -682,6 +768,20 @@ GRANT ALL ON SEQUENCE public.match_id_seq TO logan;
 --
 
 GRANT ALL ON SEQUENCE public.pattern_id_seq TO logan;
+
+
+--
+-- Name: TABLE pattern_step_applicability; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.pattern_step_applicability TO logan;
+
+
+--
+-- Name: SEQUENCE pattern_step_applicability_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE public.pattern_step_applicability_id_seq TO logan;
 
 
 --

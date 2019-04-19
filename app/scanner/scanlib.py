@@ -54,6 +54,8 @@ def populate_builds(engine, options):
 
     # FIXME
     # while counter_wrapper.val < 300 or earliest_date_found > earliest_date_limit:
+
+    # TODO Multiple of these can be done in parallel!!
     while counter_wrapper.val < options.count:
 
         def callback(r_json):
@@ -89,7 +91,7 @@ def populate_builds(engine, options):
                 circlefetch.get_json_or_fail(r, callback, "Build list fetch failed for branch: " + options.branch)
                 succeeded = True
                 break
-            except Exception as e:
+            except circlefetch.FetchException as e:
                 engine.logger.warn("Build list fetch attempt #%d failed: %s" % (retry_count, str(e)))
 
             # TODO we don't want to delay after the final iteration
@@ -111,7 +113,7 @@ class SingleBuildFetchStatus:
         self.timestamp = datetime.datetime.now()
 
 
-def get_matches(engine, regular_expressions, output_url, cache_key):
+def get_matches(engine, regular_expressions, output_url, step_name, cache_key):
 
     def callback(r_json):
 
@@ -123,21 +125,29 @@ def get_matches(engine, regular_expressions, output_url, cache_key):
         matches = []
         for i, line in enumerate(split_message_lines):
 
-            for pattern_id, is_regex, regex_or_literal, description in regular_expressions:
+            for pattern_id, is_regex, regex_or_literal, description, applicable_steps_dict in regular_expressions:
 
-                if is_regex:
-                    match_object = regex_or_literal.search(line)
+                # only scan the line for the given pattern if it's not restricted to
+                # any particular step or it actually is restricted to the current step.
 
-                    if match_object:
-                        match_tuple = (pattern_id, i, line, match_object.span())
-                        matches.append(match_tuple)
+                if applicable_steps_dict and step_name not in applicable_steps_dict:
+                    continue
 
                 else:
-                    found_index = line.find(regex_or_literal)
 
-                    if found_index >= 0:
-                        match_tuple = (pattern_id, i, line, (found_index, found_index + len(regex_or_literal)))
-                        matches.append(match_tuple)
+                    if is_regex:
+                        match_object = regex_or_literal.search(line)
+
+                        if match_object:
+                            match_tuple = (pattern_id, i, line, match_object.span())
+                            matches.append(match_tuple)
+
+                    else:
+                        found_index = line.find(regex_or_literal)
+
+                        if found_index >= 0:
+                            match_tuple = (pattern_id, i, line, (found_index, found_index + len(regex_or_literal)))
+                            matches.append(match_tuple)
 
         return True, line_count, matches
 
@@ -177,7 +187,7 @@ def from_cache_or_download(engine, url, cache_key, callback):
 
             return result
 
-        except Exception as e:
+        except circlefetch.FetchException as e:
             engine.logger.warn(str(e))
             return False, 0, []
 
@@ -195,8 +205,7 @@ def get_failed_build_step(engine, regular_expressions, r_url, r_json):
                 output_url = action.get("output_url")
 
                 if output_url:
-                    request_success, line_count, matches = get_matches(engine, regular_expressions, output_url, r_url + build_step_name)
-
+                    request_success, line_count, matches = get_matches(engine, regular_expressions, output_url, build_step_name, r_url + build_step_name)
                     return request_success, [(build_step_name, False, (line_count, matches))]
 
                 else:
@@ -213,10 +222,10 @@ def search_log(engine, api_token, patterns_by_id, unscanned_pattern_ids, build_n
 
     regular_expressions = []
     for pattern_id in unscanned_pattern_ids:
-        is_regex, pattern, description = patterns_by_id[pattern_id]
+        is_regex, pattern, description, applicable_steps_dict = patterns_by_id[pattern_id]
 
         compiled_pattern = re.compile(pattern) if is_regex else pattern
-        regular_expressions.append((pattern_id, is_regex, compiled_pattern, description))
+        regular_expressions.append((pattern_id, is_regex, compiled_pattern, description, applicable_steps_dict))
 
     r_url = "/".join([circlefetch.CIRCLECI_API_BASE, str(build_number)])
 
@@ -234,7 +243,7 @@ def search_log(engine, api_token, patterns_by_id, unscanned_pattern_ids, build_n
 
     try:
         return circlefetch.get_json_or_fail(r, callback, "Build details fetch failed for build number: " + str(build_number))
-    except Exception as e:
+    except circlefetch.FetchException as e:
         engine.logger.warn(str(e))
         return False, []
 
@@ -262,9 +271,9 @@ def find_matches(engine, api_token):
         counter_wrapper.atomic_increment()
 
         line_counts_string = ";".join(line_count_info_string_parts)
-        substitutions = (counter_wrapper.val, len(unscanned_patterns_by_build), build_num, line_counts_string)
+        substitutions = (counter_wrapper.val, len(unscanned_patterns_by_build), build_num, str(fetch_success), line_counts_string)
 
-        engine.logger.log("Processed %d/%d logs (build id: %d; linecounts: %s)..." % substitutions)
+        engine.logger.log("Processed %d/%d logs (build id: %d; fetch success: %s; linecounts: %s)..." % substitutions)
 
         return fetch_success, build_num, unscanned_pattern_ids, scan_id, build_step_failure_tuples
 

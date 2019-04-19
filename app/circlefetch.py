@@ -16,8 +16,12 @@ def get_parms(api_token, offset=0):
     return parms
 
 
+class FetchException(Exception):
+    pass
+
+
 def get_json_or_fail(r, callback, failure_message):
     if r.status_code == 200:
         return callback(r.json())
     else:
-        raise Exception(failure_message)
+        raise FetchException(failure_message)

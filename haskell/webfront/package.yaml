@@ -1,0 +1,26 @@
+name: webfront
+version: '0.1.0.0'
+author: Karl Ostmo
+maintainer: kostmo@gmail.com
+license: BSD3
+dependencies:
+- base
+- aeson
+executables:
+  my-webapp:
+    main: Main.hs
+    source-dirs: src
+    ghc-options:
+    - -W
+    - -fwarn-tabs
+    - -fhpc
+    - -threaded
+    dependencies:
+    - scotty
+    - blaze-html
+    - blaze-markup
+    - diagrams-lib
+    - diagrams-svg
+    - svg-builder
+    - lucid
+    - text

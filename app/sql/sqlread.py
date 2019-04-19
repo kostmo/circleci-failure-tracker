@@ -28,9 +28,30 @@ def get_builds(conn):
 
 
 def get_patterns(conn):
-    sql = "SELECT id, regex, expression, description FROM patterns ORDER BY description"
-    rows = get_rows(conn, sql)
-    return {row[0]: tuple(row[1:]) for row in rows}
+    patterns_sql = "SELECT id, regex, expression, description FROM patterns ORDER BY description"
+
+    applicable_steps_sql = """
+    SELECT id, step_name FROM pattern_step_applicability WHERE pattern = %s
+    """
+
+    rows = get_rows(conn, patterns_sql)
+
+    result = {}
+    for row in rows:
+
+        pattern_id = row[0]
+        with conn.cursor() as cur:
+
+            cur.execute(applicable_steps_sql, (pattern_id,))
+            applicable_step_tuples = cur.fetchall()
+
+            applicable_steps_dict = {}
+            for key, step_name in applicable_step_tuples:
+                applicable_steps_dict[step_name] = key
+
+            result[pattern_id] = tuple(list(row[1:]) + [applicable_steps_dict])
+
+    return result
 
 
 def get_unscanned_build_patterns(conn):
