@@ -54,7 +54,7 @@ def gen_pattern_page(db_hostname, pattern_id):
     body = "\n".join([
         tag("h2", "Occurrences of a pattern"),
         tag("p", "pattern id: " + str(pattern_id)),
-        htmlgen.make_table(headings, list(map(format_row, rows)), truncate=20),
+        htmlgen.make_table(headings, list(map(format_row, rows)), truncate=100),
     ])
 
     return tag("html", PAGE_HEADER + tag("body", body))

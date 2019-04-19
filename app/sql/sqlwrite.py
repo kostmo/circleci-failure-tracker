@@ -1,39 +1,11 @@
+from sql.demo_patterns import SAMPLE_PATTERNS
+
 
 SQL_BUILD_INSERTION = """
 INSERT INTO builds(build_num, vcs_revision, queued_at, job_name)
 VALUES(%s, %s, %s, %s)
 ON CONFLICT (build_num) DO NOTHING;
 """
-
-SAMPLE_PATTERNS = [
-    (False, "FAILED: ", "Ninja build failed", False, []),
-    (True, r"([^\s]+):(\d+):(\d+): error:", "Compilation error", False, ["compile"]),
-
-
-
-    (False, "[  FAILED  ]", "Failed test", False, ["runtime"]),
-    (False, "Error: ", "Generic code error", False, []),
-    (False, "ERROR: ", "Another Generic code error", False, []),
-    (False, "Segmentation fault", "Segfault", False, ["runtime"]),
-    (True,  "find: (.+): No such file or directory", "find error", False, []),
-    (False, "unzip:  cannot find zipfile directory", "Unzip failed", False, []),
-    (False, "RuntimeError: ", "Python runtime error", False, []),
-    (False, "Build left local git repository checkout dirty", "Build dirtied the source tree", False, []),
-    (False, "E: Failed to fetch", "apt error", True, ["apt"]),
-    (False, "E: Could not get lock /var/lib/apt/lists/lock", "CircleCI apt lock failure", True, ["apt"]),
-    (False, "E: Unable to acquire the dpkg frontend lock", "apt failure", True, ["apt"]),
-    (False, "Waiting for a VM assignment", "CircleCI outage", True, ["circleci"]),
-    (False, "Probably the package for the version we want does not exist", "Conda error", False, []),
-    (False, "error: failed to push some refs to", "Git push failed", True, ["git"]),
-
-    (True, "Failed to recurse into submodule path '(.+)'", "Git submodules failure", True, ["git"]),
-    (True, "::(.+) FAILED", "Unit test failure", True, ["runtine"]),
-
-
-    (True, r"fatal: unable to access '(.+)': gnutls_handshake\(\) failed: Error in the pull function", "Git fetch failed", True, ["git"]),
-
-    (False, "E: Unable to correct problems, you have held broken packages", "apt package incompatibility", True, ["apt"]),
-]
 
 
 # XXX Keep this list up to date so that "scrubbing" the database
@@ -76,10 +48,15 @@ def insert_matches(engine, results):
     with engine.conn.cursor() as cur:
 
         # There can be en entry for a build_num even if it had no matches.
-        for i, (build_num, searched_pattern_ids, scan_id, build_step_data_tuples) in enumerate(results_list):
+        for i, (fetch_success, build_num, searched_pattern_ids, scan_id, build_step_data_tuples) in enumerate(results_list):
 
             engine.logger.log("On %d/%d results..." % (i, len(results_list)))
 
+            if not fetch_success:
+                engine.logger.log("WARNING: Skipping unsuccessful log request for build %d..." % build_num)
+                continue
+
+            # NOTE: There will be at most one iteration of this loop, because it is always a singleton list upon success
             for j, (step_name, is_timeout, (line_count, match_list)) in enumerate(build_step_data_tuples):
 
                 engine.logger.log("\tOn %d/%d build_step_data_tuples..." % (j, len(build_step_data_tuples)))
@@ -145,13 +122,20 @@ def populate_patterns(conn):
     INSERT INTO pattern_tags(tag, pattern) VALUES(%s, %s);
     """
 
+    applicable_step_insertion_sql = """
+    INSERT INTO pattern_step_applicability(step_name, pattern) VALUES(%s, %s);
+    """
+
     with conn.cursor() as cur:
 
-        for is_regex, sample_pattern, description, is_infra, tags in SAMPLE_PATTERNS:
+        for is_regex, sample_pattern, description, is_infra, tags, applicable_steps in SAMPLE_PATTERNS:
             cur.execute(pattern_insertion_sql, (is_regex, sample_pattern, description, is_infra))
             pattern_id = cur.fetchone()[0]
 
             for tag in tags:
                 cur.execute(tag_insertion_sql, (tag, pattern_id))
+
+            for applicable_step in applicable_steps:
+                cur.execute(applicable_step_insertion_sql, (applicable_step, pattern_id))
 
         conn.commit()

@@ -1,5 +1,6 @@
 from datetime import date, datetime
 import json
+import urllib.parse as urlparse
 
 import sql.sqlread as sqlread
 import sql.sqlbase as sqlbase
@@ -58,3 +59,22 @@ def gen_failed_commits_by_day_json(db_hostname):
     }
 
     return json.dumps(data_dict, cls=DateTimeEncoder)
+
+
+def scan_progress(rq_handler):
+
+    query_parms = urlparse.parse_qs(urlparse.urlparse(rq_handler.path).query)
+
+    mydict = {}
+
+    offset = int(query_parms.get('offset', 0))
+
+    if rq_handler.active_scan_engine:
+        mydict["success"] = False
+        mydict["message"] = "No scan in progress"
+
+    else:
+        mydict["success"] = True
+        mydict["lines"] = rq_handler.active_scan_engine.logger.buffer[offset:]
+
+    return json.dumps(mydict)

@@ -19,4 +19,6 @@ class Logger:
 
     def warn(self, line):
         self.warnings.append(line)
-        sys.stderr.write(line)
+
+        sys.stderr.write(line + "\n")
+        sys.stderr.flush()

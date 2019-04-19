@@ -20,4 +20,4 @@ def get_json_or_fail(r, callback, failure_message):
     if r.status_code == 200:
         return callback(r.json())
     else:
-        raise failure_message
+        raise Exception(failure_message)

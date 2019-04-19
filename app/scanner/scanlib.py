@@ -5,6 +5,8 @@ from concurrent.futures import ThreadPoolExecutor
 import urllib.parse
 import json
 import requests
+import time
+import datetime
 
 import myutils
 import sql.sqlread as sqlread
@@ -13,10 +15,22 @@ import circlefetch
 import requests_cache
 
 
+DEFAULT_BRANCH_NAME = "master"
+# DEFAULT_BRANCH_NAME = "merge-libtorch-libcaffe2-dev"
+
+
 CACHE_LOGS_TO_DISK = True
 
 
 MAX_NETWORK_THREADS = 8
+
+
+class ScanOptions:
+    def __init__(self, hostname, token=None, branch=DEFAULT_BRANCH_NAME, count=100):
+        self.hostname = hostname
+        self.token = token
+        self.branch = branch
+        self.count = count
 
 
 class CounterWrapper:
@@ -58,18 +72,43 @@ def populate_builds(engine, options):
             sqlwrite.insert_builds(engine.conn, values_to_insert)
             counter_wrapper.atomic_increment(len(values_to_insert))
 
-        r = requests.get("/".join([
+        fetch_url = "/".join([
                 circlefetch.CIRCLECI_API_BASE,
                 "tree",
-                urllib.parse.quote(options.branch),
-            ]), params=circlefetch.get_parms(options.token, offset=counter_wrapper.val))
+                urllib.parse.quote(options.branch)
+        ])
+        r = requests.get(fetch_url, params=circlefetch.get_parms(options.token, offset=counter_wrapper.val))
 
         engine.logger.log("Fetch builds starting at offset %d..." % counter_wrapper.val)
+        engine.logger.log("\tURL is: %s" % fetch_url)
 
-        circlefetch.get_json_or_fail(r, callback, "Build list fetch failed for branch: " + options.branch)
+        succeeded = False
+        MAX_RETRY_COUNT = 4
+        for retry_count in range(MAX_RETRY_COUNT):
+            try:
+                circlefetch.get_json_or_fail(r, callback, "Build list fetch failed for branch: " + options.branch)
+                succeeded = True
+                break
+            except Exception as e:
+                engine.logger.warn("Build list fetch attempt #%d failed: %s" % (retry_count, str(e)))
+
+            # TODO we don't want to delay after the final iteration
+            # FIXME this doesn't even actually give up! The outer while loop revisits the failed offset count.
+            time.sleep(min(15, 2**(retry_count + 1)))
+
+        if not succeeded:
+            engine.logger.warn("Gave up on offset %d after %d tries..." % (counter_wrapper.val, MAX_RETRY_COUNT))
 
         # TODO
         earliest_date_found = earliest_date_limit
+
+
+# The timestamp can be used to monitor the rate of processing.
+class SingleBuildFetchStatus:
+    def __init__(self, succeeded, from_cache):
+        self.succeeded = succeeded
+        self.from_cache = from_cache
+        self.timestamp = datetime.datetime.now()
 
 
 def get_matches(engine, regular_expressions, output_url, cache_key):
@@ -100,7 +139,7 @@ def get_matches(engine, regular_expressions, output_url, cache_key):
                         match_tuple = (pattern_id, i, line, (found_index, found_index + len(regex_or_literal)))
                         matches.append(match_tuple)
 
-        return line_count, matches
+        return True, line_count, matches
 
     return from_cache_or_download(engine, output_url, cache_key, callback)
 
@@ -121,20 +160,26 @@ def from_cache_or_download(engine, url, cache_key, callback):
     if CACHE_LOGS_TO_DISK and os.path.isfile(filepath):
         with open(filepath) as fh:
             return callback(json.load(fh))
+
     else:
-        engine.logger.log("Downloading from:", url)
+        engine.logger.log("Downloading from: %s" % url)
 
         s = requests.Session()
         r = s.get(url)
 
-        result = circlefetch.get_json_or_fail(r, callback, "Console output fetch failed for URL: " + url)
+        try:
+            result = circlefetch.get_json_or_fail(r, callback, "Console output fetch failed for URL: " + url)
 
-        if CACHE_LOGS_TO_DISK:
-            os.makedirs(url_cache_basedir, exist_ok=True)
-            with open(filepath, "w") as fh:
-                fh.write(r.text)
+            if CACHE_LOGS_TO_DISK:
+                os.makedirs(url_cache_basedir, exist_ok=True)
+                with open(filepath, "w") as fh:
+                    fh.write(r.text)
 
-        return result
+            return result
+
+        except Exception as e:
+            engine.logger.warn(str(e))
+            return False, 0, []
 
 
 # TODO This doesn't need to return a list;
@@ -150,17 +195,18 @@ def get_failed_build_step(engine, regular_expressions, r_url, r_json):
                 output_url = action.get("output_url")
 
                 if output_url:
-                    line_count, matches = get_matches(engine, regular_expressions, output_url, r_url + build_step_name)
-                    return [(build_step_name, False, (line_count, matches))]
+                    request_success, line_count, matches = get_matches(engine, regular_expressions, output_url, r_url + build_step_name)
+
+                    return request_success, [(build_step_name, False, (line_count, matches))]
 
                 else:
                     engine.logger.warn(
                         'WARNING: No output URL for build step "%s", from JSON at URL: %s\n' % (build_step_name, r_url))
 
             elif action.get("timedout"):
-                return [(build_step_name, True, (0, []))]
+                return True, [(build_step_name, True, (0, []))]
 
-    return []
+    return True, []
 
 
 def search_log(engine, api_token, patterns_by_id, unscanned_pattern_ids, build_number):
@@ -179,14 +225,18 @@ def search_log(engine, api_token, patterns_by_id, unscanned_pattern_ids, build_n
 
     def callback(r_json):
 
-        build_step_failure_tuples = get_failed_build_step(engine, regular_expressions, r_url, r_json)
+        fetch_success, build_step_failure_tuples = get_failed_build_step(engine, regular_expressions, r_url, r_json)
         if not build_step_failure_tuples:
             engine.logger.warn(
                 'WARNING: No specific step failed for build "%d"\n' % build_number)
 
-        return build_step_failure_tuples
+        return fetch_success, build_step_failure_tuples
 
-    return circlefetch.get_json_or_fail(r, callback, "Build details fetch failed for build number: " + str(build_number))
+    try:
+        return circlefetch.get_json_or_fail(r, callback, "Build details fetch failed for build number: " + str(build_number))
+    except Exception as e:
+        engine.logger.warn(str(e))
+        return False, []
 
 
 def find_matches(engine, api_token):
@@ -203,7 +253,7 @@ def find_matches(engine, api_token):
 
         build_num, unscanned_pattern_ids = build_pattern_tuple
 
-        build_step_failure_tuples = search_log(engine, api_token, patterns_by_id, unscanned_pattern_ids, build_num)
+        fetch_success, build_step_failure_tuples = search_log(engine, api_token, patterns_by_id, unscanned_pattern_ids, build_num)
 
         line_count_info_string_parts = []
         for build_step_name, is_timeout, (line_count, matches) in build_step_failure_tuples:
@@ -216,7 +266,7 @@ def find_matches(engine, api_token):
 
         engine.logger.log("Processed %d/%d logs (build id: %d; linecounts: %s)..." % substitutions)
 
-        return build_num, unscanned_pattern_ids, scan_id, build_step_failure_tuples
+        return fetch_success, build_num, unscanned_pattern_ids, scan_id, build_step_failure_tuples
 
     executor = ThreadPoolExecutor(max_workers=MAX_NETWORK_THREADS)
     results = executor.map(search_log_partial, unscanned_patterns_by_build)

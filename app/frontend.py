@@ -10,9 +10,11 @@ import scanner.scanlib as scanlib
 import sql.sqlbase as sqlbase
 
 
+
 CONTENT_TYPE_BY_EXTENSION = {
     ".css": "text/css",
     ".js": "text/javascript",
+    ".html": "text/html",
 }
 
 
@@ -81,14 +83,16 @@ class LoganRequestHandler(BaseHTTPRequestHandler):
                 hostname = "localhost"
 
                 conn = sqlbase.get_conn(hostname)
-                
+
                 self.active_scan_engine = scanlib.Engine(conn)
+
+                options = scanlib.ScanOptions(hostname)
 
                 # TODO start a thread
                 scanlib.run(self.active_scan_engine, options)
 
             elif path_parts[1] == "get-scan-progress":
-                pass
+                message = apigen.scan_progress(self)
 
         else:
             message = "Unrecognized path: " + self.path
