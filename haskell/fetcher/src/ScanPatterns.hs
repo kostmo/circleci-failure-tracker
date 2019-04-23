@@ -7,7 +7,7 @@ import Data.Text (Text)
 
 pattern_list :: [Text]
 pattern_list = [
-    "error"
-  , "test"
+    "Waiting for a VM assignment"
+  , "undefined symbol:"
   ]
 

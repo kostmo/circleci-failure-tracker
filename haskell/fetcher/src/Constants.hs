@@ -6,6 +6,9 @@ import Data.List (intercalate)
 import Data.ByteString (ByteString)
 
 
+url_cache_basedir = "/tmp/circleci-download-cache"
+
+
 json_mime_type = "application/json" :: ByteString
 
 

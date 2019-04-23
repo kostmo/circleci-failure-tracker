@@ -16,11 +16,8 @@ executables:
     - -fhpc
     - -threaded
     dependencies:
+    - fetcher
     - scotty
     - blaze-html
     - blaze-markup
-    - diagrams-lib
-    - diagrams-svg
-    - svg-builder
-    - lucid
     - text

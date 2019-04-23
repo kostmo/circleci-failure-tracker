@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 
 module Scanning where
 
@@ -10,42 +11,16 @@ import Data.Maybe (Maybe)
 import Data.Aeson.Lens (_String, _Array, _Bool, _Integral, key)
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.IO as TIO
 import Data.Aeson (Value)
 import qualified Data.Vector as V
 import Data.Time.Format (parseTimeOrError, defaultTimeLocale, rfc822DateFormat)
-import Data.Time.LocalTime (ZonedTime)
+import System.FilePath
 
 import SillyMonoids ()
 import qualified Constants
-
-
-data BuildNumber = NewBuildNumber Int deriving Show
-
-
-data BuildStepFailure = NewBuildStepFailure {
-    step_name :: Text
-  , failure_mode :: BuildFailureMode
-  } deriving Show
-
-
--- | There can be different modes in which the build fails.
-data BuildFailureMode =
-    BuildTimeoutFailure
-  | ScannableFailure BuildFailureOutput
-  deriving Show
-
-
-data BuildFailureOutput = NewBuildFailureOutput {
-    log_url :: Text
-  } deriving Show
-
-
-data Build = NewBuild {
-    build_id :: BuildNumber
-  , vcs_revision :: Text
-  , queued_at :: ZonedTime
-  , job_name :: Text
-  } deriving Show
+import qualified LogCache
+import Builds
 
 
 itemToBuild :: Value -> Build
@@ -88,7 +63,16 @@ get_build_failure step_val =
       | otherwise = pure ()
 
 
-get_failed_build_info :: Build -> IO (Either BuildStepFailure ())
+
+
+transformLeft :: (a -> c) -> Either a b -> Either c b
+transformLeft transformer original = case original of
+  Left x -> Left $ transformer x
+  Right x -> Right x
+
+
+
+get_failed_build_info :: Build -> IO (Either (Build, BuildStepFailure) ())
 get_failed_build_info build_object = do
 
   putStrLn $ "Fetching from: " ++ fetch_url
@@ -97,7 +81,7 @@ get_failed_build_info build_object = do
   let steps_list = r ^. responseBody . key "steps" . _Array
       either_failed_step = mapM_ get_build_failure steps_list
 
-  return either_failed_step
+  return $ transformLeft ((build_object, )) either_failed_step
 
   where
     build_number = build_id build_object
@@ -116,32 +100,38 @@ populate_builds limit offset = do
 
   where
     fetch_url = get_build_list_url "master"
-    opts = defaults & header "Accept" .~ [Constants.json_mime_type]
-                    & param "offset" .~ [T.pack $ show offset]
-                    & param "shallow" .~ ["true"]
-                    & param "limit" .~ [T.pack $ show limit]
-                    & param "filter" .~ ["failed"]
+    opts = defaults
+      & header "Accept" .~ [Constants.json_mime_type]
+      & param "offset" .~ [T.pack $ show offset]
+      & param "shallow" .~ ["true"]
+      & param "limit" .~ [T.pack $ show limit]
+      & param "filter" .~ ["failed"]
 
 
-filter_scannable :: BuildStepFailure -> Maybe BuildFailureOutput
-filter_scannable a_build = case failure_mode a_build of
+filter_scannable :: (Build, BuildStepFailure) -> Maybe (BuildNumber, BuildFailureOutput)
+filter_scannable (z, a_build) = case failure_mode a_build of
   BuildTimeoutFailure -> Nothing
-  ScannableFailure x -> Just x
+  ScannableFailure x -> Just (build_id z, x)
 
 
 
-data ScanMatch = NewScanMatch {
-    scanned_pattern :: Text
-  , matching_line :: Text
-  } deriving Show
 
-
-scan_logs :: [Text] -> BuildFailureOutput -> IO [[ScanMatch]]
-scan_logs patterns failed_build_output = do
+store_log :: (BuildNumber, BuildFailureOutput) -> IO ()
+store_log (NewBuildNumber build_number, failed_build_output) = do
 
   r <- get $ T.unpack $ log_url failed_build_output
   let parent_elements = r ^. responseBody . _Array
       console_log = (V.head parent_elements) ^. key "message" . _String
+
+  TIO.writeFile full_filepath console_log
+  where
+    filename = show build_number
+    full_filepath = Constants.url_cache_basedir </> filename
+
+
+{-
+scan_logs :: [Text] -> BuildNumber -> IO [[ScanMatch]]
+scan_logs patterns build_number = do
 
   return $ map apply_patterns $ map T.stripEnd $ T.lines console_log
   where
@@ -150,5 +140,5 @@ scan_logs patterns failed_build_output = do
     apply_single_pattern line pattern = if T.isInfixOf pattern line
       then Just $ NewScanMatch pattern line
       else Nothing
-
+-}
 
