@@ -51,7 +51,7 @@ mainAppCode args = do
 --  pages <- withTaskGroup 4 $ \g -> mapConcurrently g Scanning.store_log scannable
 --  pages <- mapConcurrently Scanning.store_log scannable
 
-  pages <- withPool 4 $ \pool -> parallel_ pool $ map Scanning.store_log scannable
+  pages <- withPool 1 $ \pool -> parallel_ pool $ map Scanning.store_log scannable
 
 --  matches <- mapM (Scanning.scan_logs ScanPatterns.pattern_list) scannable
 --  print matches
