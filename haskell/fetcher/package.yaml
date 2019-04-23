@@ -43,4 +43,4 @@ executables:
     dependencies:
     - fetcher
     - optparse-applicative
-    - async-pool
+    - parallel-io

@@ -7,8 +7,10 @@ import Data.Traversable (for)
 import           Options.Applicative
 import System.Directory (createDirectoryIfMissing)
 
-import Control.Concurrent.Async (mapConcurrently)
---import Control.Concurrent.Async.Pool (withTaskGroup, mapConcurrently)
+import Control.Concurrent.ParallelIO.Local (withPool, parallel_)
+--import Control.Concurrent.Async (mapConcurrently)
+
+import Control.Concurrent (getNumCapabilities)
 
 import qualified Scanning
 import qualified ScanPatterns
@@ -34,6 +36,9 @@ myCliParser = NewCommandLineArgs
 mainAppCode :: CommandLineArgs -> IO ()
 mainAppCode args = do
 
+  capability_count <- getNumCapabilities
+  print $ "Num capabilities: " ++ show capability_count
+
   builds_list <- Scanning.populate_builds fetch_count builds_per_page
   failure_info_eithers <- for builds_list Scanning.get_failed_build_info
 
@@ -44,9 +49,9 @@ mainAppCode args = do
 
 
 --  pages <- withTaskGroup 4 $ \g -> mapConcurrently g Scanning.store_log scannable
-  pages <- mapConcurrently Scanning.store_log scannable
+--  pages <- mapConcurrently Scanning.store_log scannable
 
-
+  pages <- withPool 4 $ \pool -> parallel_ pool $ map Scanning.store_log scannable
 
 --  matches <- mapM (Scanning.scan_logs ScanPatterns.pattern_list) scannable
 --  print matches
