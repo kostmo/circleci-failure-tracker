@@ -24,4 +24,4 @@ def get_json_or_fail(r, callback, failure_message):
     if r.status_code == 200:
         return callback(r.json())
     else:
-        raise FetchException(failure_message)
+        raise FetchException(failure_message + "\nHTTP status code was: %d" % r.status_code)

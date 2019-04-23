@@ -26,11 +26,12 @@ MAX_NETWORK_THREADS = 8
 
 
 class ScanOptions:
-    def __init__(self, hostname, token=None, branch=DEFAULT_BRANCH_NAME, count=100):
+    def __init__(self, hostname, token=None, branch=DEFAULT_BRANCH_NAME, count=100, reuse_builds_list=False):
         self.hostname = hostname
         self.token = token
         self.branch = branch
         self.count = count
+        self.reuse_builds_list = reuse_builds_list
 
 
 class CounterWrapper:
@@ -62,14 +63,18 @@ def populate_builds(engine, options):
 
             values_to_insert = []
             for build in r_json:
-                vals = (
-                    build["build_num"],
-                    build["vcs_revision"],
-                    build["queued_at"],
-                    build["workflows"]["job_name"],
-                )
 
-                values_to_insert.append(vals)
+                try:
+                    vals = (
+                        build["build_num"],
+                        build["vcs_revision"],
+                        build["queued_at"],
+                        build["workflows"]["job_name"],
+                    )
+
+                    values_to_insert.append(vals)
+                except KeyError as e:
+                    engine.logger.warn("Could not find key %s among keys %s in build json!" % (str(e), sorted(build.keys())))
 
             sqlwrite.insert_builds(engine.conn, values_to_insert)
             counter_wrapper.atomic_increment(len(values_to_insert))
@@ -106,6 +111,7 @@ def populate_builds(engine, options):
 
 
 # The timestamp can be used to monitor the rate of processing.
+# TODO - this is not yet used
 class SingleBuildFetchStatus:
     def __init__(self, succeeded, from_cache):
         self.succeeded = succeeded
@@ -160,7 +166,7 @@ def from_cache_or_download(engine, url, cache_key, callback):
     Instead, we cache based on the parameters that were used to request the AWS URL.
     """
 
-    url_cache_basedir = os.path.join(os.path.dirname(__file__), "download-cache")
+    url_cache_basedir = "/tmp/circleci-download-cache"
 
     import hashlib
     m = hashlib.md5()
@@ -285,11 +291,17 @@ def find_matches(engine, api_token):
 
 def run(engine, options):
 
-    sqlwrite.scrub_tables(engine.conn)
+    if options.reuse_builds_list:
 
-    sqlwrite.populate_patterns(engine.conn)
+        sqlwrite.scrub_tables(engine.conn, True)
+        sqlwrite.populate_patterns(engine.conn)
 
-    populate_builds(engine, options)
+    else:
+        sqlwrite.scrub_tables(engine.conn)
+        sqlwrite.populate_patterns(engine.conn)
+
+        populate_builds(engine, options)
+
     find_matches(engine, options.token)
 
 

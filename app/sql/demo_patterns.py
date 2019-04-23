@@ -3,16 +3,19 @@ SAMPLE_PATTERNS = [
     (False, "FAILED: ", "Ninja build failed", False, [], []),
     (True, r"([^\s]+):(\d+):(\d+): error:", "Compilation error", False, ["compile"], []),
 
-    (False, "[  FAILED  ]", "Failed test", False, ["runtime"], ["Test"]),
+    (True, r"[  FAILED  ]\s+([^\s]+)", "Failed test", False, ["runtime"], ["Test"]),
+    (True, r"[  FAILED  ]\s+(\d+) tests?, listed below:", "Failed test count", False, ["runtime"], ["Test"]),
+
     (False, "TypeError: ", "Python error", False, ["runtime", "python"], ["Doc Build and Push"]),
     (False, "AssertionError: ", "Test assertion failure", False, ["runtime", "python"], ["Test"]),
 
-    (False, "CalledProcessError: Command '\['ninja', '-v'\]' returned non-zero exit status", "Ninja build failure", False, ["build"], ["Test"]),
+    (False, "CalledProcessError: Command '['ninja', '-v']' returned non-zero exit status", "Ninja build failure", False, ["build"], ["Test"]),
 
-    (False, "ERROR: You need Python (\d+)\.(\d+) or later to use mypy", "Python version error for mypy", False, ["python"], []),
+    (True, "ERROR: You need Python (\d+)\.(\d+) or later to use mypy", "Python version error for mypy", False, ["python"], []),
     (False, "ERROR: ", "A generic code error", False, [], []),
 
-
+    (False, "ERROR: Graphs differed across invocations", "Graphs differ", False, [], []),
+    (True, "ERROR: ([^\s]+) \(__main__\.(.+)\)", "Test failure", False, [], []),
 
     (False, "Segmentation fault", "Segfault", False, ["runtime"], []),
     (True,  "find: (.+): No such file or directory", "find error", False, [], ["Build"]),
@@ -24,7 +27,7 @@ SAMPLE_PATTERNS = [
     (False, "E: Failed to fetch", "apt error", True, ["apt"], ["Set Up CI Environment After Checkout"]),
     (False, "E: Could not get lock /var/lib/apt/lists/lock", "CircleCI apt lock failure", True, ["apt"], []),
     (False, "E: Unable to acquire the dpkg frontend lock", "apt failure", True, ["apt"], []),
-    (False, "Waiting for a VM assignment", "CircleCI outage", True, ["circleci"], []),
+    (False, "Waiting for a VM assignment", "CircleCI outage", True, ["circleci"], ["Spin up Environment"]),
     (False, "Probably the package for the version we want does not exist", "Conda error", False, [], []),
     (False, "error: failed to push some refs to", "Git push failed", True, ["git"], ["Doc Build and Push"]),
 

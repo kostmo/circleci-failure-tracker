@@ -10,15 +10,17 @@ ON CONFLICT (build_num) DO NOTHING;
 
 # XXX Keep this list up to date so that "scrubbing" the database
 # catches everything.
+#
+# NOTE: The "builds" table must be last!!
 TABLE_NAMES = [
     "scanned_patterns",
     "scans",
     "matches",
     "pattern_step_applicability",
     "build_steps",
-    "builds",
     "pattern_tags",
     "patterns",
+    "builds",
 ]
 
 
@@ -84,9 +86,13 @@ def insert_matches(engine, results):
         engine.conn.commit()
 
 
-def scrub_tables(conn):
+def scrub_tables(conn, preserve_builds=False):
     with conn.cursor() as cur:
-        for table in TABLE_NAMES:
+
+        # optionally exclude the last table, which is the "builds" table
+        table_list = TABLE_NAMES[:-int(preserve_builds)]
+
+        for table in table_list:
             cur.execute("TRUNCATE %s CASCADE;" % table)
 
 

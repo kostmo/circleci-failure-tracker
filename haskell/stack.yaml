@@ -1,6 +1,7 @@
 resolver: lts-13.17
 
 packages:
-- webfront
+#- webfront
+- fetcher
 
 extra-deps:

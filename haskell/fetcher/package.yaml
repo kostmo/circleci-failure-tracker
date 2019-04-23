@@ -1,0 +1,26 @@
+name: scanner
+version: '0.1.0.0'
+author: Karl Ostmo
+maintainer: kostmo@gmail.com
+license: BSD3
+dependencies:
+- base
+- aeson
+executables:
+  run-scanner:
+    main: Main.hs
+    source-dirs: src
+    ghc-options:
+    - -W
+    - -fwarn-tabs
+    - -threaded
+    dependencies:
+    - text
+    - wreq
+    - lens
+    - lens-aeson
+    - bytestring
+    - aeson
+    - vector
+    - time
+    - regex-pcre
