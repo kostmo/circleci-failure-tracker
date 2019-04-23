@@ -24,3 +24,4 @@ executables:
     - vector
     - time
     - regex-pcre
+    - postgresql-simple

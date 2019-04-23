@@ -4,8 +4,26 @@ import Data.Either (lefts)
 import qualified Data.Maybe as Maybe
 import Data.Traversable (for)
 
+import Database.PostgreSQL.Simple
+
+
 import qualified Scanning
 import qualified ScanPatterns
+
+
+
+
+hello :: IO Int
+hello = do
+  conn <- connect $ defaultConnectInfo {
+      connectUser = "logan"
+    , connectPassword = "logan01"
+    , connectDatabase = "loganci"
+    }
+  [Only i] <- query_ conn "select 2 + 2"
+  return i
+
+
 
 main = do
 
@@ -18,4 +36,6 @@ main = do
   matches <- mapM (Scanning.scan_logs ScanPatterns.pattern_list) scannable
   print matches
 
+  db_answer <- hello
+  print db_answer 
 
