@@ -3,8 +3,11 @@
 module SqlRead where
 
 import qualified Data.Text as T
+import Data.Text (Text)
 import Control.Monad (forM)
 import Database.PostgreSQL.Simple
+import Data.Time.Format (parseTimeOrError, defaultTimeLocale, rfc822DateFormat)
+
 import Builds
 
 
@@ -23,13 +26,15 @@ hello = do
   return i
 
 
-query_builds :: IO [SimpleBuild]
+query_builds :: IO [Build]
 query_builds = do
   conn <- get_connection
 
-  xs <- query_ conn "SELECT build_num, job_name FROM builds"
-  builds_list <- forM xs $ \(buildnum, jobname) -> do
-    return $ NewSimpleBuild buildnum jobname
+  xs <- query_ conn "SELECT build_num, vcs_revision, queued_at, job_name FROM builds"
+  forM (xs :: [(Int, Text, Text, Text)]) $ \(buildnum, vcs_rev, queuedat_string, jobname) -> let
+      queuedat = parseTimeOrError False defaultTimeLocale rfc822DateFormat $ T.unpack queuedat_string
+    in return $ NewBuild (NewBuildNumber buildnum) vcs_rev queuedat jobname
 
-  return builds_list
+        
+
 

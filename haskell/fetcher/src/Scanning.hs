@@ -17,7 +17,6 @@ import qualified Data.Text.IO as TIO
 import System.Directory (createDirectoryIfMissing, doesFileExist)
 import Data.Aeson (Value, decode, encode)
 import qualified Data.Vector as V
-import Data.Time.Format (parseTimeOrError, defaultTimeLocale, rfc822DateFormat)
 import System.FilePath
 import Control.Monad (unless)
 import Data.Traversable (for)

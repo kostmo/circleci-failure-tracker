@@ -26,7 +26,7 @@ data CommandLineArgs = NewCommandLineArgs {
 
 myCliParser :: Parser CommandLineArgs
 myCliParser = NewCommandLineArgs
-  <$> option auto (long "count"     <> value 20          <> metavar "BUILD_COUNT" <> help "How many failed builds to fetch from CircleCI")
+  <$> option auto (long "count"     <> value 3          <> metavar "BUILD_COUNT" <> help "How many failed builds to fetch from CircleCI")
   <*> strOption (long "db-hostname" <> value "localhost" <> metavar "DATABASE_HOSTNAME"  <> help "Hostname of database")
   <*> switch    (long "quiet"                                       <> help "Suppress console output")
 

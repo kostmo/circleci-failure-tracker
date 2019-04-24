@@ -27,17 +27,6 @@ instance ToJSON Build
 instance FromJSON Build
 
 
-
-data SimpleBuild = NewSimpleBuild {
-    build_num :: Int
-  , build_job_name :: Text
-  } deriving (Show, Generic)
-
-
-instance ToJSON SimpleBuild
-instance FromJSON SimpleBuild
-
-
 data BuildStepFailure = NewBuildStepFailure {
     step_name :: Text
   , failure_mode :: BuildFailureMode
