@@ -128,7 +128,7 @@ ALTER TABLE public.build_match_repetitions OWNER TO postgres;
 CREATE TABLE public.builds (
     build_num integer NOT NULL,
     vcs_revision character(40),
-    queued_at timestamp without time zone,
+    queued_at timestamp with time zone,
     job_name text
 );
 
@@ -183,7 +183,8 @@ CREATE TABLE public.patterns (
     id integer NOT NULL,
     description text,
     is_infra boolean,
-    regex boolean
+    regex boolean,
+    has_nondeterministic_values boolean
 );
 
 
