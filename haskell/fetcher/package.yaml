@@ -15,8 +15,9 @@ library:
   - -W
 #  - -Werror
   - -fwarn-tabs
+  - -O2
   - -threaded
-  - -with-rtsopts=-N
+  - -with-rtsopts=-N4
   dependencies:
     - wreq
     - lens
@@ -38,8 +39,9 @@ executables:
     ghc-options:
     - -W
     - -fwarn-tabs
+    - -O2
     - -threaded
-    - -with-rtsopts=-N
+    - -with-rtsopts=-N4
     dependencies:
     - fetcher
     - optparse-applicative
