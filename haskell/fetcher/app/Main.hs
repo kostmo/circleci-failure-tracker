@@ -1,19 +1,14 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-import Data.Either (lefts)
-import qualified Data.Maybe as Maybe
-import qualified Data.Text as T
+import           Control.Concurrent  (getNumCapabilities)
+import           Data.Either         (lefts)
+import qualified Data.Maybe          as Maybe
 import           Options.Applicative
-
-import Control.Concurrent.ParallelIO.Local (withPool, parallel_)
-
-import Control.Concurrent (getNumCapabilities)
 
 import qualified Scanning
 import qualified ScanPatterns
 import qualified SqlRead
 import qualified SqlWrite
-import qualified Constants
 
 
 data CommandLineArgs = NewCommandLineArgs {

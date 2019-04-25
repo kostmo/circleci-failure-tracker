@@ -27,7 +27,7 @@ import qualified Constants
 import qualified LogCache
 import qualified Helpers
 import qualified SqlWrite
-
+import qualified ScanPatterns
 
 
 maxBuildPerPage = 100
@@ -186,7 +186,7 @@ store_log sess (build_number, failed_build_output) = do
     full_filepath = gen_log_path build_number
 
 
-scan_logs :: [Text] -> BuildNumber -> IO [[ScanMatch]]
+scan_logs :: [ScanPatterns.Pattern] -> BuildNumber -> IO [[ScanMatch]]
 scan_logs patterns build_number = do
 
   console_log <- TIO.readFile full_filepath
@@ -195,9 +195,13 @@ scan_logs patterns build_number = do
   where
     apply_patterns line = Maybe.mapMaybe (apply_single_pattern line) patterns
 
-    apply_single_pattern line pattern = if T.isInfixOf pattern line
-      then Just $ NewScanMatch pattern line
-      else Nothing
+    apply_single_pattern line pattern_obj = if ScanPatterns.is_regex pattern_obj
+      then Nothing -- FIXME
+      else if T.isInfixOf pattern_text line
+        then Just $ NewScanMatch pattern_text line
+        else Nothing
+      where
+        pattern_text = ScanPatterns.expression pattern_obj
 
     full_filepath = gen_log_path build_number
 
