@@ -13,6 +13,8 @@ import           Data.Maybe                 (Maybe)
 import qualified Data.Maybe                 as Maybe
 import           Data.Text                  (Text)
 import qualified Data.Text                  as T
+import           Data.Text.Encoding         (encodeUtf8)
+import qualified Data.Text.Internal.Search  as Search
 import qualified Data.Text.IO               as TIO
 import           Data.Traversable           (for)
 import qualified Data.Vector                as V
@@ -20,9 +22,12 @@ import           Database.PostgreSQL.Simple (Connection)
 import           GHC.Int                    (Int64)
 import           Network.Wreq
 import qualified Network.Wreq.Session       as Sess
+import qualified Safe
 import           System.Directory           (createDirectoryIfMissing,
                                              doesFileExist)
 import           System.FilePath
+import           Text.Regex.Base
+import           Text.Regex.PCRE            ((=~~))
 
 import           Builds
 import qualified Constants
@@ -227,13 +232,20 @@ scan_log scan_scope = do
     apply_patterns line_tuple = Maybe.mapMaybe (apply_single_pattern line_tuple) $ SqlRead.unscanned_patterns scan_scope
 
     apply_single_pattern (line_number, line) db_pattern = if ScanPatterns.is_regex pattern_obj
-      then Nothing -- FIXME
-      else if T.isInfixOf pattern_text line
-        then Just $ ScanPatterns.NewScanMatch db_pattern line line_number 0 1
-        else Nothing
+      then case maybe_regex_match of
+        Nothing -> Nothing
+        Just (match_offset, match_length) -> Just $ match_partial match_offset (match_offset + match_length)
+      else case Safe.headMay found_indices of
+        Just first_index -> Just $ match_partial first_index (first_index + T.length pattern_text)
+        Nothing -> Nothing
       where
+
+        maybe_regex_match = ((T.unpack line) =~~ (encodeUtf8 pattern_text) :: Maybe (MatchOffset, MatchLength))
+
+        match_partial = ScanPatterns.NewScanMatch db_pattern line line_number
         pattern_obj = DbHelpers.record db_pattern
         pattern_text = ScanPatterns.expression pattern_obj
+        found_indices = Search.indices pattern_text line
 
     full_filepath = gen_log_path $ SqlRead.build_number scan_scope
 

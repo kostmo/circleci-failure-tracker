@@ -26,6 +26,7 @@ library:
     - aeson
     - vector
     - time
+    - regex-base
     - regex-pcre
     - postgresql-simple
     - pureMD5
@@ -33,6 +34,7 @@ library:
     - containers
     - unordered-containers
     - split
+    - safe
 
 executables:
   run-scanner:
