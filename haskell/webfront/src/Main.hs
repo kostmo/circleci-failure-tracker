@@ -43,7 +43,7 @@ gen_pattern_page myrows = H.html $ do
   where
 
     format_row :: (Builds.BuildNumber, Text, ScanPatterns.MatchDetails) -> [H.Html]
-    format_row (Builds.NewBuildNumber buildnum, stepname, ScanPatterns.NewMatchDetails line_text line_number (ScanPatterns.NewMatchSpan start end)) = [
+    format_row (Builds.NewBuildNumber buildnum, stepname, ScanPatterns.NewMatchDetails line_text line_number (ScanPatterns.NewMatchSpan _start _end)) = [
         H.a H.! A.href (H.toValue $ "https://circleci.com/gh/pytorch/pytorch/" <> show buildnum) $ H.toMarkup $ show buildnum
       , H.toMarkup stepname
       , H.toMarkup $ show line_number
@@ -103,7 +103,7 @@ main = do
 
     S.get "/api/pattern-details" $ do
       pattern_id <- S.param "pattern_id"
-      rows <- liftIO $ SqlRead.get_pattern_occurrence_rows pattern_id
+      rows <- liftIO $ SqlRead.get_pattern_details pattern_id
       S.json rows
 
     S.options "/" $ do

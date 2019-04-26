@@ -9,7 +9,7 @@ function pattern_details() {
 	    layout:"fitColumns",
 	    placeholder:"No Data Set",
 	    columns:[
-		{title:"Build number", field:"build_number", formatter: "link", formatterParams: {urlPrefix: "https://circleci.com/gh/pytorch/pytorch/", urlField: "id"}},
+		{title:"Build number", field:"build_number", formatter: "link", formatterParams: {urlPrefix: "https://circleci.com/gh/pytorch/pytorch/"}},
 
 		{title:"Build step", field:"build_step", sorter:"string", width:200},
 		{title:"Line number", field:"line_number", sorter:"number"},
@@ -29,7 +29,7 @@ function main() {
 	    columns:[
 		{title:"Tags", field:"tags", sorter:"string", width:200},
 		{title:"Pattern", field:"pattern", sorter:"string"},
-		{title:"Description", field:"description", sorter:"string", formatter: "link", formatterParams: {urlPrefix: "/pattern-occurrences?pattern_id=", urlField: "id"}},
+		{title:"Description", field:"description", sorter:"string", formatter: "link", formatterParams: {urlPrefix: "static/pattern-details.html?pattern_id=", urlField: "id"}},
 		{title:"Frequency", field:"frequency", sorter:"number", align:"center"},
 		{title:"Last Occurrence", field:"last", sorter:"datetime", align:"center"},
 		{title:"Regex", field:"is_regex", align:"center", formatter:"tickCross", sorter:"boolean", formatterParams: {crossElement: false}},

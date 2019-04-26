@@ -1,8 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 import           Control.Concurrent  (getNumCapabilities)
-import           Data.Either         (lefts)
-import qualified Data.Maybe          as Maybe
 import           Options.Applicative
 
 import qualified DbHelpers

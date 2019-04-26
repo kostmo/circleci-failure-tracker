@@ -185,6 +185,27 @@ api_patterns = do
   return inners
 
 
+data PatternOccurrences = PatternOccurrences {
+    _build_number :: Int64
+  , _build_step   :: Text
+  , _line_number  :: Int
+  , _line_text    :: Text
+  } deriving Generic
+
+instance ToJSON PatternOccurrences where
+  toJSON = genericToJSON dropUnderscore
+
+
+get_pattern_details :: Int -> IO [PatternOccurrences]
+get_pattern_details pattern_id = do
+  rows <- get_pattern_occurrence_rows pattern_id
+  return $ map txform rows
+
+  where
+    txform (Builds.NewBuildNumber buildnum, stepname, ScanPatterns.NewMatchDetails line_text line_number (ScanPatterns.NewMatchSpan _start _end)) = PatternOccurrences buildnum stepname line_number line_text
+
+
+
 get_pattern_occurrence_rows :: Int -> IO [(BuildNumber, Text, ScanPatterns.MatchDetails)]
 get_pattern_occurrence_rows pattern_id = do
 
