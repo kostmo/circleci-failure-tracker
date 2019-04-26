@@ -1,26 +1,41 @@
+
+function pattern_details() {
+
+	var urlParams = new URLSearchParams(window.location.search);
+	var pattern_id = urlParams.get('pattern_id');
+
+	var table = new Tabulator("#example-table", {
+	    height:"400px",
+	    layout:"fitColumns",
+	    placeholder:"No Data Set",
+	    columns:[
+		{title:"Build number", field:"build_number", formatter: "link", formatterParams: {urlPrefix: "https://circleci.com/gh/pytorch/pytorch/", urlField: "id"}},
+
+		{title:"Build step", field:"build_step", sorter:"string", width:200},
+		{title:"Line number", field:"line_number", sorter:"number"},
+		{title:"Line text", field:"line_text", sorter:"string"},
+	    ],
+            ajaxURL: "/api/pattern-details?pattern_id=" + pattern_id,
+	});
+}
+
+
 function main() {
 
-
-	//Build Tabulator
 	var table = new Tabulator("#example-table", {
-	    height:"311px",
+	    height:"400px",
 	    layout:"fitColumns",
 	    placeholder:"No Data Set",
 	    columns:[
 		{title:"Tags", field:"tags", sorter:"string", width:200},
 		{title:"Pattern", field:"pattern", sorter:"string"},
-		{title:"Description", field:"description", sorter:"string"},
-		{title:"Frequency", field:"frequency", formatter:"number", align:"center"},
-		{title:"Last Occurrence", field:"last", sorter:"date", align:"center"},
-		{title:"Regex", field:"is_regex", align:"center", formatter:"tickCross", sorter:"boolean"},
+		{title:"Description", field:"description", sorter:"string", formatter: "link", formatterParams: {urlPrefix: "/pattern-occurrences?pattern_id=", urlField: "id"}},
+		{title:"Frequency", field:"frequency", sorter:"number", align:"center"},
+		{title:"Last Occurrence", field:"last", sorter:"datetime", align:"center"},
+		{title:"Regex", field:"is_regex", align:"center", formatter:"tickCross", sorter:"boolean", formatterParams: {crossElement: false}},
 	    ],
+            ajaxURL: "api/patterns",
 	});
-
-
-	    table.setData("api/patterns");
-
-
-
 
 
    $.getJSON('api/job', function (data) {

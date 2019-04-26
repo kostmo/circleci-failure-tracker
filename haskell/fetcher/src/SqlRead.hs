@@ -13,6 +13,7 @@ import           Data.List.Split            (splitOn)
 import qualified Data.Maybe                 as Maybe
 import qualified Data.Set                   as Set
 import           Data.Text                  (Text)
+import qualified Data.Text                  as T
 import           Data.Text.Encoding         (encodeUtf8)
 import           Data.Time                  (UTCTime)
 import           Data.Time.Calendar         (Day)
@@ -141,7 +142,7 @@ api_step :: IO (ApiResponse StepApiRecord)
 api_step = do
   conn <- DbHelpers.get_connection
 
-  xs <- query_ conn "SELECT name, COUNT(*) AS freq FROM build_steps GROUP BY name ORDER BY freq DESC"
+  xs <- query_ conn "SELECT name, COUNT(*) AS freq FROM build_steps WHERE name IS NOT NULL GROUP BY name ORDER BY freq DESC"
   inners <- forM xs $ \(stepname, freq) ->
     return $ StepApiRecord stepname freq
 
@@ -182,3 +183,17 @@ api_patterns = do
     return $ PatternRecord a b c d e f g h
 
   return inners
+
+
+get_pattern_occurrence_rows :: Int -> IO [(BuildNumber, Text, ScanPatterns.MatchDetails)]
+get_pattern_occurrence_rows pattern_id = do
+
+  conn <- DbHelpers.get_connection
+
+  xs <- query conn "SELECT build_steps.build AS build_num, build_steps.name, line_number, line_text, span_start, span_end FROM (SELECT * FROM matches WHERE pattern = ?) foo JOIN build_steps ON build_steps.id = foo.build_step ORDER BY build_num DESC" (Only pattern_id)
+
+  inners <- forM xs $ \(buildnum, stepname, line_number, line_text, span_start, span_end) ->
+    return $ (NewBuildNumber buildnum, stepname, ScanPatterns.NewMatchDetails line_text line_number $ ScanPatterns.NewMatchSpan span_start span_end)
+
+  return inners
+

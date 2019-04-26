@@ -1,10 +1,15 @@
+{-# LANGUAGE DeriveGeneric     #-}
 {-# LANGUAGE OverloadedStrings #-}
+
 
 module ScanPatterns where
 
+import           Data.Aeson
+import           Data.Aeson.Types
 import           Data.ByteString    (ByteString)
 import           Data.Text          (Text)
 import           Data.Text.Encoding (decodeUtf8)
+import           GHC.Generics
 
 import qualified DbHelpers
 
@@ -41,14 +46,23 @@ type DbPattern = DbHelpers.WithId Pattern
 data MatchSpan = NewMatchSpan {
     start :: Int
   , end   :: Int
-  }
+  } deriving Generic
+
+instance ToJSON MatchSpan
+
+
+data MatchDetails = NewMatchDetails {
+    line_text   :: Text
+  , line_number :: Int
+  , span        :: MatchSpan
+  } deriving Generic
+
+instance ToJSON MatchDetails
 
 
 data ScanMatch = NewScanMatch {
     scanned_pattern :: DbPattern
-  , line_text       :: Text
-  , line_number     :: Int
-  , span            :: MatchSpan
+  , match_details   :: MatchDetails
   }
 
 

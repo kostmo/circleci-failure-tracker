@@ -66,12 +66,13 @@ store_matches conn (scope, scoped_matches) =
     to_tuple (scan_scope, match) = (
         step_id
       , DbHelpers.db_id $ ScanPatterns.scanned_pattern match
-      , ScanPatterns.line_number match
-      , ScanPatterns.line_text match
-      , ScanPatterns.start $ ScanPatterns.span match
-      , ScanPatterns.end $ ScanPatterns.span match
+      , ScanPatterns.line_number match_deets
+      , ScanPatterns.line_text match_deets
+      , ScanPatterns.start $ ScanPatterns.span match_deets
+      , ScanPatterns.end $ ScanPatterns.span match_deets
       )
       where
+        match_deets = ScanPatterns.match_details match
         (NewBuildStepId step_id) = SqlRead.build_step_id scan_scope
 
     insertion_sql = "INSERT INTO matches(build_step, pattern, line_number, line_text, span_start, span_end) VALUES(?,?,?,?,?,?);"

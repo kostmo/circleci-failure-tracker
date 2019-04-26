@@ -1,6 +1,6 @@
 <html>
 <head>
-<title>Build Failure Analysis</title>
+<title>Pattern details</title>
 <link href="/static/style.css" rel="stylesheet" type="text/css"></link>
 <script src="https://code.highcharts.com/highcharts.js"></script>
 <script src="https://code.highcharts.com/modules/exporting.js"></script>
@@ -16,16 +16,11 @@
 <script src="/static/script/mychart.js"></script>
 </head>
 
-<body onload="main();">
+<body onload="pattern_details();">
 
-<h2>Pattern occurrences</h2>
+<h2>Pattern details</h2>
+
 <div id="example-table"></div>
-
-<div id="container-step-failures" style="min-width: 310px; height: 400px; max-width: 600px; margin: 0 auto"></div>
-
-<div id="container-job-failures" style="min-width: 310px; height: 400px; max-width: 600px; margin: 0 auto"></div>
-<div id="container-failed-commits-by-day" style="min-width: 310px; height: 400px; max-width: 600px; margin: 0 auto"></div>
-
 
 </body>
 </head>

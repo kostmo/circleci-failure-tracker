@@ -177,11 +177,6 @@ gen_cached_path_prefix (NewBuildNumber build_num) =
     filename_stem = show build_num
 
 
--- | Not used yet; this stuff should be in the database.
-gen_metadata_path :: BuildNumber -> String
-gen_metadata_path build_number = gen_cached_path_prefix build_number <.> "meta"
-
-
 gen_log_path :: BuildNumber -> String
 gen_log_path build_number = gen_cached_path_prefix build_number <.> "log"
 
@@ -189,8 +184,9 @@ gen_log_path build_number = gen_cached_path_prefix build_number <.> "log"
 store_log :: Sess.Session -> (BuildNumber, BuildFailureOutput) -> IO ()
 store_log sess (build_number, failed_build_output) = do
 
-  -- TODO shouldn't even need to perform this check, because upstream we've already
-  -- filtered out pre-cached build logs via the SQL query
+  -- We normally shouldn't even need to perform this check, because upstream we've already
+  -- filtered out pre-cached build logs via the SQL query.
+  -- HOWEVER, the existence check at this layer is still useful for when the database is wiped (for development).
   is_file_existing <- doesFileExist full_filepath
 
   putStrLn $ "Does log exist at path " ++ full_filepath ++ "? " ++ show is_file_existing
@@ -243,8 +239,7 @@ scan_log scan_scope = do
             Just first_index -> Just $ ScanPatterns.NewMatchSpan first_index (first_index + T.length literal_text)
             Nothing -> Nothing
 
-
-        match_partial = ScanPatterns.NewScanMatch db_pattern line line_number
+        match_partial x = ScanPatterns.NewScanMatch db_pattern $ ScanPatterns.NewMatchDetails line line_number x
         pattern_obj = DbHelpers.record db_pattern
 
     full_filepath = gen_log_path $ SqlRead.build_number scan_scope
