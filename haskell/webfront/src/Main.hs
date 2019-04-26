@@ -52,6 +52,10 @@ main = do
       builds_list <- liftIO SqlRead.api_step
       S.json builds_list
 
+    S.get "/api/patterns" $ do
+
+      builds_list <- liftIO SqlRead.api_patterns
+      S.json builds_list
 
 
     S.options "/" $ do

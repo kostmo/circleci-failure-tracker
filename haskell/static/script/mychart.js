@@ -1,5 +1,28 @@
 function main() {
 
+
+	//Build Tabulator
+	var table = new Tabulator("#example-table", {
+	    height:"311px",
+	    layout:"fitColumns",
+	    placeholder:"No Data Set",
+	    columns:[
+		{title:"Tags", field:"tags", sorter:"string", width:200},
+		{title:"Pattern", field:"pattern", sorter:"string"},
+		{title:"Description", field:"description", sorter:"string"},
+		{title:"Frequency", field:"frequency", formatter:"number", align:"center"},
+		{title:"Last Occurrence", field:"last", sorter:"date", align:"center"},
+		{title:"Regex", field:"is_regex", align:"center", formatter:"tickCross", sorter:"boolean"},
+	    ],
+	});
+
+
+	    table.setData("api/patterns");
+
+
+
+
+
    $.getJSON('api/job', function (data) {
 
       Highcharts.chart('container-job-failures', {

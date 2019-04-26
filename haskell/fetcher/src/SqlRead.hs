@@ -6,7 +6,6 @@ module SqlRead where
 
 import           Control.Monad              (forM)
 import           Data.Aeson
-
 import           Data.Aeson.Types
 import           Data.HashMap.Strict        (HashMap)
 import qualified Data.HashMap.Strict        as HashMap
@@ -15,16 +14,15 @@ import qualified Data.Maybe                 as Maybe
 import qualified Data.Set                   as Set
 import           Data.Text                  (Text)
 import           Data.Text.Encoding         (encodeUtf8)
+import           Data.Time                  (UTCTime)
 import           Data.Time.Calendar         (Day)
 import           Database.PostgreSQL.Simple
 import           GHC.Generics
 import           GHC.Int                    (Int64)
 
-
 import           Builds
 import qualified DbHelpers
 import qualified ScanPatterns
-
 
 
 data ScanScope = NewScanScope {
@@ -106,7 +104,9 @@ data ApiResponse a = ApiResponse {
 
 instance (ToJSON a) => ToJSON (ApiResponse a)
 
+
 dropUnderscore = defaultOptions {fieldLabelModifier = drop 1}
+
 
 data JobApiRecord = JobApiRecord {
     _name :: Text
@@ -148,6 +148,7 @@ api_step = do
   return $ ApiResponse inners
 
 
+-- | Note that Highcharts expects the dates to be in ascending order
 api_failed_commits_by_day :: IO (ApiResponse (Day, Int))
 api_failed_commits_by_day = do
   conn <- DbHelpers.get_connection
@@ -155,3 +156,29 @@ api_failed_commits_by_day = do
   inners <- query_ conn "SELECT queued_at::date AS date, COUNT(*) FROM (SELECT vcs_revision, MAX(queued_at) queued_at FROM builds GROUP BY vcs_revision) foo GROUP BY date ORDER BY date ASC"
 
   return $ ApiResponse inners
+
+
+data PatternRecord = PatternRecord {
+    _id          :: Int64
+  , _is_regex    :: Bool
+  , _pattern     :: Text
+  , _description :: Text
+  , _frequency   :: Int
+  , _last        :: Maybe UTCTime
+  , _earliest    :: Maybe UTCTime
+  , _tags        :: Text
+  } deriving Generic
+
+instance ToJSON PatternRecord where
+  toJSON = genericToJSON dropUnderscore
+
+
+api_patterns :: IO [PatternRecord]
+api_patterns = do
+  conn <- DbHelpers.get_connection
+
+  xs <- query_ conn "SELECT id, regex, expression, description, matching_build_count, most_recent, earliest, COALESCE(foo.tags, '') FROM global_match_frequency LEFT JOIN (SELECT pattern, string_agg(pattern_tags.tag, ',') AS tags FROM pattern_tags GROUP BY pattern) foo ON foo.pattern = global_match_frequency.id ORDER BY matching_build_count DESC"
+  inners <- forM xs $ \(a, b, c, d, e, f, g, h) ->
+    return $ PatternRecord a b c d e f g h
+
+  return inners
