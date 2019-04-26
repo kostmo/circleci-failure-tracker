@@ -2,14 +2,33 @@
 
 module ScanPatterns where
 
-import           Data.Text (Text)
+import           Data.ByteString    (ByteString)
+import           Data.Text          (Text)
+import           Data.Text.Encoding (decodeUtf8)
 
 import qualified DbHelpers
 
 
+data MatchExpression =
+    RegularExpression ByteString
+  | LiteralExpression Text
+  deriving Show
+
+
+is_regex :: MatchExpression -> Bool
+is_regex x = case x of
+  RegularExpression _ -> True
+  LiteralExpression _ -> False
+
+
+pattern_text :: MatchExpression -> Text
+pattern_text x = case x of
+          RegularExpression x -> decodeUtf8 x
+          LiteralExpression x -> x
+
+
 data Pattern = NewPattern {
-    is_regex         :: Bool
-  , expression       :: Text
+    expression       :: MatchExpression
   , description      :: Text
   , tags             :: [Text]
   , applicable_steps :: [Text]
@@ -36,75 +55,86 @@ data ScanMatch = NewScanMatch {
 pattern_list :: [Pattern]
 pattern_list = [
 
-    NewPattern False "FAILED: "
+    NewPattern (LiteralExpression "FAILED: ")
       "Ninja build failed" [] []
 
-  , NewPattern True "([^\\s]+):(\\d+):(\\d+): error:"
+  , NewPattern (RegularExpression "([^\\s]+):(\\d+):(\\d+): error:")
     "Compilation error" ["compile"] []
 
-  , NewPattern True "[  FAILED  ]\\s+([^\\s]+)"
+  , NewPattern (RegularExpression "[  FAILED  ]\\s+([^\\s]+)")
      "Failed test" ["runtime"] ["Test"]
 
-  , NewPattern True "[  FAILED  ]\\s+(\\d+) tests?, listed below:"
+  , NewPattern (RegularExpression "[  FAILED  ]\\s+(\\d+) tests?, listed below:")
       "Failed test count" ["runtime"] ["Test"]
 
-  , NewPattern False "TypeError: "
+  , NewPattern (LiteralExpression "TypeError: ")
       "Python error" ["runtime", "python"] ["Doc Build and Push"]
 
-  , NewPattern False "AssertionError: "
+  , NewPattern (LiteralExpression "AssertionError: ")
       "Test assertion failure" ["runtime", "python"] ["Test"]
 
-  , NewPattern False "CalledProcessError: Command '['ninja', '-v']' returned non-zero exit status"
+  , NewPattern (LiteralExpression "CalledProcessError: Command '['ninja', '-v']' returned non-zero exit status")
       "Ninja build failure" ["build"] ["Test"]
 
-  , NewPattern True "ERROR: You need Python (\\d+)\\.(\\d+) or later to use mypy"
+  , NewPattern (RegularExpression "ERROR: You need Python (\\d+)\\.(\\d+) or later to use mypy")
       "Python version error for mypy" ["python"] []
 
-  , NewPattern False "ERROR: "
+  , NewPattern (LiteralExpression "ERROR: ")
       "A generic code error" [] []
 
-  , NewPattern False "ERROR: Graphs differed across invocations" "Graphs differ" [] []
-  , NewPattern True "ERROR: ([^\\s]+) \\(__main__\\.(.+)\\)" "Test failure" [] []
+  , NewPattern (LiteralExpression "ERROR: Graphs differed across invocations")
+      "Graphs differ" [] []
 
-  , NewPattern False "Segmentation fault"
+  , NewPattern (RegularExpression "ERROR: ([^\\s]+) \\(__main__\\.(.+)\\)")
+      "Test failure" [] []
+
+  , NewPattern (LiteralExpression "Segmentation fault")
       "Segfault" ["runtime"] []
 
-  , NewPattern True  "find: (.+): No such file or directory"
+  , NewPattern (RegularExpression "find: (.+): No such file or directory")
       "find error" [] ["Build"]
 
-  , NewPattern False "unzip:  cannot find zipfile directory"
+  , NewPattern (LiteralExpression "unzip:  cannot find zipfile directory")
       "Unzip failed" [] []
 
-  , NewPattern True "RuntimeError: test_(.+) failed!"
+  , NewPattern (RegularExpression "RuntimeError: test_(.+) failed!")
       "Python runtime error on test" ["runtime", "python"] ["Test"]
-  , NewPattern True "RuntimeError: Error building extension '([^']+)'"
+
+  , NewPattern (RegularExpression "RuntimeError: Error building extension '([^']+)'")
       "Python build error" ["build", "python"] ["Test"]
-  , NewPattern True "RuntimeError: \\[([^:]+):(\\d+)\\] Read error \\[127.0.0.1\\]:(\\d+): Connection reset by peer"
+
+  , NewPattern (RegularExpression "RuntimeError: \\[([^:]+):(\\d+)\\] Read error \\[127.0.0.1\\]:(\\d+): Connection reset by peer")
       "Python network error" ["python"] ["Test"]
-  , NewPattern False "Build left local git repository checkout dirty"
+
+  , NewPattern (LiteralExpression "Build left local git repository checkout dirty")
       "Build dirtied the source tree" [] ["Test"]
-  , NewPattern False "E: Failed to fetch"
+
+  , NewPattern (LiteralExpression"E: Failed to fetch")
       "apt error" ["apt"] ["Set Up CI Environment After Checkout"]
 
-  , NewPattern False "E: Could not get lock /var/lib/apt/lists/lock"
+  , NewPattern (LiteralExpression "E: Could not get lock /var/lib/apt/lists/lock")
       "CircleCI apt lock failure" ["infra", "apt"] []
-  , NewPattern False "E: Unable to acquire the dpkg frontend lock"
+
+  , NewPattern (LiteralExpression "E: Unable to acquire the dpkg frontend lock")
       "apt failure" ["infra", "apt"] []
-  , NewPattern False "Waiting for a VM assignment"
+
+  , NewPattern (LiteralExpression "Waiting for a VM assignment")
       "CircleCI outage" ["infra", "circleci"] ["Spin up Environment"]
-  , NewPattern False "Probably the package for the version we want does not exist"
+
+  , NewPattern (LiteralExpression "Probably the package for the version we want does not exist")
       "Conda error" [] []
-  , NewPattern False "error: failed to push some refs to"
+
+  , NewPattern (LiteralExpression "error: failed to push some refs to")
       "Git push failed" ["infra", "git"] ["Doc Build and Push"]
 
-  , NewPattern True "Failed to recurse into submodule path '(.+)'"
+  , NewPattern (RegularExpression "Failed to recurse into submodule path '(.+)'")
       "Git submodules failure" ["infra", "git"] ["Run in docker", "Build"]
-  , NewPattern True "::(.+) FAILED"
+  , NewPattern (RegularExpression "::(.+) FAILED")
       "Unit test failure" ["runtine"] []
 
-  , NewPattern True "fatal: unable to access '(.+)': gnutls_handshake\\(\\) failed: Error in the pull function"
+  , NewPattern (RegularExpression "fatal: unable to access '(.+)': gnutls_handshake\\(\\) failed: Error in the pull function")
       "Git fetch failed" ["infra", "git"] []
 
-  , NewPattern False "E: Unable to correct problems, you have held broken packages"
+  , NewPattern (LiteralExpression "E: Unable to correct problems, you have held broken packages")
       "apt package incompatibility" ["infra", "apt"] []
   ]

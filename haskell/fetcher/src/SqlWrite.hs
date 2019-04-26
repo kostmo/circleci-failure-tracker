@@ -82,9 +82,10 @@ store_matches conn (scope, scoped_matches) =
 populate_patterns :: Connection -> [ScanPatterns.Pattern] -> IO ()
 populate_patterns conn pattern_list = do
 
-  for_ pattern_list $ \(ScanPatterns.NewPattern is_regex pattern_text description tags applicable_steps) -> do
+  for_ pattern_list $ \(ScanPatterns.NewPattern expression_obj description tags applicable_steps) -> do
 
-    [Only pattern_id] <- query conn pattern_insertion_sql (is_regex, pattern_text, description, False, False)
+
+    [Only pattern_id] <- query conn pattern_insertion_sql (ScanPatterns.is_regex expression_obj, ScanPatterns.pattern_text expression_obj, description, False, False)
 
     for_ tags $ \tag -> do
       execute conn tag_insertion_sql (tag, pattern_id :: Int)

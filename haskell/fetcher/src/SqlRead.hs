@@ -8,6 +8,7 @@ import qualified Data.HashMap.Strict        as HashMap
 import           Data.List.Split            (splitOn)
 import qualified Data.Maybe                 as Maybe
 import qualified Data.Set                   as Set
+import           Data.Text.Encoding         (encodeUtf8)
 import           Database.PostgreSQL.Simple
 import           GHC.Int                    (Int64)
 
@@ -57,7 +58,10 @@ get_patterns conn = do
     steps_rows <- query conn applicable_steps_sql (Only pattern_id)
     steps_list <- forM steps_rows $ \(Only step_text) -> return step_text
 
-    let inner_pattern = ScanPatterns.NewPattern is_regex pattern_text description tags_list steps_list
+    let expression_obj = if is_regex
+          then ScanPatterns.RegularExpression $ encodeUtf8 pattern_text
+          else ScanPatterns.LiteralExpression pattern_text
+        inner_pattern = ScanPatterns.NewPattern expression_obj description tags_list steps_list
         outer_pattern = DbHelpers.WithId pattern_id inner_pattern
 
     return outer_pattern
