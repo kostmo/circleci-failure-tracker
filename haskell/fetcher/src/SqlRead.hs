@@ -1,20 +1,30 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DeriveGeneric         #-}
+{-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE OverloadedStrings     #-}
 
 module SqlRead where
 
 import           Control.Monad              (forM)
+import           Data.Aeson
+
+import           Data.Aeson.Types
 import           Data.HashMap.Strict        (HashMap)
 import qualified Data.HashMap.Strict        as HashMap
 import           Data.List.Split            (splitOn)
 import qualified Data.Maybe                 as Maybe
 import qualified Data.Set                   as Set
+import           Data.Text                  (Text)
 import           Data.Text.Encoding         (encodeUtf8)
+import           Data.Time.Calendar         (Day)
 import           Database.PostgreSQL.Simple
+import           GHC.Generics
 import           GHC.Int                    (Int64)
+
 
 import           Builds
 import qualified DbHelpers
 import qualified ScanPatterns
+
 
 
 data ScanScope = NewScanScope {
@@ -88,3 +98,60 @@ query_builds = do
   xs <- query_ conn "SELECT build_num, vcs_revision, queued_at, job_name FROM builds"
   forM xs $ \(buildnum, vcs_rev, queuedat, jobname) ->
     return $ NewBuild (NewBuildNumber buildnum) vcs_rev queuedat jobname
+
+
+data ApiResponse a = ApiResponse {
+    rows :: [a]
+  } deriving Generic
+
+instance (ToJSON a) => ToJSON (ApiResponse a)
+
+dropUnderscore = defaultOptions {fieldLabelModifier = drop 1}
+
+data JobApiRecord = JobApiRecord {
+    _name :: Text
+  , _data :: [Int]
+  } deriving Generic
+
+instance ToJSON JobApiRecord where
+  toJSON = genericToJSON dropUnderscore
+
+
+api_jobs :: IO (ApiResponse JobApiRecord)
+api_jobs = do
+  conn <- DbHelpers.get_connection
+
+  xs <- query_ conn "SELECT job_name, freq FROM job_failure_frequencies"
+  inners <- forM xs $ \(jobname, freq) ->
+    return $ JobApiRecord jobname [freq]
+
+  return $ ApiResponse inners
+
+
+data StepApiRecord = StepApiRecord {
+    _name :: Text
+  , _y    :: Int
+  } deriving Generic
+
+instance ToJSON StepApiRecord where
+  toJSON = genericToJSON dropUnderscore
+
+
+api_step :: IO (ApiResponse StepApiRecord)
+api_step = do
+  conn <- DbHelpers.get_connection
+
+  xs <- query_ conn "SELECT name, COUNT(*) AS freq FROM build_steps GROUP BY name ORDER BY freq DESC"
+  inners <- forM xs $ \(stepname, freq) ->
+    return $ StepApiRecord stepname freq
+
+  return $ ApiResponse inners
+
+
+api_failed_commits_by_day :: IO (ApiResponse (Day, Int))
+api_failed_commits_by_day = do
+  conn <- DbHelpers.get_connection
+
+  inners <- query_ conn "SELECT queued_at::date AS date, COUNT(*) FROM (SELECT vcs_revision, MAX(queued_at) queued_at FROM builds GROUP BY vcs_revision) foo GROUP BY date ORDER BY date ASC"
+
+  return $ ApiResponse inners
