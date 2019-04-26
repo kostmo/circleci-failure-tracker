@@ -231,14 +231,16 @@ scan_log scan_scope = do
   where
     apply_patterns line_tuple = Maybe.mapMaybe (apply_single_pattern line_tuple) $ SqlRead.unscanned_patterns scan_scope
 
-    apply_single_pattern (line_number, line) db_pattern = if ScanPatterns.is_regex pattern_obj
-      then case maybe_regex_match of
-        Nothing -> Nothing
-        Just (match_offset, match_length) -> Just $ match_partial match_offset (match_offset + match_length)
-      else case Safe.headMay found_indices of
-        Just first_index -> Just $ match_partial first_index (first_index + T.length pattern_text)
-        Nothing -> Nothing
+    apply_single_pattern (line_number, line) db_pattern = match_partial <$> match_span
       where
+
+        match_span = if ScanPatterns.is_regex pattern_obj
+          then case maybe_regex_match of
+            Just (match_offset, match_length) -> Just $ ScanPatterns.NewMatchSpan match_offset (match_offset + match_length)
+            Nothing -> Nothing
+          else case Safe.headMay found_indices of
+            Just first_index -> Just $ ScanPatterns.NewMatchSpan first_index (first_index + T.length pattern_text)
+            Nothing -> Nothing
 
         maybe_regex_match = ((T.unpack line) =~~ (encodeUtf8 pattern_text) :: Maybe (MatchOffset, MatchLength))
 
@@ -248,5 +250,3 @@ scan_log scan_scope = do
         found_indices = Search.indices pattern_text line
 
     full_filepath = gen_log_path $ SqlRead.build_number scan_scope
-
-

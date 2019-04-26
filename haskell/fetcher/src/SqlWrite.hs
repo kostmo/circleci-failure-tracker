@@ -68,8 +68,8 @@ store_matches conn (scope, scoped_matches) =
       , DbHelpers.db_id $ ScanPatterns.scanned_pattern match
       , ScanPatterns.line_number match
       , ScanPatterns.line_text match
-      , ScanPatterns.span_start match
-      , ScanPatterns.span_end match
+      , ScanPatterns.start $ ScanPatterns.span match
+      , ScanPatterns.end $ ScanPatterns.span match
       )
       where
         (NewBuildStepId step_id) = SqlRead.build_step_id scan_scope

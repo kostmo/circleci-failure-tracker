@@ -19,12 +19,17 @@ data Pattern = NewPattern {
 type DbPattern = DbHelpers.WithId Pattern
 
 
+data MatchSpan = NewMatchSpan {
+    start :: Int
+  , end   :: Int
+  }
+
+
 data ScanMatch = NewScanMatch {
     scanned_pattern :: DbPattern
   , line_text       :: Text
   , line_number     :: Int
-  , span_start      :: Int
-  , span_end        :: Int
+  , span            :: MatchSpan
   }
 
 
