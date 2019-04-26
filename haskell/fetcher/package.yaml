@@ -30,7 +30,9 @@ library:
     - postgresql-simple
     - pureMD5
     - filepath
-
+    - containers
+    - unordered-containers
+    - split
 
 executables:
   run-scanner:

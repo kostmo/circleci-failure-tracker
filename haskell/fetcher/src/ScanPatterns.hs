@@ -2,7 +2,21 @@
 
 module ScanPatterns where
 
-import Data.Text (Text)
+import           Data.Text (Text)
+
+import qualified DbHelpers
+
+
+data Pattern = NewPattern {
+    is_regex         :: Bool
+  , expression       :: Text
+  , description      :: Text
+  , tags             :: [Text]
+  , applicable_steps :: [Text]
+  } deriving Show
+
+
+type DbPattern = DbHelpers.WithId Pattern
 
 
 pattern_list :: [Pattern]
@@ -80,12 +94,3 @@ pattern_list = [
   , NewPattern False "E: Unable to correct problems, you have held broken packages"
       "apt package incompatibility" ["infra", "apt"] []
   ]
-
-
-data Pattern = NewPattern {
-    is_regex :: Bool
-  , expression :: Text
-  , description :: Text
-  , tags :: [Text]
-  , applicable_steps :: [Text]
-  } deriving Show

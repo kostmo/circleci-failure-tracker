@@ -5,6 +5,7 @@ import           Data.Either         (lefts)
 import qualified Data.Maybe          as Maybe
 import           Options.Applicative
 
+import qualified DbHelpers
 import qualified Scanning
 import qualified ScanPatterns
 import qualified SqlRead
@@ -16,41 +17,48 @@ data CommandLineArgs = NewCommandLineArgs {
   , title      :: String
   , quiet      :: Bool
     -- ^ Suppress console output
-  } deriving (Show)
+  }
 
 
 myCliParser :: Parser CommandLineArgs
 myCliParser = NewCommandLineArgs
-  <$> option auto (long "count"     <> value 3          <> metavar "BUILD_COUNT" <> help "How many failed builds to fetch from CircleCI")
-  <*> strOption (long "db-hostname" <> value "localhost" <> metavar "DATABASE_HOSTNAME"  <> help "Hostname of database")
-  <*> switch    (long "quiet"                                       <> help "Suppress console output")
+  <$> option auto (long "count"       <> value 3           <> metavar "BUILD_COUNT"
+    <> help "How many failed builds to fetch from CircleCI")
+  <*> strOption   (long "db-hostname" <> value "localhost" <> metavar "DATABASE_HOSTNAME"
+    <> help "Hostname of database")
+  <*> switch      (long "quiet"
+    <> help "Suppress console output")
 
 
 mainAppCode :: CommandLineArgs -> IO ()
 mainAppCode args = do
 
+  conn <- DbHelpers.get_connection
+  SqlWrite.scrub_tables conn
 
-  SqlWrite.scrub_tables
+  SqlWrite.populate_patterns conn ScanPatterns.pattern_list
 
   capability_count <- getNumCapabilities
   print $ "Num capabilities: " ++ show capability_count
 
-  builds_list <- Scanning.populate_builds fetch_count
+  putStrLn "Fetching builds list..."
+  downloaded_builds_list <- Scanning.populate_builds fetch_count
 
-  SqlWrite.store_builds_list builds_list
+  putStrLn "Storing builds list..."
+  SqlWrite.store_builds_list conn downloaded_builds_list
 
-  failure_info_eithers <- Scanning.get_all_failed_build_info builds_list
+  pattern_records <- SqlRead.get_patterns conn
+  let patterns_by_id = DbHelpers.to_dict pattern_records
+  scannable_build_patterns <- SqlRead.get_unscanned_build_patterns conn patterns_by_id
 
-  let failure_infos = lefts failure_info_eithers
-      scannable = Maybe.mapMaybe (Scanning.filter_scannable) failure_infos
+  unvisited_builds_list <- SqlRead.get_unvisited_build_ids conn
 
-  Scanning.store_all_logs scannable
+  putStrLn "Storing build failure metadata"
+  Scanning.store_build_failure_metadata conn unvisited_builds_list
 
-  matches <- mapM (Scanning.scan_logs ScanPatterns.pattern_list . fst) scannable
+  putStrLn "Scanning logs..."
+  matches <- Scanning.scan_all_logs conn scannable_build_patterns
   print matches
-
-  db_answer <- SqlRead.hello
-  print db_answer
 
   build_list <- SqlRead.query_builds
   print $ "Build count: " ++ show (length build_list)

@@ -1,33 +1,36 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TupleSections #-}
 
 module Scanning where
 
-import Network.Wreq
-import qualified Network.Wreq.Session as Sess
+import           Control.Lens               hiding ((<.>))
+import           Control.Monad              (unless)
+import           Data.Aeson                 (Value, decode, encode)
+import           Data.Aeson.Lens            (key, _Array, _Bool, _Integral,
+                                             _String)
+import           Data.Foldable              (for_)
+import           Data.List                  (intercalate)
+import           Data.Maybe                 (Maybe)
+import qualified Data.Maybe                 as Maybe
+import qualified Data.Text                  as T
+import qualified Data.Text.IO               as TIO
+import           Data.Traversable           (for)
+import qualified Data.Vector                as V
+import           Database.PostgreSQL.Simple (Connection)
+import           GHC.Int                    (Int64)
+import           Network.Wreq
+import qualified Network.Wreq.Session       as Sess
+import           System.Directory           (createDirectoryIfMissing,
+                                             doesFileExist)
+import           System.FilePath
 
-import Control.Lens hiding ((<.>))
-import Data.List (intercalate)
-import qualified Data.Maybe as Maybe
-import Data.Maybe (Maybe)
-import Data.Aeson.Lens (_String, _Array, _Bool, _Integral, key)
-import Data.Text (Text)
-import qualified Data.Text as T
-import qualified Data.Text.IO as TIO
-import System.Directory (createDirectoryIfMissing, doesFileExist)
-import Data.Aeson (Value, decode, encode)
-import qualified Data.Vector as V
-import System.FilePath
-import Control.Monad (unless)
-import Data.Traversable (for)
-
-import Builds
-import SillyMonoids ()
+import           Builds
 import qualified Constants
-import qualified LogCache
+import qualified DbHelpers
 import qualified Helpers
-import qualified SqlWrite
 import qualified ScanPatterns
+import           SillyMonoids               ()
+import qualified SqlRead
+import qualified SqlWrite
 
 
 maxBuildPerPage = 100
@@ -37,7 +40,7 @@ itemToBuild :: Value -> Build
 itemToBuild json = NewBuild {
     build_id = NewBuildNumber $ view (key "build_num" . _Integral) json
   , vcs_revision = view (key "vcs_revision" . _String) json
-  , queued_at = head $ Maybe.fromJust $ decode (encode [queued_at_string]) 
+  , queued_at = head $ Maybe.fromJust $ decode (encode [queued_at_string])
   , job_name = view (key "workflows" . key "job_name" . _String) json
   }
   where
@@ -58,8 +61,8 @@ get_build_list_url branch_name = intercalate "/"
   ]
 
 
-get_build_failure :: Value -> Either BuildStepFailure ()
-get_build_failure step_val =
+get_step_failure :: Value -> Either BuildStepFailure ()
+get_step_failure step_val =
   mapM_ get_failure my_array
   where
     my_array = step_val ^. key "actions" . _Array
@@ -74,26 +77,45 @@ get_build_failure step_val =
       | otherwise = pure ()
 
 
-get_all_failed_build_info :: [Build] -> IO [Either (Build, BuildStepFailure) ()]
-get_all_failed_build_info builds_list = do
+get_console_url :: (BuildNumber, Maybe BuildStepFailure) -> Maybe (BuildNumber, BuildFailureOutput)
+get_console_url (build_number, maybe_thing) = case maybe_thing of
+  Nothing -> Nothing
+  Just (NewBuildStepFailure step_name mode) -> case mode of
+      BuildTimeoutFailure             -> Nothing
+      ScannableFailure failure_output -> Just (build_number, failure_output)
+
+
+-- | TODO We may want to interleave the console log downloads from AWS
+-- with the build details visitations from CircleCI.
+store_build_failure_metadata :: Connection -> [BuildNumber] -> IO Int64
+store_build_failure_metadata conn unvisited_builds_list = do
 
   sess <- Sess.newSession
-  for builds_list (Scanning.get_failed_build_info sess)
+  visitations <- for unvisited_builds_list $ \build_num -> do
+    result <- Scanning.get_failed_build_info sess build_num
+    let foo = case result of
+          Right _ -> Nothing
+          Left x  -> Just x
+    return (build_num, foo)
+
+  store_all_logs $ Maybe.mapMaybe get_console_url visitations
+
+  SqlWrite.insert_build_visitations conn visitations
 
 
-get_failed_build_info :: Sess.Session -> Build -> IO (Either (Build, BuildStepFailure) ())
-get_failed_build_info sess build_object = do
+-- | Determines which step of the build failed and stores
+-- the console log to disk, if there is one.
+get_failed_build_info :: Sess.Session -> BuildNumber -> IO (Either BuildStepFailure ())
+get_failed_build_info sess build_number = do
 
   putStrLn $ "Fetching from: " ++ fetch_url
 
   r <- Sess.getWith opts sess fetch_url
   let steps_list = r ^. responseBody . key "steps" . _Array
-      either_failed_step = mapM_ get_build_failure steps_list
 
-  return $ Helpers.transformLeft ((build_object, )) either_failed_step
+  return $ mapM_ get_step_failure steps_list
 
   where
-    build_number = build_id build_object
     fetch_url = get_single_build_url build_number
     opts = defaults & header "Accept" .~ [Constants.json_mime_type]
 
@@ -125,12 +147,6 @@ populate_builds max_build_count = do
 
   where
     builds_per_page = min maxBuildPerPage max_build_count
-
-
-filter_scannable :: (Build, BuildStepFailure) -> Maybe (BuildNumber, BuildFailureOutput)
-filter_scannable (z, a_build) = case failure_mode a_build of
-  BuildTimeoutFailure -> Nothing
-  ScannableFailure x -> Just (build_id z, x)
 
 
 store_all_logs :: [(BuildNumber, BuildFailureOutput)] -> IO ()
@@ -168,6 +184,8 @@ gen_log_path build_number = gen_cached_path_prefix build_number <.> "log"
 store_log :: Sess.Session -> (BuildNumber, BuildFailureOutput) -> IO ()
 store_log sess (build_number, failed_build_output) = do
 
+  -- TODO shouldn't even need to perform this check, because upstream we've already
+  -- filtered out pre-cached build logs via the SQL query
   is_file_existing <- doesFileExist full_filepath
 
   putStrLn $ "Does log exist at path " ++ full_filepath ++ "? " ++ show is_file_existing
@@ -186,8 +204,18 @@ store_log sess (build_number, failed_build_output) = do
     full_filepath = gen_log_path build_number
 
 
-scan_logs :: [ScanPatterns.Pattern] -> BuildNumber -> IO [[ScanMatch]]
-scan_logs patterns build_number = do
+scan_all_logs :: Connection -> [(BuildNumber, [ScanPatterns.DbPattern])] -> IO [[[ScanMatch]]]
+scan_all_logs conn scannable = do
+
+  scan_id <- SqlWrite.insert_scan_id conn
+  print $ "Scan ID: " ++ show scan_id
+
+  matches <- mapM (scan_log conn scan_id) scannable
+  return matches
+
+
+scan_log :: Connection -> Int64 -> (BuildNumber, [ScanPatterns.DbPattern]) -> IO [[ScanMatch]]
+scan_log conn scan_id (build_number, patterns) = do
 
   console_log <- TIO.readFile full_filepath
   return $ filter (not . null) $ map apply_patterns $ map T.stripEnd $ T.lines console_log
@@ -195,7 +223,7 @@ scan_logs patterns build_number = do
   where
     apply_patterns line = Maybe.mapMaybe (apply_single_pattern line) patterns
 
-    apply_single_pattern line pattern_obj = if ScanPatterns.is_regex pattern_obj
+    apply_single_pattern line (DbHelpers.WithId _pattern_id pattern_obj) = if ScanPatterns.is_regex pattern_obj
       then Nothing -- FIXME
       else if T.isInfixOf pattern_text line
         then Just $ NewScanMatch pattern_text line
