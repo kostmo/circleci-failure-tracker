@@ -11,6 +11,7 @@ import           Data.Foldable              (for_)
 import           Data.List                  (intercalate)
 import           Data.Maybe                 (Maybe)
 import qualified Data.Maybe                 as Maybe
+import           Data.Text                  (Text)
 import qualified Data.Text                  as T
 import qualified Data.Text.IO               as TIO
 import           Data.Traversable           (for)
@@ -204,33 +205,36 @@ store_log sess (build_number, failed_build_output) = do
     full_filepath = gen_log_path build_number
 
 
-scan_all_logs :: Connection -> [(BuildNumber, [ScanPatterns.DbPattern])] -> IO [[[ScanMatch]]]
+scan_all_logs :: Connection -> [SqlRead.ScanScope] -> IO Int
 scan_all_logs conn scannable = do
 
   scan_id <- SqlWrite.insert_scan_id conn
-  print $ "Scan ID: " ++ show scan_id
+  matches <- mapM scan_log scannable
 
-  matches <- mapM (scan_log conn scan_id) scannable
-  return matches
+  mapM_ (SqlWrite.store_matches conn) matches
+
+  return $ length matches
 
 
-scan_log :: Connection -> Int64 -> (BuildNumber, [ScanPatterns.DbPattern]) -> IO [[ScanMatch]]
-scan_log conn scan_id (build_number, patterns) = do
+scan_log :: SqlRead.ScanScope -> IO (SqlRead.ScanScope, [ScanPatterns.ScanMatch])
+scan_log scan_scope = do
 
   console_log <- TIO.readFile full_filepath
-  return $ filter (not . null) $ map apply_patterns $ map T.stripEnd $ T.lines console_log
+  let result = filter (not . null) $ map apply_patterns $ zip [0..] $ map T.stripEnd $ T.lines console_log
+  return (scan_scope, concat result)
 
   where
-    apply_patterns line = Maybe.mapMaybe (apply_single_pattern line) patterns
+    apply_patterns line_tuple = Maybe.mapMaybe (apply_single_pattern line_tuple) $ SqlRead.unscanned_patterns scan_scope
 
-    apply_single_pattern line (DbHelpers.WithId _pattern_id pattern_obj) = if ScanPatterns.is_regex pattern_obj
+    apply_single_pattern (line_number, line) db_pattern = if ScanPatterns.is_regex pattern_obj
       then Nothing -- FIXME
       else if T.isInfixOf pattern_text line
-        then Just $ NewScanMatch pattern_text line
+        then Just $ ScanPatterns.NewScanMatch db_pattern line line_number 0 1
         else Nothing
       where
+        pattern_obj = DbHelpers.record db_pattern
         pattern_text = ScanPatterns.expression pattern_obj
 
-    full_filepath = gen_log_path build_number
+    full_filepath = gen_log_path $ SqlRead.build_number scan_scope
 
 

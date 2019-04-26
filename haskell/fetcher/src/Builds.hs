@@ -13,6 +13,11 @@ import           GHC.Int      (Int64)
 data BuildNumber = NewBuildNumber Int64
   deriving (Show, Generic)
 
+data BuildStepId = NewBuildStepId Int64
+  deriving (Show, Generic)
+
+
+
 instance ToJSON BuildNumber
 instance FromJSON BuildNumber
 
@@ -44,10 +49,3 @@ data BuildFailureMode =
 data BuildFailureOutput = NewBuildFailureOutput {
     log_url :: Text
   } deriving Show
-
-
-data ScanMatch = NewScanMatch {
-    scanned_pattern :: Text
-  , matching_line   :: Text
-  } deriving Show
-

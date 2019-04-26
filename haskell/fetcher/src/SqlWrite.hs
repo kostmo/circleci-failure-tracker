@@ -11,18 +11,22 @@ import           Data.Time.Format           (defaultTimeLocale, formatTime,
 import           Database.PostgreSQL.Simple
 import           GHC.Int                    (Int64)
 
+import qualified DbHelpers
 import qualified ScanPatterns
+import qualified SqlRead
 
 
+-- | We do not wipe the "builds" or "build_steps" tables
+-- because visiting each build is expensive.
 allTableTruncations = [
-     "TRUNCATE scanned_patterns CASCADE;"
-   , "TRUNCATE scans CASCADE;"
-   , "TRUNCATE matches CASCADE;"
-   , "TRUNCATE pattern_step_applicability CASCADE;"
-   , "TRUNCATE build_steps CASCADE;"
-   , "TRUNCATE pattern_tags CASCADE;"
-   , "TRUNCATE patterns CASCADE;"
-   , "TRUNCATE builds CASCADE;"
+    "TRUNCATE scanned_patterns CASCADE;"
+  , "TRUNCATE scans CASCADE;"
+  , "TRUNCATE matches CASCADE;"
+  , "TRUNCATE pattern_step_applicability CASCADE;"
+  , "TRUNCATE pattern_tags CASCADE;"
+  , "TRUNCATE patterns CASCADE;"
+--  , "TRUNCATE build_steps CASCADE;"
+--  , "TRUNCATE builds CASCADE;"
   ]
 
 
@@ -46,10 +50,33 @@ build_to_tuple (NewBuild (NewBuildNumber build_num) vcs_rev queued_at jobname) =
 
 
 store_builds_list :: Connection -> [Build] -> IO Int64
-store_builds_list conn builds_list = do
+store_builds_list conn builds_list =
 
   executeMany conn "INSERT INTO builds(build_num, vcs_revision, queued_at, job_name) VALUES(?,?,?,?) ON CONFLICT (build_num) DO NOTHING" $
     map build_to_tuple builds_list
+
+
+store_matches :: Connection -> (SqlRead.ScanScope, [ScanPatterns.ScanMatch]) -> IO Int64
+store_matches conn (scope, scoped_matches) =
+  executeMany conn insertion_sql $ map to_tuple replicated
+
+  where
+    replicated = concatMap (\x -> [(scope, x)])  scoped_matches
+
+    to_tuple (scan_scope, match) = (
+        step_id
+      , DbHelpers.db_id $ ScanPatterns.scanned_pattern match
+      , ScanPatterns.line_number match
+      , ScanPatterns.line_text match
+      , ScanPatterns.span_start match
+      , ScanPatterns.span_end match
+      )
+      where
+        (NewBuildStepId step_id) = SqlRead.build_step_id scan_scope
+
+    insertion_sql = "INSERT INTO matches(build_step, pattern, line_number, line_text, span_start, span_end) VALUES(?,?,?,?,?,?);"
+
+
 
 
 populate_patterns :: Connection -> [ScanPatterns.Pattern] -> IO ()

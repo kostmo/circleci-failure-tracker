@@ -19,6 +19,15 @@ data Pattern = NewPattern {
 type DbPattern = DbHelpers.WithId Pattern
 
 
+data ScanMatch = NewScanMatch {
+    scanned_pattern :: DbPattern
+  , line_text       :: Text
+  , line_number     :: Int
+  , span_start      :: Int
+  , span_end        :: Int
+  }
+
+
 pattern_list :: [Pattern]
 pattern_list = [
 

@@ -7,7 +7,6 @@ import           Data.HashMap.Strict        (HashMap)
 import qualified Data.HashMap.Strict        as HashMap
 import           Data.List.Split            (splitOn)
 import qualified Data.Maybe                 as Maybe
-import           Data.Set                   (Set)
 import qualified Data.Set                   as Set
 import           Database.PostgreSQL.Simple
 import           GHC.Int                    (Int64)
@@ -17,19 +16,32 @@ import qualified DbHelpers
 import qualified ScanPatterns
 
 
-get_unscanned_build_patterns :: Connection -> HashMap Int64 ScanPatterns.Pattern -> IO [(BuildNumber, [ScanPatterns.DbPattern])]
+data ScanScope = NewScanScope {
+    build_number       :: BuildNumber -- ^ used to retrieve the console log file from disk
+  , build_step_id      :: BuildStepId
+  , unscanned_patterns :: [ScanPatterns.DbPattern]
+  }
+
+
+-- | Some scan patterns only apply to certain build steps, so we
+-- filter those in this function.
+get_unscanned_build_patterns :: Connection -> HashMap Int64 ScanPatterns.Pattern -> IO [SqlRead.ScanScope]
 get_unscanned_build_patterns conn patterns_by_id = do
 
   unscanned_patterns_list <- query_ conn sql
 
-  buildnum_patt_id_tuples <- forM unscanned_patterns_list $ \(buildnum, comma_sep_pattern_ids) -> let
+  buildnum_patt_id_tuples <- forM unscanned_patterns_list $ \(build_num, step_id, step_name, comma_sep_pattern_ids) -> let
         pattern_ids = Set.fromList $ map read $ splitOn "," $ comma_sep_pattern_ids
         patterns = Maybe.mapMaybe (\x -> DbHelpers.WithId x <$> HashMap.lookup x patterns_by_id) $ Set.toList pattern_ids
-    in return $ (NewBuildNumber buildnum, patterns)
+        applicability_predicate p = null pattern_steps || step_name `elem` pattern_steps
+          where
+            pattern_steps = ScanPatterns.applicable_steps $ DbHelpers.record p
+        filtered_patterns = filter applicability_predicate patterns
+    in return $ NewScanScope (NewBuildNumber build_num) (NewBuildStepId step_id) filtered_patterns
 
   return buildnum_patt_id_tuples
   where
-    sql = "SELECT build_num, unscanned_patts FROM unscanned_patterns ORDER BY patt_count"
+    sql = "SELECT build_num, build_steps.id, build_steps.name, unscanned_patts FROM unscanned_patterns JOIN build_steps ON unscanned_patterns.build_num = build_steps.build ORDER BY patt_count"
 
 
 get_patterns :: Connection -> IO [ScanPatterns.DbPattern]
