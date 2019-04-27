@@ -4,6 +4,7 @@ import           Control.Monad.IO.Class        (liftIO)
 import qualified Data.Maybe                    as Maybe
 import           Data.Text                     (Text)
 import qualified Data.Text                     as T
+import           Network.Wai.Middleware.Static
 import           System.Environment            (lookupEnv)
 import qualified Text.Blaze.Html.Renderer.Text as BRT
 import qualified Text.Blaze.Html5              as H hiding (map)
@@ -22,6 +23,7 @@ getHtml =
   H.span "hello"
 
 
+-- | XXX Not used
 gen_pattern_page :: [(Builds.BuildNumber, Text, ScanPatterns.MatchDetails)] -> H.Html
 gen_pattern_page myrows = H.html $ do
   H.head $ do
@@ -30,16 +32,6 @@ gen_pattern_page myrows = H.html $ do
 
   body
 
-  {-
-        return [
-            htmlgen.make_link(htmlgen.gen_circleci_build_url(build_num), str(build_num)),
-            row[1],
-            str(row[2]),
-            tag("span", line[0:start])
-                + tag("span", line[start:end], {"class": "highlight"})
-                + tag("span", line[end:])
-        ]
-  -}
   where
 
     format_row :: (Builds.BuildNumber, Text, ScanPatterns.MatchDetails) -> [H.Html]
@@ -72,6 +64,8 @@ main = do
 
   S.scotty prt $ do
 
+    S.middleware $ staticPolicy (noDots >-> addBase "static")
+
     S.post "/start-scan" $ do
       S.html $ BRT.renderHtml getHtml
 
@@ -81,6 +75,7 @@ main = do
       let page_content = gen_pattern_page rows
       S.html $ BRT.renderHtml page_content
 
+    -- XXX Not used
     S.get "/list-builds" $ do
       builds_list <- liftIO SqlRead.query_builds
       S.json builds_list
@@ -113,18 +108,6 @@ main = do
     S.get "/" $ do
       S.setHeader "Content-Type" "text/html; charset=utf-8"
       S.file "./static/index.html"
-
-    S.get "/static/script/mychart.js" $ do
-      S.setHeader "Content-Type" "text/javascript; charset=utf-8"
-      S.file "./static/script/mychart.js"
-
-    S.get "/static/pattern-details.html" $ do
-      S.setHeader "Content-Type" "text/html; charset=utf-8"
-      S.file "./static/pattern-details.html"
-
-    S.get "/static/style.css" $ do
-      S.setHeader "Content-Type" "text/css; charset=utf-8"
-      S.file "./static/style.css"
 
     S.get "/favicon.ico" $ do
       S.setHeader "Content-Type" "image/x-icon"

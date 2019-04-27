@@ -6,7 +6,6 @@ module SqlRead where
 
 import           Control.Monad              (forM)
 import           Data.Aeson
-import           Data.Aeson.Types
 import           Data.HashMap.Strict        (HashMap)
 import qualified Data.HashMap.Strict        as HashMap
 import           Data.List.Split            (splitOn)
@@ -190,6 +189,8 @@ data PatternOccurrences = PatternOccurrences {
   , _build_step   :: Text
   , _line_number  :: Int
   , _line_text    :: Text
+  , _span_start   :: Int
+  , _span_end     :: Int
   } deriving Generic
 
 instance ToJSON PatternOccurrences where
@@ -202,8 +203,7 @@ get_pattern_details pattern_id = do
   return $ map txform rows
 
   where
-    txform (Builds.NewBuildNumber buildnum, stepname, ScanPatterns.NewMatchDetails line_text line_number (ScanPatterns.NewMatchSpan _start _end)) = PatternOccurrences buildnum stepname line_number line_text
-
+    txform (Builds.NewBuildNumber buildnum, stepname, ScanPatterns.NewMatchDetails line_text line_number (ScanPatterns.NewMatchSpan start end)) = PatternOccurrences buildnum stepname line_number line_text start end
 
 
 get_pattern_occurrence_rows :: Int -> IO [(BuildNumber, Text, ScanPatterns.MatchDetails)]

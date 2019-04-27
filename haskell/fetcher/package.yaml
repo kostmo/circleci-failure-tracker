@@ -24,6 +24,7 @@ library:
     - lens-aeson
     - bytestring
     - aeson
+    - http-client
     - vector
     - time
     - regex-base

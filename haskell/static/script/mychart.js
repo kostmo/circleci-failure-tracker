@@ -6,14 +6,22 @@ function pattern_details() {
 
 	var table = new Tabulator("#example-table", {
 	    height:"400px",
-	    layout:"fitData",
+	    layout:"fitColumns",
 	    placeholder:"No Data Set",
 	    columns:[
-		{title:"Build number", field:"build_number", formatter: "link", formatterParams: {urlPrefix: "https://circleci.com/gh/pytorch/pytorch/"}},
+		{title:"Build number", field:"build_number", formatter: "link", width: 75, formatterParams: {urlPrefix: "https://circleci.com/gh/pytorch/pytorch/"}},
+		{title:"Build step", field:"build_step", sorter:"string", widthGrow: 2},
+		{title:"Line number", field:"line_number", sorter:"number", width: 75},
+		{title:"Line text", field:"line_text", sorter:"string", widthGrow: 8, formatter:function(cell, formatterParams, onRendered) {
 
-		{title:"Build step", field:"build_step", sorter:"string"},
-		{title:"Line number", field:"line_number", sorter:"number"},
-		{title:"Line text", field:"line_text", sorter:"string"},
+                    var line_text = cell.getValue();
+                    var row_data = cell.getRow().getData();
+
+                    var cell_html = line_text.substring(0, row_data["span_start"]) +  "<span style='background-color: pink;'>" + line_text.substring(row_data["span_start"], row_data["span_end"]) + "</span>" + line_text.substring(row_data["span_end"]);
+
+		    return cell_html;
+		},
+	},
 	    ],
             ajaxURL: "/api/pattern-details?pattern_id=" + pattern_id,
 	});
@@ -24,15 +32,15 @@ function main() {
 
 	var table = new Tabulator("#example-table", {
 	    height:"400px",
-	    layout:"fitData",
+	    layout:"fitColumns",
 	    placeholder:"No Data Set",
 	    columns:[
 		{title:"Tags", field:"tags", sorter:"string"},
-		{title:"Pattern", field:"pattern", sorter:"string"},
-		{title:"Description", field:"description", sorter:"string", formatter: "link", formatterParams: {urlPrefix: "static/pattern-details.html?pattern_id=", urlField: "id"}},
-		{title:"Frequency", field:"frequency", sorter:"number", align:"center"},
+		{title:"Pattern", field:"pattern", sorter:"string", widthGrow: 3},
+		{title:"Description", field:"description", sorter:"string", formatter: "link", formatterParams: {urlPrefix: "/pattern-details.html?pattern_id=", urlField: "id"}, widthGrow: 2},
+		{title:"Frequency", field:"frequency", sorter:"number", align:"center", width: 75},
 		{title:"Last Occurrence", field:"last", sorter:"datetime", align:"center"},
-		{title:"Regex", field:"is_regex", align:"center", formatter:"tickCross", sorter:"boolean", formatterParams: {crossElement: false}},
+		{title:"Regex", field:"is_regex", align:"center", formatter:"tickCross", sorter:"boolean", formatterParams: {crossElement: false}, width: 75},
 	    ],
             ajaxURL: "api/patterns",
 	});

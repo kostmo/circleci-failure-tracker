@@ -43,7 +43,7 @@ mainAppCode args = do
   -- TODO: Handle network exceptions: https://stackoverflow.com/a/48365179/105137
 
   putStrLn "Fetching builds list..."
-  downloaded_builds_list <- Scanning.populate_builds fetch_count
+  downloaded_builds_list <- Scanning.populate_builds fetch_count 0
 
   putStrLn "Storing builds list..."
   SqlWrite.store_builds_list conn downloaded_builds_list

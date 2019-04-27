@@ -2,11 +2,14 @@
 
 module Scanning where
 
+import qualified Control.Exception          as E
 import           Control.Lens               hiding ((<.>))
 import           Control.Monad              (unless)
 import           Data.Aeson                 (Value, decode, encode)
 import           Data.Aeson.Lens            (key, _Array, _Bool, _Integral,
                                              _String)
+import qualified Data.ByteString.Char8      as BSC
+import qualified Data.ByteString.Lazy       as LBS
 import           Data.List                  (intercalate)
 import           Data.Maybe                 (Maybe)
 import qualified Data.Maybe                 as Maybe
@@ -17,7 +20,8 @@ import           Data.Traversable           (for)
 import qualified Data.Vector                as V
 import           Database.PostgreSQL.Simple (Connection)
 import           GHC.Int                    (Int64)
-import           Network.Wreq
+import           Network.HTTP.Client
+import           Network.Wreq               as NW
 import qualified Network.Wreq.Session       as Sess
 import qualified Safe
 import           System.Directory           (createDirectoryIfMissing,
@@ -29,7 +33,6 @@ import           Text.Regex.PCRE            ((=~~))
 import           Builds
 import qualified Constants
 import qualified DbHelpers
-import qualified Helpers
 import qualified ScanPatterns
 import           SillyMonoids               ()
 import qualified SqlRead
@@ -94,7 +97,9 @@ store_build_failure_metadata :: Connection -> [BuildNumber] -> IO Int64
 store_build_failure_metadata conn unvisited_builds_list = do
 
   sess <- Sess.newSession
-  visitations <- for unvisited_builds_list $ \build_num -> do
+  let unvisited_count = length unvisited_builds_list
+  visitations <- for (zip [1..] unvisited_builds_list) $ \(idx, build_num) -> do
+    putStrLn $ "Visiting " ++ show idx ++ "/" ++ show unvisited_count ++ " builds..."
     result <- Scanning.get_failed_build_info sess build_num
     let foo = case result of
           Right _ -> Nothing
@@ -106,6 +111,18 @@ store_build_failure_metadata conn unvisited_builds_list = do
   SqlWrite.insert_build_visitations conn visitations
 
 
+safeGetUrl ::
+     (String -> IO (Response LBS.ByteString))
+  -> String -- ^ URL
+  -> IO (Either String (Response LBS.ByteString))
+safeGetUrl f url = do
+  (Right <$> f url) `E.catch` handler
+  where
+    handler :: HttpException -> IO (Either String (Response LBS.ByteString))
+    handler (HttpExceptionRequest _ (StatusCodeException r _)) =
+      return $ Left $ BSC.unpack (r ^. NW.responseStatus . statusMessage)
+
+
 -- | Determines which step of the build failed and stores
 -- the console log to disk, if there is one.
 get_failed_build_info :: Sess.Session -> BuildNumber -> IO (Either BuildStepFailure ())
@@ -113,10 +130,16 @@ get_failed_build_info sess build_number = do
 
   putStrLn $ "Fetching from: " ++ fetch_url
 
-  r <- Sess.getWith opts sess fetch_url
-  let steps_list = r ^. responseBody . key "steps" . _Array
+  either_r <- safeGetUrl (Sess.getWith opts sess) fetch_url
 
-  return $ mapM_ get_step_failure steps_list
+  case either_r of
+    Right r -> do
+      let steps_list = r ^. NW.responseBody . key "steps" . _Array
+
+      return $ mapM_ get_step_failure steps_list
+    Left err_message -> do
+      putStrLn $ "PROBLEM: Failed in get_failed_build_info with message: " ++ err_message
+      return $ Right ()
 
   where
     fetch_url = get_single_build_url build_number
@@ -126,11 +149,18 @@ get_failed_build_info sess build_number = do
 get_single_build_list :: Sess.Session -> Int -> Int -> IO [Build]
 get_single_build_list sess limit offset = do
 
-  r <- Sess.getWith opts sess fetch_url
-  let inner_list = r ^. responseBody . _Array
-      builds_list = map itemToBuild $ V.toList inner_list
+  either_r <- safeGetUrl (Sess.getWith opts sess) fetch_url
 
-  return builds_list
+  case either_r of
+    Right r -> do
+
+      let inner_list = r ^. NW.responseBody . _Array
+          builds_list = map itemToBuild $ V.toList inner_list
+
+      return builds_list
+    Left err_message -> do
+      putStrLn $ "PROBLEM: Failed in get_single_build_list with message: " ++ err_message
+      return []
 
   where
     fetch_url = get_build_list_url "master"
@@ -142,11 +172,33 @@ get_single_build_list sess limit offset = do
       & param "limit" .~ [T.pack $ show limit]
 
 
-populate_builds :: Int -> IO [Build]
-populate_builds max_build_count = do
+populate_builds :: Int -> Int -> IO [Build]
+populate_builds max_build_count offset = do
 
-  sess <- Sess.newSession
-  get_single_build_list sess builds_per_page 0
+  if max_build_count > 0
+    then do
+
+      putStrLn $ unwords [
+          "Getting builds starting at"
+        , show offset
+        , "(" ++ show max_build_count ++ " left)"
+        ]
+
+      sess <- Sess.newSession
+      builds <- get_single_build_list sess builds_per_page offset
+
+      let fetched_build_count = length builds
+          builds_left = max_build_count - fetched_build_count
+
+          earliest_build_time = minimum $ map Builds.queued_at builds
+
+      putStrLn $ "Earliest build time found: " ++ show earliest_build_time
+
+      more_builds <- populate_builds builds_left $ offset + fetched_build_count
+      return $ builds ++ more_builds
+
+  else
+    return []
 
   where
     builds_per_page = min maxBuildPerPage max_build_count
@@ -192,11 +244,20 @@ store_log sess (build_number, failed_build_output) = do
   unless is_file_existing $ do
 
       putStrLn $ "Log not on disk. Downloading from: " ++ T.unpack download_url
-      r <- Sess.get sess $ T.unpack download_url
-      let parent_elements = r ^. responseBody . _Array
-          console_log = (V.head parent_elements) ^. key "message" . _String
 
-      TIO.writeFile full_filepath console_log
+
+      either_r <- safeGetUrl (Sess.get sess) $ T.unpack download_url
+
+      case either_r of
+        Right r -> do
+          let parent_elements = r ^. NW.responseBody . _Array
+              console_log = (V.head parent_elements) ^. key "message" . _String
+
+          TIO.writeFile full_filepath console_log
+        Left err_message -> do
+          putStrLn $ "PROBLEM: Failed in store_log with message: " ++ err_message
+          return ()
+
 
   where
     download_url = log_url failed_build_output

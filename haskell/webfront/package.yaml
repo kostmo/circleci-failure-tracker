@@ -18,6 +18,7 @@ executables:
     dependencies:
     - fetcher
     - scotty
+    - wai-middleware-static
     - blaze-html
     - blaze-markup
     - text

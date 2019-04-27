@@ -17,7 +17,6 @@ data BuildStepId = NewBuildStepId Int64
   deriving (Show, Generic)
 
 
-
 instance ToJSON BuildNumber
 instance FromJSON BuildNumber
 
