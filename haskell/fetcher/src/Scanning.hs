@@ -7,11 +7,9 @@ import           Control.Monad              (unless)
 import           Data.Aeson                 (Value, decode, encode)
 import           Data.Aeson.Lens            (key, _Array, _Bool, _Integral,
                                              _String)
-import           Data.Foldable              (for_)
 import           Data.List                  (intercalate)
 import           Data.Maybe                 (Maybe)
 import qualified Data.Maybe                 as Maybe
-import           Data.Text                  (Text)
 import qualified Data.Text                  as T
 import qualified Data.Text.Internal.Search  as Search
 import qualified Data.Text.IO               as TIO
@@ -211,7 +209,7 @@ scan_all_logs conn scannable = do
   scan_id <- SqlWrite.insert_scan_id conn
   matches <- mapM scan_log scannable
 
-  mapM_ (SqlWrite.store_matches conn) matches
+  mapM_ (SqlWrite.store_matches conn scan_id) matches
 
   return $ length matches
 

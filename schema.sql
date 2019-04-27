@@ -88,7 +88,8 @@ CREATE TABLE public.matches (
     line_number integer,
     line_text text,
     span_start integer,
-    span_end integer
+    span_end integer,
+    scan_id integer
 );
 
 
@@ -364,12 +365,27 @@ CREATE TABLE public.pattern_tags (
 ALTER TABLE public.pattern_tags OWNER TO postgres;
 
 --
+-- Name: scannable_build_steps; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.scannable_build_steps AS
+ SELECT builds.build_num,
+    build_steps.id AS step_id,
+    build_steps.name AS step_name
+   FROM (public.builds
+     LEFT JOIN public.build_steps ON ((builds.build_num = build_steps.build)))
+  WHERE ((build_steps.name IS NOT NULL) AND (NOT build_steps.is_timeout));
+
+
+ALTER TABLE public.scannable_build_steps OWNER TO postgres;
+
+--
 -- Name: scans; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.scans (
     id integer NOT NULL,
-    "timestamp" timestamp with time zone
+    "timestamp" timestamp with time zone DEFAULT now()
 );
 
 
@@ -415,20 +431,33 @@ ALTER TABLE public.unattributed_failed_builds OWNER TO postgres;
 -- Name: unscanned_patterns; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.unscanned_patterns AS
+CREATE VIEW public.unscanned_patterns WITH (security_barrier='false') AS
  SELECT foo.build_num,
     count(foo.patt) AS patt_count,
-    string_agg((foo.patt)::text, ','::text) AS unscanned_patts
+    string_agg((foo.patt)::text, ','::text ORDER BY foo.patt) AS unscanned_patts
    FROM (( SELECT patterns.id AS patt,
-            builds.build_num
+            scannable_build_steps.build_num
            FROM public.patterns,
-            public.builds) foo
+            public.scannable_build_steps) foo
      LEFT JOIN public.scanned_patterns ON (((foo.patt = scanned_patterns.pattern) AND (foo.build_num = scanned_patterns.build))))
   WHERE (scanned_patterns.scan IS NULL)
   GROUP BY foo.build_num;
 
 
 ALTER TABLE public.unscanned_patterns OWNER TO postgres;
+
+--
+-- Name: unvisited_builds; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.unvisited_builds AS
+ SELECT builds.build_num
+   FROM (public.builds
+     LEFT JOIN public.build_steps ON ((builds.build_num = build_steps.build)))
+  WHERE (build_steps.id IS NULL);
+
+
+ALTER TABLE public.unvisited_builds OWNER TO postgres;
 
 --
 -- Name: build_steps id; Type: DEFAULT; Schema: public; Owner: postgres
@@ -575,6 +604,13 @@ CREATE INDEX fk_pattern_step ON public.pattern_step_applicability USING btree (p
 
 
 --
+-- Name: fk_scan_id; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX fk_scan_id ON public.matches USING btree (scan_id);
+
+
+--
 -- Name: fk_tag_pattern; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -640,6 +676,14 @@ ALTER TABLE ONLY public.matches
 
 ALTER TABLE ONLY public.matches
     ADD CONSTRAINT matches_build_step_fkey FOREIGN KEY (build_step) REFERENCES public.build_steps(id);
+
+
+--
+-- Name: matches matches_scan_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.matches
+    ADD CONSTRAINT matches_scan_id_fkey FOREIGN KEY (scan_id) REFERENCES public.scans(id);
 
 
 --
@@ -793,6 +837,13 @@ GRANT ALL ON TABLE public.pattern_tags TO logan;
 
 
 --
+-- Name: TABLE scannable_build_steps; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.scannable_build_steps TO logan;
+
+
+--
 -- Name: TABLE scans; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -818,6 +869,13 @@ GRANT ALL ON TABLE public.unattributed_failed_builds TO logan;
 --
 
 GRANT ALL ON TABLE public.unscanned_patterns TO logan;
+
+
+--
+-- Name: TABLE unvisited_builds; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.unvisited_builds TO logan;
 
 
 --

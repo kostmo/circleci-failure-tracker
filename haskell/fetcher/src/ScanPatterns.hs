@@ -5,7 +5,6 @@
 module ScanPatterns where
 
 import           Data.Aeson
-import           Data.Aeson.Types
 import           Data.ByteString    (ByteString)
 import           Data.Text          (Text)
 import           Data.Text.Encoding (decodeUtf8)
@@ -75,10 +74,10 @@ pattern_list = [
   , NewPattern (RegularExpression "([^\\s]+):(\\d+):(\\d+): error:")
     "Compilation error" ["compile"] []
 
-  , NewPattern (RegularExpression "[  FAILED  ]\\s+([^\\s]+)")
+  , NewPattern (RegularExpression "\\[  FAILED  \\]\\s+([^\\s]+)")
      "Failed test" ["runtime"] ["Test"]
 
-  , NewPattern (RegularExpression "[  FAILED  ]\\s+(\\d+) tests?, listed below:")
+  , NewPattern (RegularExpression "\\[  FAILED  \\]\\s+(\\d+) tests?, listed below:")
       "Failed test count" ["runtime"] ["Test"]
 
   , NewPattern (LiteralExpression "TypeError: ")

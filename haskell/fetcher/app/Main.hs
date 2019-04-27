@@ -58,14 +58,12 @@ mainAppCode args = do
   Scanning.store_build_failure_metadata conn unvisited_builds_list
 
   putStrLn "Scanning logs..."
-  matches <- Scanning.scan_all_logs conn scannable_build_patterns
-  print matches
+  _match_count <- Scanning.scan_all_logs conn scannable_build_patterns
 
   build_list <- SqlRead.query_builds
   print $ "Build count: " ++ show (length build_list)
 
   where
-    title_string = title args
     fetch_count = buildCount args
 
 

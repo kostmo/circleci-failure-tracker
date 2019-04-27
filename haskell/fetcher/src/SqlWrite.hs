@@ -56,15 +56,16 @@ store_builds_list conn builds_list =
     map build_to_tuple builds_list
 
 
-store_matches :: Connection -> (SqlRead.ScanScope, [ScanPatterns.ScanMatch]) -> IO Int64
-store_matches conn (scope, scoped_matches) =
+store_matches :: Connection -> Int64 -> (SqlRead.ScanScope, [ScanPatterns.ScanMatch]) -> IO Int64
+store_matches conn scan_id (scope, scoped_matches) =
   executeMany conn insertion_sql $ map to_tuple replicated
 
   where
     replicated = concatMap (\x -> [(scope, x)])  scoped_matches
 
     to_tuple (scan_scope, match) = (
-        step_id
+        scan_id
+      , step_id
       , DbHelpers.db_id $ ScanPatterns.scanned_pattern match
       , ScanPatterns.line_number match_deets
       , ScanPatterns.line_text match_deets
@@ -75,16 +76,13 @@ store_matches conn (scope, scoped_matches) =
         match_deets = ScanPatterns.match_details match
         (NewBuildStepId step_id) = SqlRead.build_step_id scan_scope
 
-    insertion_sql = "INSERT INTO matches(build_step, pattern, line_number, line_text, span_start, span_end) VALUES(?,?,?,?,?,?);"
-
-
+    insertion_sql = "INSERT INTO matches(scan_id, build_step, pattern, line_number, line_text, span_start, span_end) VALUES(?,?,?,?,?,?,?);"
 
 
 populate_patterns :: Connection -> [ScanPatterns.Pattern] -> IO ()
 populate_patterns conn pattern_list = do
 
   for_ pattern_list $ \(ScanPatterns.NewPattern expression_obj description tags applicable_steps) -> do
-
 
     [Only pattern_id] <- query conn pattern_insertion_sql (ScanPatterns.is_regex expression_obj, ScanPatterns.pattern_text expression_obj, description, False, False)
 

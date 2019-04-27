@@ -6,12 +6,12 @@ function pattern_details() {
 
 	var table = new Tabulator("#example-table", {
 	    height:"400px",
-	    layout:"fitColumns",
+	    layout:"fitData",
 	    placeholder:"No Data Set",
 	    columns:[
 		{title:"Build number", field:"build_number", formatter: "link", formatterParams: {urlPrefix: "https://circleci.com/gh/pytorch/pytorch/"}},
 
-		{title:"Build step", field:"build_step", sorter:"string", width:200},
+		{title:"Build step", field:"build_step", sorter:"string"},
 		{title:"Line number", field:"line_number", sorter:"number"},
 		{title:"Line text", field:"line_text", sorter:"string"},
 	    ],
@@ -24,10 +24,10 @@ function main() {
 
 	var table = new Tabulator("#example-table", {
 	    height:"400px",
-	    layout:"fitColumns",
+	    layout:"fitData",
 	    placeholder:"No Data Set",
 	    columns:[
-		{title:"Tags", field:"tags", sorter:"string", width:200},
+		{title:"Tags", field:"tags", sorter:"string"},
 		{title:"Pattern", field:"pattern", sorter:"string"},
 		{title:"Description", field:"description", sorter:"string", formatter: "link", formatterParams: {urlPrefix: "static/pattern-details.html?pattern_id=", urlField: "id"}},
 		{title:"Frequency", field:"frequency", sorter:"number", align:"center"},
