@@ -12,6 +12,7 @@ executables:
     source-dirs: src
     ghc-options:
     - -W
+    - -Wall
     - -fwarn-tabs
     - -fhpc
     - -threaded

@@ -39,6 +39,7 @@ import qualified SqlRead
 import qualified SqlWrite
 
 
+maxBuildPerPage :: Int
 maxBuildPerPage = 100
 
 
@@ -60,6 +61,7 @@ get_single_build_url (NewBuildNumber build_number) = intercalate "/"
   ]
 
 
+get_build_list_url :: String -> String
 get_build_list_url branch_name = intercalate "/"
   [ Constants.circleci_api_base
   , "tree"
@@ -72,9 +74,9 @@ get_step_failure step_val =
   mapM_ get_failure my_array
   where
     my_array = step_val ^. key "actions" . _Array
-    step_name = step_val ^. key "name" . _String
+    stepname = step_val ^. key "name" . _String
 
-    step_fail = Left . NewBuildStepFailure step_name
+    step_fail = Left . NewBuildStepFailure stepname
 
     get_failure x
       | (x ^. key "failed" . _Bool) = step_fail $
@@ -86,7 +88,7 @@ get_step_failure step_val =
 get_console_url :: (BuildNumber, Maybe BuildStepFailure) -> Maybe (BuildNumber, BuildFailureOutput)
 get_console_url (build_number, maybe_thing) = case maybe_thing of
   Nothing -> Nothing
-  Just (NewBuildStepFailure step_name mode) -> case mode of
+  Just (NewBuildStepFailure _stepname mode) -> case mode of
       BuildTimeoutFailure             -> Nothing
       ScannableFailure failure_output -> Just (build_number, failure_output)
 
@@ -98,7 +100,7 @@ store_build_failure_metadata conn unvisited_builds_list = do
 
   sess <- Sess.newSession
   let unvisited_count = length unvisited_builds_list
-  visitations <- for (zip [1..] unvisited_builds_list) $ \(idx, build_num) -> do
+  visitations <- for (zip [1::Int ..] unvisited_builds_list) $ \(idx, build_num) -> do
     putStrLn $ "Visiting " ++ show idx ++ "/" ++ show unvisited_count ++ " builds..."
     result <- Scanning.get_failed_build_info sess build_num
     let foo = case result of
@@ -216,7 +218,7 @@ store_all_logs scannable = do
 
   sess <- Sess.newSession
 
-  pages <- mapM_ (Scanning.store_log sess) scannable
+  _pages <- mapM_ (Scanning.store_log sess) scannable
   return ()
 
 
@@ -245,7 +247,6 @@ store_log sess (build_number, failed_build_output) = do
 
       putStrLn $ "Log not on disk. Downloading from: " ++ T.unpack download_url
 
-
       either_r <- safeGetUrl (Sess.get sess) $ T.unpack download_url
 
       case either_r of
@@ -257,7 +258,6 @@ store_log sess (build_number, failed_build_output) = do
         Left err_message -> do
           putStrLn $ "PROBLEM: Failed in store_log with message: " ++ err_message
           return ()
-
 
   where
     download_url = log_url failed_build_output
