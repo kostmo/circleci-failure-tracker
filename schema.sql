@@ -296,6 +296,41 @@ ALTER SEQUENCE public.match_id_seq OWNED BY public.matches.id;
 
 
 --
+-- Name: pattern_tags; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.pattern_tags (
+    pattern integer NOT NULL,
+    tag character varying(20) NOT NULL
+);
+
+
+ALTER TABLE public.pattern_tags OWNER TO postgres;
+
+--
+-- Name: pattern_frequency_summary; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.pattern_frequency_summary AS
+ SELECT global_match_frequency.id,
+    global_match_frequency.regex,
+    global_match_frequency.expression,
+    global_match_frequency.description,
+    global_match_frequency.matching_build_count,
+    global_match_frequency.most_recent,
+    global_match_frequency.earliest,
+    COALESCE(foo.tags, ''::text) AS tags
+   FROM (public.global_match_frequency
+     LEFT JOIN ( SELECT pattern_tags.pattern,
+            string_agg((pattern_tags.tag)::text, ','::text) AS tags
+           FROM public.pattern_tags
+          GROUP BY pattern_tags.pattern) foo ON ((foo.pattern = global_match_frequency.id)))
+  ORDER BY global_match_frequency.matching_build_count DESC;
+
+
+ALTER TABLE public.pattern_frequency_summary OWNER TO postgres;
+
+--
 -- Name: pattern_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
 --
 
@@ -353,18 +388,6 @@ ALTER SEQUENCE public.pattern_step_applicability_id_seq OWNED BY public.pattern_
 
 
 --
--- Name: pattern_tags; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.pattern_tags (
-    pattern integer NOT NULL,
-    tag character varying(20) NOT NULL
-);
-
-
-ALTER TABLE public.pattern_tags OWNER TO postgres;
-
---
 -- Name: scannable_build_steps; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -385,7 +408,8 @@ ALTER TABLE public.scannable_build_steps OWNER TO postgres;
 
 CREATE TABLE public.scans (
     id integer NOT NULL,
-    "timestamp" timestamp with time zone DEFAULT now()
+    "timestamp" timestamp with time zone DEFAULT now(),
+    latest_pattern_id integer NOT NULL
 );
 
 
@@ -604,6 +628,13 @@ CREATE INDEX fk_pattern_step ON public.pattern_step_applicability USING btree (p
 
 
 --
+-- Name: fk_patternid; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX fk_patternid ON public.scans USING btree (latest_pattern_id);
+
+
+--
 -- Name: fk_scan_id; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -711,6 +742,14 @@ ALTER TABLE ONLY public.scanned_patterns
 
 
 --
+-- Name: scans scans_latest_pattern_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.scans
+    ADD CONSTRAINT scans_latest_pattern_id_fkey FOREIGN KEY (latest_pattern_id) REFERENCES public.patterns(id);
+
+
+--
 -- Name: TABLE build_steps; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -809,6 +848,20 @@ GRANT ALL ON SEQUENCE public.match_id_seq TO logan;
 
 
 --
+-- Name: TABLE pattern_tags; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.pattern_tags TO logan;
+
+
+--
+-- Name: TABLE pattern_frequency_summary; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.pattern_frequency_summary TO logan;
+
+
+--
 -- Name: SEQUENCE pattern_id_seq; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -827,13 +880,6 @@ GRANT ALL ON TABLE public.pattern_step_applicability TO logan;
 --
 
 GRANT ALL ON SEQUENCE public.pattern_step_applicability_id_seq TO logan;
-
-
---
--- Name: TABLE pattern_tags; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.pattern_tags TO logan;
 
 
 --

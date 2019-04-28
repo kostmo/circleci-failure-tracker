@@ -13,12 +13,12 @@ library:
   source-dirs: src
   ghc-options:
   - -W
-  - -Wall
   - -Werror
   - -fwarn-tabs
   - -O2
-  - -threaded
-  - -with-rtsopts=-N4
+#  - -prof
+#  - -fprof-auto
+#  - -fprof-cafs
   dependencies:
     - wreq
     - lens
@@ -31,7 +31,6 @@ library:
     - regex-base
     - regex-pcre
     - postgresql-simple
-    - pureMD5
     - filepath
     - containers
     - unordered-containers
@@ -47,6 +46,11 @@ executables:
     - -fwarn-tabs
     - -O2
     - -threaded
+#    - -prof
+#    - -with-rtsopts=-xc
+#    - -rtsopts
+#    - -fprof-auto
+#    - -fprof-cafs
     - -with-rtsopts=-N4
     dependencies:
     - fetcher

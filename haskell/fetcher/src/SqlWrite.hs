@@ -18,6 +18,7 @@ import qualified SqlRead
 
 -- | We do not wipe the "builds" or "build_steps" tables
 -- because visiting each build is expensive.
+allTableTruncations :: [Query]
 allTableTruncations = [
     "TRUNCATE scanned_patterns CASCADE;"
   , "TRUNCATE scans CASCADE;"
@@ -44,9 +45,9 @@ scrub_tables conn = do
 
 
 build_to_tuple :: Build -> (Int64, Text, Text, Text)
-build_to_tuple (NewBuild (NewBuildNumber build_num) vcs_rev queued_at jobname) = (build_num, vcs_rev, queued_at_string, jobname)
+build_to_tuple (NewBuild (NewBuildNumber build_num) vcs_rev queuedat jobname) = (build_num, vcs_rev, queued_at_string, jobname)
   where
-    queued_at_string = T.pack $ formatTime defaultTimeLocale rfc822DateFormat queued_at
+    queued_at_string = T.pack $ formatTime defaultTimeLocale rfc822DateFormat queuedat
 
 
 store_builds_list :: Connection -> [Build] -> IO Int64
@@ -99,24 +100,24 @@ populate_patterns conn pattern_list = do
 
 
 step_failure_to_tuple :: (BuildNumber, Maybe BuildStepFailure) -> (Int64, Maybe Text, Bool)
-step_failure_to_tuple (NewBuildNumber build_id, maybe_thing) = case maybe_thing of
-  Nothing -> (build_id, Nothing, False)
-  Just (NewBuildStepFailure step_name mode) -> let
+step_failure_to_tuple (NewBuildNumber buildnum, maybe_thing) = case maybe_thing of
+  Nothing -> (buildnum, Nothing, False)
+  Just (NewBuildStepFailure stepname mode) -> let
     is_timeout = case mode of
       BuildTimeoutFailure              -> True
       ScannableFailure _failure_output -> False
-     in (build_id, Just step_name, is_timeout)
+     in (buildnum, Just stepname, is_timeout)
 
 
-insert_build_visitations :: Connection -> [(BuildNumber, Maybe BuildStepFailure)] -> IO Int64
-insert_build_visitations conn visitations = do
+insert_build_visitation :: Connection -> (BuildNumber, Maybe BuildStepFailure) -> IO Int64
+insert_build_visitation conn visitation = do
 
-  executeMany conn "INSERT INTO build_steps(build, name, is_timeout) VALUES(?,?,?)" $
-    map step_failure_to_tuple visitations
+  [Only step_id] <- query conn "INSERT INTO build_steps(build, name, is_timeout) VALUES(?,?,?) RETURNING id;" $ step_failure_to_tuple visitation
+  return step_id
 
 
-insert_scan_id :: Connection -> IO Int64
-insert_scan_id conn = do
-  [Only pattern_id] <- query_ conn "INSERT INTO scans(timestamp) VALUES(DEFAULT) RETURNING id;"
+insert_scan_id :: Connection -> SqlRead.PatternId -> IO Int64
+insert_scan_id conn (SqlRead.NewPatternId pattern_id)  = do
+  [Only pattern_id] <- query conn "INSERT INTO scans(latest_pattern_id) VALUES(?) RETURNING id;" (Only pattern_id)
   return pattern_id
 

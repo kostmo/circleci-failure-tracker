@@ -5,4 +5,6 @@ packages:
 - fetcher
 
 extra-deps:
+- time-1.9.2
 
+allow-newer: true

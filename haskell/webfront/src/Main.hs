@@ -69,6 +69,7 @@ main = do
     S.post "/start-scan" $ do
       S.html $ BRT.renderHtml getHtml
 
+    -- XXX Not used
     S.get "/pattern-occurrences" $ do
       pattern_id <- S.param "pattern_id"
       rows <- liftIO $ SqlRead.get_pattern_occurrence_rows pattern_id
@@ -92,13 +93,18 @@ main = do
       builds_list <- liftIO SqlRead.api_step
       S.json builds_list
 
-    S.get "/api/patterns" $ do
-      builds_list <- liftIO SqlRead.api_patterns
-      S.json builds_list
-
-    S.get "/api/pattern-details" $ do
+    S.get "/api/pattern" $ do
       pattern_id <- S.param "pattern_id"
-      rows <- liftIO $ SqlRead.get_pattern_details pattern_id
+      patterns_list <- liftIO $ SqlRead.api_single_pattern $ read pattern_id
+      S.json patterns_list
+
+    S.get "/api/patterns" $ do
+      patterns_list <- liftIO $ SqlRead.api_patterns
+      S.json patterns_list
+
+    S.get "/api/pattern-matches" $ do
+      pattern_id <- S.param "pattern_id"
+      rows <- liftIO $ SqlRead.get_pattern_matches pattern_id
       S.json rows
 
     S.options "/" $ do

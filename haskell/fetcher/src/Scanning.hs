@@ -10,16 +10,18 @@ import           Data.Aeson.Lens            (key, _Array, _Bool, _Integral,
                                              _String)
 import qualified Data.ByteString.Char8      as BSC
 import qualified Data.ByteString.Lazy       as LBS
+import           Data.Fixed                 (Fixed (MkFixed))
+import           Data.Foldable              (for_)
 import           Data.List                  (intercalate)
 import           Data.Maybe                 (Maybe)
 import qualified Data.Maybe                 as Maybe
 import qualified Data.Text                  as T
 import qualified Data.Text.Internal.Search  as Search
 import qualified Data.Text.IO               as TIO
-import           Data.Traversable           (for)
+import           Data.Time                  (UTCTime)
+import qualified Data.Time.Clock            as Clock
 import qualified Data.Vector                as V
 import           Database.PostgreSQL.Simple (Connection)
-import           GHC.Int                    (Int64)
 import           Network.HTTP.Client
 import           Network.Wreq               as NW
 import qualified Network.Wreq.Session       as Sess
@@ -93,36 +95,49 @@ get_console_url (build_number, maybe_thing) = case maybe_thing of
       ScannableFailure failure_output -> Just (build_number, failure_output)
 
 
--- | TODO We may want to interleave the console log downloads from AWS
+-- | This function stores a record to the databse
+-- immediately upon build visitation. We do this instead of waiting
+-- until the end so that we can resume progress if the process is
+-- interrupted.
+--
+-- TODO We may want to interleave the console log downloads from AWS
 -- with the build details visitations from CircleCI.
-store_build_failure_metadata :: Connection -> [BuildNumber] -> IO Int64
+store_build_failure_metadata :: Connection -> [BuildNumber] -> IO ()
 store_build_failure_metadata conn unvisited_builds_list = do
+
+  createDirectoryIfMissing True Constants.url_cache_basedir
 
   sess <- Sess.newSession
   let unvisited_count = length unvisited_builds_list
-  visitations <- for (zip [1::Int ..] unvisited_builds_list) $ \(idx, build_num) -> do
+  for_ (zip [1::Int ..] unvisited_builds_list) $ \(idx, build_num) -> do
     putStrLn $ "Visiting " ++ show idx ++ "/" ++ show unvisited_count ++ " builds..."
     result <- Scanning.get_failed_build_info sess build_num
     let foo = case result of
           Right _ -> Nothing
           Left x  -> Just x
-    return (build_num, foo)
 
-  store_all_logs $ Maybe.mapMaybe get_console_url visitations
+        pair = (build_num, foo)
 
-  SqlWrite.insert_build_visitations conn visitations
+    case get_console_url pair of
+      Nothing        -> return ()
+      Just something -> Scanning.store_log sess something
+
+    SqlWrite.insert_build_visitation conn pair
+
 
 
 safeGetUrl ::
-     (String -> IO (Response LBS.ByteString))
-  -> String -- ^ URL
+     IO (Response LBS.ByteString)
   -> IO (Either String (Response LBS.ByteString))
-safeGetUrl f url = do
-  (Right <$> f url) `E.catch` handler
+safeGetUrl f = do
+  (Right <$> f) `E.catch` handler
   where
     handler :: HttpException -> IO (Either String (Response LBS.ByteString))
     handler (HttpExceptionRequest _ (StatusCodeException r _)) =
       return $ Left $ BSC.unpack (r ^. NW.responseStatus . statusMessage)
+    handler x =
+      return $ Left $ show x
+
 
 
 -- | Determines which step of the build failed and stores
@@ -132,7 +147,7 @@ get_failed_build_info sess build_number = do
 
   putStrLn $ "Fetching from: " ++ fetch_url
 
-  either_r <- safeGetUrl (Sess.getWith opts sess) fetch_url
+  either_r <- safeGetUrl $ Sess.getWith opts sess fetch_url
 
   case either_r of
     Right r -> do
@@ -151,7 +166,7 @@ get_failed_build_info sess build_number = do
 get_single_build_list :: Sess.Session -> Int -> Int -> IO [Build]
 get_single_build_list sess limit offset = do
 
-  either_r <- safeGetUrl (Sess.getWith opts sess) fetch_url
+  either_r <- safeGetUrl $ Sess.getWith opts sess fetch_url
 
   case either_r of
     Right r -> do
@@ -175,7 +190,19 @@ get_single_build_list sess limit offset = do
 
 
 populate_builds :: Int -> Int -> IO [Build]
-populate_builds max_build_count offset = do
+populate_builds max_build_count max_age_days = do
+
+  sess <- Sess.newSession
+  current_time <- Clock.getCurrentTime
+  let seconds_per_day = Clock.nominalDiffTimeToSeconds $ Clock.nominalDay
+      seconds_offset = seconds_per_day * (MkFixed $ fromIntegral max_age_days)
+      time_diff = Clock.secondsToNominalDiffTime seconds_offset
+      earliest_requested_time = Clock.addUTCTime time_diff current_time
+  populate_builds_recurse sess 0 earliest_requested_time max_build_count
+
+
+populate_builds_recurse :: Sess.Session -> Int -> UTCTime -> Int -> IO [Build]
+populate_builds_recurse sess offset earliest_requested_time max_build_count = do
 
   if max_build_count > 0
     then do
@@ -186,17 +213,19 @@ populate_builds max_build_count offset = do
         , "(" ++ show max_build_count ++ " left)"
         ]
 
-      sess <- Sess.newSession
       builds <- get_single_build_list sess builds_per_page offset
 
       let fetched_build_count = length builds
           builds_left = max_build_count - fetched_build_count
 
-          earliest_build_time = minimum $ map Builds.queued_at builds
+      case Safe.minimumMay $ map Builds.queued_at builds of
+        Nothing ->
+          putStrLn "No builds found."
+        Just earliest_build_time ->
+          putStrLn $ "Earliest build time found: " ++ show earliest_build_time
 
-      putStrLn $ "Earliest build time found: " ++ show earliest_build_time
-
-      more_builds <- populate_builds builds_left $ offset + fetched_build_count
+      let next_offset = offset + fetched_build_count
+      more_builds <- populate_builds_recurse sess next_offset earliest_requested_time builds_left
       return $ builds ++ more_builds
 
   else
@@ -206,20 +235,14 @@ populate_builds max_build_count offset = do
     builds_per_page = min maxBuildPerPage max_build_count
 
 
-store_all_logs :: [(BuildNumber, BuildFailureOutput)] -> IO ()
-store_all_logs scannable = do
+-- TODO - these are methods of parallelization:
 
-  createDirectoryIfMissing True Constants.url_cache_basedir
+
 
 --  pages <- withTaskGroup 4 $ \g -> mapConcurrently g Scanning.store_log scannable
 --  pages <- mapConcurrently Scanning.store_log scannable
 
 --  pages <- withPool 1 $ \pool -> parallel_ pool $ map Scanning.store_log scannable
-
-  sess <- Sess.newSession
-
-  _pages <- mapM_ (Scanning.store_log sess) scannable
-  return ()
 
 
 gen_cached_path_prefix :: BuildNumber -> String
@@ -247,7 +270,7 @@ store_log sess (build_number, failed_build_output) = do
 
       putStrLn $ "Log not on disk. Downloading from: " ++ T.unpack download_url
 
-      either_r <- safeGetUrl (Sess.get sess) $ T.unpack download_url
+      either_r <- safeGetUrl $ Sess.get sess $ T.unpack download_url
 
       case either_r of
         Right r -> do
@@ -267,16 +290,20 @@ store_log sess (build_number, failed_build_output) = do
 scan_all_logs :: Connection -> [SqlRead.ScanScope] -> IO Int
 scan_all_logs conn scannable = do
 
-  scan_id <- SqlWrite.insert_scan_id conn
-  matches <- mapM scan_log scannable
+  latest_pattern_id <- SqlRead.get_latest_pattern_id conn
+  scan_id <- SqlWrite.insert_scan_id conn latest_pattern_id
+  matches <- mapM (scan_log latest_pattern_id) scannable
 
   mapM_ (SqlWrite.store_matches conn scan_id) matches
 
   return $ length matches
 
 
-scan_log :: SqlRead.ScanScope -> IO (SqlRead.ScanScope, [ScanPatterns.ScanMatch])
-scan_log scan_scope = do
+scan_log ::
+     SqlRead.PatternId
+  -> SqlRead.ScanScope
+  -> IO (SqlRead.ScanScope, [ScanPatterns.ScanMatch])
+scan_log _latest_patern_id scan_scope = do
 
   putStrLn $ "Scanning log: " ++ full_filepath
 

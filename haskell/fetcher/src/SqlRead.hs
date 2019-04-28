@@ -12,7 +12,6 @@ import           Data.List.Split            (splitOn)
 import qualified Data.Maybe                 as Maybe
 import qualified Data.Set                   as Set
 import           Data.Text                  (Text)
-import qualified Data.Text                  as T
 import           Data.Text.Encoding         (encodeUtf8)
 import           Data.Time                  (UTCTime)
 import           Data.Time.Calendar         (Day)
@@ -81,12 +80,23 @@ get_patterns conn = do
     applicable_steps_sql = "SELECT step_name FROM pattern_step_applicability WHERE pattern = ?;"
 
 
-get_unvisited_build_ids :: Connection -> IO [BuildNumber]
-get_unvisited_build_ids conn = do
-  rows <- query_ conn sql
+get_unvisited_build_ids :: Connection -> Int -> IO [BuildNumber]
+get_unvisited_build_ids conn limit = do
+  rows <- query conn sql (Only limit)
   forM rows $ \(Only num) -> return $ NewBuildNumber num
   where
-    sql = "SELECT build_num FROM unvisited_builds ORDER BY build_NUM DESC;"
+    sql = "SELECT build_num FROM unvisited_builds ORDER BY build_NUM DESC LIMIT ?;"
+
+
+data PatternId = NewPatternId Int64
+
+
+get_latest_pattern_id :: Connection -> IO PatternId
+get_latest_pattern_id conn = do
+  [Only pattern_id] <- query_ conn sql
+  return $ NewPatternId pattern_id
+  where
+    sql = "SELECT id FROM patterns ORDER BY id DESC LIMIT 1"
 
 
 query_builds :: IO [Build]
@@ -172,12 +182,22 @@ data PatternRecord = PatternRecord {
 instance ToJSON PatternRecord where
   toJSON = genericToJSON dropUnderscore
 
+api_single_pattern :: Int ->  IO [PatternRecord]
+api_single_pattern pattern_id = do
+  conn <- DbHelpers.get_connection
+
+  xs <- query conn "SELECT id, regex, expression, description, matching_build_count, most_recent, earliest, tags FROM pattern_frequency_summary WHERE id = ?" (Only pattern_id)
+  inners <- forM xs $ \(a, b, c, d, e, f, g, h) ->
+    return $ PatternRecord a b c d e f g h
+
+  return inners
+
 
 api_patterns :: IO [PatternRecord]
 api_patterns = do
   conn <- DbHelpers.get_connection
 
-  xs <- query_ conn "SELECT id, regex, expression, description, matching_build_count, most_recent, earliest, COALESCE(foo.tags, '') FROM global_match_frequency LEFT JOIN (SELECT pattern, string_agg(pattern_tags.tag, ',') AS tags FROM pattern_tags GROUP BY pattern) foo ON foo.pattern = global_match_frequency.id ORDER BY matching_build_count DESC"
+  xs <- query_ conn "SELECT id, regex, expression, description, matching_build_count, most_recent, earliest, tags FROM pattern_frequency_summary"
   inners <- forM xs $ \(a, b, c, d, e, f, g, h) ->
     return $ PatternRecord a b c d e f g h
 
@@ -197,8 +217,8 @@ instance ToJSON PatternOccurrences where
   toJSON = genericToJSON dropUnderscore
 
 
-get_pattern_details :: Int -> IO [PatternOccurrences]
-get_pattern_details pattern_id = do
+get_pattern_matches :: Int -> IO [PatternOccurrences]
+get_pattern_matches pattern_id = do
   rows <- get_pattern_occurrence_rows pattern_id
   return $ map txform rows
 

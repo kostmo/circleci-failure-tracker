@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveGeneric     #-}
+{-# LANGUAGE LambdaCase        #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 
@@ -26,7 +27,7 @@ is_regex x = case x of
 
 
 pattern_text :: MatchExpression -> Text
-pattern_text x = case x of
+pattern_text = \case
           RegularExpression x -> decodeUtf8 x
           LiteralExpression x -> x
 
