@@ -36,7 +36,9 @@ library:
     - unordered-containers
     - split
     - safe
-
+    - disk-free-space
+    - process
+    
 executables:
   run-scanner:
     main: Main.hs

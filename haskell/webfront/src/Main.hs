@@ -3,7 +3,6 @@
 import           Control.Monad.IO.Class        (liftIO)
 import qualified Data.Maybe                    as Maybe
 import           Data.Text                     (Text)
-import qualified Data.Text                     as T
 import           Network.Wai.Middleware.Static
 import           System.Environment            (lookupEnv)
 import qualified Text.Blaze.Html.Renderer.Text as BRT
@@ -95,6 +94,10 @@ main = do
 
     S.get "/api/summary" $ do
       stats <- liftIO SqlRead.api_summary_stats
+      S.json stats
+
+    S.get "/api/disk" $ do
+      stats <- liftIO SqlRead.api_disk_space
       S.json stats
 
     S.get "/api/pattern" $ do

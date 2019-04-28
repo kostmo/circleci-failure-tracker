@@ -1,6 +1,10 @@
 table {border-collapse: collapse;}
 table, th, td {border: 1px solid black;}
 td, th {padding: 0.3em;}
+
+
+.noborder {border: none;}
+
 .highlight {background-color: #800; color: white;}
 .is_regex {background-color: #fdd;}
 

@@ -18,15 +18,19 @@ import           Data.Time.Calendar         (Day)
 import           Database.PostgreSQL.Simple
 import           GHC.Generics
 import           GHC.Int                    (Int64)
+import           System.Directory           (doesFileExist)
+import qualified System.DiskSpace           as DiskSpace
+import           System.Process             (readProcess)
 
-import           Builds
+import qualified Builds
+import qualified Constants
 import qualified DbHelpers
 import qualified ScanPatterns
 
 
 data ScanScope = NewScanScope {
-    build_number       :: BuildNumber -- ^ used to retrieve the console log file from disk
-  , build_step_id      :: BuildStepId
+    build_number       :: Builds.BuildNumber -- ^ used to retrieve the console log file from disk
+  , build_step_id      :: Builds.BuildStepId
   , unscanned_patterns :: [ScanPatterns.DbPattern]
   }
 
@@ -45,7 +49,7 @@ get_unscanned_build_patterns conn patterns_by_id = do
           where
             pattern_steps = ScanPatterns.applicable_steps $ DbHelpers.record p
         filtered_patterns = filter applicability_predicate patterns
-    in return $ NewScanScope (NewBuildNumber build_num) (NewBuildStepId step_id) filtered_patterns
+    in return $ NewScanScope (Builds.NewBuildNumber build_num) (Builds.NewBuildStepId step_id) filtered_patterns
 
   return buildnum_patt_id_tuples
   where
@@ -80,10 +84,10 @@ get_patterns conn = do
     applicable_steps_sql = "SELECT step_name FROM pattern_step_applicability WHERE pattern = ?;"
 
 
-get_unvisited_build_ids :: Connection -> Int -> IO [BuildNumber]
+get_unvisited_build_ids :: Connection -> Int -> IO [Builds.BuildNumber]
 get_unvisited_build_ids conn limit = do
   rows <- query conn sql (Only limit)
-  forM rows $ \(Only num) -> return $ NewBuildNumber num
+  forM rows $ \(Only num) -> return $ Builds.NewBuildNumber num
   where
     sql = "SELECT build_num FROM unvisited_builds ORDER BY build_NUM DESC LIMIT ?;"
 
@@ -99,13 +103,13 @@ get_latest_pattern_id conn = do
     sql = "SELECT id FROM patterns ORDER BY id DESC LIMIT 1"
 
 
-query_builds :: IO [Build]
+query_builds :: IO [Builds.Build]
 query_builds = do
   conn <- DbHelpers.get_connection
 
   xs <- query_ conn "SELECT build_num, vcs_revision, queued_at, job_name FROM builds"
   forM xs $ \(buildnum, vcs_rev, queuedat, jobname) ->
-    return $ NewBuild (NewBuildNumber buildnum) vcs_rev queuedat jobname
+    return $ Builds.NewBuild (Builds.NewBuildNumber buildnum) vcs_rev queuedat jobname
 
 
 data ApiResponse a = ApiResponse {
@@ -138,22 +142,22 @@ api_jobs = do
   return $ ApiResponse inners
 
 
-data StepApiRecord = StepApiRecord {
+data PieSliceApiRecord = PieSliceApiRecord {
     _name :: Text
-  , _y    :: Int
+  , _y    :: Integer
   } deriving Generic
 
-instance ToJSON StepApiRecord where
+instance ToJSON PieSliceApiRecord where
   toJSON = genericToJSON dropUnderscore
 
 
-api_step :: IO (ApiResponse StepApiRecord)
+api_step :: IO (ApiResponse PieSliceApiRecord)
 api_step = do
   conn <- DbHelpers.get_connection
 
   xs <- query_ conn "SELECT name, COUNT(*) AS freq FROM build_steps WHERE name IS NOT NULL GROUP BY name ORDER BY freq DESC"
   inners <- forM xs $ \(stepname, freq) ->
-    return $ StepApiRecord stepname freq
+    return $ PieSliceApiRecord stepname freq
 
   return $ ApiResponse inners
 
@@ -190,6 +194,28 @@ api_summary_stats = do
   [Only matched_steps_count] <- query_ conn "SELECT COUNT(*) FROM (SELECT build_step FROM public.matches GROUP BY build_step) x"
 
   return $ SummaryStats build_count visited_count explained_count timeout_count matched_steps_count
+
+
+api_disk_space = do
+
+  dir_exists <- doesFileExist Constants.url_cache_basedir
+
+  cache_bytes <- if dir_exists
+    then do
+      output <- readProcess "/usr/bin/du" ["--bytes", Constants.url_cache_basedir] ""
+      return $ read $ takeWhile (\x -> x /= '\t') output
+    else return 0
+
+  let avail_space_reference_dir = if dir_exists
+        then Constants.url_cache_basedir
+        else "/"
+
+  avail_bytes <- DiskSpace.getAvailSpace avail_space_reference_dir
+
+  return $ [
+      PieSliceApiRecord "Available" avail_bytes
+    , PieSliceApiRecord "Consumed" cache_bytes
+    ]
 
 
 data PatternRecord = PatternRecord {
@@ -250,7 +276,7 @@ get_pattern_matches pattern_id = do
     txform (Builds.NewBuildNumber buildnum, stepname, ScanPatterns.NewMatchDetails line_text line_number (ScanPatterns.NewMatchSpan start end)) = PatternOccurrences buildnum stepname line_number line_text start end
 
 
-get_pattern_occurrence_rows :: Int -> IO [(BuildNumber, Text, ScanPatterns.MatchDetails)]
+get_pattern_occurrence_rows :: Int -> IO [(Builds.BuildNumber, Text, ScanPatterns.MatchDetails)]
 get_pattern_occurrence_rows pattern_id = do
 
   conn <- DbHelpers.get_connection
@@ -258,7 +284,7 @@ get_pattern_occurrence_rows pattern_id = do
   xs <- query conn "SELECT build_steps.build AS build_num, build_steps.name, line_number, line_text, span_start, span_end FROM (SELECT * FROM matches WHERE pattern = ?) foo JOIN build_steps ON build_steps.id = foo.build_step ORDER BY build_num DESC" (Only pattern_id)
 
   inners <- forM xs $ \(buildnum, stepname, line_number, line_text, span_start, span_end) ->
-    return $ (NewBuildNumber buildnum, stepname, ScanPatterns.NewMatchDetails line_text line_number $ ScanPatterns.NewMatchSpan span_start span_end)
+    return $ (Builds.NewBuildNumber buildnum, stepname, ScanPatterns.NewMatchDetails line_text line_number $ ScanPatterns.NewMatchSpan span_start span_end)
 
   return inners
 

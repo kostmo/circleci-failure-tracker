@@ -185,7 +185,9 @@ CREATE TABLE public.patterns (
     description text,
     is_infra boolean,
     regex boolean,
-    has_nondeterministic_values boolean
+    has_nondeterministic_values boolean,
+    is_retired boolean DEFAULT false NOT NULL,
+    specificity integer DEFAULT 1 NOT NULL
 );
 
 
