@@ -173,7 +173,7 @@ function main() {
       Highcharts.chart('container-failed-commits-by-day', {
 
            chart: {
-                type: 'spline'
+                type: 'line'
             },
             title: {
                 text: 'Failed commits by day'
@@ -200,7 +200,7 @@ function main() {
             },
 
             plotOptions: {
-                spline: {
+                line: {
                     marker: {
                         enabled: true
                     }

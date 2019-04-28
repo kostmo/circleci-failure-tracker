@@ -93,6 +93,10 @@ main = do
       builds_list <- liftIO SqlRead.api_step
       S.json builds_list
 
+    S.get "/api/summary" $ do
+      stats <- liftIO SqlRead.api_summary_stats
+      S.json stats
+
     S.get "/api/pattern" $ do
       pattern_id <- S.param "pattern_id"
       patterns_list <- liftIO $ SqlRead.api_single_pattern $ read pattern_id

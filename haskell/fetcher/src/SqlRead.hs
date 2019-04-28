@@ -168,6 +168,30 @@ api_failed_commits_by_day = do
   return $ ApiResponse inners
 
 
+data SummaryStats = SummaryStats {
+    _failed_builds      :: Int
+  , _visited_builds     :: Int
+  , _explained_failures :: Int
+  , _timed_out_steps    :: Int
+  , _steps_with_a_match :: Int
+  } deriving Generic
+
+instance ToJSON SummaryStats where
+  toJSON = genericToJSON dropUnderscore
+
+
+api_summary_stats = do
+  conn <- DbHelpers.get_connection
+
+  [Only build_count] <- query_ conn "SELECT COUNT(*) FROM builds"
+  [Only visited_count] <- query_ conn "SELECT COUNT(*) FROM build_steps"
+  [Only explained_count] <- query_ conn "SELECT COUNT(*) FROM build_steps WHERE name IS NOT NULL"
+  [Only timeout_count] <- query_ conn "SELECT COUNT(*) FROM build_steps WHERE is_timeout"
+  [Only matched_steps_count] <- query_ conn "SELECT COUNT(*) FROM (SELECT build_step FROM public.matches GROUP BY build_step) x"
+
+  return $ SummaryStats build_count visited_count explained_count timeout_count matched_steps_count
+
+
 data PatternRecord = PatternRecord {
     _id          :: Int64
   , _is_regex    :: Bool
