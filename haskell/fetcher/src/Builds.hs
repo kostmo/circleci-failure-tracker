@@ -26,6 +26,7 @@ data Build = NewBuild {
   , vcs_revision :: Text
   , queued_at    :: UTCTime
   , job_name     :: Text
+  , branch       :: Text
   } deriving (Show, Generic)
 
 instance ToJSON Build

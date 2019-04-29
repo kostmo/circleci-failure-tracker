@@ -10,6 +10,7 @@ import           Data.Aeson.Lens            (key, _Array, _Bool, _Integral,
                                              _String)
 import qualified Data.ByteString.Char8      as BSC
 import qualified Data.ByteString.Lazy       as LBS
+
 import           Data.Fixed                 (Fixed (MkFixed))
 import           Data.Foldable              (for_)
 import           Data.List                  (intercalate)
@@ -22,6 +23,7 @@ import           Data.Time                  (UTCTime)
 import qualified Data.Time.Clock            as Clock
 import qualified Data.Vector                as V
 import           Database.PostgreSQL.Simple (Connection)
+import           GHC.Int                    (Int64)
 import           Network.HTTP.Client
 import           Network.Wreq               as NW
 import qualified Network.Wreq.Session       as Sess
@@ -32,6 +34,7 @@ import           System.FilePath
 import           Text.Regex.Base
 import           Text.Regex.PCRE            ((=~~))
 
+import qualified ScanCatchupResources
 import           Builds
 import qualified Constants
 import qualified DbHelpers
@@ -45,12 +48,22 @@ maxBuildPerPage :: Int
 maxBuildPerPage = 100
 
 
+updateBuildsList :: Connection -> Int -> Int -> IO Int64
+updateBuildsList conn fetch_count age_days = do
+  putStrLn "Fetching builds list..."
+  downloaded_builds_list <- Scanning.populate_builds fetch_count age_days
+
+  putStrLn "Storing builds list..."
+  SqlWrite.store_builds_list conn downloaded_builds_list
+
+
 itemToBuild :: Value -> Build
 itemToBuild json = NewBuild {
     build_id = NewBuildNumber $ view (key "build_num" . _Integral) json
   , vcs_revision = view (key "vcs_revision" . _String) json
   , queued_at = head $ Maybe.fromJust $ decode (encode [queued_at_string])
   , job_name = view (key "workflows" . key "job_name" . _String) json
+  , branch = view (key "branch" . _String) json
   }
   where
     queued_at_string = view (key "queued_at" . _String) json
@@ -69,6 +82,7 @@ get_build_list_url branch_name = intercalate "/"
   , "tree"
   , branch_name
   ]
+
 
 
 get_step_failure :: Value -> Either BuildStepFailure ()
@@ -95,19 +109,54 @@ get_console_url (build_number, maybe_thing) = case maybe_thing of
       ScannableFailure failure_output -> Just (build_number, failure_output)
 
 
--- | This function stores a record to the databse
+prepare_scan_resources :: Connection -> IO ScanRecords.ScanCatchupResources
+prepare_scan_resources conn = do
+
+  aws_sess <- Sess.newSession
+  circle_sess <- Sess.newSession
+
+  cache_dir <- Constants.get_url_cache_basedir
+  createDirectoryIfMissing True cache_dir
+
+  pattern_records <- SqlRead.get_patterns conn
+  let patterns_by_id = DbHelpers.to_dict pattern_records
+
+  return $ ScanRecords.ScanCatchupResources
+    conn
+    aws_sess
+    circle_sess
+    patterns_by_id
+
+
+
+catchup_scan :: ScanRecords.ScanCatchupResources -> Maybe String -> IO ()
+catchup_scan scan_resources maybe_aws_link = do
+  
+  scannable_build_patterns <- SqlRead.get_unscanned_build_patterns conn patterns_by_id
+
+
+  matches <- mapM (scan_log latest_pattern_id) scannable
+
+  mapM_ (SqlWrite.store_matches conn scan_id) matches
+
+
+
+
+-- | This function stores a record to the database
 -- immediately upon build visitation. We do this instead of waiting
 -- until the end so that we can resume progress if the process is
 -- interrupted.
 --
 -- TODO We may want to interleave the console log downloads from AWS
 -- with the build details visitations from CircleCI.
-store_build_failure_metadata :: Connection -> [BuildNumber] -> IO ()
-store_build_failure_metadata conn unvisited_builds_list = do
+process_builds ::  -> [BuildNumber] -> IO ()
+process_builds scan_resources unvisited_builds_list = do
 
-  createDirectoryIfMissing True Constants.url_cache_basedir
 
-  sess <- Sess.newSession
+  latest_pattern_id <- SqlRead.get_latest_pattern_id conn
+  scan_id <- SqlWrite.insert_scan_id conn latest_pattern_id
+
+  
   let unvisited_count = length unvisited_builds_list
   for_ (zip [1::Int ..] unvisited_builds_list) $ \(idx, build_num) -> do
     putStrLn $ "Visiting " ++ show idx ++ "/" ++ show unvisited_count ++ " builds..."
@@ -245,19 +294,18 @@ populate_builds_recurse sess offset earliest_requested_time max_build_count = do
 --  pages <- withPool 1 $ \pool -> parallel_ pool $ map Scanning.store_log scannable
 
 
-gen_cached_path_prefix :: BuildNumber -> String
-gen_cached_path_prefix (NewBuildNumber build_num) =
-  Constants.url_cache_basedir </> filename_stem
+gen_log_path :: BuildNumber -> IO FilePath
+gen_log_path (NewBuildNumber build_num) = do
+  cache_dir <- Constants.get_url_cache_basedir
+  return $ cache_dir </> filename_stem <.> "log"
   where
     filename_stem = show build_num
 
 
-gen_log_path :: BuildNumber -> String
-gen_log_path build_number = gen_cached_path_prefix build_number <.> "log"
-
-
 store_log :: Sess.Session -> (BuildNumber, BuildFailureOutput) -> IO ()
 store_log sess (build_number, failed_build_output) = do
+
+  full_filepath <- gen_log_path build_number
 
   -- We normally shouldn't even need to perform this check, because upstream we've already
   -- filtered out pre-cached build logs via the SQL query.
@@ -284,19 +332,6 @@ store_log sess (build_number, failed_build_output) = do
 
   where
     download_url = log_url failed_build_output
-    full_filepath = gen_log_path build_number
-
-
-scan_all_logs :: Connection -> [SqlRead.ScanScope] -> IO Int
-scan_all_logs conn scannable = do
-
-  latest_pattern_id <- SqlRead.get_latest_pattern_id conn
-  scan_id <- SqlWrite.insert_scan_id conn latest_pattern_id
-  matches <- mapM (scan_log latest_pattern_id) scannable
-
-  mapM_ (SqlWrite.store_matches conn scan_id) matches
-
-  return $ length matches
 
 
 scan_log ::
@@ -305,6 +340,7 @@ scan_log ::
   -> IO (SqlRead.ScanScope, [ScanPatterns.ScanMatch])
 scan_log _latest_patern_id scan_scope = do
 
+  full_filepath <- gen_log_path $ SqlRead.build_number scan_scope
   putStrLn $ "Scanning log: " ++ full_filepath
 
   console_log <- TIO.readFile full_filepath
@@ -327,5 +363,3 @@ scan_log _latest_patern_id scan_scope = do
 
         match_partial x = ScanPatterns.NewScanMatch db_pattern $ ScanPatterns.NewMatchDetails line line_number x
         pattern_obj = DbHelpers.record db_pattern
-
-    full_filepath = gen_log_path $ SqlRead.build_number scan_scope

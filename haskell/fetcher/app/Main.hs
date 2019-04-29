@@ -1,5 +1,6 @@
 import           Control.Concurrent  (getNumCapabilities)
 import           Options.Applicative
+import           System.IO
 
 import qualified DbHelpers
 import qualified Scanning
@@ -32,37 +33,22 @@ myCliParser = NewCommandLineArgs
 mainAppCode :: CommandLineArgs -> IO ()
 mainAppCode args = do
 
-  conn <- DbHelpers.get_connection
-  SqlWrite.scrub_tables conn
-
-  SqlWrite.populate_patterns conn ScanPatterns.pattern_list
+  hSetBuffering stdout LineBuffering
 
   capability_count <- getNumCapabilities
   print $ "Num capabilities: " ++ show capability_count
 
+  conn <- SqlWrite.prepare_database
 
-  -- TODO: Handle network exceptions: https://stackoverflow.com/a/48365179/105137
 
-  putStrLn "Fetching builds list..."
-  downloaded_builds_list <- Scanning.populate_builds fetch_count age_days
-
-  putStrLn "Storing builds list..."
-  SqlWrite.store_builds_list conn downloaded_builds_list
-
-  pattern_records <- SqlRead.get_patterns conn
-  let patterns_by_id = DbHelpers.to_dict pattern_records
-  scannable_build_patterns <- SqlRead.get_unscanned_build_patterns conn patterns_by_id
+  Scanning.updateBuildsList conn fetch_count age_days
 
   unvisited_builds_list <- SqlRead.get_unvisited_build_ids conn fetch_count
 
+  scan_resources <- Scanning.prepare_scan_resources conn
+
   putStrLn "Storing build failure metadata..."
-  Scanning.store_build_failure_metadata conn unvisited_builds_list
-
-  putStrLn "Scanning logs..."
-  _match_count <- Scanning.scan_all_logs conn scannable_build_patterns
-
-  build_list <- SqlRead.query_builds
-  print $ "Build count: " ++ show (length build_list)
+  Scanning.scan_resources scan_resources unvisited_builds_list
 
   where
     fetch_count = buildCount args

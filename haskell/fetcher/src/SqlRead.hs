@@ -18,13 +18,15 @@ import           Data.Time.Calendar         (Day)
 import           Database.PostgreSQL.Simple
 import           GHC.Generics
 import           GHC.Int                    (Int64)
-import           System.Directory           (doesFileExist)
+import           System.Directory           (doesDirectoryExist)
 import qualified System.DiskSpace           as DiskSpace
+import           System.FilePath.Posix      (takeDirectory)
 import           System.Process             (readProcess)
 
 import qualified Builds
 import qualified Constants
 import qualified DbHelpers
+import qualified ScanCatchupResources
 import qualified ScanPatterns
 
 
@@ -37,8 +39,8 @@ data ScanScope = NewScanScope {
 
 -- | Some scan patterns only apply to certain build steps, so we
 -- filter those in this function.
-get_unscanned_build_patterns :: Connection -> HashMap Int64 ScanPatterns.Pattern -> IO [SqlRead.ScanScope]
-get_unscanned_build_patterns conn patterns_by_id = do
+get_unscanned_build_patterns :: ScanRecords.ScanCatchupResources -> IO [SqlRead.ScanScope]
+get_unscanned_build_patterns scan_resources = do
 
   unscanned_patterns_list <- query_ conn sql
 
@@ -107,9 +109,9 @@ query_builds :: IO [Builds.Build]
 query_builds = do
   conn <- DbHelpers.get_connection
 
-  xs <- query_ conn "SELECT build_num, vcs_revision, queued_at, job_name FROM builds"
-  forM xs $ \(buildnum, vcs_rev, queuedat, jobname) ->
-    return $ Builds.NewBuild (Builds.NewBuildNumber buildnum) vcs_rev queuedat jobname
+  xs <- query_ conn "SELECT build_num, vcs_revision, queued_at, job_name, branch FROM builds"
+  forM xs $ \(buildnum, vcs_rev, queuedat, jobname, branch) ->
+    return $ Builds.NewBuild (Builds.NewBuildNumber buildnum) vcs_rev queuedat jobname branch
 
 
 data ApiResponse a = ApiResponse {
@@ -198,17 +200,18 @@ api_summary_stats = do
 
 api_disk_space = do
 
-  dir_exists <- doesFileExist Constants.url_cache_basedir
+  cache_dir <- Constants.get_url_cache_basedir
+  dir_exists <- doesDirectoryExist cache_dir
 
   cache_bytes <- if dir_exists
     then do
-      output <- readProcess "/usr/bin/du" ["--bytes", Constants.url_cache_basedir] ""
+      output <- readProcess "/usr/bin/du" ["--bytes", cache_dir] ""
       return $ read $ takeWhile (\x -> x /= '\t') output
     else return 0
 
   let avail_space_reference_dir = if dir_exists
-        then Constants.url_cache_basedir
-        else "/"
+        then cache_dir
+        else takeDirectory cache_dir
 
   avail_bytes <- DiskSpace.getAvailSpace avail_space_reference_dir
 

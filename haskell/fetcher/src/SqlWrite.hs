@@ -31,6 +31,15 @@ allTableTruncations = [
   ]
 
 
+prepare_database :: IO Connection
+prepare_database = do
+
+  conn <- DbHelpers.get_connection
+  SqlWrite.scrub_tables conn
+  SqlWrite.populate_patterns conn ScanPatterns.pattern_list
+  return conn
+
+
 scrub_tables :: Connection -> IO ()
 scrub_tables conn = do
 
@@ -44,8 +53,8 @@ scrub_tables conn = do
     -- table_truncation_commands = init allTableTruncations
 
 
-build_to_tuple :: Build -> (Int64, Text, Text, Text)
-build_to_tuple (NewBuild (NewBuildNumber build_num) vcs_rev queuedat jobname) = (build_num, vcs_rev, queued_at_string, jobname)
+build_to_tuple :: Build -> (Int64, Text, Text, Text, Text)
+build_to_tuple (NewBuild (NewBuildNumber build_num) vcs_rev queuedat jobname branch) = (build_num, vcs_rev, queued_at_string, jobname, branch)
   where
     queued_at_string = T.pack $ formatTime defaultTimeLocale rfc822DateFormat queuedat
 
@@ -53,7 +62,7 @@ build_to_tuple (NewBuild (NewBuildNumber build_num) vcs_rev queuedat jobname) = 
 store_builds_list :: Connection -> [Build] -> IO Int64
 store_builds_list conn builds_list =
 
-  executeMany conn "INSERT INTO builds(build_num, vcs_revision, queued_at, job_name) VALUES(?,?,?,?) ON CONFLICT (build_num) DO NOTHING" $
+  executeMany conn "INSERT INTO builds(build_num, vcs_revision, queued_at, job_name, branch) VALUES(?,?,?,?,?) ON CONFLICT (build_num) DO NOTHING" $
     map build_to_tuple builds_list
 
 

@@ -14,6 +14,10 @@ pattern are tracked and presented in a web UI.
 The database tracks which builds have been already scanned for a given pattern,
 so that scanning may be performed incrementally, or resumed after abort.
 
+## Flow diagram
+
+![flow diagram](docs/data-flow.svg)
+
 ## Usage
 
 ### Prerequisites
