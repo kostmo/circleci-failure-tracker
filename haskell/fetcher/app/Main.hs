@@ -2,6 +2,7 @@ import           Control.Concurrent  (getNumCapabilities)
 import           Options.Applicative
 import           System.IO
 
+import qualified BuildRetrieval
 import qualified DbHelpers
 import qualified Scanning
 import qualified ScanPatterns
@@ -12,7 +13,7 @@ import qualified SqlWrite
 data CommandLineArgs = NewCommandLineArgs {
     buildCount :: Int
   , ageDays    :: Int
-  , title      :: String
+  , dbHostname :: String
   , quiet      :: Bool
     -- ^ Suppress console output
   }
@@ -40,15 +41,12 @@ mainAppCode args = do
 
   conn <- SqlWrite.prepare_database
 
-
-  Scanning.updateBuildsList conn fetch_count age_days
-
+  BuildRetrieval.updateBuildsList conn fetch_count age_days
   unvisited_builds_list <- SqlRead.get_unvisited_build_ids conn fetch_count
 
-  scan_resources <- Scanning.prepare_scan_resources conn
-
   putStrLn "Storing build failure metadata..."
-  Scanning.scan_resources scan_resources unvisited_builds_list
+  scan_resources <- Scanning.prepare_scan_resources conn
+  Scanning.process_builds scan_resources unvisited_builds_list
 
   where
     fetch_count = buildCount args

@@ -13,6 +13,7 @@ import           GHC.Int                    (Int64)
 
 import qualified DbHelpers
 import qualified ScanPatterns
+import qualified ScanRecords
 import qualified SqlRead
 
 
@@ -66,11 +67,13 @@ store_builds_list conn builds_list =
     map build_to_tuple builds_list
 
 
-store_matches :: Connection -> Int64 -> (SqlRead.ScanScope, [ScanPatterns.ScanMatch]) -> IO Int64
-store_matches conn scan_id (scope, scoped_matches) =
+store_matches :: ScanRecords.ScanCatchupResources -> (SqlRead.ScanScope, [ScanPatterns.ScanMatch]) -> IO Int64
+store_matches scan_resources (scope, scoped_matches) =
   executeMany conn insertion_sql $ map to_tuple replicated
 
   where
+    conn = ScanRecords.db_conn scan_resources
+    scan_id = ScanRecords.scan_id scan_resources
     replicated = concatMap (\x -> [(scope, x)])  scoped_matches
 
     to_tuple (scan_scope, match) = (
@@ -118,15 +121,18 @@ step_failure_to_tuple (NewBuildNumber buildnum, maybe_thing) = case maybe_thing 
      in (buildnum, Just stepname, is_timeout)
 
 
-insert_build_visitation :: Connection -> (BuildNumber, Maybe BuildStepFailure) -> IO Int64
-insert_build_visitation conn visitation = do
+insert_build_visitation :: ScanRecords.ScanCatchupResources -> (BuildNumber, Maybe BuildStepFailure) -> IO Int64
+insert_build_visitation scan_resources visitation = do
 
   [Only step_id] <- query conn "INSERT INTO build_steps(build, name, is_timeout) VALUES(?,?,?) RETURNING id;" $ step_failure_to_tuple visitation
   return step_id
 
+  where
+    conn = ScanRecords.db_conn scan_resources
 
-insert_scan_id :: Connection -> SqlRead.PatternId -> IO Int64
-insert_scan_id conn (SqlRead.NewPatternId pattern_id)  = do
+
+insert_scan_id :: Connection -> ScanRecords.PatternId -> IO Int64
+insert_scan_id conn (ScanRecords.NewPatternId pattern_id)  = do
   [Only pattern_id] <- query conn "INSERT INTO scans(latest_pattern_id) VALUES(?) RETURNING id;" (Only pattern_id)
   return pattern_id
 

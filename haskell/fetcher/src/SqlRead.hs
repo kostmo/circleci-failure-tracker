@@ -6,7 +6,6 @@ module SqlRead where
 
 import           Control.Monad              (forM)
 import           Data.Aeson
-import           Data.HashMap.Strict        (HashMap)
 import qualified Data.HashMap.Strict        as HashMap
 import           Data.List.Split            (splitOn)
 import qualified Data.Maybe                 as Maybe
@@ -18,16 +17,13 @@ import           Data.Time.Calendar         (Day)
 import           Database.PostgreSQL.Simple
 import           GHC.Generics
 import           GHC.Int                    (Int64)
-import           System.Directory           (doesDirectoryExist)
-import qualified System.DiskSpace           as DiskSpace
-import           System.FilePath.Posix      (takeDirectory)
-import           System.Process             (readProcess)
 
 import qualified Builds
-import qualified Constants
 import qualified DbHelpers
-import qualified ScanCatchupResources
 import qualified ScanPatterns
+import qualified ScanRecords
+import qualified WebApi
+
 
 
 data ScanScope = NewScanScope {
@@ -42,11 +38,11 @@ data ScanScope = NewScanScope {
 get_unscanned_build_patterns :: ScanRecords.ScanCatchupResources -> IO [SqlRead.ScanScope]
 get_unscanned_build_patterns scan_resources = do
 
-  unscanned_patterns_list <- query_ conn sql
+  unscanned_patterns_list <- query_ (ScanRecords.db_conn scan_resources) sql
 
   buildnum_patt_id_tuples <- forM unscanned_patterns_list $ \(build_num, step_id, step_name, comma_sep_pattern_ids) -> let
         pattern_ids = Set.fromList $ map read $ splitOn "," $ comma_sep_pattern_ids
-        patterns = Maybe.mapMaybe (\x -> DbHelpers.WithId x <$> HashMap.lookup x patterns_by_id) $ Set.toList pattern_ids
+        patterns = Maybe.mapMaybe (\x -> DbHelpers.WithId x <$> HashMap.lookup x (ScanRecords.patterns_by_id scan_resources)) $ Set.toList pattern_ids
         applicability_predicate p = null pattern_steps || step_name `elem` pattern_steps
           where
             pattern_steps = ScanPatterns.applicable_steps $ DbHelpers.record p
@@ -94,13 +90,10 @@ get_unvisited_build_ids conn limit = do
     sql = "SELECT build_num FROM unvisited_builds ORDER BY build_NUM DESC LIMIT ?;"
 
 
-data PatternId = NewPatternId Int64
-
-
-get_latest_pattern_id :: Connection -> IO PatternId
+get_latest_pattern_id :: Connection -> IO ScanRecords.PatternId
 get_latest_pattern_id conn = do
   [Only pattern_id] <- query_ conn sql
-  return $ NewPatternId pattern_id
+  return $ ScanRecords.NewPatternId pattern_id
   where
     sql = "SELECT id FROM patterns ORDER BY id DESC LIMIT 1"
 
@@ -114,64 +107,39 @@ query_builds = do
     return $ Builds.NewBuild (Builds.NewBuildNumber buildnum) vcs_rev queuedat jobname branch
 
 
-data ApiResponse a = ApiResponse {
-    rows :: [a]
-  } deriving Generic
-
-instance (ToJSON a) => ToJSON (ApiResponse a)
 
 
-dropUnderscore = defaultOptions {fieldLabelModifier = drop 1}
-
-
-data JobApiRecord = JobApiRecord {
-    _name :: Text
-  , _data :: [Int]
-  } deriving Generic
-
-instance ToJSON JobApiRecord where
-  toJSON = genericToJSON dropUnderscore
-
-
-api_jobs :: IO (ApiResponse JobApiRecord)
+api_jobs :: IO (WebApi.ApiResponse WebApi.JobApiRecord)
 api_jobs = do
   conn <- DbHelpers.get_connection
 
   xs <- query_ conn "SELECT job_name, freq FROM job_failure_frequencies"
   inners <- forM xs $ \(jobname, freq) ->
-    return $ JobApiRecord jobname [freq]
+    return $ WebApi.JobApiRecord jobname [freq]
 
-  return $ ApiResponse inners
-
-
-data PieSliceApiRecord = PieSliceApiRecord {
-    _name :: Text
-  , _y    :: Integer
-  } deriving Generic
-
-instance ToJSON PieSliceApiRecord where
-  toJSON = genericToJSON dropUnderscore
+  return $ WebApi.ApiResponse inners
 
 
-api_step :: IO (ApiResponse PieSliceApiRecord)
+
+api_step :: IO (WebApi.ApiResponse WebApi.PieSliceApiRecord)
 api_step = do
   conn <- DbHelpers.get_connection
 
   xs <- query_ conn "SELECT name, COUNT(*) AS freq FROM build_steps WHERE name IS NOT NULL GROUP BY name ORDER BY freq DESC"
   inners <- forM xs $ \(stepname, freq) ->
-    return $ PieSliceApiRecord stepname freq
+    return $ WebApi.PieSliceApiRecord stepname freq
 
-  return $ ApiResponse inners
+  return $ WebApi.ApiResponse inners
 
 
 -- | Note that Highcharts expects the dates to be in ascending order
-api_failed_commits_by_day :: IO (ApiResponse (Day, Int))
+api_failed_commits_by_day :: IO (WebApi.ApiResponse (Day, Int))
 api_failed_commits_by_day = do
   conn <- DbHelpers.get_connection
 
   inners <- query_ conn "SELECT queued_at::date AS date, COUNT(*) FROM (SELECT vcs_revision, MAX(queued_at) queued_at FROM builds GROUP BY vcs_revision) foo GROUP BY date ORDER BY date ASC"
 
-  return $ ApiResponse inners
+  return $ WebApi.ApiResponse inners
 
 
 data SummaryStats = SummaryStats {
@@ -183,7 +151,7 @@ data SummaryStats = SummaryStats {
   } deriving Generic
 
 instance ToJSON SummaryStats where
-  toJSON = genericToJSON dropUnderscore
+  toJSON = genericToJSON WebApi.dropUnderscore
 
 
 api_summary_stats = do
@@ -198,29 +166,6 @@ api_summary_stats = do
   return $ SummaryStats build_count visited_count explained_count timeout_count matched_steps_count
 
 
-api_disk_space = do
-
-  cache_dir <- Constants.get_url_cache_basedir
-  dir_exists <- doesDirectoryExist cache_dir
-
-  cache_bytes <- if dir_exists
-    then do
-      output <- readProcess "/usr/bin/du" ["--bytes", cache_dir] ""
-      return $ read $ takeWhile (\x -> x /= '\t') output
-    else return 0
-
-  let avail_space_reference_dir = if dir_exists
-        then cache_dir
-        else takeDirectory cache_dir
-
-  avail_bytes <- DiskSpace.getAvailSpace avail_space_reference_dir
-
-  return $ [
-      PieSliceApiRecord "Available" avail_bytes
-    , PieSliceApiRecord "Consumed" cache_bytes
-    ]
-
-
 data PatternRecord = PatternRecord {
     _id          :: Int64
   , _is_regex    :: Bool
@@ -233,7 +178,8 @@ data PatternRecord = PatternRecord {
   } deriving Generic
 
 instance ToJSON PatternRecord where
-  toJSON = genericToJSON dropUnderscore
+  toJSON = genericToJSON WebApi.dropUnderscore
+
 
 api_single_pattern :: Int ->  IO [PatternRecord]
 api_single_pattern pattern_id = do
@@ -267,7 +213,7 @@ data PatternOccurrences = PatternOccurrences {
   } deriving Generic
 
 instance ToJSON PatternOccurrences where
-  toJSON = genericToJSON dropUnderscore
+  toJSON = genericToJSON WebApi.dropUnderscore
 
 
 get_pattern_matches :: Int -> IO [PatternOccurrences]

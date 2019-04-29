@@ -30,6 +30,7 @@ library:
     - time
     - regex-base
     - regex-pcre
+    - unix
     - postgresql-simple
     - filepath
     - containers

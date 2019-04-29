@@ -15,6 +15,7 @@ import qualified Builds
 import qualified HtmlUtils
 import qualified ScanPatterns
 import qualified SqlRead
+import qualified WebApi
 
 
 getHtml :: H.Html
@@ -97,7 +98,7 @@ main = do
       S.json stats
 
     S.get "/api/disk" $ do
-      stats <- liftIO SqlRead.api_disk_space
+      stats <- liftIO WebApi.api_disk_space
       S.json stats
 
     S.get "/api/pattern" $ do

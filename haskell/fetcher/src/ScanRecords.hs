@@ -9,10 +9,16 @@ import qualified Network.Wreq.Session       as Sess
 
 import qualified ScanPatterns
 
+
+data PatternId = NewPatternId Int64
+
+
 data ScanCatchupResources = ScanCatchupResources {
-    db_conn        :: Connection
-  , aws_sess       :: Sess.Session
-  , circle_sess    :: Sess.Session
-  , patterns_by_id :: HashMap Int64 ScanPatterns.Pattern
+    db_conn           :: Connection
+  , aws_sess          :: Sess.Session
+  , circle_sess       :: Sess.Session
+  , scan_id           :: Int64
+  , newest_pattern_id :: PatternId
+  , patterns_by_id    :: HashMap Int64 ScanPatterns.Pattern
   }
 

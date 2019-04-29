@@ -2,16 +2,10 @@
 
 module Scanning where
 
-import qualified Control.Exception          as E
 import           Control.Lens               hiding ((<.>))
 import           Control.Monad              (unless)
-import           Data.Aeson                 (Value, decode, encode)
-import           Data.Aeson.Lens            (key, _Array, _Bool, _Integral,
-                                             _String)
-import qualified Data.ByteString.Char8      as BSC
-import qualified Data.ByteString.Lazy       as LBS
-
-import           Data.Fixed                 (Fixed (MkFixed))
+import           Data.Aeson                 (Value)
+import           Data.Aeson.Lens            (key, _Array, _Bool, _String)
 import           Data.Foldable              (for_)
 import           Data.List                  (intercalate)
 import           Data.Maybe                 (Maybe)
@@ -19,54 +13,29 @@ import qualified Data.Maybe                 as Maybe
 import qualified Data.Text                  as T
 import qualified Data.Text.Internal.Search  as Search
 import qualified Data.Text.IO               as TIO
-import           Data.Time                  (UTCTime)
-import qualified Data.Time.Clock            as Clock
 import qualified Data.Vector                as V
 import           Database.PostgreSQL.Simple (Connection)
 import           GHC.Int                    (Int64)
-import           Network.HTTP.Client
 import           Network.Wreq               as NW
 import qualified Network.Wreq.Session       as Sess
 import qualified Safe
 import           System.Directory           (createDirectoryIfMissing,
                                              doesFileExist)
 import           System.FilePath
+import           System.Posix.Files         (fileSize, getFileStatus)
+import           System.Posix.Types         (COff (COff))
 import           Text.Regex.Base
 import           Text.Regex.PCRE            ((=~~))
 
-import qualified ScanCatchupResources
 import           Builds
 import qualified Constants
 import qualified DbHelpers
+import qualified FetchHelpers
 import qualified ScanPatterns
+import qualified ScanRecords
 import           SillyMonoids               ()
 import qualified SqlRead
 import qualified SqlWrite
-
-
-maxBuildPerPage :: Int
-maxBuildPerPage = 100
-
-
-updateBuildsList :: Connection -> Int -> Int -> IO Int64
-updateBuildsList conn fetch_count age_days = do
-  putStrLn "Fetching builds list..."
-  downloaded_builds_list <- Scanning.populate_builds fetch_count age_days
-
-  putStrLn "Storing builds list..."
-  SqlWrite.store_builds_list conn downloaded_builds_list
-
-
-itemToBuild :: Value -> Build
-itemToBuild json = NewBuild {
-    build_id = NewBuildNumber $ view (key "build_num" . _Integral) json
-  , vcs_revision = view (key "vcs_revision" . _String) json
-  , queued_at = head $ Maybe.fromJust $ decode (encode [queued_at_string])
-  , job_name = view (key "workflows" . key "job_name" . _String) json
-  , branch = view (key "branch" . _String) json
-  }
-  where
-    queued_at_string = view (key "queued_at" . _String) json
 
 
 get_single_build_url :: BuildNumber -> String
@@ -74,15 +43,6 @@ get_single_build_url (NewBuildNumber build_number) = intercalate "/"
   [ Constants.circleci_api_base
   , show build_number
   ]
-
-
-get_build_list_url :: String -> String
-get_build_list_url branch_name = intercalate "/"
-  [ Constants.circleci_api_base
-  , "tree"
-  , branch_name
-  ]
-
 
 
 get_step_failure :: Value -> Either BuildStepFailure ()
@@ -121,46 +81,39 @@ prepare_scan_resources conn = do
   pattern_records <- SqlRead.get_patterns conn
   let patterns_by_id = DbHelpers.to_dict pattern_records
 
+  latest_pattern_id <- SqlRead.get_latest_pattern_id conn
+  scan_id <- SqlWrite.insert_scan_id conn latest_pattern_id
+
   return $ ScanRecords.ScanCatchupResources
     conn
     aws_sess
     circle_sess
+    scan_id
+    latest_pattern_id
     patterns_by_id
 
 
-
 catchup_scan :: ScanRecords.ScanCatchupResources -> Maybe String -> IO ()
-catchup_scan scan_resources maybe_aws_link = do
-  
-  scannable_build_patterns <- SqlRead.get_unscanned_build_patterns conn patterns_by_id
+catchup_scan scan_resources _maybe_aws_link = do
 
+  _scannable_build_patterns <- SqlRead.get_unscanned_build_patterns scan_resources
 
-  matches <- mapM (scan_log latest_pattern_id) scannable
-
-  mapM_ (SqlWrite.store_matches conn scan_id) matches
-
-
+  -- TODO
+--  matches <- mapM (scan_log $ ScanRecords.newest_pattern_id scan_resources) scannable
+--  mapM_ (SqlWrite.store_matches scan_resources) matches
+  return ()
 
 
 -- | This function stores a record to the database
 -- immediately upon build visitation. We do this instead of waiting
 -- until the end so that we can resume progress if the process is
 -- interrupted.
---
--- TODO We may want to interleave the console log downloads from AWS
--- with the build details visitations from CircleCI.
-process_builds ::  -> [BuildNumber] -> IO ()
+process_builds :: ScanRecords.ScanCatchupResources -> [BuildNumber] -> IO ()
 process_builds scan_resources unvisited_builds_list = do
 
-
-  latest_pattern_id <- SqlRead.get_latest_pattern_id conn
-  scan_id <- SqlWrite.insert_scan_id conn latest_pattern_id
-
-  
-  let unvisited_count = length unvisited_builds_list
   for_ (zip [1::Int ..] unvisited_builds_list) $ \(idx, build_num) -> do
     putStrLn $ "Visiting " ++ show idx ++ "/" ++ show unvisited_count ++ " builds..."
-    result <- Scanning.get_failed_build_info sess build_num
+    result <- get_failed_build_info scan_resources build_num
     let foo = case result of
           Right _ -> Nothing
           Left x  -> Just x
@@ -169,34 +122,26 @@ process_builds scan_resources unvisited_builds_list = do
 
     case get_console_url pair of
       Nothing        -> return ()
-      Just something -> Scanning.store_log sess something
+      Just something -> store_log scan_resources something
 
-    SqlWrite.insert_build_visitation conn pair
+    SqlWrite.insert_build_visitation scan_resources pair
 
+    catchup_scan scan_resources Nothing
+    return ()
 
-
-safeGetUrl ::
-     IO (Response LBS.ByteString)
-  -> IO (Either String (Response LBS.ByteString))
-safeGetUrl f = do
-  (Right <$> f) `E.catch` handler
   where
-    handler :: HttpException -> IO (Either String (Response LBS.ByteString))
-    handler (HttpExceptionRequest _ (StatusCodeException r _)) =
-      return $ Left $ BSC.unpack (r ^. NW.responseStatus . statusMessage)
-    handler x =
-      return $ Left $ show x
+    unvisited_count = length unvisited_builds_list
 
 
 
 -- | Determines which step of the build failed and stores
 -- the console log to disk, if there is one.
-get_failed_build_info :: Sess.Session -> BuildNumber -> IO (Either BuildStepFailure ())
-get_failed_build_info sess build_number = do
+get_failed_build_info :: ScanRecords.ScanCatchupResources -> BuildNumber -> IO (Either BuildStepFailure ())
+get_failed_build_info scan_resources build_number = do
 
   putStrLn $ "Fetching from: " ++ fetch_url
 
-  either_r <- safeGetUrl $ Sess.getWith opts sess fetch_url
+  either_r <- FetchHelpers.safeGetUrl $ Sess.getWith opts sess fetch_url
 
   case either_r of
     Right r -> do
@@ -210,88 +155,7 @@ get_failed_build_info sess build_number = do
   where
     fetch_url = get_single_build_url build_number
     opts = defaults & header "Accept" .~ [Constants.json_mime_type]
-
-
-get_single_build_list :: Sess.Session -> Int -> Int -> IO [Build]
-get_single_build_list sess limit offset = do
-
-  either_r <- safeGetUrl $ Sess.getWith opts sess fetch_url
-
-  case either_r of
-    Right r -> do
-
-      let inner_list = r ^. NW.responseBody . _Array
-          builds_list = map itemToBuild $ V.toList inner_list
-
-      return builds_list
-    Left err_message -> do
-      putStrLn $ "PROBLEM: Failed in get_single_build_list with message: " ++ err_message
-      return []
-
-  where
-    fetch_url = get_build_list_url "master"
-    opts = defaults
-      & header "Accept" .~ [Constants.json_mime_type]
-      & param "shallow" .~ ["true"]
-      & param "filter" .~ ["failed"]
-      & param "offset" .~ [T.pack $ show offset]
-      & param "limit" .~ [T.pack $ show limit]
-
-
-populate_builds :: Int -> Int -> IO [Build]
-populate_builds max_build_count max_age_days = do
-
-  sess <- Sess.newSession
-  current_time <- Clock.getCurrentTime
-  let seconds_per_day = Clock.nominalDiffTimeToSeconds $ Clock.nominalDay
-      seconds_offset = seconds_per_day * (MkFixed $ fromIntegral max_age_days)
-      time_diff = Clock.secondsToNominalDiffTime seconds_offset
-      earliest_requested_time = Clock.addUTCTime time_diff current_time
-  populate_builds_recurse sess 0 earliest_requested_time max_build_count
-
-
-populate_builds_recurse :: Sess.Session -> Int -> UTCTime -> Int -> IO [Build]
-populate_builds_recurse sess offset earliest_requested_time max_build_count = do
-
-  if max_build_count > 0
-    then do
-
-      putStrLn $ unwords [
-          "Getting builds starting at"
-        , show offset
-        , "(" ++ show max_build_count ++ " left)"
-        ]
-
-      builds <- get_single_build_list sess builds_per_page offset
-
-      let fetched_build_count = length builds
-          builds_left = max_build_count - fetched_build_count
-
-      case Safe.minimumMay $ map Builds.queued_at builds of
-        Nothing ->
-          putStrLn "No builds found."
-        Just earliest_build_time ->
-          putStrLn $ "Earliest build time found: " ++ show earliest_build_time
-
-      let next_offset = offset + fetched_build_count
-      more_builds <- populate_builds_recurse sess next_offset earliest_requested_time builds_left
-      return $ builds ++ more_builds
-
-  else
-    return []
-
-  where
-    builds_per_page = min maxBuildPerPage max_build_count
-
-
--- TODO - these are methods of parallelization:
-
-
-
---  pages <- withTaskGroup 4 $ \g -> mapConcurrently g Scanning.store_log scannable
---  pages <- mapConcurrently Scanning.store_log scannable
-
---  pages <- withPool 1 $ \pool -> parallel_ pool $ map Scanning.store_log scannable
+    sess = ScanRecords.circle_sess scan_resources
 
 
 gen_log_path :: BuildNumber -> IO FilePath
@@ -302,8 +166,8 @@ gen_log_path (NewBuildNumber build_num) = do
     filename_stem = show build_num
 
 
-store_log :: Sess.Session -> (BuildNumber, BuildFailureOutput) -> IO ()
-store_log sess (build_number, failed_build_output) = do
+store_log :: ScanRecords.ScanCatchupResources -> (BuildNumber, BuildFailureOutput) -> IO ()
+store_log scan_resources (build_number, failed_build_output) = do
 
   full_filepath <- gen_log_path build_number
 
@@ -318,7 +182,7 @@ store_log sess (build_number, failed_build_output) = do
 
       putStrLn $ "Log not on disk. Downloading from: " ++ T.unpack download_url
 
-      either_r <- safeGetUrl $ Sess.get sess $ T.unpack download_url
+      either_r <- FetchHelpers.safeGetUrl $ Sess.get aws_sess $ T.unpack download_url
 
       case either_r of
         Right r -> do
@@ -332,20 +196,37 @@ store_log sess (build_number, failed_build_output) = do
 
   where
     download_url = log_url failed_build_output
+    aws_sess = ScanRecords.aws_sess scan_resources
+
+
+data LogInfo = LogInfo {
+    log_byte_count :: Int64
+  , log_line_count :: Int
+  }
+
+
+getFileSize :: String -> IO Int64
+getFileSize path = do
+    stat <- getFileStatus path
+    let (COff bytecount) = fileSize stat
+    return bytecount
 
 
 scan_log ::
-     SqlRead.PatternId
+     ScanRecords.PatternId
   -> SqlRead.ScanScope
-  -> IO (SqlRead.ScanScope, [ScanPatterns.ScanMatch])
+  -> IO (SqlRead.ScanScope, [ScanPatterns.ScanMatch], LogInfo)
 scan_log _latest_patern_id scan_scope = do
 
   full_filepath <- gen_log_path $ SqlRead.build_number scan_scope
   putStrLn $ "Scanning log: " ++ full_filepath
 
+  byte_count <- getFileSize full_filepath
+
   console_log <- TIO.readFile full_filepath
-  let result = filter (not . null) $ map apply_patterns $ zip [0..] $ map T.stripEnd $ T.lines console_log
-  return (scan_scope, concat result)
+  let lines_list = T.lines console_log
+  let result = filter (not . null) $ map apply_patterns $ zip [0..] $ map T.stripEnd lines_list
+  return (scan_scope, concat result, LogInfo byte_count $ length lines_list)
 
   where
     apply_patterns line_tuple = Maybe.mapMaybe (apply_single_pattern line_tuple) $ SqlRead.unscanned_patterns scan_scope
