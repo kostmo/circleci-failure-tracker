@@ -4,17 +4,18 @@
 
 module SqlRead where
 
-import           Control.Monad              (forM)
+import           Control.Monad                        (forM)
 import           Data.Aeson
-import qualified Data.HashMap.Strict        as HashMap
-import qualified Data.Maybe                 as Maybe
-import           Data.Text                  (Text)
-import           Data.Text.Encoding         (encodeUtf8)
-import           Data.Time                  (UTCTime)
-import           Data.Time.Calendar         (Day)
+import qualified Data.HashMap.Strict                  as HashMap
+import qualified Data.Maybe                           as Maybe
+import           Data.Text                            (Text)
+import           Data.Text.Encoding                   (encodeUtf8)
+import           Data.Time                            (UTCTime)
+import           Data.Time.Calendar                   (Day)
 import           Database.PostgreSQL.Simple
+import           Database.PostgreSQL.Simple.FromField (FromField)
 import           GHC.Generics
-import           GHC.Int                    (Int64)
+import           GHC.Int                              (Int64)
 
 import qualified Builds
 import qualified DbHelpers
@@ -134,13 +135,6 @@ api_failed_commits_by_day = do
   return $ WebApi.ApiResponse inners
 
 
-{-
-data UnmatchedBuildResult = UnmatchedBuildResult {
-    _build_id
-  , _job_name
-  } deriving Generic
--}
-
 
 list_builds :: Query -> IO [WebApi.BuildNumberRecord]
 list_builds q = do
@@ -163,6 +157,36 @@ api_idiopathic_builds :: IO [WebApi.BuildNumberRecord]
 api_idiopathic_builds = list_builds sql
   where
     sql = "SELECT * FROM idiopathic_build_failures"
+
+
+api_random_scannable_build :: IO WebApi.BuildNumberRecord
+api_random_scannable_build = do
+  conn <- DbHelpers.get_connection
+  [Only buildnum] <- query_ conn sql
+  return $ WebApi.BuildNumberRecord $ Builds.NewBuildNumber buildnum
+  where
+    sql = "SELECT build_num FROM scannable_build_steps OFFSET floor(random()*(SELECT COUNT(*) FROM scannable_build_steps)) LIMIT 1"
+
+
+list_flat :: FromField a => Query -> Text -> IO [a]
+list_flat q t = do
+  conn <- DbHelpers.get_connection
+  inners <- query conn sql (Only t)
+  return $ map (\(Only x) -> x) inners
+  where
+    sql = q
+
+
+api_list_tags :: Text -> IO [Text]
+api_list_tags = list_flat sql
+  where
+    sql = "SELECT tag FROM (SELECT tag, COUNT(*) AS freq FROM pattern_tags GROUP BY tag ORDER BY freq DESC, tag ASC) foo WHERE tag ILIKE CONCAT(?,'%')"
+
+
+api_list_steps :: Text -> IO [Text]
+api_list_steps = list_flat sql
+  where
+    sql = "SELECT name FROM (SELECT name, COUNT(*) AS freq FROM build_steps where name IS NOT NULL GROUP BY name ORDER BY freq DESC, name ASC) foo WHERE name ILIKE CONCAT(?,'%') "
 
 
 data SummaryStats = SummaryStats {
@@ -234,6 +258,7 @@ data PatternOccurrences = PatternOccurrences {
     _build_number :: Int64
   , _build_step   :: Text
   , _line_number  :: Int
+  , _line_count   :: Int
   , _line_text    :: Text
   , _span_start   :: Int
   , _span_end     :: Int
@@ -249,18 +274,18 @@ get_pattern_matches pattern_id = do
   return $ map txform rows
 
   where
-    txform (Builds.NewBuildNumber buildnum, stepname, ScanPatterns.NewMatchDetails line_text line_number (ScanPatterns.NewMatchSpan start end)) = PatternOccurrences buildnum stepname line_number line_text start end
+    txform (Builds.NewBuildNumber buildnum, stepname, line_count, ScanPatterns.NewMatchDetails line_text line_number (ScanPatterns.NewMatchSpan start end)) = PatternOccurrences buildnum stepname line_number line_count line_text start end
 
 
-get_pattern_occurrence_rows :: Int -> IO [(Builds.BuildNumber, Text, ScanPatterns.MatchDetails)]
+get_pattern_occurrence_rows :: Int -> IO [(Builds.BuildNumber, Text, Int, ScanPatterns.MatchDetails)]
 get_pattern_occurrence_rows pattern_id = do
 
   conn <- DbHelpers.get_connection
 
-  xs <- query conn "SELECT build_steps.build AS build_num, build_steps.name, line_number, line_text, span_start, span_end FROM (SELECT * FROM matches WHERE pattern = ?) foo JOIN build_steps ON build_steps.id = foo.build_step ORDER BY build_num DESC" (Only pattern_id)
+  xs <- query conn "SELECT build_steps.build AS build_num, build_steps.name, line_number, line_count, line_text, span_start, span_end FROM (SELECT * FROM matches WHERE pattern = ?) foo JOIN build_steps ON build_steps.id = foo.build_step LEFT JOIN log_metadata ON log_metadata.step = build_steps.id ORDER BY build_num DESC" (Only pattern_id)
 
-  inners <- forM xs $ \(buildnum, stepname, line_number, line_text, span_start, span_end) ->
-    return $ (Builds.NewBuildNumber buildnum, stepname, ScanPatterns.NewMatchDetails line_text line_number $ ScanPatterns.NewMatchSpan span_start span_end)
+  inners <- forM xs $ \(buildnum, stepname, line_number, line_count, line_text, span_start, span_end) ->
+    return $ (Builds.NewBuildNumber buildnum, stepname, line_count, ScanPatterns.NewMatchDetails line_text line_number $ ScanPatterns.NewMatchSpan span_start span_end)
 
   return inners
 

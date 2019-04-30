@@ -2,7 +2,10 @@
 <head>
 <title>Build Failure Analysis</title>
 <link href="https://unpkg.com/tabulator-tables@4.2.5/dist/css/tabulator.min.css" rel="stylesheet">
+<link rel="stylesheet" href="//code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css">
+
 <link href="/style.css" rel="stylesheet" type="text/css"></link>
+
 
 <script src="https://code.highcharts.com/7.1/highcharts.js"></script>
 
@@ -10,6 +13,9 @@
 <script src="https://code.highcharts.com/modules/exporting.js"></script>
 <script src="https://code.highcharts.com/modules/export-data.js"></script>
 <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+
+  <script src="https://code.jquery.com/ui/1.12.1/jquery-ui.js"></script>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.24.0/moment.min.js"></script>
 <script type="text/javascript" src="https://unpkg.com/tabulator-tables@4.2.5/dist/js/tabulator.min.js"></script>
 <script src="/script/mychart.js"></script>
@@ -19,6 +25,40 @@
 
 <h2>Pattern occurrences</h2>
 <div id="patterns-table"></div>
+
+<h2>Add pattern</h2>
+<form onsubmit="return false;">
+
+<label>Pattern (this is immutable after submitting): <input id="input-pattern-text" type="text" value=""/></label>
+<br/>
+<label><input id="is-regex-checkbox" type="checkbox"/> is a regular expression</label>
+<br/>
+<label><input id="is-nondeterministic-checkbox" type="checkbox"/> regex produces nondeterministic values</label>
+
+<br/>
+<button onclick="submit_pattern();">Test on build ID</button> <label>#<input id="test-build-id" type="text" value=""/></label> <button onclick="get_random_build('test-build-id');">Random</button>
+
+<br/>
+<label>
+Description (this can be edited later):
+<input id="input-pattern-description" type="textarea" value=""/>
+
+<br/>
+<label>
+Tags:
+<input id="pattern-tag-input" type="text" value=""/>
+</label>
+
+<br/>
+<label>
+Applicable build steps (none means applicable to all steps):
+<input id="build-step-applicability-input" type="text" value=""/> <button>Add</button>
+</label>
+
+
+<br/>
+<button>Submit</button>
+</form>
 
 <h2>Charts</h2>
 

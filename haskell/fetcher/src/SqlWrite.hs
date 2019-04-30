@@ -4,6 +4,7 @@ module SqlWrite where
 
 import           Builds
 import           Data.Foldable              (for_)
+import qualified Data.Maybe                 as Maybe
 import           Data.Text                  (Text)
 import qualified Data.Text                  as T
 import           Data.Time.Format           (defaultTimeLocale, formatTime,
@@ -14,6 +15,7 @@ import           GHC.Int                    (Int64)
 import qualified DbHelpers
 import qualified ScanPatterns
 import qualified ScanRecords
+import qualified ScanUtils
 
 
 -- | We do not wipe the "builds" or "build_steps" tables
@@ -90,23 +92,28 @@ store_matches scan_resources (NewBuildStepId build_step_id) _build_num scoped_ma
     insertion_sql = "INSERT INTO matches(scan_id, build_step, pattern, line_number, line_text, span_start, span_end) VALUES(?,?,?,?,?,?,?);"
 
 
-populate_patterns :: Connection -> [ScanPatterns.Pattern] -> IO ()
-populate_patterns conn pattern_list = do
+insert_single_pattern :: Connection -> ScanPatterns.Pattern -> IO Int64
+insert_single_pattern conn (ScanPatterns.NewPattern expression_obj description tags applicable_steps) = do
 
-  for_ pattern_list $ \(ScanPatterns.NewPattern expression_obj description tags applicable_steps) -> do
+  [Only pattern_id] <- query conn pattern_insertion_sql (ScanPatterns.is_regex expression_obj, ScanPatterns.pattern_text expression_obj, description, False, False)
 
-    [Only pattern_id] <- query conn pattern_insertion_sql (ScanPatterns.is_regex expression_obj, ScanPatterns.pattern_text expression_obj, description, False, False)
+  for_ tags $ \tag -> do
+    execute conn tag_insertion_sql (tag, pattern_id)
 
-    for_ tags $ \tag -> do
-      execute conn tag_insertion_sql (tag, pattern_id :: Int)
+  for_ applicable_steps $ \applicable_step ->
+    execute conn applicable_step_insertion_sql (applicable_step, pattern_id)
 
-    for_ applicable_steps $ \applicable_step ->
-      execute conn applicable_step_insertion_sql (applicable_step, pattern_id)
+  return pattern_id
 
   where
     pattern_insertion_sql = "INSERT INTO patterns(regex, expression, description, is_infra, has_nondeterministic_values) VALUES(?,?,?,?,?) RETURNING id;"
     tag_insertion_sql = "INSERT INTO pattern_tags(tag, pattern) VALUES(?,?);"
     applicable_step_insertion_sql = "INSERT INTO pattern_step_applicability(step_name, pattern) VALUES(?,?);"
+
+
+populate_patterns :: Connection -> [ScanPatterns.Pattern] -> IO ()
+populate_patterns conn pattern_list = do
+  for_ pattern_list $ insert_single_pattern conn
 
 
 step_failure_to_tuple :: (BuildNumber, Either BuildStepFailure ScanRecords.UnidentifiedBuildFailure) -> (Int64, Maybe Text, Bool)
@@ -143,3 +150,26 @@ insert_scan_id conn (ScanRecords.NewPatternId pattern_id)  = do
   [Only pattern_id] <- query conn "INSERT INTO scans(latest_pattern_id) VALUES(?) RETURNING id;" (Only pattern_id)
   return pattern_id
 
+
+-- TODO finish this
+api_new_pattern_test :: Builds.BuildNumber -> ScanPatterns.Pattern -> IO ()
+api_new_pattern_test build_number new_pattern = do
+
+  full_filepath <- ScanUtils.gen_log_path build_number
+  putStrLn $ "Scanning log: " ++ full_filepath
+
+  let results = map apply_pattern line_tuples
+
+  putStrLn $ "Results: " ++ show (length results)
+
+  where
+    line_tuples = []
+    apply_pattern line_tuples = Maybe.mapMaybe (\line_tuple -> ScanUtils.apply_single_pattern line_tuple $ DbHelpers.WithId 0 new_pattern) line_tuples
+
+
+
+-- TODO not used yet
+api_new_pattern :: ScanPatterns.Pattern -> IO Int64
+api_new_pattern new_pattern = do
+  conn <- DbHelpers.get_connection
+  insert_single_pattern conn new_pattern

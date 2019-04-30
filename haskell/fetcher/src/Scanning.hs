@@ -11,21 +11,16 @@ import           Data.List                  (intercalate)
 import           Data.Maybe                 (Maybe)
 import qualified Data.Maybe                 as Maybe
 import qualified Data.Text                  as T
-import qualified Data.Text.Internal.Search  as Search
 import qualified Data.Text.IO               as TIO
 import qualified Data.Vector                as V
 import           Database.PostgreSQL.Simple (Connection)
 import           GHC.Int                    (Int64)
 import           Network.Wreq               as NW
 import qualified Network.Wreq.Session       as Sess
-import qualified Safe
 import           System.Directory           (createDirectoryIfMissing,
                                              doesFileExist)
-import           System.FilePath
 import           System.Posix.Files         (fileSize, getFileStatus)
 import           System.Posix.Types         (COff (COff))
-import           Text.Regex.Base
-import           Text.Regex.PCRE            ((=~~))
 
 import qualified Builds
 import qualified Constants
@@ -33,6 +28,7 @@ import qualified DbHelpers
 import qualified FetchHelpers
 import qualified ScanPatterns
 import qualified ScanRecords
+import qualified ScanUtils
 import           SillyMonoids               ()
 import qualified SqlRead
 import qualified SqlWrite
@@ -181,18 +177,10 @@ get_failed_build_info scan_resources build_number = do
     sess = ScanRecords.circle_sess scan_resources
 
 
-gen_log_path :: Builds.BuildNumber -> IO FilePath
-gen_log_path (Builds.NewBuildNumber build_num) = do
-  cache_dir <- Constants.get_url_cache_basedir
-  return $ cache_dir </> filename_stem <.> "log"
-  where
-    filename_stem = show build_num
-
-
 store_log :: ScanRecords.ScanCatchupResources -> (Builds.BuildNumber, Builds.BuildFailureOutput) -> IO ()
 store_log scan_resources (build_number, failed_build_output) = do
 
-  full_filepath <- gen_log_path build_number
+  full_filepath <- ScanUtils.gen_log_path build_number
 
   -- We normally shouldn't even need to perform this check, because upstream we've already
   -- filtered out pre-cached build logs via the SQL query.
@@ -233,20 +221,6 @@ getFileSize path = do
     return bytecount
 
 
-apply_single_pattern (line_number, line) db_pattern = match_partial <$> match_span
-  where
-    match_span = case ScanPatterns.expression pattern_obj of
-      ScanPatterns.RegularExpression regex_text -> case ((T.unpack line) =~~ regex_text :: Maybe (MatchOffset, MatchLength)) of
-        Just (match_offset, match_length) -> Just $ ScanPatterns.NewMatchSpan match_offset (match_offset + match_length)
-        Nothing -> Nothing
-      ScanPatterns.LiteralExpression literal_text -> case Safe.headMay (Search.indices literal_text line) of
-        Just first_index -> Just $ ScanPatterns.NewMatchSpan first_index (first_index + T.length literal_text)
-        Nothing -> Nothing
-
-    match_partial x = ScanPatterns.NewScanMatch db_pattern $ ScanPatterns.NewMatchDetails line line_number x
-    pattern_obj = DbHelpers.record db_pattern
-
-
 scan_log ::
      ScanRecords.ScanCatchupResources
   -> Builds.BuildStepId
@@ -255,7 +229,7 @@ scan_log ::
   -> IO [ScanPatterns.ScanMatch]
 scan_log scan_resources build_step_id build_number patterns = do
 
-  full_filepath <- gen_log_path build_number
+  full_filepath <- ScanUtils.gen_log_path build_number
   putStrLn $ "Scanning log: " ++ full_filepath
 
   byte_count <- getFileSize full_filepath
@@ -269,4 +243,4 @@ scan_log scan_resources build_step_id build_number patterns = do
   return $ concat result
 
   where
-    apply_patterns line_tuple = Maybe.mapMaybe (apply_single_pattern line_tuple) patterns
+    apply_patterns line_tuple = Maybe.mapMaybe (ScanUtils.apply_single_pattern line_tuple) patterns

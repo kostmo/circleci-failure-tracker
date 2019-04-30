@@ -66,7 +66,9 @@ function pattern_details_page() {
 	    columns:[
 		{title:"Build number", field:"build_number", formatter: "link", width: 75, formatterParams: {urlPrefix: "https://circleci.com/gh/pytorch/pytorch/"}},
 		{title:"Build step", field:"build_step", sorter:"string", widthGrow: 2},
-		{title:"Line number", field:"line_number", sorter:"number", width: 75},
+		{title:"Line number", field:"line_number", width: 75, formatter: function(cell, formatterParams, onRendered) {
+			return cell.getValue() + " / " + cell.getRow().getData()["line_count"];
+		  }},
 		{title:"Line text", field:"line_text", sorter:"string", widthGrow: 8, formatter: function(cell, formatterParams, onRendered) {
 			return gen_error_cell_html(cell);
 		  },
@@ -187,9 +189,92 @@ function gen_sunburst_data_series(data) {
 		    }];
 }
 
+
+function setup_autocomplete() {
+
+
+    $( "#build-step-applicability-input" ).autocomplete({
+      source: function( request, response ) {
+        $.ajax( {
+          url: "/api/steps",
+          dataType: "json",
+          data: {
+            term: request.term
+          },
+          success: function( data ) {
+            response( data );
+          }
+        } );
+      },
+      minLength: 1,
+      select: function( event, ui ) {
+        console.log( "Selected: " + ui.item.value + " aka " + ui.item.id );
+      }
+    } );
+
+
+
+
+    $( "#pattern-tag-input" ).autocomplete({
+      source: function( request, response ) {
+        $.ajax( {
+          url: "/api/tags",
+          dataType: "json",
+          data: {
+            term: request.term
+          },
+          success: function( data ) {
+            response( data );
+          }
+        } );
+      },
+      minLength: 1,
+      select: function( event, ui ) {
+        console.log( "Selected: " + ui.item.value + " aka " + ui.item.id );
+      }
+    } );
+}
+
+
+
+function submit_pattern() {
+
+        $.get( {
+          url: "/api/new-pattern-test",
+          data: {
+            is_regex: $('#is-regex-checkbox').is(":checked"),
+            is_nondeterministic: $('#is-nondeterministic-checkbox').is(":checked"),
+            build_num: $('#test-build-id').val(),
+            pattern: $('#input-pattern-text').val(),
+            description: $('#input-pattern-description').val(),
+            tags: $('#pattern-tag-input').val(),
+            applicable_steps: $('#build-step-applicability-input').val(),
+          },
+          success: function( data ) {
+		console.log("Results: " + data);
+
+          }
+        } );
+}
+
+
+function get_random_build(destination_field_id) {
+
+        $.get( {
+          url: "/api/random-scannable-build",
+          success: function( data ) {
+            $("#" + destination_field_id).val(data["build_number"]);
+
+          }
+        } );
+}
+
+
 function main() {
 
-   gen_patterns_table(null);
+	setup_autocomplete();
+
+	gen_patterns_table(null);
 
 
 

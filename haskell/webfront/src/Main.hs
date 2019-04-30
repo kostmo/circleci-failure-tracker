@@ -3,6 +3,7 @@
 import           Control.Monad.IO.Class        (liftIO)
 import qualified Data.Maybe                    as Maybe
 import           Data.Text                     (Text)
+import           Data.Text.Encoding            (encodeUtf8)
 import           Network.Wai.Middleware.Static
 import           System.Environment            (lookupEnv)
 import qualified Text.Blaze.Html.Renderer.Text as BRT
@@ -15,44 +16,13 @@ import qualified Builds
 import qualified HtmlUtils
 import qualified ScanPatterns
 import qualified SqlRead
+import qualified SqlWrite
 import qualified WebApi
 
 
 getHtml :: H.Html
 getHtml =
   H.span "hello"
-
-
--- | XXX Not used
-gen_pattern_page :: [(Builds.BuildNumber, Text, ScanPatterns.MatchDetails)] -> H.Html
-gen_pattern_page myrows = H.html $ do
-  H.head $ do
-    H.title "Pattern occurrences"
-    H.link H.! A.href "/static/style.css" H.! A.rel "stylesheet"
-
-  body
-
-  where
-
-    format_row :: (Builds.BuildNumber, Text, ScanPatterns.MatchDetails) -> [H.Html]
-    format_row (Builds.NewBuildNumber buildnum, stepname, ScanPatterns.NewMatchDetails line_text line_number (ScanPatterns.NewMatchSpan _start _end)) = [
-        H.a H.! A.href (H.toValue $ "https://circleci.com/gh/pytorch/pytorch/" <> show buildnum) $ H.toMarkup $ show buildnum
-      , H.toMarkup stepname
-      , H.toMarkup $ show line_number
-      , H.toMarkup line_text
-      ]
-
-    headings = [
-        "Build number",
-        "Build step",
-        "Line number",
-        "Line text"
-      ]
-
-    body = H.body $ do
-      H.h2 "Occurrences of a pattern"
-      -- H.p $ "pattern id: " ++ show pattern_id
-      HtmlUtils.make_table headings $ map format_row myrows
 
 
 main :: IO ()
@@ -70,58 +40,75 @@ main = do
       S.html $ BRT.renderHtml getHtml
 
     -- XXX Not used
-    S.get "/pattern-occurrences" $ do
-      pattern_id <- S.param "pattern_id"
-      rows <- liftIO $ SqlRead.get_pattern_occurrence_rows pattern_id
-      let page_content = gen_pattern_page rows
-      S.html $ BRT.renderHtml page_content
-
-    -- XXX Not used
     S.get "/list-builds" $ do
-      builds_list <- liftIO SqlRead.query_builds
-      S.json builds_list
+      S.json =<< liftIO SqlRead.query_builds
 
-    S.get "/api/failed-commits-by-day" $ do
-      builds_list <- liftIO SqlRead.api_failed_commits_by_day
-      S.json builds_list
+    S.get "/api/failed-commits-by-day" $
+      S.json =<< liftIO SqlRead.api_failed_commits_by_day
 
-    S.get "/api/job" $ do
-      builds_list <- liftIO SqlRead.api_jobs
-      S.json builds_list
+    S.get "/api/job" $
+      S.json =<< liftIO SqlRead.api_jobs
 
-    S.get "/api/step" $ do
-      builds_list <- liftIO SqlRead.api_step
-      S.json builds_list
+    S.get "/api/step" $
+      S.json =<< liftIO SqlRead.api_step
 
-    S.get "/api/summary" $ do
-      stats <- liftIO SqlRead.api_summary_stats
-      S.json stats
+    S.get "/api/tags" $ do
+      term <- S.param "term"
+      x <- liftIO $ SqlRead.api_list_tags term
+      S.json x
 
-    S.get "/api/unmatched-builds" $ do
-      stats <- liftIO SqlRead.api_unmatched_builds
-      S.json stats
+    S.get "/api/new-pattern-test" $ do
+      expression <- S.param "pattern"
+      buildnum_str <- S.param "build_num"
+      is_regex_str <- S.param "pattern"
+      description <- S.param "description"
+      tags <- S.param "tags"
+      applicable_steps <- S.param "applicable_steps"
 
-    S.get "/api/idiopathic-failed-builds" $ do
-      stats <- liftIO SqlRead.api_idiopathic_builds
-      S.json stats
+      let match_expression = if read is_regex_str
+            then ScanPatterns.RegularExpression $ encodeUtf8 expression
+            else ScanPatterns.LiteralExpression expression
+          new_pattern = ScanPatterns.NewPattern
+            match_expression
+            description
+            tags
+            applicable_steps
+
+      x <- liftIO $ SqlWrite.api_new_pattern_test (Builds.NewBuildNumber $ read buildnum_str) new_pattern
+      S.json x
+
+    S.get "/api/steps" $ do
+      term <- S.param "term"
+      x <- liftIO $ SqlRead.api_list_steps term
+      S.json x
+
+    S.get "/api/random-scannable-build" $
+      S.json =<< liftIO SqlRead.api_random_scannable_build
+
+    S.get "/api/summary" $
+      S.json =<< liftIO SqlRead.api_summary_stats
+
+    S.get "/api/unmatched-builds" $
+      S.json =<< liftIO SqlRead.api_unmatched_builds
+
+    S.get "/api/idiopathic-failed-builds" $
+      S.json =<< liftIO SqlRead.api_idiopathic_builds
 
     S.get "/api/disk" $ do
-      stats <- liftIO WebApi.api_disk_space
-      S.json stats
+      S.json =<< liftIO WebApi.api_disk_space
 
     S.get "/api/pattern" $ do
       pattern_id <- S.param "pattern_id"
-      patterns_list <- liftIO $ SqlRead.api_single_pattern $ read pattern_id
-      S.json patterns_list
+      x <- liftIO $ SqlRead.api_single_pattern $ read pattern_id
+      S.json x
 
     S.get "/api/patterns" $ do
-      patterns_list <- liftIO $ SqlRead.api_patterns
-      S.json patterns_list
+      S.json =<< liftIO SqlRead.api_patterns
 
     S.get "/api/pattern-matches" $ do
       pattern_id <- S.param "pattern_id"
-      rows <- liftIO $ SqlRead.get_pattern_matches pattern_id
-      S.json rows
+      x <- liftIO $ SqlRead.get_pattern_matches pattern_id
+      S.json x
 
     S.options "/" $ do
       S.setHeader "Access-Control-Allow-Origin" "*"
