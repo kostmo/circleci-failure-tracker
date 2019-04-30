@@ -81,12 +81,12 @@ prepare_scan_resources conn = do
   scan_id <- SqlWrite.insert_scan_id conn latest_pattern_id
 
   return $ ScanRecords.ScanCatchupResources
-    conn
-    aws_sess
-    circle_sess
     scan_id
     latest_pattern_id
-    patterns_by_id
+    patterns_by_id $ ScanRecords.FetchingResources
+      conn
+      aws_sess
+      circle_sess
 
 
 catchup_scan :: ScanRecords.ScanCatchupResources -> Builds.BuildStepId -> (Builds.BuildNumber, Either Builds.BuildStepFailure ScanRecords.UnidentifiedBuildFailure) -> IO ()
@@ -174,7 +174,7 @@ get_failed_build_info scan_resources build_number = do
   where
     fetch_url = get_single_build_url build_number
     opts = defaults & header "Accept" .~ [Constants.json_mime_type]
-    sess = ScanRecords.circle_sess scan_resources
+    sess = ScanRecords.circle_sess $ ScanRecords.fetching scan_resources
 
 
 store_log :: ScanRecords.ScanCatchupResources -> (Builds.BuildNumber, Builds.BuildFailureOutput) -> IO ()
@@ -211,7 +211,7 @@ store_log scan_resources (build_number, failed_build_output) = do
 
   where
     download_url = Builds.log_url failed_build_output
-    aws_sess = ScanRecords.aws_sess scan_resources
+    aws_sess = ScanRecords.aws_sess $ ScanRecords.fetching scan_resources
 
 
 getFileSize :: String -> IO Int64

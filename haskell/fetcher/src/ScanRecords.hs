@@ -22,12 +22,17 @@ data LogInfo = LogInfo {
   }
 
 
+data FetchingResources = FetchingResources {
+    db_conn     :: Connection
+  , aws_sess    :: Sess.Session
+  , circle_sess :: Sess.Session
+  }
+
+
 data ScanCatchupResources = ScanCatchupResources {
-    db_conn           :: Connection
-  , aws_sess          :: Sess.Session
-  , circle_sess       :: Sess.Session
-  , scan_id           :: Int64
+    scan_id           :: Int64
   , newest_pattern_id :: PatternId
   , patterns_by_id    :: HashMap Int64 ScanPatterns.Pattern
+  , fetching          :: FetchingResources
   }
 

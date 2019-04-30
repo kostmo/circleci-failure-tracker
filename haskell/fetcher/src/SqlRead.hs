@@ -9,6 +9,7 @@ import           Data.Aeson
 import qualified Data.HashMap.Strict                  as HashMap
 import qualified Data.Maybe                           as Maybe
 import           Data.Text                            (Text)
+import qualified Data.Text                            as T
 import           Data.Text.Encoding                   (encodeUtf8)
 import           Data.Time                            (UTCTime)
 import           Data.Time.Calendar                   (Day)
@@ -37,7 +38,7 @@ data ScanScope = NewScanScope {
 get_unscanned_patterns_for_build :: ScanRecords.ScanCatchupResources -> Builds.BuildNumber -> IO [ScanPatterns.DbPattern]
 get_unscanned_patterns_for_build scan_resources (Builds.NewBuildNumber _build_number) = do
 
-  unscanned_patterns_list <- query_ (ScanRecords.db_conn scan_resources) sql
+  unscanned_patterns_list <- query_ (ScanRecords.db_conn $ ScanRecords.fetching scan_resources) sql
 
   let patt_ids = map (\(Only pattern_id) -> pattern_id) unscanned_patterns_list
       patterns = Maybe.mapMaybe (\x -> DbHelpers.WithId x <$> HashMap.lookup x (ScanRecords.patterns_by_id scan_resources)) patt_ids
@@ -100,6 +101,18 @@ query_builds = do
     return $ Builds.NewBuild (Builds.NewBuildNumber buildnum) vcs_rev queuedat jobname branch
 
 
+api_line_count_histogram :: IO [(Text, Int)]
+api_line_count_histogram = do
+  conn <- DbHelpers.get_connection
+
+  xs <- query_ conn sql
+  inners <- forM xs $ \(size, freq) ->
+    return $ (T.pack $ show (size :: Int), freq)
+
+  return inners
+
+  where
+  sql = "select pow(10, floor(ln(line_count) / ln(10)))::numeric::integer as bin, count(*) as qty from log_metadata WHERE line_count > 0 group by bin ORDER BY bin ASC"
 
 
 api_jobs :: IO (WebApi.ApiResponse WebApi.JobApiRecord)

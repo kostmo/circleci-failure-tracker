@@ -66,7 +66,7 @@ function pattern_details_page() {
 	    columns:[
 		{title:"Build number", field:"build_number", formatter: "link", width: 75, formatterParams: {urlPrefix: "https://circleci.com/gh/pytorch/pytorch/"}},
 		{title:"Build step", field:"build_step", sorter:"string", widthGrow: 2},
-		{title:"Line number", field:"line_number", width: 75, formatter: function(cell, formatterParams, onRendered) {
+		{title:"Line number", field:"line_number", width: 100, formatter: function(cell, formatterParams, onRendered) {
 			return cell.getValue() + " / " + cell.getRow().getData()["line_count"];
 		  }},
 		{title:"Line text", field:"line_text", sorter:"string", widthGrow: 8, formatter: function(cell, formatterParams, onRendered) {
@@ -79,6 +79,59 @@ function pattern_details_page() {
 	    ],
             ajaxURL: "/api/pattern-matches?pattern_id=" + pattern_id,
 	});
+}
+
+
+function gen_log_size_histogram() {
+
+
+   $.getJSON('/api/log-size-histogram', function (mydata) {
+
+		Highcharts.chart('line-histogram-container', {
+		    chart: {
+			type: 'column'
+		    },
+		    title: {
+			text: 'Frequency of log line counts'
+		    },
+		    xAxis: {
+			type: 'category',
+			labels: {
+			    rotation: -45,
+			    style: {
+				fontSize: '13px',
+				fontFamily: 'Verdana, sans-serif'
+			    }
+			}
+		    },
+		    yAxis: {
+			min: 0,
+			title: {
+			    text: 'Line count'
+			}
+		    },
+		    legend: {
+			enabled: false
+		    },
+		    series: [{
+			name: 'Line counts',
+			data: mydata,
+			dataLabels: {
+			    enabled: true,
+			    rotation: -90,
+			    color: '#FFFFFF',
+			    align: 'right',
+			    format: '{point.y:.1f}', // one decimal
+			    y: 10, // 10 pixels down from the top
+			    style: {
+				fontSize: '13px',
+				fontFamily: 'Verdana, sans-serif'
+			    }
+			}
+		    }]
+		});
+
+    });
 }
 
 
@@ -251,7 +304,9 @@ function submit_pattern() {
             applicable_steps: $('#build-step-applicability-input').val(),
           },
           success: function( data ) {
-		console.log("Results: " + data);
+		console.log("Results: " + JSON.stringify(data));
+
+		$("#test-match-results-container").html( JSON.stringify(data) );
 
           }
         } );
@@ -272,8 +327,10 @@ function get_random_build(destination_field_id) {
 
 function main() {
 
+
 	setup_autocomplete();
 
+	gen_log_size_histogram();
 	gen_patterns_table(null);
 
 

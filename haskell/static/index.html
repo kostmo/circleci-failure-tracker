@@ -29,19 +29,16 @@
 <h2>Add pattern</h2>
 <form onsubmit="return false;">
 
-<label>Pattern (this is immutable after submitting): <input id="input-pattern-text" type="text" value=""/></label>
+<label>Pattern (this is immutable after submitting): <input id="input-pattern-text" type="text" value="does not actually allow to resize"/></label>
 <br/>
-<label><input id="is-regex-checkbox" type="checkbox"/> is a regular expression</label>
+<label><input id="is-regex-checkbox" type="checkbox" checked="checked"/> is a regular expression</label>
 <br/>
 <label><input id="is-nondeterministic-checkbox" type="checkbox"/> regex produces nondeterministic values</label>
 
 <br/>
-<button onclick="submit_pattern();">Test on build ID</button> <label>#<input id="test-build-id" type="text" value=""/></label> <button onclick="get_random_build('test-build-id');">Random</button>
-
-<br/>
 <label>
 Description (this can be edited later):
-<input id="input-pattern-description" type="textarea" value=""/>
+<input id="input-pattern-description" type="textarea" value="blah"/>
 
 <br/>
 <label>
@@ -57,6 +54,10 @@ Applicable build steps (none means applicable to all steps):
 
 
 <br/>
+<button onclick="submit_pattern();">Test on build ID</button> <label>#<input id="test-build-id" type="text" value="1040566"/></label> <button onclick="get_random_build('test-build-id');">Random</button>
+
+<div id="test-match-results-container"></div>
+
 <button>Submit</button>
 </form>
 
@@ -69,6 +70,10 @@ Applicable build steps (none means applicable to all steps):
 </td>
 </tr>
 </table>
+
+<div id="line-histogram-container" style="min-width: 500px; height: 400px; max-width: 600px; margin: 0 auto"></div>
+
+
 
 
 <div id="container-job-failures" style="min-width: 500px; height: 400px; max-width: 600px; margin: 0 auto"></div>

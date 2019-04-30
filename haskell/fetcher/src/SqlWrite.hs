@@ -7,6 +7,7 @@ import           Data.Foldable              (for_)
 import qualified Data.Maybe                 as Maybe
 import           Data.Text                  (Text)
 import qualified Data.Text                  as T
+import qualified Data.Text.IO               as TIO
 import           Data.Time.Format           (defaultTimeLocale, formatTime,
                                              rfc822DateFormat)
 import           Database.PostgreSQL.Simple
@@ -38,7 +39,7 @@ prepare_database :: IO Connection
 prepare_database = do
 
   conn <- DbHelpers.get_connection
-  SqlWrite.scrub_tables conn
+--  SqlWrite.scrub_tables conn
   SqlWrite.populate_patterns conn ScanPatterns.pattern_list
   return conn
 
@@ -74,7 +75,7 @@ store_matches scan_resources (NewBuildStepId build_step_id) _build_num scoped_ma
   executeMany conn insertion_sql $ map to_tuple scoped_matches
 
   where
-    conn = ScanRecords.db_conn scan_resources
+    conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
     scan_id = ScanRecords.scan_id scan_resources
 
     to_tuple match = (
@@ -132,7 +133,7 @@ store_log_info scan_resources (NewBuildStepId step_id) (ScanRecords.LogInfo byte
   execute conn "INSERT INTO log_metadata(step, line_count, byte_count) VALUES(?,?,?);" (step_id, line_count, byte_count)
 
   where
-    conn = ScanRecords.db_conn scan_resources
+    conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
 
 
 insert_build_visitation :: ScanRecords.ScanCatchupResources -> (BuildNumber, Either BuildStepFailure ScanRecords.UnidentifiedBuildFailure) -> IO BuildStepId
@@ -142,7 +143,7 @@ insert_build_visitation scan_resources visitation = do
   return $ NewBuildStepId step_id
 
   where
-    conn = ScanRecords.db_conn scan_resources
+    conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
 
 
 insert_scan_id :: Connection -> ScanRecords.PatternId -> IO Int64
@@ -152,19 +153,25 @@ insert_scan_id conn (ScanRecords.NewPatternId pattern_id)  = do
 
 
 -- TODO finish this
-api_new_pattern_test :: Builds.BuildNumber -> ScanPatterns.Pattern -> IO ()
+api_new_pattern_test :: Builds.BuildNumber -> ScanPatterns.Pattern -> IO [ScanPatterns.ScanMatch]
 api_new_pattern_test build_number new_pattern = do
 
   full_filepath <- ScanUtils.gen_log_path build_number
   putStrLn $ "Scanning log: " ++ full_filepath
 
-  let results = map apply_pattern line_tuples
+  -- TODO consolidate with Scanning.scan_log
+  console_log <- TIO.readFile full_filepath
+  let lines_list = T.lines console_log
+      result = Maybe.mapMaybe apply_pattern $ zip [0::Int ..] $ map T.stripEnd lines_list
 
-  putStrLn $ "Results: " ++ show (length results)
+  putStrLn $ "Results: " ++ show (length result)
+
+  return result
 
   where
-    line_tuples = []
-    apply_pattern line_tuples = Maybe.mapMaybe (\line_tuple -> ScanUtils.apply_single_pattern line_tuple $ DbHelpers.WithId 0 new_pattern) line_tuples
+
+    apply_pattern :: (Int, Text) -> Maybe ScanPatterns.ScanMatch
+    apply_pattern line_tuple = ScanUtils.apply_single_pattern line_tuple $ DbHelpers.WithId 0 new_pattern
 
 
 

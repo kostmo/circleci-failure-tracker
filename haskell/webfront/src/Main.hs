@@ -49,6 +49,9 @@ main = do
     S.get "/api/job" $
       S.json =<< liftIO SqlRead.api_jobs
 
+    S.get "/api/log-size-histogram" $
+      S.json =<< liftIO SqlRead.api_line_count_histogram
+
     S.get "/api/step" $
       S.json =<< liftIO SqlRead.api_step
 
@@ -60,12 +63,15 @@ main = do
     S.get "/api/new-pattern-test" $ do
       expression <- S.param "pattern"
       buildnum_str <- S.param "build_num"
-      is_regex_str <- S.param "pattern"
+      is_regex_str <- S.param "is_regex"
       description <- S.param "description"
       tags <- S.param "tags"
       applicable_steps <- S.param "applicable_steps"
+      let is_regex = is_regex_str == ("true" :: Text)
 
-      let match_expression = if read is_regex_str
+      liftIO $ putStrLn $ "is regex: " ++ show is_regex
+
+      let match_expression = if is_regex
             then ScanPatterns.RegularExpression $ encodeUtf8 expression
             else ScanPatterns.LiteralExpression expression
           new_pattern = ScanPatterns.NewPattern

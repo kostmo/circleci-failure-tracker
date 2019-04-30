@@ -17,7 +17,13 @@ import qualified DbHelpers
 data MatchExpression =
     RegularExpression ByteString
   | LiteralExpression Text
-  deriving Show
+  deriving (Show, Generic)
+
+instance ToJSON MatchExpression
+
+
+instance ToJSON ByteString where
+  toJSON = toJSON . decodeUtf8
 
 
 is_regex :: MatchExpression -> Bool
@@ -37,7 +43,9 @@ data Pattern = NewPattern {
   , description      :: Text
   , tags             :: [Text]
   , applicable_steps :: [Text]
-  } deriving Show
+  } deriving (Generic, Show)
+
+instance ToJSON Pattern
 
 
 type DbPattern = DbHelpers.WithId Pattern
@@ -63,7 +71,9 @@ instance ToJSON MatchDetails
 data ScanMatch = NewScanMatch {
     scanned_pattern :: DbPattern
   , match_details   :: MatchDetails
-  }
+  } deriving Generic
+
+instance ToJSON ScanMatch
 
 
 pattern_list :: [Pattern]

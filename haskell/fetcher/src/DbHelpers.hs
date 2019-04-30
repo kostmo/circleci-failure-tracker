@@ -1,15 +1,21 @@
+{-# LANGUAGE DeriveGeneric #-}
+
 module DbHelpers where
 
 import           Control.Arrow              ((&&&))
+import           Data.Aeson
 import           Data.HashMap.Strict        (HashMap)
 import qualified Data.HashMap.Strict        as HashMap
 import           Database.PostgreSQL.Simple
+import           GHC.Generics
 import           GHC.Int                    (Int64)
 
 data WithId a = WithId {
     db_id  :: Int64
   , record :: a
-  }
+  } deriving Generic
+
+instance ToJSON a => ToJSON (WithId a)
 
 
 as_tuple :: WithId a -> (Int64, a)
