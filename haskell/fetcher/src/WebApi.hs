@@ -12,6 +12,7 @@ import qualified System.DiskSpace      as DiskSpace
 import           System.FilePath.Posix (takeDirectory)
 import           System.Process        (readProcess)
 
+import qualified Builds
 import qualified Constants
 
 
@@ -24,6 +25,14 @@ instance (ToJSON a) => ToJSON (ApiResponse a)
 
 
 dropUnderscore = defaultOptions {fieldLabelModifier = drop 1}
+
+
+data BuildNumberRecord = BuildNumberRecord {
+  _build_number :: Builds.BuildNumber
+  } deriving Generic
+
+instance ToJSON BuildNumberRecord where
+  toJSON = genericToJSON dropUnderscore
 
 
 data JobApiRecord = JobApiRecord {

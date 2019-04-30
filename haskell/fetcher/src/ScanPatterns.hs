@@ -72,6 +72,18 @@ pattern_list = [
     NewPattern (LiteralExpression "FAILED: ")
       "Ninja build failed" [] []
 
+  , NewPattern (LiteralExpression "No such file or directory")
+      "Missing file" [] []
+
+  , NewPattern (LiteralExpression "unexpected EOF")
+      "Docker problem" ["docker"] []
+
+  , NewPattern (LiteralExpression "received unexpected HTTP status")
+      "Docker problem" ["docker"] []
+
+  , NewPattern (LiteralExpression "Could not install packages due to an EnvironmentError")
+      "env problem" ["python"] []
+
   , NewPattern (RegularExpression "([^\\s]+):(\\d+):(\\d+): error:")
     "Compilation error" ["compile"] []
 

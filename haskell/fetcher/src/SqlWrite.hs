@@ -14,7 +14,6 @@ import           GHC.Int                    (Int64)
 import qualified DbHelpers
 import qualified ScanPatterns
 import qualified ScanRecords
-import qualified SqlRead
 
 
 -- | We do not wipe the "builds" or "build_steps" tables
@@ -27,8 +26,9 @@ allTableTruncations = [
   , "TRUNCATE pattern_step_applicability CASCADE;"
   , "TRUNCATE pattern_tags CASCADE;"
   , "TRUNCATE patterns CASCADE;"
---  , "TRUNCATE build_steps CASCADE;"
---  , "TRUNCATE builds CASCADE;"
+  , "TRUNCATE log_metadata CASCADE;"
+  , "TRUNCATE build_steps CASCADE;"
+  , "TRUNCATE builds CASCADE;"
   ]
 
 
@@ -67,18 +67,17 @@ store_builds_list conn builds_list =
     map build_to_tuple builds_list
 
 
-store_matches :: ScanRecords.ScanCatchupResources -> (SqlRead.ScanScope, [ScanPatterns.ScanMatch]) -> IO Int64
-store_matches scan_resources (scope, scoped_matches) =
-  executeMany conn insertion_sql $ map to_tuple replicated
+store_matches :: ScanRecords.ScanCatchupResources -> BuildStepId -> BuildNumber -> [ScanPatterns.ScanMatch] -> IO Int64
+store_matches scan_resources (NewBuildStepId build_step_id) _build_num scoped_matches =
+  executeMany conn insertion_sql $ map to_tuple scoped_matches
 
   where
     conn = ScanRecords.db_conn scan_resources
     scan_id = ScanRecords.scan_id scan_resources
-    replicated = concatMap (\x -> [(scope, x)])  scoped_matches
 
-    to_tuple (scan_scope, match) = (
+    to_tuple match = (
         scan_id
-      , step_id
+      , build_step_id
       , DbHelpers.db_id $ ScanPatterns.scanned_pattern match
       , ScanPatterns.line_number match_deets
       , ScanPatterns.line_text match_deets
@@ -87,7 +86,6 @@ store_matches scan_resources (scope, scoped_matches) =
       )
       where
         match_deets = ScanPatterns.match_details match
-        (NewBuildStepId step_id) = SqlRead.build_step_id scan_scope
 
     insertion_sql = "INSERT INTO matches(scan_id, build_step, pattern, line_number, line_text, span_start, span_end) VALUES(?,?,?,?,?,?,?);"
 
@@ -111,21 +109,30 @@ populate_patterns conn pattern_list = do
     applicable_step_insertion_sql = "INSERT INTO pattern_step_applicability(step_name, pattern) VALUES(?,?);"
 
 
-step_failure_to_tuple :: (BuildNumber, Maybe BuildStepFailure) -> (Int64, Maybe Text, Bool)
-step_failure_to_tuple (NewBuildNumber buildnum, maybe_thing) = case maybe_thing of
-  Nothing -> (buildnum, Nothing, False)
-  Just (NewBuildStepFailure stepname mode) -> let
+step_failure_to_tuple :: (BuildNumber, Either BuildStepFailure ScanRecords.UnidentifiedBuildFailure) -> (Int64, Maybe Text, Bool)
+step_failure_to_tuple (NewBuildNumber buildnum, visitation_result) = case visitation_result of
+  Right _ -> (buildnum, Nothing, False)
+  Left (NewBuildStepFailure stepname mode) -> let
     is_timeout = case mode of
       BuildTimeoutFailure              -> True
       ScannableFailure _failure_output -> False
-     in (buildnum, Just stepname, is_timeout)
+    in (buildnum, Just stepname, is_timeout)
 
 
-insert_build_visitation :: ScanRecords.ScanCatchupResources -> (BuildNumber, Maybe BuildStepFailure) -> IO Int64
+store_log_info :: ScanRecords.ScanCatchupResources -> BuildStepId -> ScanRecords.LogInfo -> IO Int64
+store_log_info scan_resources (NewBuildStepId step_id) (ScanRecords.LogInfo byte_count line_count) = do
+
+  execute conn "INSERT INTO log_metadata(step, line_count, byte_count) VALUES(?,?,?);" (step_id, line_count, byte_count)
+
+  where
+    conn = ScanRecords.db_conn scan_resources
+
+
+insert_build_visitation :: ScanRecords.ScanCatchupResources -> (BuildNumber, Either BuildStepFailure ScanRecords.UnidentifiedBuildFailure) -> IO BuildStepId
 insert_build_visitation scan_resources visitation = do
 
   [Only step_id] <- query conn "INSERT INTO build_steps(build, name, is_timeout) VALUES(?,?,?) RETURNING id;" $ step_failure_to_tuple visitation
-  return step_id
+  return $ NewBuildStepId step_id
 
   where
     conn = ScanRecords.db_conn scan_resources

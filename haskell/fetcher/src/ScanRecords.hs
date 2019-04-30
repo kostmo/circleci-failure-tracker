@@ -13,6 +13,15 @@ import qualified ScanPatterns
 data PatternId = NewPatternId Int64
 
 
+data UnidentifiedBuildFailure = NetworkProblem String | NoFailedSteps
+
+
+data LogInfo = LogInfo {
+    log_byte_count :: Int64
+  , log_line_count :: Int
+  }
+
+
 data ScanCatchupResources = ScanCatchupResources {
     db_conn           :: Connection
   , aws_sess          :: Sess.Session

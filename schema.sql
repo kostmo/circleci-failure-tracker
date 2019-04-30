@@ -130,7 +130,8 @@ CREATE TABLE public.builds (
     build_num integer NOT NULL,
     vcs_revision character(40),
     queued_at timestamp with time zone,
-    job_name text
+    job_name text,
+    branch character varying
 );
 
 
@@ -212,53 +213,16 @@ CREATE VIEW public.global_match_frequency WITH (security_barrier='false') AS
 ALTER TABLE public.global_match_frequency OWNER TO postgres;
 
 --
--- Name: scanned_patterns; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.scanned_patterns (
-    scan integer NOT NULL,
-    pattern integer NOT NULL,
-    build integer NOT NULL
-);
-
-
-ALTER TABLE public.scanned_patterns OWNER TO postgres;
-
---
--- Name: scanned_builds; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.scanned_builds WITH (security_barrier='false') AS
- SELECT builds.build_num,
-    count(*) AS scanned_pattern_count
-   FROM (public.scanned_patterns
-     LEFT JOIN public.builds ON ((builds.build_num = scanned_patterns.build)))
-  GROUP BY builds.build_num
-  ORDER BY (count(*)) DESC, builds.build_num DESC;
-
-
-ALTER TABLE public.scanned_builds OWNER TO postgres;
-
---
 -- Name: idiopathic_build_failures; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.idiopathic_build_failures WITH (security_barrier='false') AS
- SELECT scanned_builds.build_num,
-    build_steps.is_timeout
-   FROM (public.scanned_builds
-     LEFT JOIN public.build_steps ON ((scanned_builds.build_num = build_steps.build)))
-  WHERE (build_steps.id IS NULL);
+CREATE VIEW public.idiopathic_build_failures AS
+ SELECT build_steps.build
+   FROM public.build_steps
+  WHERE (build_steps.name IS NULL);
 
 
 ALTER TABLE public.idiopathic_build_failures OWNER TO postgres;
-
---
--- Name: VIEW idiopathic_build_failures; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON VIEW public.idiopathic_build_failures IS 'Failed builds that have been scanned, but no specific step had failed';
-
 
 --
 -- Name: job_failure_frequencies; Type: VIEW; Schema: public; Owner: postgres
@@ -274,6 +238,19 @@ CREATE VIEW public.job_failure_frequencies AS
 
 
 ALTER TABLE public.job_failure_frequencies OWNER TO postgres;
+
+--
+-- Name: log_metadata; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.log_metadata (
+    line_count integer NOT NULL,
+    byte_count integer NOT NULL,
+    step integer NOT NULL
+);
+
+
+ALTER TABLE public.log_metadata OWNER TO postgres;
 
 --
 -- Name: match_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
@@ -405,6 +382,34 @@ CREATE VIEW public.scannable_build_steps AS
 ALTER TABLE public.scannable_build_steps OWNER TO postgres;
 
 --
+-- Name: scanned_patterns; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.scanned_patterns (
+    scan integer NOT NULL,
+    pattern integer NOT NULL,
+    build integer NOT NULL
+);
+
+
+ALTER TABLE public.scanned_patterns OWNER TO postgres;
+
+--
+-- Name: scanned_builds; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.scanned_builds WITH (security_barrier='false') AS
+ SELECT builds.build_num,
+    count(*) AS scanned_pattern_count
+   FROM (public.scanned_patterns
+     LEFT JOIN public.builds ON ((builds.build_num = scanned_patterns.build)))
+  GROUP BY builds.build_num
+  ORDER BY (count(*)) DESC, builds.build_num DESC;
+
+
+ALTER TABLE public.scanned_builds OWNER TO postgres;
+
+--
 -- Name: scans; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -443,12 +448,11 @@ ALTER SEQUENCE public.scans_id_seq OWNED BY public.scans.id;
 -- Name: unattributed_failed_builds; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.unattributed_failed_builds AS
- SELECT foo.build
-   FROM (( SELECT DISTINCT scanned_patterns.build
-           FROM public.scanned_patterns) foo
-     LEFT JOIN public.matches_for_build ON ((matches_for_build.build = foo.build)))
-  WHERE (matches_for_build.pat IS NULL);
+CREATE VIEW public.unattributed_failed_builds WITH (security_barrier='false') AS
+ SELECT build_steps.build
+   FROM (public.build_steps
+     LEFT JOIN public.matches ON ((matches.build_step = build_steps.id)))
+  WHERE ((matches.pattern IS NULL) AND (build_steps.name IS NOT NULL) AND (NOT build_steps.is_timeout));
 
 
 ALTER TABLE public.unattributed_failed_builds OWNER TO postgres;
@@ -542,6 +546,14 @@ ALTER TABLE ONLY public.build_steps
 
 ALTER TABLE ONLY public.build_steps
     ADD CONSTRAINT build_steps_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: log_metadata log_metadata_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.log_metadata
+    ADD CONSTRAINT log_metadata_pkey PRIMARY KEY (step);
 
 
 --
@@ -696,6 +708,14 @@ ALTER TABLE ONLY public.scanned_patterns
 
 
 --
+-- Name: log_metadata log_metadata_step_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.log_metadata
+    ADD CONSTRAINT log_metadata_step_fkey FOREIGN KEY (step) REFERENCES public.build_steps(id);
+
+
+--
 -- Name: matches match_pattern_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -815,20 +835,6 @@ GRANT ALL ON TABLE public.global_match_frequency TO logan;
 
 
 --
--- Name: TABLE scanned_patterns; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.scanned_patterns TO logan;
-
-
---
--- Name: TABLE scanned_builds; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.scanned_builds TO logan;
-
-
---
 -- Name: TABLE idiopathic_build_failures; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -840,6 +846,13 @@ GRANT ALL ON TABLE public.idiopathic_build_failures TO logan;
 --
 
 GRANT ALL ON TABLE public.job_failure_frequencies TO logan;
+
+
+--
+-- Name: TABLE log_metadata; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.log_metadata TO logan;
 
 
 --
@@ -889,6 +902,20 @@ GRANT ALL ON SEQUENCE public.pattern_step_applicability_id_seq TO logan;
 --
 
 GRANT ALL ON TABLE public.scannable_build_steps TO logan;
+
+
+--
+-- Name: TABLE scanned_patterns; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.scanned_patterns TO logan;
+
+
+--
+-- Name: TABLE scanned_builds; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.scanned_builds TO logan;
 
 
 --

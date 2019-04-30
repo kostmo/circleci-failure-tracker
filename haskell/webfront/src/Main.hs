@@ -97,6 +97,14 @@ main = do
       stats <- liftIO SqlRead.api_summary_stats
       S.json stats
 
+    S.get "/api/unmatched-builds" $ do
+      stats <- liftIO SqlRead.api_unmatched_builds
+      S.json stats
+
+    S.get "/api/idiopathic-failed-builds" $ do
+      stats <- liftIO SqlRead.api_idiopathic_builds
+      S.json stats
+
     S.get "/api/disk" $ do
       stats <- liftIO WebApi.api_disk_space
       S.json stats

@@ -7,9 +7,7 @@ module SqlRead where
 import           Control.Monad              (forM)
 import           Data.Aeson
 import qualified Data.HashMap.Strict        as HashMap
-import           Data.List.Split            (splitOn)
 import qualified Data.Maybe                 as Maybe
-import qualified Data.Set                   as Set
 import           Data.Text                  (Text)
 import           Data.Text.Encoding         (encodeUtf8)
 import           Data.Time                  (UTCTime)
@@ -35,23 +33,17 @@ data ScanScope = NewScanScope {
 
 -- | Some scan patterns only apply to certain build steps, so we
 -- filter those in this function.
-get_unscanned_build_patterns :: ScanRecords.ScanCatchupResources -> IO [SqlRead.ScanScope]
-get_unscanned_build_patterns scan_resources = do
+get_unscanned_patterns_for_build :: ScanRecords.ScanCatchupResources -> Builds.BuildNumber -> IO [ScanPatterns.DbPattern]
+get_unscanned_patterns_for_build scan_resources (Builds.NewBuildNumber _build_number) = do
 
   unscanned_patterns_list <- query_ (ScanRecords.db_conn scan_resources) sql
 
-  buildnum_patt_id_tuples <- forM unscanned_patterns_list $ \(build_num, step_id, step_name, comma_sep_pattern_ids) -> let
-        pattern_ids = Set.fromList $ map read $ splitOn "," $ comma_sep_pattern_ids
-        patterns = Maybe.mapMaybe (\x -> DbHelpers.WithId x <$> HashMap.lookup x (ScanRecords.patterns_by_id scan_resources)) $ Set.toList pattern_ids
-        applicability_predicate p = null pattern_steps || step_name `elem` pattern_steps
-          where
-            pattern_steps = ScanPatterns.applicable_steps $ DbHelpers.record p
-        filtered_patterns = filter applicability_predicate patterns
-    in return $ NewScanScope (Builds.NewBuildNumber build_num) (Builds.NewBuildStepId step_id) filtered_patterns
+  let patt_ids = map (\(Only pattern_id) -> pattern_id) unscanned_patterns_list
+      patterns = Maybe.mapMaybe (\x -> DbHelpers.WithId x <$> HashMap.lookup x (ScanRecords.patterns_by_id scan_resources)) patt_ids
 
-  return buildnum_patt_id_tuples
+  return patterns
   where
-    sql = "SELECT build_num, build_steps.id, build_steps.name, unscanned_patts FROM unscanned_patterns JOIN build_steps ON unscanned_patterns.build_num = build_steps.build ORDER BY patt_count"
+    sql = "SELECT id FROM patterns"
 
 
 get_patterns :: Connection -> IO [ScanPatterns.DbPattern]
@@ -142,6 +134,37 @@ api_failed_commits_by_day = do
   return $ WebApi.ApiResponse inners
 
 
+{-
+data UnmatchedBuildResult = UnmatchedBuildResult {
+    _build_id
+  , _job_name
+  } deriving Generic
+-}
+
+
+list_builds :: Query -> IO [WebApi.BuildNumberRecord]
+list_builds q = do
+  conn <- DbHelpers.get_connection
+
+  inners <- query_ conn sql
+
+  return $ map (\(Only x) -> WebApi.BuildNumberRecord $ Builds.NewBuildNumber x) inners
+  where
+    sql = q
+
+
+api_unmatched_builds :: IO [WebApi.BuildNumberRecord]
+api_unmatched_builds = list_builds sql
+  where
+    sql = "SELECT * FROM unattributed_failed_builds"
+
+
+api_idiopathic_builds :: IO [WebApi.BuildNumberRecord]
+api_idiopathic_builds = list_builds sql
+  where
+    sql = "SELECT * FROM idiopathic_build_failures"
+
+
 data SummaryStats = SummaryStats {
     _failed_builds      :: Int
   , _visited_builds     :: Int
@@ -164,6 +187,10 @@ api_summary_stats = do
   [Only matched_steps_count] <- query_ conn "SELECT COUNT(*) FROM (SELECT build_step FROM public.matches GROUP BY build_step) x"
 
   return $ SummaryStats build_count visited_count explained_count timeout_count matched_steps_count
+
+
+
+
 
 
 data PatternRecord = PatternRecord {
