@@ -35,6 +35,8 @@ function gen_error_cell_html(cell) {
     return cell_html;
 }
 
+
+
 function gen_build_list(api_endpoint, div_id) {
 
 	var table = new Tabulator("#" + div_id, {
@@ -96,6 +98,9 @@ function gen_log_size_histogram() {
 		    },
 		    xAxis: {
 			type: 'category',
+			title: {
+			    text: 'Line count'
+			},
 			labels: {
 			    rotation: -45,
 			    style: {
@@ -107,12 +112,15 @@ function gen_log_size_histogram() {
 		    yAxis: {
 			min: 0,
 			title: {
-			    text: 'Line count'
+			    text: '# of builds'
 			}
 		    },
 		    legend: {
 			enabled: false
 		    },
+        credits: {
+            enabled: false
+        },
 		    series: [{
 			name: 'Line counts',
 			data: mydata,
@@ -292,6 +300,8 @@ function setup_autocomplete() {
 
 function submit_pattern() {
 
+	$("#test-match-results-container").html( "" );
+
         $.get( {
           url: "/api/new-pattern-test",
           data: {
@@ -304,9 +314,26 @@ function submit_pattern() {
             applicable_steps: $('#build-step-applicability-input').val(),
           },
           success: function( data ) {
-		console.log("Results: " + JSON.stringify(data));
 
-		$("#test-match-results-container").html( JSON.stringify(data) );
+		var inner_html = "";
+
+		if (data.length > 0) {
+			inner_html += "<table><tbody>";
+			for (var i=0; i<data.length; i++) {
+
+				var match_details = data[i]["match_details"];
+
+				inner_html += "<tr><td>Line " + match_details["line_number"] + ":</td><td>" + match_details["line_text"] + "</td></tr>";
+
+			}
+
+			inner_html += "</tbody></table>";
+		} else {
+
+			inner_html += "<span style='color: red;'>No matches</span>";
+		}
+
+		$("#test-match-results-container").html( inner_html );
 
           }
         } );
