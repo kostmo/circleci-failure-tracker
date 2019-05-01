@@ -296,7 +296,7 @@ get_pattern_occurrence_rows pattern_id = do
 
   conn <- DbHelpers.get_connection
 
-  xs <- query conn "SELECT build_steps.build AS build_num, build_steps.name, line_number, line_count, line_text, span_start, span_end FROM (SELECT * FROM matches WHERE pattern = ?) foo JOIN build_steps ON build_steps.id = foo.build_step LEFT JOIN log_metadata ON log_metadata.step = build_steps.id ORDER BY build_num DESC" (Only pattern_id)
+  xs <- query conn "SELECT build_steps.build AS build_num, build_steps.name, line_number, COALESCE(line_count, 0), line_text, span_start, span_end FROM (SELECT * FROM matches WHERE pattern = ?) foo JOIN build_steps ON build_steps.id = foo.build_step LEFT JOIN log_metadata ON log_metadata.step = build_steps.id ORDER BY build_num DESC" (Only pattern_id)
 
   inners <- forM xs $ \(buildnum, stepname, line_number, line_count, line_text, span_start, span_end) ->
     return $ (Builds.NewBuildNumber buildnum, stepname, line_count, ScanPatterns.NewMatchDetails line_text line_number $ ScanPatterns.NewMatchSpan span_start span_end)

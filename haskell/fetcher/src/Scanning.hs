@@ -3,7 +3,6 @@
 module Scanning where
 
 import           Control.Lens               hiding ((<.>))
-import           Control.Monad              (unless)
 import           Data.Aeson                 (Value)
 import           Data.Aeson.Lens            (key, _Array, _Bool, _String)
 import           Data.Foldable              (for_)
@@ -204,8 +203,18 @@ get_and_cache_log scan_resources build_number build_step_id maybe_failed_build_o
   -- HOWEVER, the existence check at this layer is still useful for when the database is wiped (for development).
   log_is_cached <- is_log_cached scan_resources build_number
 
-  unless log_is_cached $ do
+  if log_is_cached then do
+    -- XXX The disk cache can persist across wipes of the database.
+    -- Therefore, we may need to re-store log metadata to the database, given a cached log.
 
+    console_log <- TIO.readFile full_filepath
+    let lines_list = T.lines console_log
+        byte_count = T.length console_log
+
+    SqlWrite.store_log_info scan_resources build_step_id $ ScanRecords.LogInfo byte_count $ length lines_list
+    return ()
+
+  else do
     either_download_url <- case maybe_failed_build_output of
       Just failed_build_output -> return $ Right $ Builds.log_url failed_build_output
       Nothing -> do
@@ -236,7 +245,6 @@ get_and_cache_log scan_resources build_number build_step_id maybe_failed_build_o
 
                 console_log = mconcat $ map (\x -> x ^. key "message" . _String) output_elements
                 lines_list = T.lines console_log
-
                 byte_count = T.length console_log
 
             SqlWrite.store_log_info scan_resources build_step_id $ ScanRecords.LogInfo byte_count $ length lines_list
@@ -248,7 +256,6 @@ get_and_cache_log scan_resources build_number build_step_id maybe_failed_build_o
 
   where
     aws_sess = ScanRecords.aws_sess $ ScanRecords.fetching scan_resources
-
     full_filepath = ScanUtils.gen_log_path (ScanRecords.cache_dir $ ScanRecords.fetching scan_resources) build_number
 
 
