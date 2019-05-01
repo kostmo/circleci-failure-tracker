@@ -83,7 +83,7 @@ main = do
     S.post "/api/new-pattern-insert" $ do
       new_pattern <- pattern_from_parms
       x <- liftIO $ SqlWrite.api_new_pattern new_pattern
-      S.json [x]
+      S.json x
 
     S.get "/api/steps" $ do
       term <- S.param "term"

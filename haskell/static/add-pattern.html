@@ -1,0 +1,55 @@
+<html>
+<head>
+<title>Add pattern</title>
+
+<link rel="stylesheet" href="//code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css">
+
+<link href="/style.css" rel="stylesheet" type="text/css"></link>
+
+
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+<script src="https://code.jquery.com/ui/1.12.1/jquery-ui.js"></script>
+
+<script src="/script/add-pattern.js"></script>
+</head>
+
+<body onload="main();">
+
+<h2>Add pattern</h2>
+<form onsubmit="return false;">
+
+<label>Pattern (this is immutable after submitting): <input id="input-pattern-text" type="text" value="does not actually allow to resize"/></label>
+<br/>
+<label><input id="is-regex-checkbox" type="checkbox" checked="checked"/> is a regular expression</label>
+<br/>
+<label><input id="is-nondeterministic-checkbox" type="checkbox"/> regex produces nondeterministic values</label>
+
+<br/>
+<label>
+Description (this can be edited later):
+<input id="input-pattern-description" type="textarea" value="blah"/>
+</label>
+
+<br/>
+<label>
+Tags:
+<input id="pattern-tag-input" type="text" value=""/>
+</label>
+
+<br/>
+<label>
+Applicable build steps (none means applicable to all steps):
+<input id="build-step-applicability-input" type="text" value=""/> <button>Add</button>
+</label>
+
+<br/>
+<button onclick="test_pattern();">Test on build ID</button> <label>#<input id="test-build-id" type="text" value="1040566"/></label> <button onclick="get_random_build('test-build-id');">Random</button>
+
+<div id="test-match-results-container"></div>
+
+<button onclick="submit_pattern();">Submit</button>
+</form>
+
+</body>
+</head>
+

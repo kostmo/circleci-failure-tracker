@@ -1,24 +1,32 @@
+{-# LANGUAGE DeriveGeneric     #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module SqlWrite where
 
 import           Builds
-import           Control.Monad              (when)
-import           Data.Foldable              (for_)
-import qualified Data.Maybe                 as Maybe
-import           Data.Text                  (Text)
-import qualified Data.Text                  as T
-import qualified Data.Text.IO               as TIO
-import           Data.Time.Format           (defaultTimeLocale, formatTime,
-                                             rfc822DateFormat)
+import           Control.Exception                 (throwIO)
+import           Control.Monad                     (when)
+import           Data.Aeson
+import qualified Data.ByteString.Char8             as BS
+import           Data.Foldable                     (for_)
+import qualified Data.Maybe                        as Maybe
+import           Data.Text                         (Text)
+import qualified Data.Text                         as T
+import qualified Data.Text.IO                      as TIO
+import           Data.Time.Format                  (defaultTimeLocale,
+                                                    formatTime,
+                                                    rfc822DateFormat)
 import           Database.PostgreSQL.Simple
-import           GHC.Int                    (Int64)
+import           Database.PostgreSQL.Simple.Errors
+import           GHC.Generics
+import           GHC.Int                           (Int64)
 
 import qualified Constants
 import qualified DbHelpers
 import qualified ScanPatterns
 import qualified ScanRecords
 import qualified ScanUtils
+import qualified WebApi
 
 
 -- | We do not wipe the "builds" or "build_steps" tables
@@ -166,7 +174,6 @@ insert_scan_id conn (ScanRecords.NewPatternId pattern_id)  = do
   return pattern_id
 
 
--- TODO finish this
 api_new_pattern_test :: Builds.BuildNumber -> ScanPatterns.Pattern -> IO [ScanPatterns.ScanMatch]
 api_new_pattern_test build_number new_pattern = do
 
@@ -189,7 +196,34 @@ api_new_pattern_test build_number new_pattern = do
     apply_pattern line_tuple = ScanUtils.apply_single_pattern line_tuple $ DbHelpers.WithId 0 new_pattern
 
 
-api_new_pattern :: ScanPatterns.Pattern -> IO Int64
+
+data InsertionResult =
+    SuccessResult Int64
+  | FailResult String
+  deriving Generic
+
+instance ToJSON InsertionResult
+
+
+data MyResponse = MyResponse {
+    _insertion_result :: InsertionResult
+  } deriving Generic
+
+instance ToJSON MyResponse where
+  toJSON = genericToJSON WebApi.dropUnderscore
+
+
+api_new_pattern :: ScanPatterns.Pattern -> IO MyResponse
 api_new_pattern new_pattern = do
   conn <- DbHelpers.get_connection
-  insert_single_pattern conn new_pattern
+
+  result <- catchViolation catcher $ do
+    record_id <- insert_single_pattern conn new_pattern
+    return $ SuccessResult record_id
+  return $ MyResponse result
+
+  where
+    catcher _ (UniqueViolation some_error) = return $ FailResult $ "Insertion error: " <> BS.unpack some_error
+    catcher e _                                  = throwIO e
+
+
