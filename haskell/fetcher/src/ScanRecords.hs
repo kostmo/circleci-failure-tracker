@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 module ScanRecords where
 
 import           Data.HashMap.Strict        (HashMap)
@@ -17,7 +15,7 @@ data UnidentifiedBuildFailure = NetworkProblem String | NoFailedSteps
 
 
 data LogInfo = LogInfo {
-    log_byte_count :: Int64
+    log_byte_count :: Int
   , log_line_count :: Int
   }
 
@@ -26,6 +24,7 @@ data FetchingResources = FetchingResources {
     db_conn     :: Connection
   , aws_sess    :: Sess.Session
   , circle_sess :: Sess.Session
+  , cache_dir   :: FilePath
   }
 
 

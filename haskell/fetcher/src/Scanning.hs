@@ -8,7 +8,6 @@ import           Data.Aeson                 (Value)
 import           Data.Aeson.Lens            (key, _Array, _Bool, _String)
 import           Data.Foldable              (for_)
 import           Data.List                  (intercalate)
-import           Data.Maybe                 (Maybe)
 import qualified Data.Maybe                 as Maybe
 import qualified Data.Text                  as T
 import qualified Data.Text.IO               as TIO
@@ -17,6 +16,7 @@ import           Database.PostgreSQL.Simple (Connection)
 import           GHC.Int                    (Int64)
 import           Network.Wreq               as NW
 import qualified Network.Wreq.Session       as Sess
+import qualified Safe
 import           System.Directory           (createDirectoryIfMissing,
                                              doesFileExist)
 import           System.Posix.Files         (fileSize, getFileStatus)
@@ -57,14 +57,6 @@ get_step_failure step_val =
       | otherwise = pure ()
 
 
-get_console_url :: (Builds.BuildNumber, Either Builds.BuildStepFailure ScanRecords.UnidentifiedBuildFailure) -> Maybe (Builds.BuildNumber, Builds.BuildFailureOutput)
-get_console_url (build_number, maybe_thing) = case maybe_thing of
-  Right _ -> Nothing
-  Left (Builds.NewBuildStepFailure _stepname mode) -> case mode of
-    Builds.BuildTimeoutFailure             -> Nothing
-    Builds.ScannableFailure failure_output -> Just (build_number, failure_output)
-
-
 prepare_scan_resources :: Connection -> IO ScanRecords.ScanCatchupResources
 prepare_scan_resources conn = do
 
@@ -87,38 +79,51 @@ prepare_scan_resources conn = do
       conn
       aws_sess
       circle_sess
+      cache_dir
 
 
-catchup_scan :: ScanRecords.ScanCatchupResources -> Builds.BuildStepId -> (Builds.BuildNumber, Either Builds.BuildStepFailure ScanRecords.UnidentifiedBuildFailure) -> IO ()
-catchup_scan scan_resources buildstep_id pair@(buildnum, visitation_result) = if build_has_log
-  then do
+-- | This only scans patterns if they are applicable to the particular
+-- failed step of this build.
+-- Patterns that are not annotated with applicability will apply
+-- to any step.
+catchup_scan :: ScanRecords.ScanCatchupResources -> Builds.BuildStepId -> T.Text -> (Builds.BuildNumber, Maybe Builds.BuildFailureOutput) -> IO ()
+catchup_scan scan_resources buildstep_id step_name (buildnum, maybe_console_output_url) = do
 
-    scannable_patterns <- SqlRead.get_unscanned_patterns_for_build scan_resources buildnum
+  scannable_patterns <- SqlRead.get_unscanned_patterns_for_build scan_resources buildnum
 
-    if null scannable_patterns
-      then return ()
+  putStrLn $ "\tThere are " ++ (show $ length scannable_patterns) ++ " scannable patterns"
 
-    else case maybe_console_url of
-      Nothing        -> return ()
-      Just console_url -> do
-        store_log scan_resources console_url
+  let is_pattern_applicable p = null appl_steps || elem step_name appl_steps
+        where
+          appl_steps = ScanPatterns.applicable_steps $ DbHelpers.record p
+      applicable_patterns = filter is_pattern_applicable scannable_patterns
 
-        matches <- scan_log scan_resources buildstep_id buildnum scannable_patterns
-        SqlWrite.store_matches scan_resources buildstep_id buildnum matches
-        return ()
-    return ()
+  putStrLn $ "\t\twith " ++ (show $ length applicable_patterns) ++ " applicable to this step"
 
-  else
-    return ()
+  -- | We only access the console log if there is at least one
+  -- pattern to scan:
+  case Safe.maximumMay (map DbHelpers.db_id applicable_patterns) of
+    Nothing -> return ()
+    Just maximum_pattern_id -> do
+
+      get_and_cache_log scan_resources buildnum buildstep_id maybe_console_output_url
+      matches <- scan_log scan_resources buildnum applicable_patterns
+
+      SqlWrite.store_matches scan_resources buildstep_id buildnum matches
+      SqlWrite.insert_latest_pattern_build_scan scan_resources buildnum maximum_pattern_id
+
+      return ()
+
+
+rescan_visited_builds scan_resources visited_builds_list = do
+
+  for_ (zip [1::Int ..] visited_builds_list) $ \(idx, (build_step_id, step_name, build_num)) -> do
+    putStrLn $ "Visiting " ++ show idx ++ "/" ++ show visited_count ++ " previously-visited builds (" ++ show build_num ++ ")..."
+
+    catchup_scan scan_resources build_step_id step_name (build_num, Nothing)
 
   where
-    build_has_log = case visitation_result of
-      Right _ -> False
-      Left (Builds.NewBuildStepFailure _ mode) -> case mode of
-        Builds.BuildTimeoutFailure              -> False
-        Builds.ScannableFailure _failure_output -> True
-
-    maybe_console_url = get_console_url pair
+    visited_count = length visited_builds_list
 
 
 -- | This function stores a record to the database
@@ -129,15 +134,18 @@ process_builds :: ScanRecords.ScanCatchupResources -> [Builds.BuildNumber] -> IO
 process_builds scan_resources unvisited_builds_list = do
 
   for_ (zip [1::Int ..] unvisited_builds_list) $ \(idx, build_num) -> do
-    putStrLn $ "Visiting " ++ show idx ++ "/" ++ show unvisited_count ++ " builds..."
+    putStrLn $ "Visiting " ++ show idx ++ "/" ++ show unvisited_count ++ " unvisited builds..."
     visitation_result <- get_failed_build_info scan_resources build_num
 
     let pair = (build_num, visitation_result)
-
     build_step_id <- SqlWrite.insert_build_visitation scan_resources pair
 
-    catchup_scan scan_resources build_step_id pair
-    return ()
+    case visitation_result of
+      Right _ -> return ()
+      Left (Builds.NewBuildStepFailure step_name mode) -> case mode of
+        Builds.BuildTimeoutFailure              -> return ()
+        Builds.ScannableFailure failure_output -> do
+          catchup_scan scan_resources build_step_id step_name (build_num, Just failure_output)
 
   where
     unvisited_count = length unvisited_builds_list
@@ -177,41 +185,71 @@ get_failed_build_info scan_resources build_number = do
     sess = ScanRecords.circle_sess $ ScanRecords.fetching scan_resources
 
 
-store_log :: ScanRecords.ScanCatchupResources -> (Builds.BuildNumber, Builds.BuildFailureOutput) -> IO ()
-store_log scan_resources (build_number, failed_build_output) = do
+is_log_cached :: ScanRecords.ScanCatchupResources -> Builds.BuildNumber -> IO Bool
+is_log_cached scan_resources build_num = do
 
-  full_filepath <- ScanUtils.gen_log_path build_number
+  is_file_existing <- doesFileExist full_filepath
+
+  putStrLn $ "Does log exist at path " ++ full_filepath ++ "? " ++ show is_file_existing
+  return is_file_existing
+  where
+    full_filepath = ScanUtils.gen_log_path (ScanRecords.cache_dir $ ScanRecords.fetching scan_resources) build_num
+
+
+get_and_cache_log :: ScanRecords.ScanCatchupResources -> Builds.BuildNumber -> Builds.BuildStepId -> Maybe Builds.BuildFailureOutput -> IO ()
+get_and_cache_log scan_resources build_number build_step_id maybe_failed_build_output = do
 
   -- We normally shouldn't even need to perform this check, because upstream we've already
   -- filtered out pre-cached build logs via the SQL query.
   -- HOWEVER, the existence check at this layer is still useful for when the database is wiped (for development).
-  is_file_existing <- doesFileExist full_filepath
+  log_is_cached <- is_log_cached scan_resources build_number
 
-  putStrLn $ "Does log exist at path " ++ full_filepath ++ "? " ++ show is_file_existing
+  unless log_is_cached $ do
 
-  unless is_file_existing $ do
+    either_download_url <- case maybe_failed_build_output of
+      Just failed_build_output -> return $ Right $ Builds.log_url failed_build_output
+      Nothing -> do
+        visitation_result <- get_failed_build_info scan_resources build_number
 
-      putStrLn $ "Log not on disk. Downloading from: " ++ T.unpack download_url
+        return $ case visitation_result of
+          Right _ -> Left "This build didn't have a console log!"
+          Left (Builds.NewBuildStepFailure _step_name mode) -> case mode of
+            Builds.BuildTimeoutFailure              -> Left "This build didn't have a console log because it was a timeout!"
+            Builds.ScannableFailure failure_output -> Right $ Builds.log_url failure_output
 
-      either_r <- FetchHelpers.safeGetUrl $ Sess.get aws_sess $ T.unpack download_url
+    case either_download_url of
+      Left err_msg ->
+         putStrLn $ "PROBLEM: Failed in store_log with message: " ++ err_msg
 
-      case either_r of
-        Right r -> do
-          let parent_elements = r ^. NW.responseBody . _Array
-              -- we need to concatenate all of the "out" elements
-              pred x = x ^. key "type" . _String == "out"
-              output_elements = filter pred $ V.toList parent_elements
+      Right download_url -> do
 
-              console_log = mconcat $ map (\x -> x ^. key "message" . _String) output_elements
+        putStrLn $ "Log not on disk. Downloading from: " ++ T.unpack download_url
 
-          TIO.writeFile full_filepath console_log
-        Left err_message -> do
-          putStrLn $ "PROBLEM: Failed in store_log with message: " ++ err_message
-          return ()
+        either_r <- FetchHelpers.safeGetUrl $ Sess.get aws_sess $ T.unpack download_url
+
+        case either_r of
+          Right r -> do
+            let parent_elements = r ^. NW.responseBody . _Array
+                -- we need to concatenate all of the "out" elements
+                pred x = x ^. key "type" . _String == "out"
+                output_elements = filter pred $ V.toList parent_elements
+
+                console_log = mconcat $ map (\x -> x ^. key "message" . _String) output_elements
+                lines_list = T.lines console_log
+
+                byte_count = T.length console_log
+
+            SqlWrite.store_log_info scan_resources build_step_id $ ScanRecords.LogInfo byte_count $ length lines_list
+
+            TIO.writeFile full_filepath console_log
+          Left err_message -> do
+            putStrLn $ "PROBLEM: Failed in store_log with message: " ++ err_message
+            return ()
 
   where
-    download_url = Builds.log_url failed_build_output
     aws_sess = ScanRecords.aws_sess $ ScanRecords.fetching scan_resources
+
+    full_filepath = ScanUtils.gen_log_path (ScanRecords.cache_dir $ ScanRecords.fetching scan_resources) build_number
 
 
 getFileSize :: String -> IO Int64
@@ -221,26 +259,29 @@ getFileSize path = do
     return bytecount
 
 
+scan_log_text ::
+     [T.Text]
+  -> [ScanPatterns.DbPattern]
+  -> [ScanPatterns.ScanMatch]
+scan_log_text lines_list patterns =
+  concat $ filter (not . null) $ map apply_patterns $ zip [0..] $ map T.stripEnd lines_list
+  where
+    apply_patterns line_tuple = Maybe.mapMaybe (ScanUtils.apply_single_pattern line_tuple) patterns
+
+
 scan_log ::
      ScanRecords.ScanCatchupResources
-  -> Builds.BuildStepId
   -> Builds.BuildNumber
   -> [ScanPatterns.DbPattern]
   -> IO [ScanPatterns.ScanMatch]
-scan_log scan_resources build_step_id build_number patterns = do
+scan_log scan_resources build_number patterns = do
 
-  full_filepath <- ScanUtils.gen_log_path build_number
-  putStrLn $ "Scanning log: " ++ full_filepath
-
-  byte_count <- getFileSize full_filepath
+  putStrLn $ "Scanning log for " ++ show (length patterns) ++ " patterns: " ++ full_filepath
 
   console_log <- TIO.readFile full_filepath
   let lines_list = T.lines console_log
-      result = filter (not . null) $ map apply_patterns $ zip [0..] $ map T.stripEnd lines_list
 
-  SqlWrite.store_log_info scan_resources build_step_id $ ScanRecords.LogInfo byte_count $ length lines_list
-
-  return $ concat result
+  return $ scan_log_text lines_list patterns
 
   where
-    apply_patterns line_tuple = Maybe.mapMaybe (ScanUtils.apply_single_pattern line_tuple) patterns
+    full_filepath = ScanUtils.gen_log_path (ScanRecords.cache_dir $ ScanRecords.fetching scan_resources) build_number

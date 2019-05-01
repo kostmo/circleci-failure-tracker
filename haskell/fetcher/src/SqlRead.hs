@@ -36,16 +36,16 @@ data ScanScope = NewScanScope {
 -- | Some scan patterns only apply to certain build steps, so we
 -- filter those in this function.
 get_unscanned_patterns_for_build :: ScanRecords.ScanCatchupResources -> Builds.BuildNumber -> IO [ScanPatterns.DbPattern]
-get_unscanned_patterns_for_build scan_resources (Builds.NewBuildNumber _build_number) = do
+get_unscanned_patterns_for_build scan_resources (Builds.NewBuildNumber build_number) = do
 
-  unscanned_patterns_list <- query_ (ScanRecords.db_conn $ ScanRecords.fetching scan_resources) sql
+  unscanned_patterns_list <- query (ScanRecords.db_conn $ ScanRecords.fetching scan_resources) sql (Only build_number)
 
   let patt_ids = map (\(Only pattern_id) -> pattern_id) unscanned_patterns_list
       patterns = Maybe.mapMaybe (\x -> DbHelpers.WithId x <$> HashMap.lookup x (ScanRecords.patterns_by_id scan_resources)) patt_ids
 
   return patterns
   where
-    sql = "SELECT id FROM patterns"
+    sql = "SELECT id FROM patterns WHERE patterns.id > COALESCE((SELECT pattern FROM scanned_patterns WHERE scanned_patterns.build = ? ORDER BY pattern DESC LIMIT 1), -1)"
 
 
 get_patterns :: Connection -> IO [ScanPatterns.DbPattern]
@@ -84,6 +84,14 @@ get_unvisited_build_ids conn limit = do
     sql = "SELECT build_num FROM unvisited_builds ORDER BY build_NUM DESC LIMIT ?;"
 
 
+get_revisitable_builds :: Connection -> IO [(Builds.BuildStepId, Text, Builds.BuildNumber)]
+get_revisitable_builds conn = do
+  rows <- query_ conn sql
+  forM rows $ \(step_id, step_name, build_id) -> return $ (Builds.NewBuildStepId step_id, step_name, Builds.NewBuildNumber build_id)
+  where
+    sql = "SELECT id, name, build FROM build_steps WHERE name IS NOT NULL AND NOT is_timeout;"
+
+
 get_latest_pattern_id :: Connection -> IO ScanRecords.PatternId
 get_latest_pattern_id conn = do
   [Only pattern_id] <- query_ conn sql
@@ -92,6 +100,7 @@ get_latest_pattern_id conn = do
     sql = "SELECT id FROM patterns ORDER BY id DESC LIMIT 1"
 
 
+-- XXX NOT USED
 query_builds :: IO [Builds.Build]
 query_builds = do
   conn <- DbHelpers.get_connection
@@ -106,10 +115,8 @@ api_line_count_histogram = do
   conn <- DbHelpers.get_connection
 
   xs <- query_ conn sql
-  inners <- forM xs $ \(size, freq) ->
+  forM xs $ \(size, freq) ->
     return $ (T.pack $ show (size :: Int), freq)
-
-  return inners
 
   where
   sql = "select pow(10, floor(ln(line_count) / ln(10)))::numeric::integer as bin, count(*) as qty from log_metadata WHERE line_count > 0 group by bin ORDER BY bin ASC"
@@ -124,7 +131,6 @@ api_jobs = do
     return $ WebApi.JobApiRecord jobname [freq]
 
   return $ WebApi.ApiResponse inners
-
 
 
 api_step :: IO (WebApi.ApiResponse WebApi.PieSliceApiRecord)
@@ -146,7 +152,6 @@ api_failed_commits_by_day = do
   inners <- query_ conn "SELECT queued_at::date AS date, COUNT(*) FROM (SELECT vcs_revision, MAX(queued_at) queued_at FROM builds GROUP BY vcs_revision) foo GROUP BY date ORDER BY date ASC"
 
   return $ WebApi.ApiResponse inners
-
 
 
 list_builds :: Query -> IO [WebApi.BuildNumberRecord]
@@ -226,10 +231,6 @@ api_summary_stats = do
   return $ SummaryStats build_count visited_count explained_count timeout_count matched_steps_count
 
 
-
-
-
-
 data PatternRecord = PatternRecord {
     _id          :: Int64
   , _is_regex    :: Bool
@@ -301,4 +302,3 @@ get_pattern_occurrence_rows pattern_id = do
     return $ (Builds.NewBuildNumber buildnum, stepname, line_count, ScanPatterns.NewMatchDetails line_text line_number $ ScanPatterns.NewMatchSpan span_start span_end)
 
   return inners
-

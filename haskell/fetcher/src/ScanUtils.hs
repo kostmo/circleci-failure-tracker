@@ -11,7 +11,6 @@ import           Text.Regex.Base
 import           Text.Regex.PCRE           ((=~~))
 
 import qualified Builds
-import qualified Constants
 import qualified DbHelpers
 import qualified ScanPatterns
 import           SillyMonoids              ()
@@ -39,9 +38,8 @@ apply_single_pattern (line_number, line) db_pattern = match_partial <$> match_sp
     pattern_obj = DbHelpers.record db_pattern
 
 
-gen_log_path :: Builds.BuildNumber -> IO FilePath
-gen_log_path (Builds.NewBuildNumber build_num) = do
-  cache_dir <- Constants.get_url_cache_basedir
-  return $ cache_dir </> filename_stem <.> "log"
+gen_log_path :: FilePath -> Builds.BuildNumber -> FilePath
+gen_log_path cache_dir (Builds.NewBuildNumber build_num) =
+  cache_dir </> filename_stem <.> "log"
   where
     filename_stem = show build_num

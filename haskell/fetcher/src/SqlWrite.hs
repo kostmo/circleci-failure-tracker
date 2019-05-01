@@ -3,6 +3,7 @@
 module SqlWrite where
 
 import           Builds
+import           Control.Monad              (when)
 import           Data.Foldable              (for_)
 import qualified Data.Maybe                 as Maybe
 import           Data.Text                  (Text)
@@ -13,6 +14,7 @@ import           Data.Time.Format           (defaultTimeLocale, formatTime,
 import           Database.PostgreSQL.Simple
 import           GHC.Int                    (Int64)
 
+import qualified Constants
 import qualified DbHelpers
 import qualified ScanPatterns
 import qualified ScanRecords
@@ -35,12 +37,14 @@ allTableTruncations = [
   ]
 
 
-prepare_database :: IO Connection
-prepare_database = do
+prepare_database :: Bool -> IO Connection
+prepare_database wipe = do
 
   conn <- DbHelpers.get_connection
---  SqlWrite.scrub_tables conn
-  SqlWrite.populate_patterns conn ScanPatterns.pattern_list
+
+  when wipe $ do
+    SqlWrite.scrub_tables conn
+    SqlWrite.populate_patterns conn ScanPatterns.pattern_list
   return conn
 
 
@@ -113,7 +117,7 @@ insert_single_pattern conn (ScanPatterns.NewPattern expression_obj description t
 
 
 populate_patterns :: Connection -> [ScanPatterns.Pattern] -> IO ()
-populate_patterns conn pattern_list = do
+populate_patterns conn pattern_list =
   for_ pattern_list $ insert_single_pattern conn
 
 
@@ -130,7 +134,17 @@ step_failure_to_tuple (NewBuildNumber buildnum, visitation_result) = case visita
 store_log_info :: ScanRecords.ScanCatchupResources -> BuildStepId -> ScanRecords.LogInfo -> IO Int64
 store_log_info scan_resources (NewBuildStepId step_id) (ScanRecords.LogInfo byte_count line_count) = do
 
-  execute conn "INSERT INTO log_metadata(step, line_count, byte_count) VALUES(?,?,?);" (step_id, line_count, byte_count)
+  execute conn "INSERT INTO log_metadata(step, line_count, byte_count) VALUES(?,?,?) ON CONFLICT (step) DO NOTHING;" (step_id, line_count, byte_count)
+
+  where
+    conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
+
+
+insert_latest_pattern_build_scan :: ScanRecords.ScanCatchupResources -> BuildNumber -> Int64 -> IO ()
+insert_latest_pattern_build_scan scan_resources (NewBuildNumber build_number) pattern_id = do
+
+  execute conn "INSERT INTO scanned_patterns(scan, build, pattern) VALUES(?,?,?);" (ScanRecords.scan_id scan_resources, build_number, pattern_id)
+  return ()
 
   where
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
@@ -156,7 +170,8 @@ insert_scan_id conn (ScanRecords.NewPatternId pattern_id)  = do
 api_new_pattern_test :: Builds.BuildNumber -> ScanPatterns.Pattern -> IO [ScanPatterns.ScanMatch]
 api_new_pattern_test build_number new_pattern = do
 
-  full_filepath <- ScanUtils.gen_log_path build_number
+  cache_dir <- Constants.get_url_cache_basedir
+  let full_filepath = ScanUtils.gen_log_path cache_dir build_number
   putStrLn $ "Scanning log: " ++ full_filepath
 
   -- TODO consolidate with Scanning.scan_log
@@ -174,8 +189,6 @@ api_new_pattern_test build_number new_pattern = do
     apply_pattern line_tuple = ScanUtils.apply_single_pattern line_tuple $ DbHelpers.WithId 0 new_pattern
 
 
-
--- TODO not used yet
 api_new_pattern :: ScanPatterns.Pattern -> IO Int64
 api_new_pattern new_pattern = do
   conn <- DbHelpers.get_connection

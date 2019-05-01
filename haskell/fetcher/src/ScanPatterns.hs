@@ -166,7 +166,7 @@ pattern_list = [
   , NewPattern (RegularExpression "Failed to recurse into submodule path '(.+)'")
       "Git submodules failure" ["infra", "git"] ["Run in docker", "Build"]
   , NewPattern (RegularExpression "::(.+) FAILED")
-      "Unit test failure" ["runtine"] []
+      "Unit test failure" ["runtime"] []
 
   , NewPattern (RegularExpression "fatal: unable to access '(.+)': gnutls_handshake\\(\\) failed: Error in the pull function")
       "Git fetch failed" ["infra", "git"] []

@@ -3,18 +3,16 @@ import           Options.Applicative
 import           System.IO
 
 import qualified BuildRetrieval
-import qualified DbHelpers
 import qualified Scanning
-import qualified ScanPatterns
 import qualified SqlRead
 import qualified SqlWrite
 
 
 data CommandLineArgs = NewCommandLineArgs {
-    buildCount :: Int
-  , ageDays    :: Int
-  , dbHostname :: String
-  , quiet      :: Bool
+    buildCount   :: Int
+  , ageDays      :: Int
+  , dbHostname   :: String
+  , wipeDatabase :: Bool
     -- ^ Suppress console output
   }
 
@@ -27,8 +25,8 @@ myCliParser = NewCommandLineArgs
     <> help "Maximum age of build to fetch from CircleCI")
   <*> strOption   (long "db-hostname" <> value "localhost" <> metavar "DATABASE_HOSTNAME"
     <> help "Hostname of database")
-  <*> switch      (long "quiet"
-    <> help "Suppress console output")
+  <*> switch      (long "wipe"
+    <> help "Wipe database content before beginning")
 
 
 mainAppCode :: CommandLineArgs -> IO ()
@@ -39,13 +37,16 @@ mainAppCode args = do
   capability_count <- getNumCapabilities
   print $ "Num capabilities: " ++ show capability_count
 
-  conn <- SqlWrite.prepare_database
+  conn <- SqlWrite.prepare_database $ wipeDatabase args
 
   BuildRetrieval.updateBuildsList conn fetch_count age_days
-  unvisited_builds_list <- SqlRead.get_unvisited_build_ids conn fetch_count
 
-  putStrLn "Storing build failure metadata..."
   scan_resources <- Scanning.prepare_scan_resources conn
+
+  visited_builds_list <- SqlRead.get_revisitable_builds conn
+  Scanning.rescan_visited_builds scan_resources visited_builds_list
+
+  unvisited_builds_list <- SqlRead.get_unvisited_build_ids conn fetch_count
   Scanning.process_builds scan_resources unvisited_builds_list
 
   where

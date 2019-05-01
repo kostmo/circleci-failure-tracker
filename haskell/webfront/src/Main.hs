@@ -1,28 +1,49 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 import           Control.Monad.IO.Class        (liftIO)
+import           Data.List                     (filter)
+import           Data.List.Split               (splitOn)
 import qualified Data.Maybe                    as Maybe
 import           Data.Text                     (Text)
+import qualified Data.Text                     as T
 import           Data.Text.Encoding            (encodeUtf8)
+import qualified Data.Text.Internal.Lazy       as LT
 import           Network.Wai.Middleware.Static
 import           System.Environment            (lookupEnv)
 import qualified Text.Blaze.Html.Renderer.Text as BRT
 import qualified Text.Blaze.Html5              as H hiding (map)
-import qualified Text.Blaze.Html5.Attributes   as A
 import           Text.Read                     (readMaybe)
 import qualified Web.Scotty                    as S
+import qualified Web.Scotty.Internal.Types     as ScottyTypes
 
 import qualified Builds
-import qualified HtmlUtils
 import qualified ScanPatterns
 import qualified SqlRead
 import qualified SqlWrite
 import qualified WebApi
 
 
-getHtml :: H.Html
-getHtml =
-  H.span "hello"
+pattern_from_parms :: ScottyTypes.ActionT LT.Text IO ScanPatterns.Pattern
+pattern_from_parms = do
+
+  expression <- S.param "pattern"
+  is_regex_str <- S.param "is_regex"
+  description <- S.param "description"
+  tags <- S.param "tags"
+  applicable_steps <- S.param "applicable_steps"
+
+  let is_regex = is_regex_str == ("true" :: Text)
+      match_expression = if is_regex
+            then ScanPatterns.RegularExpression $ encodeUtf8 expression
+            else ScanPatterns.LiteralExpression expression
+
+  return $ ScanPatterns.NewPattern
+    match_expression
+    description
+    (listify tags)
+    (listify applicable_steps)
+  where
+    listify = map T.pack . filter (not . null) . splitOn ","
 
 
 main :: IO ()
@@ -35,13 +56,6 @@ main = do
   S.scotty prt $ do
 
     S.middleware $ staticPolicy (noDots >-> addBase "static")
-
-    S.post "/start-scan" $ do
-      S.html $ BRT.renderHtml getHtml
-
-    -- XXX Not used
-    S.get "/list-builds" $ do
-      S.json =<< liftIO SqlRead.query_builds
 
     S.get "/api/failed-commits-by-day" $
       S.json =<< liftIO SqlRead.api_failed_commits_by_day
@@ -61,27 +75,15 @@ main = do
       S.json x
 
     S.get "/api/new-pattern-test" $ do
-      expression <- S.param "pattern"
       buildnum_str <- S.param "build_num"
-      is_regex_str <- S.param "is_regex"
-      description <- S.param "description"
-      tags <- S.param "tags"
-      applicable_steps <- S.param "applicable_steps"
-      let is_regex = is_regex_str == ("true" :: Text)
-
-      liftIO $ putStrLn $ "is regex: " ++ show is_regex
-
-      let match_expression = if is_regex
-            then ScanPatterns.RegularExpression $ encodeUtf8 expression
-            else ScanPatterns.LiteralExpression expression
-          new_pattern = ScanPatterns.NewPattern
-            match_expression
-            description
-            tags
-            applicable_steps
-
+      new_pattern <- pattern_from_parms
       x <- liftIO $ SqlWrite.api_new_pattern_test (Builds.NewBuildNumber $ read buildnum_str) new_pattern
       S.json x
+
+    S.post "/api/new-pattern-insert" $ do
+      new_pattern <- pattern_from_parms
+      x <- liftIO $ SqlWrite.api_new_pattern new_pattern
+      S.json [x]
 
     S.get "/api/steps" $ do
       term <- S.param "term"
@@ -116,6 +118,10 @@ main = do
       x <- liftIO $ SqlRead.get_pattern_matches pattern_id
       S.json x
 
+    S.get "/favicon.ico" $ do
+      S.setHeader "Content-Type" "image/x-icon"
+      S.file "./static/images/favicon.ico"
+
     S.options "/" $ do
       S.setHeader "Access-Control-Allow-Origin" "*"
       S.setHeader "Access-Control-Allow-Methods" "POST, GET, OPTIONS"
@@ -124,6 +130,3 @@ main = do
       S.setHeader "Content-Type" "text/html; charset=utf-8"
       S.file "./static/index.html"
 
-    S.get "/favicon.ico" $ do
-      S.setHeader "Content-Type" "image/x-icon"
-      S.file "./static/favicon.ico"
