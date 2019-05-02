@@ -36,22 +36,6 @@ function gen_error_cell_html(cell) {
 }
 
 
-
-function gen_build_list(api_endpoint, div_id) {
-
-	var table = new Tabulator("#" + div_id, {
-	    height:"200px",
-	    layout:"fitColumns",
-	    placeholder:"No Data Set",
-	    columns:[
-		{title:"Build number", field:"build_number", formatter: "link", width: 75, formatterParams: {urlPrefix: "https://circleci.com/gh/pytorch/pytorch/"}},
-	    ],
-            ajaxURL: api_endpoint,
-	});
-}
-
-
-
 function pattern_details_page() {
 
 	var urlParams = new URLSearchParams(window.location.search);
@@ -82,54 +66,6 @@ function pattern_details_page() {
             ajaxURL: "/api/pattern-matches?pattern_id=" + pattern_id,
 	});
 }
-
-
-function gen_log_size_histogram() {
-
-
-   $.getJSON('/api/log-size-histogram', function (mydata) {
-
-		Highcharts.chart('line-histogram-container', {
-		    chart: {
-			type: 'column'
-		    },
-		    title: {
-			text: 'Frequency of log line counts'
-		    },
-		    xAxis: {
-			type: 'category',
-			title: {
-			    text: 'Line count'
-			},
-			labels: {
-			    rotation: -45,
-			    style: {
-				fontSize: '13px',
-				fontFamily: 'Verdana, sans-serif'
-			    }
-			}
-		    },
-		    yAxis: {
-			min: 0,
-			title: {
-			    text: '# of builds'
-			}
-		    },
-		    legend: {
-			enabled: false
-		    },
-        credits: {
-            enabled: false
-        },
-		    series: [{
-			name: 'Build count',
-			data: mydata,
-		    }]
-		});
-
-    });
-}
-
 
 function gen_summary_nested_pie() {
 
@@ -246,69 +182,7 @@ function gen_sunburst_data_series(data) {
 
 function main() {
 
-	gen_log_size_histogram();
 	gen_patterns_table(null);
-
-
-
-	gen_build_list("/api/idiopathic-failed-builds", "container-idiopathic-failures");
-	gen_build_list("/api/unmatched-builds", "container-unattributed-failures");
-
-
-	gen_summary_nested_pie();
-
-   $.getJSON('api/job', function (data) {
-
-      Highcharts.chart('container-job-failures', {
-
-        chart: {
-            type: 'bar'
-        },
-        title: {
-            text: 'Build failure counts by job name'
-        },
-        xAxis: {
-            categories: ['Job'],
-            title: {
-                text: null
-            }
-        },
-        yAxis: {
-            min: 0,
-            title: {
-                text: 'Failure count',
-                align: 'high'
-            },
-            labels: {
-                overflow: 'justify'
-            }
-        },
-        plotOptions: {
-            bar: {
-                dataLabels: {
-                    enabled: true
-                }
-            }
-        },
-        legend: {
-            layout: 'vertical',
-            align: 'right',
-            verticalAlign: 'top',
-            x: -40,
-            y: 80,
-            floating: true,
-            borderWidth: 1,
-            backgroundColor: ((Highcharts.theme && Highcharts.theme.legendBackgroundColor) || '#FFFFFF'),
-            shadow: true
-        },
-        credits: {
-            enabled: false
-        },
-        series: data.rows,
-      });
-
-   });
-
 
    $.getJSON('/api/step', function (data) {
 
@@ -348,111 +222,5 @@ function main() {
          }]
       });
 
-   });
-
-
-
-
-
-
-
-   $.getJSON('/api/disk', function (mydata) {
-
-      Highcharts.chart('container-disk-space', {
-        chart: {
-            plotBackgroundColor: null,
-            plotBorderWidth: null,
-            plotShadow: false,
-            type: 'pie'
-        },
-        title: {
-            text: 'Disk consumption for logs'
-        },
-        tooltip: {
-            pointFormat: '{series.name}: <b>{point.percentage:.1f}%</b>'
-        },
-        plotOptions: {
-            pie: {
-                allowPointSelect: true,
-                cursor: 'pointer',
-                dataLabels: {
-                    enabled: true,
-                    format: '<b>{point.name}</b>: {point.percentage:.1f} %',
-                    style: {
-                        color: (Highcharts.theme && Highcharts.theme.contrastTextColor) || 'black'
-                    }
-                }
-            }
-        },
-        credits: {
-            enabled: false
-        },
-        series: [{
-            name: 'Disk',
-            colorByPoint: true,
-            data: mydata,
-         }]
-      });
-
-   });
-
-
-
-
-
-   $.getJSON('/api/failed-commits-by-day', function (data) {
-
-        var rows = [];
-
-        $.each(data.rows, function( index, value ) {
-
-                rows.push([Date.parse(value[0]), value[1]]);
-        });
-
-      Highcharts.chart('container-failed-commits-by-day', {
-
-           chart: {
-                type: 'line'
-            },
-            title: {
-                text: 'Failed commits by day'
-            },
-            xAxis: {
-                type: 'datetime',
-                dateTimeLabelFormats: { // don't display the dummy year
-                    month: '%e. %b',
-                    year: '%b'
-                },
-                title: {
-                    text: 'Date'
-                }
-            },
-            yAxis: {
-                title: {
-                    text: 'Failure count'
-                },
-                min: 0
-            },
-            tooltip: {
-                headerFormat: '<b>{series.name}</b><br>',
-                pointFormat: '{point.x:%e. %b}: {point.y:.2f} m'
-            },
-
-            plotOptions: {
-                line: {
-                    marker: {
-                        enabled: true
-                    }
-                }
-            },
-
-        credits: {
-            enabled: false
-        },
-        series: [{
-            name: "Broken commits",
-            data: rows,
-            }],
-      });
    });
 }

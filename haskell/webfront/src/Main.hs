@@ -43,7 +43,7 @@ pattern_from_parms = do
     (listify tags)
     (listify applicable_steps)
   where
-    listify = map T.pack . filter (not . null) . splitOn ","
+    listify = filter (not . T.null) . map (T.strip . T.pack) . splitOn ","
 
 
 main :: IO ()
