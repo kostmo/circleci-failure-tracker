@@ -6,6 +6,7 @@ license: BSD3
 dependencies:
 - base
 - aeson
+
 executables:
   my-webapp:
     main: Main.hs
@@ -23,5 +24,8 @@ executables:
     - wai-middleware-static
     - blaze-html
     - blaze-markup
+    - directory
+    - filepath
     - text
+    - optparse-applicative
 

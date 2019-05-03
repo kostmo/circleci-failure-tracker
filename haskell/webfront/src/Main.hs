@@ -9,9 +9,10 @@ import qualified Data.Text                     as T
 import           Data.Text.Encoding            (encodeUtf8)
 import qualified Data.Text.Internal.Lazy       as LT
 import           Network.Wai.Middleware.Static
+import           Options.Applicative
+import           System.Directory
 import           System.Environment            (lookupEnv)
-import qualified Text.Blaze.Html.Renderer.Text as BRT
-import qualified Text.Blaze.Html5              as H hiding (map)
+import           System.FilePath
 import           Text.Read                     (readMaybe)
 import qualified Web.Scotty                    as S
 import qualified Web.Scotty.Internal.Types     as ScottyTypes
@@ -46,8 +47,8 @@ pattern_from_parms = do
     listify = filter (not . T.null) . map (T.strip . T.pack) . splitOn ","
 
 
-main :: IO ()
-main = do
+mainAppCode :: CommandLineArgs -> IO ()
+mainAppCode args = do
 
   maybe_envar_port <- lookupEnv "PORT"
   let prt = Maybe.fromMaybe 3000 $ readMaybe =<< maybe_envar_port
@@ -55,7 +56,7 @@ main = do
 
   S.scotty prt $ do
 
-    S.middleware $ staticPolicy (noDots >-> addBase "static")
+    S.middleware $ staticPolicy (noDots >-> addBase static_base)
 
     S.get "/api/failed-commits-by-day" $
       S.json =<< liftIO SqlRead.api_failed_commits_by_day
@@ -120,13 +121,55 @@ main = do
 
     S.get "/favicon.ico" $ do
       S.setHeader "Content-Type" "image/x-icon"
-      S.file "./static/images/favicon.ico"
+      S.file $ static_base </> "images/favicon.ico"
 
     S.options "/" $ do
       S.setHeader "Access-Control-Allow-Origin" "*"
       S.setHeader "Access-Control-Allow-Methods" "POST, GET, OPTIONS"
 
     S.get "/" $ do
+
+      liftIO $ do
+        cwd <- getCurrentDirectory
+        putStrLn $ "Current working dir: " ++ cwd
+        dircontents <- getDirectoryContents cwd
+        putStrLn $ "Directory contents: " ++ show dircontents
+        putStrLn $ "Directory contents of \"" ++ static_base ++ "\":"
+        dircontents2 <- getDirectoryContents static_base
+        putStrLn $ "-> " ++ show dircontents2
+
       S.setHeader "Content-Type" "text/html; charset=utf-8"
-      S.file "./static/index.html"
+      S.file $ static_base </> "index.html"
+
+  where
+    static_base = staticBase args
+
+
+data CommandLineArgs = NewCommandLineArgs {
+    serverPort :: Int
+  , staticBase :: String
+  , dbHostname :: String
+  }
+
+
+myCliParser :: Parser CommandLineArgs
+myCliParser = NewCommandLineArgs
+  <$> option auto (long "port"       <> value 3000           <> metavar "PORT"
+    <> help "Webserver port")
+  <*> strOption   (long "data-path" <> value "/data/static" <> metavar "STATIC_DATA"
+    <> help "Path to static data files")
+  <*> strOption   (long "db-hostname" <> value "localhost" <> metavar "DATABASE_HOSTNAME"
+    <> help "Hostname of database")
+--  <*> switch      (long "wipe"
+--    <> help "Wipe database content before beginning")
+
+
+main :: IO ()
+main = execParser opts >>= mainAppCode
+  where
+    opts = info (helper <*> myCliParser)
+      ( fullDesc
+     <> progDesc "CircleCI failure log analsys webserver"
+     <> header "webapp - user frontend" )
+
 
