@@ -18,6 +18,16 @@ data WithId a = WithId {
 instance ToJSON a => ToJSON (WithId a)
 
 
+
+data DbConnectionData = NewDbConnectionData {
+    dbHostname :: String
+  , dbName     :: String
+  , dbUsername :: String
+  , dbPassword :: String
+  }
+
+
+
 as_tuple :: WithId a -> (Int64, a)
 as_tuple = db_id &&& record
 
@@ -26,9 +36,10 @@ to_dict :: [WithId a] -> HashMap Int64 a
 to_dict = HashMap.fromList . map as_tuple
 
 
-get_connection :: IO Connection
-get_connection = connect $ defaultConnectInfo {
-      connectUser = "logan"
-    , connectPassword = "logan01"
-    , connectDatabase = "loganci"
+get_connection :: DbConnectionData -> IO Connection
+get_connection conn_data = connect $ defaultConnectInfo {
+      connectUser = dbUsername conn_data
+    , connectPassword = dbPassword conn_data
+    , connectDatabase = dbName conn_data
+    , connectHost = dbHostname conn_data
     }

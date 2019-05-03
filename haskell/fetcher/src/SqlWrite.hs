@@ -45,10 +45,10 @@ allTableTruncations = [
   ]
 
 
-prepare_database :: Bool -> IO Connection
-prepare_database wipe = do
+prepare_database :: DbHelpers.DbConnectionData -> Bool -> IO Connection
+prepare_database conn_data wipe = do
 
-  conn <- DbHelpers.get_connection
+  conn <- DbHelpers.get_connection conn_data
 
   when wipe $ do
     SqlWrite.scrub_tables conn
@@ -213,9 +213,9 @@ instance ToJSON MyResponse where
   toJSON = genericToJSON WebApi.dropUnderscore
 
 
-api_new_pattern :: ScanPatterns.Pattern -> IO MyResponse
-api_new_pattern new_pattern = do
-  conn <- DbHelpers.get_connection
+api_new_pattern :: DbHelpers.DbConnectionData -> ScanPatterns.Pattern -> IO MyResponse
+api_new_pattern conn_data new_pattern = do
+  conn <- DbHelpers.get_connection conn_data
 
   result <- catchViolation catcher $ do
     record_id <- insert_single_pattern conn new_pattern

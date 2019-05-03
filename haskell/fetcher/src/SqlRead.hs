@@ -101,18 +101,18 @@ get_latest_pattern_id conn = do
 
 
 -- XXX NOT USED
-query_builds :: IO [Builds.Build]
-query_builds = do
-  conn <- DbHelpers.get_connection
+query_builds :: DbHelpers.DbConnectionData -> IO [Builds.Build]
+query_builds conn_data = do
+  conn <- DbHelpers.get_connection conn_data
 
   xs <- query_ conn "SELECT build_num, vcs_revision, queued_at, job_name, branch FROM builds"
   forM xs $ \(buildnum, vcs_rev, queuedat, jobname, branch) ->
     return $ Builds.NewBuild (Builds.NewBuildNumber buildnum) vcs_rev queuedat jobname branch
 
 
-api_line_count_histogram :: IO [(Text, Int)]
-api_line_count_histogram = do
-  conn <- DbHelpers.get_connection
+api_line_count_histogram :: DbHelpers.DbConnectionData -> IO [(Text, Int)]
+api_line_count_histogram conn_data = do
+  conn <- DbHelpers.get_connection conn_data
 
   xs <- query_ conn sql
   forM xs $ \(size, freq) ->
@@ -122,9 +122,9 @@ api_line_count_histogram = do
   sql = "select pow(10, floor(ln(line_count) / ln(10)))::numeric::integer as bin, count(*) as qty from log_metadata WHERE line_count > 0 group by bin ORDER BY bin ASC"
 
 
-api_jobs :: IO (WebApi.ApiResponse WebApi.JobApiRecord)
-api_jobs = do
-  conn <- DbHelpers.get_connection
+api_jobs :: DbHelpers.DbConnectionData -> IO (WebApi.ApiResponse WebApi.JobApiRecord)
+api_jobs conn_data = do
+  conn <- DbHelpers.get_connection conn_data
 
   xs <- query_ conn "SELECT job_name, freq FROM job_failure_frequencies"
   inners <- forM xs $ \(jobname, freq) ->
@@ -133,9 +133,9 @@ api_jobs = do
   return $ WebApi.ApiResponse inners
 
 
-api_step :: IO (WebApi.ApiResponse WebApi.PieSliceApiRecord)
-api_step = do
-  conn <- DbHelpers.get_connection
+api_step :: DbHelpers.DbConnectionData -> IO (WebApi.ApiResponse WebApi.PieSliceApiRecord)
+api_step conn_data = do
+  conn <- DbHelpers.get_connection conn_data
 
   xs <- query_ conn "SELECT name, COUNT(*) AS freq FROM build_steps WHERE name IS NOT NULL GROUP BY name ORDER BY freq DESC"
   inners <- forM xs $ \(stepname, freq) ->
@@ -145,18 +145,18 @@ api_step = do
 
 
 -- | Note that Highcharts expects the dates to be in ascending order
-api_failed_commits_by_day :: IO (WebApi.ApiResponse (Day, Int))
-api_failed_commits_by_day = do
-  conn <- DbHelpers.get_connection
+api_failed_commits_by_day :: DbHelpers.DbConnectionData -> IO (WebApi.ApiResponse (Day, Int))
+api_failed_commits_by_day conn_data = do
+  conn <- DbHelpers.get_connection conn_data
 
   inners <- query_ conn "SELECT queued_at::date AS date, COUNT(*) FROM (SELECT vcs_revision, MAX(queued_at) queued_at FROM builds GROUP BY vcs_revision) foo GROUP BY date ORDER BY date ASC"
 
   return $ WebApi.ApiResponse inners
 
 
-list_builds :: Query -> IO [WebApi.BuildNumberRecord]
-list_builds q = do
-  conn <- DbHelpers.get_connection
+list_builds :: DbHelpers.DbConnectionData -> Query -> IO [WebApi.BuildNumberRecord]
+list_builds conn_data q = do
+  conn <- DbHelpers.get_connection conn_data
 
   inners <- query_ conn sql
 
@@ -165,44 +165,44 @@ list_builds q = do
     sql = q
 
 
-api_unmatched_builds :: IO [WebApi.BuildNumberRecord]
-api_unmatched_builds = list_builds sql
+api_unmatched_builds :: DbHelpers.DbConnectionData -> IO [WebApi.BuildNumberRecord]
+api_unmatched_builds conn_data = list_builds conn_data sql
   where
     sql = "SELECT * FROM unattributed_failed_builds"
 
 
-api_idiopathic_builds :: IO [WebApi.BuildNumberRecord]
-api_idiopathic_builds = list_builds sql
+api_idiopathic_builds :: DbHelpers.DbConnectionData -> IO [WebApi.BuildNumberRecord]
+api_idiopathic_builds conn_data = list_builds conn_data sql
   where
     sql = "SELECT * FROM idiopathic_build_failures"
 
 
-api_random_scannable_build :: IO WebApi.BuildNumberRecord
-api_random_scannable_build = do
-  conn <- DbHelpers.get_connection
+api_random_scannable_build :: DbHelpers.DbConnectionData -> IO WebApi.BuildNumberRecord
+api_random_scannable_build conn_data = do
+  conn <- DbHelpers.get_connection conn_data
   [Only buildnum] <- query_ conn sql
   return $ WebApi.BuildNumberRecord $ Builds.NewBuildNumber buildnum
   where
     sql = "SELECT build_num FROM scannable_build_steps OFFSET floor(random()*(SELECT COUNT(*) FROM scannable_build_steps)) LIMIT 1"
 
 
-list_flat :: FromField a => Query -> Text -> IO [a]
-list_flat q t = do
-  conn <- DbHelpers.get_connection
+list_flat :: FromField a => DbHelpers.DbConnectionData -> Query -> Text -> IO [a]
+list_flat conn_data q t = do
+  conn <- DbHelpers.get_connection conn_data
   inners <- query conn sql (Only t)
   return $ map (\(Only x) -> x) inners
   where
     sql = q
 
 
-api_list_tags :: Text -> IO [Text]
-api_list_tags = list_flat sql
+api_list_tags :: DbHelpers.DbConnectionData -> Text -> IO [Text]
+api_list_tags conn_data = list_flat conn_data sql
   where
     sql = "SELECT tag FROM (SELECT tag, COUNT(*) AS freq FROM pattern_tags GROUP BY tag ORDER BY freq DESC, tag ASC) foo WHERE tag ILIKE CONCAT(?,'%')"
 
 
-api_list_steps :: Text -> IO [Text]
-api_list_steps = list_flat sql
+api_list_steps :: DbHelpers.DbConnectionData -> Text -> IO [Text]
+api_list_steps conn_data = list_flat conn_data sql
   where
     sql = "SELECT name FROM (SELECT name, COUNT(*) AS freq FROM build_steps where name IS NOT NULL GROUP BY name ORDER BY freq DESC, name ASC) foo WHERE name ILIKE CONCAT(?,'%') "
 
@@ -219,8 +219,8 @@ instance ToJSON SummaryStats where
   toJSON = genericToJSON WebApi.dropUnderscore
 
 
-api_summary_stats = do
-  conn <- DbHelpers.get_connection
+api_summary_stats conn_data = do
+  conn <- DbHelpers.get_connection conn_data
 
   [Only build_count] <- query_ conn "SELECT COUNT(*) FROM builds"
   [Only visited_count] <- query_ conn "SELECT COUNT(*) FROM build_steps"
@@ -246,9 +246,9 @@ instance ToJSON PatternRecord where
   toJSON = genericToJSON WebApi.dropUnderscore
 
 
-api_single_pattern :: Int ->  IO [PatternRecord]
-api_single_pattern pattern_id = do
-  conn <- DbHelpers.get_connection
+api_single_pattern :: DbHelpers.DbConnectionData -> Int ->  IO [PatternRecord]
+api_single_pattern conn_data pattern_id = do
+  conn <- DbHelpers.get_connection conn_data
 
   xs <- query conn "SELECT id, regex, expression, description, matching_build_count, most_recent, earliest, tags FROM pattern_frequency_summary WHERE id = ?" (Only pattern_id)
   inners <- forM xs $ \(a, b, c, d, e, f, g, h) ->
@@ -257,9 +257,9 @@ api_single_pattern pattern_id = do
   return inners
 
 
-api_patterns :: IO [PatternRecord]
-api_patterns = do
-  conn <- DbHelpers.get_connection
+api_patterns :: DbHelpers.DbConnectionData -> IO [PatternRecord]
+api_patterns conn_data = do
+  conn <- DbHelpers.get_connection conn_data
 
   xs <- query_ conn "SELECT id, regex, expression, description, matching_build_count, most_recent, earliest, tags FROM pattern_frequency_summary"
   inners <- forM xs $ \(a, b, c, d, e, f, g, h) ->
@@ -282,19 +282,19 @@ instance ToJSON PatternOccurrences where
   toJSON = genericToJSON WebApi.dropUnderscore
 
 
-get_pattern_matches :: Int -> IO [PatternOccurrences]
-get_pattern_matches pattern_id = do
-  rows <- get_pattern_occurrence_rows pattern_id
+get_pattern_matches :: DbHelpers.DbConnectionData -> Int -> IO [PatternOccurrences]
+get_pattern_matches conn_data pattern_id = do
+  rows <- get_pattern_occurrence_rows conn_data pattern_id
   return $ map txform rows
 
   where
     txform (Builds.NewBuildNumber buildnum, stepname, line_count, ScanPatterns.NewMatchDetails line_text line_number (ScanPatterns.NewMatchSpan start end)) = PatternOccurrences buildnum stepname line_number line_count line_text start end
 
 
-get_pattern_occurrence_rows :: Int -> IO [(Builds.BuildNumber, Text, Int, ScanPatterns.MatchDetails)]
-get_pattern_occurrence_rows pattern_id = do
+get_pattern_occurrence_rows :: DbHelpers.DbConnectionData -> Int -> IO [(Builds.BuildNumber, Text, Int, ScanPatterns.MatchDetails)]
+get_pattern_occurrence_rows conn_data pattern_id = do
 
-  conn <- DbHelpers.get_connection
+  conn <- DbHelpers.get_connection conn_data
 
   xs <- query conn "SELECT build_steps.build AS build_num, build_steps.name, line_number, COALESCE(line_count, 0), line_text, span_start, span_end FROM (SELECT * FROM matches WHERE pattern = ?) foo JOIN build_steps ON build_steps.id = foo.build_step LEFT JOIN log_metadata ON log_metadata.step = build_steps.id ORDER BY build_num DESC" (Only pattern_id)
 

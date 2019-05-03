@@ -3,6 +3,7 @@ import           Options.Applicative
 import           System.IO
 
 import qualified BuildRetrieval
+import qualified DbHelpers
 import qualified Scanning
 import qualified SqlRead
 import qualified SqlWrite
@@ -37,7 +38,7 @@ mainAppCode args = do
   capability_count <- getNumCapabilities
   print $ "Num capabilities: " ++ show capability_count
 
-  conn <- SqlWrite.prepare_database $ wipeDatabase args
+  conn <- SqlWrite.prepare_database connection_data $ wipeDatabase args
 
   BuildRetrieval.updateBuildsList conn fetch_count age_days
 
@@ -52,6 +53,14 @@ mainAppCode args = do
   where
     fetch_count = buildCount args
     age_days = ageDays args
+
+    connection_data = DbHelpers.NewDbConnectionData {
+        DbHelpers.dbHostname = dbHostname args
+      , DbHelpers.dbName = "loganci"
+      , DbHelpers.dbUsername = "logan"
+      , DbHelpers.dbPassword = "logan01"
+      }
+
 
 
 main :: IO ()
