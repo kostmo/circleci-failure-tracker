@@ -13,6 +13,7 @@ data CommandLineArgs = NewCommandLineArgs {
     buildCount   :: Int
   , ageDays      :: Int
   , dbHostname   :: String
+  , dbPassword   :: String
   , wipeDatabase :: Bool
     -- ^ Suppress console output
   }
@@ -26,6 +27,9 @@ myCliParser = NewCommandLineArgs
     <> help "Maximum age of build to fetch from CircleCI")
   <*> strOption   (long "db-hostname" <> value "localhost" <> metavar "DATABASE_HOSTNAME"
     <> help "Hostname of database")
+  <*> strOption   (long "db-password" <> value "logan01" <> metavar "DATABASE_PASSWORD"
+    <> help "Password for database user")
+   -- Note: this is not the production password; this default is only for local testing
   <*> switch      (long "wipe"
     <> help "Wipe database content before beginning")
 
@@ -58,9 +62,8 @@ mainAppCode args = do
         DbHelpers.dbHostname = dbHostname args
       , DbHelpers.dbName = "loganci"
       , DbHelpers.dbUsername = "logan"
-      , DbHelpers.dbPassword = "logan01"
+      , DbHelpers.dbPassword = dbPassword args
       }
-
 
 
 main :: IO ()
