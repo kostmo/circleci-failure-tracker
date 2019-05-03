@@ -7,9 +7,16 @@ Prerequisites
 Local testing
 ===========
 
+### Without docker
+
+To run the scanner:
+
+    stack run run-scanner -- --count 10 --wipe
+
+
 To launch the server, run the following from the `haskell/` directory:
 
-    find -name "*.tix" -delete && stack run my-webapp
+    find -name "*.tix" -delete && stack run my-webapp -- --data-path static
 
 
 Deployment procedure
@@ -28,4 +35,5 @@ Note that we *do not* want the following in `stack.yaml`, because it breaks Inte
 To test the server locally via Docker:
 
     docker run -p 3000:3000 -it circleci-failure-tracker-img-my-webapp
+
 
