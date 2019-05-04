@@ -6,8 +6,8 @@ module SqlRead where
 
 import           Control.Monad                        (forM)
 import           Data.Aeson
-import qualified Data.HashMap.Strict                  as HashMap
-import qualified Data.Maybe                           as Maybe
+
+import           Data.List.Split                      (splitOn)
 import           Data.Text                            (Text)
 import qualified Data.Text                            as T
 import           Data.Text.Encoding                   (encodeUtf8)
@@ -25,7 +25,6 @@ import qualified ScanRecords
 import qualified WebApi
 
 
-
 data ScanScope = NewScanScope {
     build_number       :: Builds.BuildNumber -- ^ used to retrieve the console log file from disk
   , build_step_id      :: Builds.BuildStepId
@@ -33,17 +32,12 @@ data ScanScope = NewScanScope {
   }
 
 
--- | Some scan patterns only apply to certain build steps, so we
--- filter those in this function.
-get_unscanned_patterns_for_build :: ScanRecords.ScanCatchupResources -> Builds.BuildNumber -> IO [ScanPatterns.DbPattern]
+get_unscanned_patterns_for_build :: ScanRecords.ScanCatchupResources -> Builds.BuildNumber -> IO [Int64]
 get_unscanned_patterns_for_build scan_resources (Builds.NewBuildNumber build_number) = do
 
   unscanned_patterns_list <- query (ScanRecords.db_conn $ ScanRecords.fetching scan_resources) sql (Only build_number)
 
-  let patt_ids = map (\(Only pattern_id) -> pattern_id) unscanned_patterns_list
-      patterns = Maybe.mapMaybe (\x -> DbHelpers.WithId x <$> HashMap.lookup x (ScanRecords.patterns_by_id scan_resources)) patt_ids
-
-  return patterns
+  return $ map (\(Only pattern_id) -> pattern_id) unscanned_patterns_list
   where
     sql = "SELECT id FROM patterns WHERE patterns.id > COALESCE((SELECT pattern FROM scanned_patterns WHERE scanned_patterns.build = ? ORDER BY pattern DESC LIMIT 1), -1)"
 
@@ -84,12 +78,17 @@ get_unvisited_build_ids conn limit = do
     sql = "SELECT build_num FROM unvisited_builds ORDER BY build_NUM DESC LIMIT ?;"
 
 
-get_revisitable_builds :: Connection -> IO [(Builds.BuildStepId, Text, Builds.BuildNumber)]
+get_revisitable_builds :: Connection -> IO [(Builds.BuildStepId, Text, Builds.BuildNumber, [Int64])]
 get_revisitable_builds conn = do
   rows <- query_ conn sql
-  forM rows $ \(step_id, step_name, build_id) -> return $ (Builds.NewBuildStepId step_id, step_name, Builds.NewBuildNumber build_id)
+  forM rows $ \(comma_sep_pattern_ids, step_id, step_name, build_id) -> return $ (
+    Builds.NewBuildStepId step_id,
+    step_name,
+    Builds.NewBuildNumber build_id,
+    map read $ splitOn "," $ comma_sep_pattern_ids
+    )
   where
-    sql = "SELECT id, name, build FROM build_steps WHERE name IS NOT NULL AND NOT is_timeout;"
+    sql = "SELECT string_agg((patterns.id)::text, ','), MAX(step_id) AS step_id, MAX(name) AS step_name, build_num FROM (SELECT COALESCE(scanned_patterns.pattern, -1) AS latest_pattern, build_steps.build AS build_num, build_steps.name, build_steps.id AS step_id FROM build_steps LEFT JOIN scanned_patterns ON scanned_patterns.build = build_steps.build WHERE build_steps.name IS NOT NULL AND NOT build_steps.is_timeout) foo, patterns WHERE patterns.id > latest_pattern GROUP BY build_num"
 
 
 get_latest_pattern_id :: Connection -> IO ScanRecords.PatternId

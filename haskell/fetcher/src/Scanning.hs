@@ -6,6 +6,7 @@ import           Control.Lens               hiding ((<.>))
 import           Data.Aeson                 (Value)
 import           Data.Aeson.Lens            (key, _Array, _Bool, _String)
 import           Data.Foldable              (for_)
+import qualified Data.HashMap.Strict        as HashMap
 import           Data.List                  (intercalate)
 import qualified Data.Maybe                 as Maybe
 import qualified Data.Text                  as T
@@ -81,14 +82,22 @@ prepare_scan_resources conn = do
       cache_dir
 
 
+get_pattern_objects :: ScanRecords.ScanCatchupResources -> [Int64] -> [ScanPatterns.DbPattern]
+get_pattern_objects scan_resources =
+  Maybe.mapMaybe (\x -> DbHelpers.WithId x <$> HashMap.lookup x (ScanRecords.patterns_by_id scan_resources))
+
+
 -- | This only scans patterns if they are applicable to the particular
 -- failed step of this build.
 -- Patterns that are not annotated with applicability will apply
 -- to any step.
-catchup_scan :: ScanRecords.ScanCatchupResources -> Builds.BuildStepId -> T.Text -> (Builds.BuildNumber, Maybe Builds.BuildFailureOutput) -> IO ()
-catchup_scan scan_resources buildstep_id step_name (buildnum, maybe_console_output_url) = do
+catchup_scan :: ScanRecords.ScanCatchupResources -> Builds.BuildStepId -> T.Text -> (Builds.BuildNumber, Maybe Builds.BuildFailureOutput) -> Maybe [Int64] -> IO ()
+catchup_scan scan_resources buildstep_id step_name (buildnum, maybe_console_output_url) maybe_pattern_ids = do
 
-  scannable_patterns <- SqlRead.get_unscanned_patterns_for_build scan_resources buildnum
+  scannable_pattern_ids <- case maybe_pattern_ids of
+    Just pattern_ids -> return pattern_ids
+    Nothing -> SqlRead.get_unscanned_patterns_for_build scan_resources buildnum
+  let scannable_patterns = get_pattern_objects scan_resources scannable_pattern_ids
 
   putStrLn $ "\tThere are " ++ (show $ length scannable_patterns) ++ " scannable patterns"
 
@@ -116,10 +125,10 @@ catchup_scan scan_resources buildstep_id step_name (buildnum, maybe_console_outp
 
 rescan_visited_builds scan_resources visited_builds_list = do
 
-  for_ (zip [1::Int ..] visited_builds_list) $ \(idx, (build_step_id, step_name, build_num)) -> do
+  for_ (zip [1::Int ..] visited_builds_list) $ \(idx, (build_step_id, step_name, build_num, pattern_ids)) -> do
     putStrLn $ "Visiting " ++ show idx ++ "/" ++ show visited_count ++ " previously-visited builds (" ++ show build_num ++ ")..."
 
-    catchup_scan scan_resources build_step_id step_name (build_num, Nothing)
+    catchup_scan scan_resources build_step_id step_name (build_num, Nothing) $ Just pattern_ids
 
   where
     visited_count = length visited_builds_list
@@ -144,7 +153,7 @@ process_builds scan_resources unvisited_builds_list = do
       Left (Builds.NewBuildStepFailure step_name mode) -> case mode of
         Builds.BuildTimeoutFailure              -> return ()
         Builds.ScannableFailure failure_output -> do
-          catchup_scan scan_resources build_step_id step_name (build_num, Just failure_output)
+          catchup_scan scan_resources build_step_id step_name (build_num, Just failure_output) Nothing
 
   where
     unvisited_count = length unvisited_builds_list
