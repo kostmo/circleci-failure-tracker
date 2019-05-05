@@ -43,6 +43,7 @@ data Pattern = NewPattern {
   , description      :: Text
   , tags             :: [Text]
   , applicable_steps :: [Text]
+  , specificity      :: Int
   } deriving (Generic, Show)
 
 instance ToJSON Pattern
@@ -80,97 +81,98 @@ pattern_list :: [Pattern]
 pattern_list = [
 
     NewPattern (LiteralExpression "FAILED: ")
-      "Ninja build failed" [] []
+      "Ninja build failed" [] [] 5
 
   , NewPattern (LiteralExpression "No such file or directory")
-      "Missing file" [] []
+      "Missing file" [] [] 2
 
   , NewPattern (LiteralExpression "unexpected EOF")
-      "Docker problem" ["docker"] []
+      "Docker problem" ["docker"] [] 2
 
   , NewPattern (LiteralExpression "received unexpected HTTP status")
-      "Docker problem" ["docker"] []
+      "Docker problem" ["docker"] [] 2
 
   , NewPattern (LiteralExpression "Could not install packages due to an EnvironmentError")
-      "env problem" ["python"] []
+      "env problem" ["python"] [] 2
 
   , NewPattern (RegularExpression "([^\\s]+):(\\d+):(\\d+): error:")
-    "Compilation error" ["compile"] []
+    "Compilation error" ["compile"] [] 5
 
   , NewPattern (RegularExpression "\\[  FAILED  \\]\\s+([^\\s]+)")
-     "Failed test" ["runtime"] ["Test"]
+     "Failed test" ["runtime"] ["Test"] 3
 
   , NewPattern (RegularExpression "\\[  FAILED  \\]\\s+(\\d+) tests?, listed below:")
-      "Failed test count" ["runtime"] ["Test"]
+      "Failed test count" ["runtime"] ["Test"] 2
 
   , NewPattern (LiteralExpression "TypeError: ")
-      "Python error" ["runtime", "python"] ["Doc Build and Push"]
+      "Python error" ["runtime", "python"] ["Doc Build and Push"] 2
 
   , NewPattern (LiteralExpression "AssertionError: ")
-      "Test assertion failure" ["runtime", "python"] ["Test"]
+      "Test assertion failure" ["runtime", "python"] ["Test"] 2
 
   , NewPattern (LiteralExpression "CalledProcessError: Command '['ninja', '-v']' returned non-zero exit status")
-      "Ninja build failure" ["build"] ["Test"]
+      "Ninja build failure" ["build"] ["Test"] 5
 
   , NewPattern (RegularExpression "ERROR: You need Python (\\d+)\\.(\\d+) or later to use mypy")
-      "Python version error for mypy" ["python"] []
+      "Python version error for mypy" ["python"] [] 5
 
   , NewPattern (LiteralExpression "ERROR: ")
-      "A generic code error" [] []
+      "A generic code error" [] [] 1
 
   , NewPattern (LiteralExpression "ERROR: Graphs differed across invocations")
-      "Graphs differ" [] []
+      "Graphs differ" [] [] 5
 
   , NewPattern (RegularExpression "ERROR: ([^\\s]+) \\(__main__\\.(.+)\\)")
-      "Test failure" [] []
+      "Test failure" [] [] 4
 
   , NewPattern (LiteralExpression "Segmentation fault")
-      "Segfault" ["runtime"] []
+      "Segfault" ["runtime"] [] 5
 
   , NewPattern (RegularExpression "find: (.+): No such file or directory")
-      "find error" [] ["Build"]
+      "find error" [] ["Build"] 1
 
   , NewPattern (LiteralExpression "unzip:  cannot find zipfile directory")
-      "Unzip failed" [] []
+      "Unzip failed" [] [] 2
 
   , NewPattern (RegularExpression "RuntimeError: test_(.+) failed!")
-      "Python runtime error on test" ["runtime", "python"] ["Test"]
+      "Python runtime error on test" ["runtime", "python"] ["Test"] 3
 
   , NewPattern (RegularExpression "RuntimeError: Error building extension '([^']+)'")
-      "Python build error" ["build", "python"] ["Test"]
+      "Python build error" ["build", "python"] ["Test"] 3
 
   , NewPattern (RegularExpression "RuntimeError: \\[([^:]+):(\\d+)\\] Read error \\[127.0.0.1\\]:(\\d+): Connection reset by peer")
-      "Python network error" ["python"] ["Test"]
+      "Python network error" ["python"] ["Test"] 5
 
   , NewPattern (LiteralExpression "Build left local git repository checkout dirty")
-      "Build dirtied the source tree" [] ["Test"]
+      "Build dirtied the source tree" [] ["Test"] 2
 
   , NewPattern (LiteralExpression"E: Failed to fetch")
-      "apt error" ["apt"] ["Set Up CI Environment After Checkout"]
+      "apt error" ["apt"] ["Set Up CI Environment After Checkout"] 5
 
   , NewPattern (LiteralExpression "E: Could not get lock /var/lib/apt/lists/lock")
-      "CircleCI apt lock failure" ["infra", "apt"] []
+      "CircleCI apt lock failure" ["infra", "apt"] [] 5
 
   , NewPattern (LiteralExpression "E: Unable to acquire the dpkg frontend lock")
-      "apt failure" ["infra", "apt"] []
+      "apt failure" ["infra", "apt"] [] 5
 
   , NewPattern (LiteralExpression "Waiting for a VM assignment")
-      "CircleCI outage" ["infra", "circleci"] ["Spin up Environment"]
+      "CircleCI outage" ["infra", "circleci"] ["Spin up Environment"] 5
 
   , NewPattern (LiteralExpression "Probably the package for the version we want does not exist")
-      "Conda error" [] []
+      "Conda error" [] [] 5
 
   , NewPattern (LiteralExpression "error: failed to push some refs to")
-      "Git push failed" ["infra", "git"] ["Doc Build and Push"]
+      "Git push failed" ["infra", "git"] ["Doc Build and Push"] 5
 
   , NewPattern (RegularExpression "Failed to recurse into submodule path '(.+)'")
-      "Git submodules failure" ["infra", "git"] ["Run in docker", "Build"]
+      "Git submodules failure" ["infra", "git"] ["Run in docker", "Build"] 5
+
   , NewPattern (RegularExpression "::(.+) FAILED")
-      "Unit test failure" ["runtime"] []
+      "Unit test failure" ["runtime"] [] 3
 
   , NewPattern (RegularExpression "fatal: unable to access '(.+)': gnutls_handshake\\(\\) failed: Error in the pull function")
-      "Git fetch failed" ["infra", "git"] []
+      "Git fetch failed" ["infra", "git"] [] 2
 
   , NewPattern (LiteralExpression "E: Unable to correct problems, you have held broken packages")
-      "apt package incompatibility" ["infra", "apt"] []
+      "apt package incompatibility" ["infra", "apt"] [] 5
   ]

@@ -91,13 +91,8 @@ get_pattern_objects scan_resources =
 -- failed step of this build.
 -- Patterns that are not annotated with applicability will apply
 -- to any step.
-catchup_scan :: ScanRecords.ScanCatchupResources -> Builds.BuildStepId -> T.Text -> (Builds.BuildNumber, Maybe Builds.BuildFailureOutput) -> Maybe [Int64] -> IO ()
-catchup_scan scan_resources buildstep_id step_name (buildnum, maybe_console_output_url) maybe_pattern_ids = do
-
-  scannable_pattern_ids <- case maybe_pattern_ids of
-    Just pattern_ids -> return pattern_ids
-    Nothing -> SqlRead.get_unscanned_patterns_for_build scan_resources buildnum
-  let scannable_patterns = get_pattern_objects scan_resources scannable_pattern_ids
+catchup_scan :: ScanRecords.ScanCatchupResources -> Builds.BuildStepId -> T.Text -> (Builds.BuildNumber, Maybe Builds.BuildFailureOutput) -> [ScanPatterns.DbPattern] -> IO ()
+catchup_scan scan_resources buildstep_id step_name (buildnum, maybe_console_output_url) scannable_patterns = do
 
   putStrLn $ "\tThere are " ++ (show $ length scannable_patterns) ++ " scannable patterns"
 
@@ -123,12 +118,14 @@ catchup_scan scan_resources buildstep_id step_name (buildnum, maybe_console_outp
       return ()
 
 
+rescan_visited_builds :: ScanRecords.ScanCatchupResources -> [(Builds.BuildStepId, T.Text, Builds.BuildNumber, [Int64])] -> IO ()
 rescan_visited_builds scan_resources visited_builds_list = do
 
   for_ (zip [1::Int ..] visited_builds_list) $ \(idx, (build_step_id, step_name, build_num, pattern_ids)) -> do
     putStrLn $ "Visiting " ++ show idx ++ "/" ++ show visited_count ++ " previously-visited builds (" ++ show build_num ++ ")..."
 
-    catchup_scan scan_resources build_step_id step_name (build_num, Nothing) $ Just pattern_ids
+    catchup_scan scan_resources build_step_id step_name (build_num, Nothing) $
+      get_pattern_objects scan_resources pattern_ids
 
   where
     visited_count = length visited_builds_list
@@ -138,8 +135,8 @@ rescan_visited_builds scan_resources visited_builds_list = do
 -- immediately upon build visitation. We do this instead of waiting
 -- until the end so that we can resume progress if the process is
 -- interrupted.
-process_builds :: ScanRecords.ScanCatchupResources -> [Builds.BuildNumber] -> IO ()
-process_builds scan_resources unvisited_builds_list = do
+process_unvisited_builds :: ScanRecords.ScanCatchupResources -> [Builds.BuildNumber] -> IO ()
+process_unvisited_builds scan_resources unvisited_builds_list = do
 
   for_ (zip [1::Int ..] unvisited_builds_list) $ \(idx, build_num) -> do
     putStrLn $ "Visiting " ++ show idx ++ "/" ++ show unvisited_count ++ " unvisited builds..."
@@ -151,9 +148,10 @@ process_builds scan_resources unvisited_builds_list = do
     case visitation_result of
       Right _ -> return ()
       Left (Builds.NewBuildStepFailure step_name mode) -> case mode of
-        Builds.BuildTimeoutFailure              -> return ()
-        Builds.ScannableFailure failure_output -> do
-          catchup_scan scan_resources build_step_id step_name (build_num, Just failure_output) Nothing
+        Builds.BuildTimeoutFailure             -> return ()
+        Builds.ScannableFailure failure_output ->
+          catchup_scan scan_resources build_step_id step_name (build_num, Just failure_output) $
+            ScanRecords.get_patterns_with_id scan_resources
 
   where
     unvisited_count = length unvisited_builds_list
@@ -166,7 +164,10 @@ process_builds scan_resources unvisited_builds_list = do
 -- here, the *expected* outcome is a Left, whereas a Right is the "bad" condition.
 -- Rationale: we're searching a known-failed build for failures, so not finding a failure is unexpected.
 -- We make use of Either's short-circuting to find the *first* failure.
-get_failed_build_info :: ScanRecords.ScanCatchupResources -> Builds.BuildNumber -> IO (Either Builds.BuildStepFailure ScanRecords.UnidentifiedBuildFailure)
+get_failed_build_info ::
+     ScanRecords.ScanCatchupResources
+  -> Builds.BuildNumber
+  -> IO (Either Builds.BuildStepFailure ScanRecords.UnidentifiedBuildFailure)
 get_failed_build_info scan_resources build_number = do
 
   putStrLn $ "Fetching from: " ++ fetch_url
@@ -204,6 +205,7 @@ is_log_cached scan_resources build_num = do
     full_filepath = ScanUtils.gen_log_path (ScanRecords.cache_dir $ ScanRecords.fetching scan_resources) build_num
 
 
+-- | TODO Untangle the Eithers and IOs
 get_and_cache_log :: ScanRecords.ScanCatchupResources -> Builds.BuildNumber -> Builds.BuildStepId -> Maybe Builds.BuildFailureOutput -> IO ()
 get_and_cache_log scan_resources build_number build_step_id maybe_failed_build_output = do
 
@@ -232,7 +234,7 @@ get_and_cache_log scan_resources build_number build_step_id maybe_failed_build_o
         return $ case visitation_result of
           Right _ -> Left "This build didn't have a console log!"
           Left (Builds.NewBuildStepFailure _step_name mode) -> case mode of
-            Builds.BuildTimeoutFailure              -> Left "This build didn't have a console log because it was a timeout!"
+            Builds.BuildTimeoutFailure             -> Left "This build didn't have a console log because it was a timeout!"
             Builds.ScannableFailure failure_output -> Right $ Builds.log_url failure_output
 
     case either_download_url of

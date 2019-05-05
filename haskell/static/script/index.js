@@ -1,7 +1,34 @@
 
 
 
+function setup_autocomplete() {
+
+    $( "#branch-name-input" ).autocomplete({
+      source: function( request, response ) {
+        $.ajax( {
+          url: "/api/branches",
+          dataType: "json",
+          data: {
+            term: request.term
+          },
+          success: function( data ) {
+            response( data );
+          }
+        } );
+      },
+      minLength: 1,
+      select: function( event, ui ) {
+        console.log( "Selected: " + ui.item.value + " aka " + ui.item.id );
+      }
+    } );
+}
+
+
+
+
 function main() {
+
+	setup_autocomplete();
 
 	gen_patterns_table(null);
 

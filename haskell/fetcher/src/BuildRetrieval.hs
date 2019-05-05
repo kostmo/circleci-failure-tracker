@@ -6,13 +6,13 @@ import           Control.Lens               hiding ((<.>))
 import           Data.Aeson                 (Value, decode, encode)
 import           Data.Aeson.Lens            (key, _Array, _Integral, _String)
 
-
 import           Data.Fixed                 (Fixed (MkFixed))
 import           Data.List                  (intercalate)
 import qualified Data.Maybe                 as Maybe
 import qualified Data.Text                  as T
 import           Data.Time                  (UTCTime)
 import qualified Data.Time.Clock            as Clock
+import           Data.Traversable           (for)
 import qualified Data.Vector                as V
 import           Database.PostgreSQL.Simple (Connection)
 import           GHC.Int                    (Int64)
@@ -31,13 +31,21 @@ maxBuildPerPage :: Int
 maxBuildPerPage = 100
 
 
-updateBuildsList :: Connection -> Int -> Int -> IO Int64
-updateBuildsList conn fetch_count age_days = do
-  putStrLn "Fetching builds list..."
-  downloaded_builds_list <- populate_builds fetch_count age_days
+-- TODO - these are methods of parallelization:
+--  pages <- withTaskGroup 4 $ \g -> mapConcurrently g Scanning.store_log scannable
+--  pages <- mapConcurrently Scanning.store_log scannable
+--  pages <- withPool 1 $ \pool -> parallel_ pool $ map Scanning.store_log scannable
+
+
+updateBuildsList :: Connection -> [String] -> Int -> Int -> IO Int64
+updateBuildsList conn branch_names fetch_count age_days = do
+
+  builds_lists <- for branch_names $ \branch_name -> do
+    putStrLn $ "Fetching builds list for branch \"" ++ branch_name ++ "\"..."
+    populate_builds branch_name fetch_count age_days
 
   putStrLn "Storing builds list..."
-  SqlWrite.store_builds_list conn downloaded_builds_list
+  SqlWrite.store_builds_list conn $ concat builds_lists
 
 
 itemToBuild :: Value -> Build
@@ -60,8 +68,8 @@ get_build_list_url branch_name = intercalate "/"
   ]
 
 
-populate_builds :: Int -> Int -> IO [Build]
-populate_builds max_build_count max_age_days = do
+populate_builds :: String -> Int -> Int -> IO [Build]
+populate_builds branch_name max_build_count max_age_days = do
 
   sess <- Sess.newSession
   current_time <- Clock.getCurrentTime
@@ -69,11 +77,11 @@ populate_builds max_build_count max_age_days = do
       seconds_offset = seconds_per_day * (MkFixed $ fromIntegral max_age_days)
       time_diff = Clock.secondsToNominalDiffTime seconds_offset
       earliest_requested_time = Clock.addUTCTime time_diff current_time
-  populate_builds_recurse sess 0 earliest_requested_time max_build_count
+  populate_builds_recurse sess branch_name 0 earliest_requested_time max_build_count
 
 
-populate_builds_recurse :: Sess.Session -> Int -> UTCTime -> Int -> IO [Build]
-populate_builds_recurse sess offset earliest_requested_time max_build_count = do
+populate_builds_recurse :: Sess.Session -> String -> Int -> UTCTime -> Int -> IO [Build]
+populate_builds_recurse sess branch_name offset earliest_requested_time max_build_count = do
 
   if max_build_count > 0
     then do
@@ -84,7 +92,7 @@ populate_builds_recurse sess offset earliest_requested_time max_build_count = do
         , "(" ++ show max_build_count ++ " left)"
         ]
 
-      builds <- get_single_build_list sess builds_per_page offset
+      builds <- get_single_build_list sess branch_name builds_per_page offset
 
       let fetched_build_count = length builds
           builds_left = max_build_count - fetched_build_count
@@ -96,7 +104,7 @@ populate_builds_recurse sess offset earliest_requested_time max_build_count = do
           putStrLn $ "Earliest build time found: " ++ show earliest_build_time
 
       let next_offset = offset + fetched_build_count
-      more_builds <- populate_builds_recurse sess next_offset earliest_requested_time builds_left
+      more_builds <- populate_builds_recurse sess branch_name next_offset earliest_requested_time builds_left
       return $ builds ++ more_builds
 
   else
@@ -106,14 +114,8 @@ populate_builds_recurse sess offset earliest_requested_time max_build_count = do
     builds_per_page = min maxBuildPerPage max_build_count
 
 
--- TODO - these are methods of parallelization:
---  pages <- withTaskGroup 4 $ \g -> mapConcurrently g Scanning.store_log scannable
---  pages <- mapConcurrently Scanning.store_log scannable
---  pages <- withPool 1 $ \pool -> parallel_ pool $ map Scanning.store_log scannable
-
-
-get_single_build_list :: Sess.Session -> Int -> Int -> IO [Build]
-get_single_build_list sess limit offset = do
+get_single_build_list :: Sess.Session -> String -> Int -> Int -> IO [Build]
+get_single_build_list sess branch_name limit offset = do
 
   either_r <- FetchHelpers.safeGetUrl $ Sess.getWith opts sess fetch_url
 
@@ -129,7 +131,7 @@ get_single_build_list sess limit offset = do
       return []
 
   where
-    fetch_url = get_build_list_url "master"
+    fetch_url = get_build_list_url branch_name
     opts = defaults
       & header "Accept" .~ [Constants.json_mime_type]
       & param "shallow" .~ ["true"]

@@ -1,10 +1,12 @@
 module ScanRecords where
 
 import           Data.HashMap.Strict        (HashMap)
+import qualified Data.HashMap.Strict        as HashMap
 import           Database.PostgreSQL.Simple (Connection)
 import           GHC.Int                    (Int64)
 import qualified Network.Wreq.Session       as Sess
 
+import qualified DbHelpers
 import qualified ScanPatterns
 
 
@@ -35,3 +37,6 @@ data ScanCatchupResources = ScanCatchupResources {
   , fetching          :: FetchingResources
   }
 
+
+get_patterns_with_id :: ScanCatchupResources -> [ScanPatterns.DbPattern]
+get_patterns_with_id = map (uncurry DbHelpers.WithId) . HashMap.toList . patterns_by_id

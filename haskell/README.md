@@ -11,9 +11,14 @@ Local testing
 
 ### Without docker
 
-To run the scanner:
+To run the scanner with a fresh database:
 
-    stack run run-scanner -- --count 10 --wipe
+    stack run run-scanner -- --wipe --count 10 --branch master
+
+
+To run the scanner on some specific Pull Requests:
+
+    stack run run-scanner -- --wipe --count 50 --branch pull/18339 --branch pull/18340 --branch pull/18341 --branch pull/18342 --branch pull/18343 --branch pull/18907
 
 
 To launch the server, run the following from the `haskell/` directory:

@@ -12,6 +12,7 @@ import qualified SqlWrite
 data CommandLineArgs = NewCommandLineArgs {
     buildCount   :: Int
   , ageDays      :: Int
+  , branchName   :: [String]
   , dbHostname   :: String
   , dbPassword   :: String
   , wipeDatabase :: Bool
@@ -25,6 +26,8 @@ myCliParser = NewCommandLineArgs
     <> help "Maximum number of failed builds to fetch from CircleCI")
   <*> option auto (long "age"         <> value 365         <> metavar "AGE_DAYS"
     <> help "Maximum age of build to fetch from CircleCI")
+  <*> some (strOption   (long "branch" <> metavar "BRANCH_NAME"
+    <> help "Branch name (can specify multiple)"))
   <*> strOption   (long "db-hostname" <> value "localhost" <> metavar "DATABASE_HOSTNAME"
     <> help "Hostname of database")
   <*> strOption   (long "db-password" <> value "logan01" <> metavar "DATABASE_PASSWORD"
@@ -44,7 +47,7 @@ mainAppCode args = do
 
   conn <- SqlWrite.prepare_database connection_data $ wipeDatabase args
 
-  BuildRetrieval.updateBuildsList conn fetch_count age_days
+  BuildRetrieval.updateBuildsList conn (branchName args) fetch_count age_days
 
   scan_resources <- Scanning.prepare_scan_resources conn
 
@@ -52,7 +55,7 @@ mainAppCode args = do
   Scanning.rescan_visited_builds scan_resources visited_builds_list
 
   unvisited_builds_list <- SqlRead.get_unvisited_build_ids conn fetch_count
-  Scanning.process_builds scan_resources unvisited_builds_list
+  Scanning.process_unvisited_builds scan_resources unvisited_builds_list
 
   where
     fetch_count = buildCount args

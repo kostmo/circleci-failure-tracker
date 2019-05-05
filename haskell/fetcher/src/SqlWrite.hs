@@ -106,9 +106,9 @@ store_matches scan_resources (NewBuildStepId build_step_id) _build_num scoped_ma
 
 
 insert_single_pattern :: Connection -> ScanPatterns.Pattern -> IO Int64
-insert_single_pattern conn (ScanPatterns.NewPattern expression_obj description tags applicable_steps) = do
+insert_single_pattern conn (ScanPatterns.NewPattern expression_obj description tags applicable_steps specificity) = do
 
-  [Only pattern_id] <- query conn pattern_insertion_sql (ScanPatterns.is_regex expression_obj, ScanPatterns.pattern_text expression_obj, description, False, False)
+  [Only pattern_id] <- query conn pattern_insertion_sql (ScanPatterns.is_regex expression_obj, ScanPatterns.pattern_text expression_obj, description, False, False, specificity)
 
   for_ tags $ \tag -> do
     execute conn tag_insertion_sql (tag, pattern_id)
@@ -119,7 +119,7 @@ insert_single_pattern conn (ScanPatterns.NewPattern expression_obj description t
   return pattern_id
 
   where
-    pattern_insertion_sql = "INSERT INTO patterns(regex, expression, description, is_infra, has_nondeterministic_values) VALUES(?,?,?,?,?) RETURNING id;"
+    pattern_insertion_sql = "INSERT INTO patterns(regex, expression, description, is_infra, has_nondeterministic_values, specificity) VALUES(?,?,?,?,?,?) RETURNING id;"
     tag_insertion_sql = "INSERT INTO pattern_tags(tag, pattern) VALUES(?,?);"
     applicable_step_insertion_sql = "INSERT INTO pattern_step_applicability(step_name, pattern) VALUES(?,?);"
 

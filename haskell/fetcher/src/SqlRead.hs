@@ -25,29 +25,12 @@ import qualified ScanRecords
 import qualified WebApi
 
 
-data ScanScope = NewScanScope {
-    build_number       :: Builds.BuildNumber -- ^ used to retrieve the console log file from disk
-  , build_step_id      :: Builds.BuildStepId
-  , unscanned_patterns :: [ScanPatterns.DbPattern]
-  }
-
-
-get_unscanned_patterns_for_build :: ScanRecords.ScanCatchupResources -> Builds.BuildNumber -> IO [Int64]
-get_unscanned_patterns_for_build scan_resources (Builds.NewBuildNumber build_number) = do
-
-  unscanned_patterns_list <- query (ScanRecords.db_conn $ ScanRecords.fetching scan_resources) sql (Only build_number)
-
-  return $ map (\(Only pattern_id) -> pattern_id) unscanned_patterns_list
-  where
-    sql = "SELECT id FROM patterns WHERE patterns.id > COALESCE((SELECT pattern FROM scanned_patterns WHERE scanned_patterns.build = ? ORDER BY pattern DESC LIMIT 1), -1)"
-
-
 get_patterns :: Connection -> IO [ScanPatterns.DbPattern]
 get_patterns conn = do
 
   patterns_rows <- query_ conn patterns_sql
 
-  forM patterns_rows $ \(pattern_id, is_regex, pattern_text, description) -> do
+  forM patterns_rows $ \(pattern_id, is_regex, pattern_text, description, specificity) -> do
 
     tags_rows <- query conn tags_sql (Only pattern_id)
     tags_list <- forM tags_rows $ \(Only tag_text) -> return tag_text
@@ -58,13 +41,13 @@ get_patterns conn = do
     let expression_obj = if is_regex
           then ScanPatterns.RegularExpression $ encodeUtf8 pattern_text
           else ScanPatterns.LiteralExpression pattern_text
-        inner_pattern = ScanPatterns.NewPattern expression_obj description tags_list steps_list
+        inner_pattern = ScanPatterns.NewPattern expression_obj description tags_list steps_list specificity
         outer_pattern = DbHelpers.WithId pattern_id inner_pattern
 
     return outer_pattern
 
   where
-    patterns_sql = "SELECT id, regex, expression, description FROM patterns ORDER BY description;"
+    patterns_sql = "SELECT id, regex, expression, description, specificity FROM patterns ORDER BY description;"
 
     tags_sql = "SELECT tag FROM pattern_tags WHERE pattern = ?;"
     applicable_steps_sql = "SELECT step_name FROM pattern_step_applicability WHERE pattern = ?;"
@@ -153,27 +136,25 @@ api_failed_commits_by_day conn_data = do
   return $ WebApi.ApiResponse inners
 
 
-list_builds :: DbHelpers.DbConnectionData -> Query -> IO [WebApi.BuildNumberRecord]
-list_builds conn_data q = do
+list_builds :: DbHelpers.DbConnectionData -> Query -> IO [WebApi.BuildBranchRecord]
+list_builds conn_data sql = do
   conn <- DbHelpers.get_connection conn_data
 
   inners <- query_ conn sql
 
-  return $ map (\(Only x) -> WebApi.BuildNumberRecord $ Builds.NewBuildNumber x) inners
-  where
-    sql = q
+  return $ map (\(buildnum, branch) -> WebApi.BuildBranchRecord (Builds.NewBuildNumber buildnum) branch) inners
 
 
-api_unmatched_builds :: DbHelpers.DbConnectionData -> IO [WebApi.BuildNumberRecord]
+api_unmatched_builds :: DbHelpers.DbConnectionData -> IO [WebApi.BuildBranchRecord]
 api_unmatched_builds conn_data = list_builds conn_data sql
   where
-    sql = "SELECT * FROM unattributed_failed_builds"
+    sql = "SELECT build, branch FROM unattributed_failed_builds"
 
 
-api_idiopathic_builds :: DbHelpers.DbConnectionData -> IO [WebApi.BuildNumberRecord]
+api_idiopathic_builds :: DbHelpers.DbConnectionData -> IO [WebApi.BuildBranchRecord]
 api_idiopathic_builds conn_data = list_builds conn_data sql
   where
-    sql = "SELECT * FROM idiopathic_build_failures"
+    sql = "SELECT build, branch FROM idiopathic_build_failures"
 
 
 api_random_scannable_build :: DbHelpers.DbConnectionData -> IO WebApi.BuildNumberRecord
@@ -186,12 +167,10 @@ api_random_scannable_build conn_data = do
 
 
 list_flat :: FromField a => DbHelpers.DbConnectionData -> Query -> Text -> IO [a]
-list_flat conn_data q t = do
+list_flat conn_data sql t = do
   conn <- DbHelpers.get_connection conn_data
   inners <- query conn sql (Only t)
   return $ map (\(Only x) -> x) inners
-  where
-    sql = q
 
 
 api_list_tags :: DbHelpers.DbConnectionData -> Text -> IO [Text]
@@ -204,6 +183,12 @@ api_list_steps :: DbHelpers.DbConnectionData -> Text -> IO [Text]
 api_list_steps conn_data = list_flat conn_data sql
   where
     sql = "SELECT name FROM (SELECT name, COUNT(*) AS freq FROM build_steps where name IS NOT NULL GROUP BY name ORDER BY freq DESC, name ASC) foo WHERE name ILIKE CONCAT(?,'%') "
+
+
+api_list_branches :: DbHelpers.DbConnectionData -> Text -> IO [Text]
+api_list_branches conn_data = list_flat conn_data sql
+  where
+    sql = "SELECT branch FROM builds WHERE branch ILIKE CONCAT(?,'%') GROUP BY branch ORDER BY COUNT(*) DESC"
 
 
 data SummaryStats = SummaryStats {
@@ -238,37 +223,43 @@ data PatternRecord = PatternRecord {
   , _frequency   :: Int
   , _last        :: Maybe UTCTime
   , _earliest    :: Maybe UTCTime
-  , _tags        :: Text
+  , _tags        :: [String]
+  , _specificity :: Int
   } deriving Generic
 
 instance ToJSON PatternRecord where
   toJSON = genericToJSON WebApi.dropUnderscore
 
 
+make_pattern_records xs = do
+  forM xs $ \(a, b, c, d, e, f, g, h, i) ->
+    return $ PatternRecord a b c d e f g (filter (not . null) $ splitOn ";" h) i
+
+
 api_single_pattern :: DbHelpers.DbConnectionData -> Int ->  IO [PatternRecord]
 api_single_pattern conn_data pattern_id = do
   conn <- DbHelpers.get_connection conn_data
 
-  xs <- query conn "SELECT id, regex, expression, description, matching_build_count, most_recent, earliest, tags FROM pattern_frequency_summary WHERE id = ?" (Only pattern_id)
-  inners <- forM xs $ \(a, b, c, d, e, f, g, h) ->
-    return $ PatternRecord a b c d e f g h
+  xs <- query conn "SELECT id, regex, expression, description, matching_build_count, most_recent, earliest, tags, specificity FROM pattern_frequency_summary WHERE id = ?" (Only pattern_id)
 
-  return inners
+  make_pattern_records xs
 
 
 api_patterns :: DbHelpers.DbConnectionData -> IO [PatternRecord]
 api_patterns conn_data = do
   conn <- DbHelpers.get_connection conn_data
 
-  xs <- query_ conn "SELECT id, regex, expression, description, matching_build_count, most_recent, earliest, tags FROM pattern_frequency_summary"
-  inners <- forM xs $ \(a, b, c, d, e, f, g, h) ->
-    return $ PatternRecord a b c d e f g h
+  xs <- query_ conn "SELECT id, regex, expression, description, matching_build_count, most_recent, earliest, tags, specificity FROM pattern_frequency_summary ORDER BY matching_build_count DESC"
 
-  return inners
+  make_pattern_records xs
 
 
 data PatternOccurrences = PatternOccurrences {
     _build_number :: Int64
+  , _vsc_revision :: Text
+  , _queued_at    :: UTCTime
+  , _job_name     :: Text
+  , _branch       :: Text
   , _build_step   :: Text
   , _line_number  :: Int
   , _line_count   :: Int
@@ -281,23 +272,41 @@ instance ToJSON PatternOccurrences where
   toJSON = genericToJSON WebApi.dropUnderscore
 
 
+get_best_pattern_matches :: DbHelpers.DbConnectionData -> Int -> IO [PatternOccurrences]
+get_best_pattern_matches conn_data pattern_id = do
+
+  conn <- DbHelpers.get_connection conn_data
+
+  xs <- query conn sql (Only pattern_id)
+
+  -- TODO consolidate this transformation with "get_pattern_matches"
+  inners <- forM xs $ \(buildnum, stepname, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch) ->
+    return $ (Builds.NewBuild (Builds.NewBuildNumber buildnum) vcs_revision queued_at job_name branch, stepname, line_count, ScanPatterns.NewMatchDetails line_text line_number $ ScanPatterns.NewMatchSpan span_start span_end)
+
+  return $ map txform inners
+
+  where
+    txform ((Builds.NewBuild (Builds.NewBuildNumber buildnum) vcs_rev queued_at job_name branch), stepname, line_count, ScanPatterns.NewMatchDetails line_text line_number (ScanPatterns.NewMatchSpan start end)) = PatternOccurrences buildnum vcs_rev queued_at job_name branch stepname line_number line_count line_text start end
+    sql = "SELECT DISTINCT ON (build) best_pattern_match_for_builds.build, build_steps.name, line_number, line_count, line_text, span_start, span_end, builds.vcs_revision, builds.queued_at, builds.job_name, branch FROM best_pattern_match_for_builds JOIN matches_with_log_metadata ON matches_with_log_metadata.pattern = best_pattern_match_for_builds.pattern_id JOIN build_steps ON build_steps.id = matches_with_log_metadata.build_step JOIN builds ON builds.build_num = best_pattern_match_for_builds.build WHERE pattern_id = ? ORDER BY build DESC, line_number"
+
+
 get_pattern_matches :: DbHelpers.DbConnectionData -> Int -> IO [PatternOccurrences]
 get_pattern_matches conn_data pattern_id = do
   rows <- get_pattern_occurrence_rows conn_data pattern_id
   return $ map txform rows
 
   where
-    txform (Builds.NewBuildNumber buildnum, stepname, line_count, ScanPatterns.NewMatchDetails line_text line_number (ScanPatterns.NewMatchSpan start end)) = PatternOccurrences buildnum stepname line_number line_count line_text start end
+    txform ((Builds.NewBuild (Builds.NewBuildNumber buildnum) vcs_rev queued_at job_name branch), stepname, line_count, ScanPatterns.NewMatchDetails line_text line_number (ScanPatterns.NewMatchSpan start end)) = PatternOccurrences buildnum vcs_rev queued_at job_name branch stepname line_number line_count line_text start end
 
 
-get_pattern_occurrence_rows :: DbHelpers.DbConnectionData -> Int -> IO [(Builds.BuildNumber, Text, Int, ScanPatterns.MatchDetails)]
+get_pattern_occurrence_rows :: DbHelpers.DbConnectionData -> Int -> IO [(Builds.Build, Text, Int, ScanPatterns.MatchDetails)]
 get_pattern_occurrence_rows conn_data pattern_id = do
 
   conn <- DbHelpers.get_connection conn_data
 
-  xs <- query conn "SELECT build_steps.build AS build_num, build_steps.name, line_number, COALESCE(line_count, 0), line_text, span_start, span_end FROM (SELECT * FROM matches WHERE pattern = ?) foo JOIN build_steps ON build_steps.id = foo.build_step LEFT JOIN log_metadata ON log_metadata.step = build_steps.id ORDER BY build_num DESC" (Only pattern_id)
+  xs <- query conn "SELECT builds.build_num, step_name, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch FROM (SELECT build_steps.build AS build_num, build_steps.name AS step_name, line_number, COALESCE(line_count, 0) AS line_count, line_text, span_start, span_end FROM (SELECT * FROM matches WHERE pattern = ?) foo JOIN build_steps ON build_steps.id = foo.build_step LEFT JOIN log_metadata ON log_metadata.step = build_steps.id ORDER BY build_num DESC) bar JOIN builds ON builds.build_num = bar.build_num" (Only pattern_id)
 
-  inners <- forM xs $ \(buildnum, stepname, line_number, line_count, line_text, span_start, span_end) ->
-    return $ (Builds.NewBuildNumber buildnum, stepname, line_count, ScanPatterns.NewMatchDetails line_text line_number $ ScanPatterns.NewMatchSpan span_start span_end)
+  inners <- forM xs $ \(buildnum, stepname, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch) ->
+    return $ (Builds.NewBuild (Builds.NewBuildNumber buildnum) vcs_revision queued_at job_name branch, stepname, line_count, ScanPatterns.NewMatchDetails line_text line_number $ ScanPatterns.NewMatchSpan span_start span_end)
 
   return inners

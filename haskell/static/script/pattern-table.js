@@ -18,6 +18,7 @@ function gen_patterns_table(pattern_id) {
 		{title:"Description", field:"description", sorter:"string", formatter: "link", formatterParams: {urlPrefix: "/pattern-details.html?pattern_id=", urlField: "id"}, widthGrow: 2},
 		{title:"Frequency", field:"frequency", sorter:"number", align:"center", width: 75},
 		{title:"Last Occurrence", field:"last", sorter:"datetime", align:"center"},
+		{title:"Specificity", field:"specificity", sorter:"number", align:"center"},
 	    ],
             ajaxURL: "/api/pattern" + ajax_url_query_string,
 	});

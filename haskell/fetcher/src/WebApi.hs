@@ -35,6 +35,15 @@ instance ToJSON BuildNumberRecord where
   toJSON = genericToJSON dropUnderscore
 
 
+data BuildBranchRecord = BuildBranchRecord {
+    _build_number :: Builds.BuildNumber
+  , _branch       :: Text
+  } deriving Generic
+
+instance ToJSON BuildBranchRecord where
+  toJSON = genericToJSON dropUnderscore
+
+
 data JobApiRecord = JobApiRecord {
     _name :: Text
   , _data :: [Int]

@@ -27,9 +27,7 @@ function get_random_build(destination_field_id) {
 }
 
 
-
 function setup_autocomplete() {
-
 
     $( "#build-step-applicability-input" ).autocomplete({
       source: function( request, response ) {
@@ -49,8 +47,6 @@ function setup_autocomplete() {
         console.log( "Selected: " + ui.item.value + " aka " + ui.item.id );
       }
     } );
-
-
 
 
     $( "#pattern-tag-input" ).autocomplete({
@@ -125,9 +121,5 @@ function test_pattern() {
 
 
 function main() {
-
-
 	setup_autocomplete();
-
-
 }

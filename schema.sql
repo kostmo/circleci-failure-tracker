@@ -123,6 +123,45 @@ CREATE VIEW public.build_match_repetitions WITH (security_barrier='false') AS
 ALTER TABLE public.build_match_repetitions OWNER TO postgres;
 
 --
+-- Name: patterns; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.patterns (
+    expression text,
+    id integer NOT NULL,
+    description text,
+    is_infra boolean,
+    regex boolean,
+    has_nondeterministic_values boolean,
+    is_retired boolean DEFAULT false NOT NULL,
+    specificity integer DEFAULT 1 NOT NULL
+);
+
+
+ALTER TABLE public.patterns OWNER TO postgres;
+
+--
+-- Name: best_pattern_match_for_builds; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.best_pattern_match_for_builds WITH (security_barrier='false') AS
+ SELECT DISTINCT ON (build_match_repetitions.build) build_match_repetitions.build,
+    build_match_repetitions.pat AS pattern_id,
+    patterns.expression,
+    patterns.regex,
+    patterns.has_nondeterministic_values,
+    patterns.is_retired,
+    patterns.specificity,
+    count(build_match_repetitions.pat) OVER (PARTITION BY build_match_repetitions.build) AS distinct_matching_pattern_count,
+    sum(build_match_repetitions.repetitions) OVER (PARTITION BY build_match_repetitions.build) AS total_pattern_matches
+   FROM (public.build_match_repetitions
+     JOIN public.patterns ON ((build_match_repetitions.pat = patterns.id)))
+  ORDER BY build_match_repetitions.build, patterns.specificity DESC, patterns.is_retired, patterns.regex, patterns.id DESC;
+
+
+ALTER TABLE public.best_pattern_match_for_builds OWNER TO postgres;
+
+--
 -- Name: builds; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -142,14 +181,14 @@ ALTER TABLE public.builds OWNER TO postgres;
 --
 
 CREATE VIEW public.aggregated_build_matches WITH (security_barrier='false') AS
- SELECT build_match_repetitions.pat,
-    count(build_match_repetitions.build) AS matching_build_count,
+ SELECT best_pattern_match_for_builds.pattern_id AS pat,
+    count(best_pattern_match_for_builds.build) AS matching_build_count,
     max(builds.queued_at) AS most_recent,
-    sum(build_match_repetitions.repetitions) AS repetitions_across_builds,
+    (0)::numeric AS repetitions_across_builds,
     min(builds.queued_at) AS earliest
-   FROM (public.build_match_repetitions
-     JOIN public.builds ON ((builds.build_num = build_match_repetitions.build)))
-  GROUP BY build_match_repetitions.pat;
+   FROM (public.best_pattern_match_for_builds
+     JOIN public.builds ON ((builds.build_num = best_pattern_match_for_builds.build)))
+  GROUP BY best_pattern_match_for_builds.pattern_id;
 
 
 ALTER TABLE public.aggregated_build_matches OWNER TO postgres;
@@ -177,48 +216,14 @@ ALTER SEQUENCE public.build_steps_id_seq OWNED BY public.build_steps.id;
 
 
 --
--- Name: patterns; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.patterns (
-    expression text,
-    id integer NOT NULL,
-    description text,
-    is_infra boolean,
-    regex boolean,
-    has_nondeterministic_values boolean,
-    is_retired boolean DEFAULT false NOT NULL,
-    specificity integer DEFAULT 1 NOT NULL
-);
-
-
-ALTER TABLE public.patterns OWNER TO postgres;
-
---
--- Name: global_match_frequency; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.global_match_frequency WITH (security_barrier='false') AS
- SELECT patterns.expression,
-    patterns.description,
-    COALESCE(aggregated_build_matches.matching_build_count, (0)::bigint) AS matching_build_count,
-    aggregated_build_matches.most_recent,
-    aggregated_build_matches.earliest,
-    patterns.id,
-    patterns.regex
-   FROM (public.aggregated_build_matches
-     RIGHT JOIN public.patterns ON ((patterns.id = aggregated_build_matches.pat)));
-
-
-ALTER TABLE public.global_match_frequency OWNER TO postgres;
-
---
 -- Name: idiopathic_build_failures; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.idiopathic_build_failures AS
- SELECT build_steps.build
-   FROM public.build_steps
+CREATE VIEW public.idiopathic_build_failures WITH (security_barrier='false') AS
+ SELECT build_steps.build,
+    builds.branch
+   FROM (public.build_steps
+     JOIN public.builds ON ((build_steps.build = builds.build_num)))
   WHERE (build_steps.name IS NULL);
 
 
@@ -275,6 +280,41 @@ ALTER SEQUENCE public.match_id_seq OWNED BY public.matches.id;
 
 
 --
+-- Name: matches_with_log_metadata; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.matches_with_log_metadata AS
+ SELECT matches.id,
+    matches.build_step,
+    matches.pattern,
+    matches.line_number,
+    matches.line_text,
+    matches.span_start,
+    matches.span_end,
+    matches.scan_id,
+    log_metadata.line_count,
+    log_metadata.byte_count,
+    log_metadata.step
+   FROM (public.matches
+     LEFT JOIN public.log_metadata ON ((log_metadata.step = matches.build_step)));
+
+
+ALTER TABLE public.matches_with_log_metadata OWNER TO postgres;
+
+--
+-- Name: pattern_step_applicability; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.pattern_step_applicability (
+    id integer NOT NULL,
+    pattern integer,
+    step_name text
+);
+
+
+ALTER TABLE public.pattern_step_applicability OWNER TO postgres;
+
+--
 -- Name: pattern_tags; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -287,24 +327,49 @@ CREATE TABLE public.pattern_tags (
 ALTER TABLE public.pattern_tags OWNER TO postgres;
 
 --
+-- Name: patterns_augmented; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.patterns_augmented AS
+ SELECT patterns.expression,
+    patterns.id,
+    patterns.description,
+    patterns.regex,
+    patterns.has_nondeterministic_values,
+    patterns.is_retired,
+    patterns.specificity,
+    COALESCE(foo.tags, ''::text) AS tags,
+    COALESCE(bar.steps, ''::text) AS steps
+   FROM ((public.patterns
+     LEFT JOIN ( SELECT pattern_tags.pattern,
+            string_agg((pattern_tags.tag)::text, ';'::text) AS tags
+           FROM public.pattern_tags
+          GROUP BY pattern_tags.pattern) foo ON ((foo.pattern = patterns.id)))
+     LEFT JOIN ( SELECT pattern_step_applicability.pattern,
+            string_agg(pattern_step_applicability.step_name, ';'::text) AS steps
+           FROM public.pattern_step_applicability
+          GROUP BY pattern_step_applicability.pattern) bar ON ((bar.pattern = patterns.id)));
+
+
+ALTER TABLE public.patterns_augmented OWNER TO postgres;
+
+--
 -- Name: pattern_frequency_summary; Type: VIEW; Schema: public; Owner: postgres
 --
 
 CREATE VIEW public.pattern_frequency_summary AS
- SELECT global_match_frequency.id,
-    global_match_frequency.regex,
-    global_match_frequency.expression,
-    global_match_frequency.description,
-    global_match_frequency.matching_build_count,
-    global_match_frequency.most_recent,
-    global_match_frequency.earliest,
-    COALESCE(foo.tags, ''::text) AS tags
-   FROM (public.global_match_frequency
-     LEFT JOIN ( SELECT pattern_tags.pattern,
-            string_agg((pattern_tags.tag)::text, ','::text) AS tags
-           FROM public.pattern_tags
-          GROUP BY pattern_tags.pattern) foo ON ((foo.pattern = global_match_frequency.id)))
-  ORDER BY global_match_frequency.matching_build_count DESC;
+ SELECT patterns_augmented.expression,
+    patterns_augmented.description,
+    COALESCE(aggregated_build_matches.matching_build_count, (0)::bigint) AS matching_build_count,
+    aggregated_build_matches.most_recent,
+    aggregated_build_matches.earliest,
+    patterns_augmented.id,
+    patterns_augmented.regex,
+    patterns_augmented.specificity,
+    patterns_augmented.tags,
+    patterns_augmented.steps
+   FROM (public.patterns_augmented
+     LEFT JOIN public.aggregated_build_matches ON ((patterns_augmented.id = aggregated_build_matches.pat)));
 
 
 ALTER TABLE public.pattern_frequency_summary OWNER TO postgres;
@@ -330,19 +395,6 @@ ALTER TABLE public.pattern_id_seq OWNER TO postgres;
 
 ALTER SEQUENCE public.pattern_id_seq OWNED BY public.patterns.id;
 
-
---
--- Name: pattern_step_applicability; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.pattern_step_applicability (
-    id integer NOT NULL,
-    pattern integer,
-    step_name text
-);
-
-
-ALTER TABLE public.pattern_step_applicability OWNER TO postgres;
 
 --
 -- Name: pattern_step_applicability_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
@@ -449,10 +501,13 @@ ALTER SEQUENCE public.scans_id_seq OWNED BY public.scans.id;
 --
 
 CREATE VIEW public.unattributed_failed_builds WITH (security_barrier='false') AS
- SELECT build_steps.build
-   FROM (public.build_steps
-     LEFT JOIN public.matches ON ((matches.build_step = build_steps.id)))
-  WHERE ((matches.pattern IS NULL) AND (build_steps.name IS NOT NULL) AND (NOT build_steps.is_timeout));
+ SELECT foo.build,
+    builds.branch
+   FROM (( SELECT build_steps.build
+           FROM (public.build_steps
+             LEFT JOIN public.matches ON ((matches.build_step = build_steps.id)))
+          WHERE ((matches.pattern IS NULL) AND (build_steps.name IS NOT NULL) AND (NOT build_steps.is_timeout))) foo
+     JOIN public.builds ON ((foo.build = builds.build_num)));
 
 
 ALTER TABLE public.unattributed_failed_builds OWNER TO postgres;
@@ -800,6 +855,20 @@ GRANT ALL ON TABLE public.build_match_repetitions TO logan;
 
 
 --
+-- Name: TABLE patterns; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.patterns TO logan;
+
+
+--
+-- Name: TABLE best_pattern_match_for_builds; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.best_pattern_match_for_builds TO logan;
+
+
+--
 -- Name: TABLE builds; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -818,20 +887,6 @@ GRANT ALL ON TABLE public.aggregated_build_matches TO logan;
 --
 
 GRANT ALL ON SEQUENCE public.build_steps_id_seq TO logan;
-
-
---
--- Name: TABLE patterns; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.patterns TO logan;
-
-
---
--- Name: TABLE global_match_frequency; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.global_match_frequency TO logan;
 
 
 --
@@ -863,10 +918,31 @@ GRANT ALL ON SEQUENCE public.match_id_seq TO logan;
 
 
 --
+-- Name: TABLE matches_with_log_metadata; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.matches_with_log_metadata TO logan;
+
+
+--
+-- Name: TABLE pattern_step_applicability; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.pattern_step_applicability TO logan;
+
+
+--
 -- Name: TABLE pattern_tags; Type: ACL; Schema: public; Owner: postgres
 --
 
 GRANT ALL ON TABLE public.pattern_tags TO logan;
+
+
+--
+-- Name: TABLE patterns_augmented; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.patterns_augmented TO logan;
 
 
 --
@@ -881,13 +957,6 @@ GRANT ALL ON TABLE public.pattern_frequency_summary TO logan;
 --
 
 GRANT ALL ON SEQUENCE public.pattern_id_seq TO logan;
-
-
---
--- Name: TABLE pattern_step_applicability; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.pattern_step_applicability TO logan;
 
 
 --

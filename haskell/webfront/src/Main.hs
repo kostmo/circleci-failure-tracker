@@ -10,7 +10,6 @@ import           Data.Text.Encoding            (encodeUtf8)
 import qualified Data.Text.Internal.Lazy       as LT
 import           Network.Wai.Middleware.Static
 import           Options.Applicative
-import           System.Directory
 import           System.Environment            (lookupEnv)
 import           System.FilePath
 import           Text.Read                     (readMaybe)
@@ -44,6 +43,7 @@ pattern_from_parms = do
     description
     (listify tags)
     (listify applicable_steps)
+    1
   where
     listify = filter (not . T.null) . map (T.strip . T.pack) . splitOn ","
 
@@ -52,7 +52,7 @@ mainAppCode :: CommandLineArgs -> IO ()
 mainAppCode args = do
 
   maybe_envar_port <- lookupEnv "PORT"
-  let prt = Maybe.fromMaybe 3000 $ readMaybe =<< maybe_envar_port
+  let prt = Maybe.fromMaybe (serverPort args) $ readMaybe =<< maybe_envar_port
   putStrLn $ "Listening on port " <> show prt
 
   S.scotty prt $ do
@@ -73,24 +73,24 @@ mainAppCode args = do
 
     S.get "/api/tags" $ do
       term <- S.param "term"
-      x <- liftIO $ SqlRead.api_list_tags connection_data term
-      S.json x
+      S.json =<< (liftIO $ SqlRead.api_list_tags connection_data term)
 
     S.get "/api/new-pattern-test" $ do
       buildnum_str <- S.param "build_num"
       new_pattern <- pattern_from_parms
-      x <- liftIO $ SqlWrite.api_new_pattern_test (Builds.NewBuildNumber $ read buildnum_str) new_pattern
-      S.json x
+      S.json =<< (liftIO $ SqlWrite.api_new_pattern_test (Builds.NewBuildNumber $ read buildnum_str) new_pattern)
 
     S.post "/api/new-pattern-insert" $ do
       new_pattern <- pattern_from_parms
-      x <- liftIO $ SqlWrite.api_new_pattern connection_data new_pattern
-      S.json x
+      S.json =<< (liftIO $ SqlWrite.api_new_pattern connection_data new_pattern)
 
     S.get "/api/steps" $ do
       term <- S.param "term"
-      x <- liftIO $ SqlRead.api_list_steps connection_data term
-      S.json x
+      S.json =<< (liftIO $ SqlRead.api_list_steps connection_data term)
+
+    S.get "/api/branches" $ do
+      term <- S.param "term"
+      S.json =<< (liftIO $ SqlRead.api_list_branches connection_data term)
 
     S.get "/api/random-scannable-build" $
       S.json =<< liftIO (SqlRead.api_random_scannable_build connection_data)
@@ -109,16 +109,18 @@ mainAppCode args = do
 
     S.get "/api/pattern" $ do
       pattern_id <- S.param "pattern_id"
-      x <- liftIO $ SqlRead.api_single_pattern connection_data $ read pattern_id
-      S.json x
+      S.json =<< (liftIO $ SqlRead.api_single_pattern connection_data $ read pattern_id)
 
     S.get "/api/patterns" $ do
       S.json =<< liftIO (SqlRead.api_patterns connection_data)
 
+    S.get "/api/best-pattern-matches" $ do
+      pattern_id <- S.param "pattern_id"
+      S.json =<< (liftIO $ SqlRead.get_best_pattern_matches connection_data pattern_id)
+
     S.get "/api/pattern-matches" $ do
       pattern_id <- S.param "pattern_id"
-      x <- liftIO $ SqlRead.get_pattern_matches connection_data pattern_id
-      S.json x
+      S.json =<< (liftIO $ SqlRead.get_pattern_matches connection_data pattern_id)
 
     S.get "/favicon.ico" $ do
       S.setHeader "Content-Type" "image/x-icon"
@@ -129,16 +131,6 @@ mainAppCode args = do
       S.setHeader "Access-Control-Allow-Methods" "POST, GET, OPTIONS"
 
     S.get "/" $ do
-
-      liftIO $ do
-        cwd <- getCurrentDirectory
-        putStrLn $ "Current working dir: " ++ cwd
-        dircontents <- getDirectoryContents cwd
-        putStrLn $ "Directory contents: " ++ show dircontents
-        putStrLn $ "Directory contents of \"" ++ static_base ++ "\":"
-        dircontents2 <- getDirectoryContents static_base
-        putStrLn $ "-> " ++ show dircontents2
-
       S.setHeader "Content-Type" "text/html; charset=utf-8"
       S.file $ static_base </> "index.html"
 
@@ -172,9 +164,6 @@ myCliParser = NewCommandLineArgs
   <*> strOption   (long "db-password" <> value "logan01" <> metavar "DATABASE_PASSWORD"
     <> help "Password for database user")
    -- Note: this is not the production password; this default is only for local testing
-
---  <*> switch      (long "wipe"
---    <> help "Wipe database content before beginning")
 
 
 main :: IO ()
