@@ -71,10 +71,6 @@ mainAppCode args = do
     S.get "/api/step" $
       S.json =<< liftIO (SqlRead.api_step connection_data)
 
-    S.get "/api/tags" $ do
-      term <- S.param "term"
-      S.json =<< (liftIO $ SqlRead.api_list_tags connection_data term)
-
     S.get "/api/new-pattern-test" $ do
       buildnum_str <- S.param "build_num"
       new_pattern <- pattern_from_parms
@@ -84,13 +80,17 @@ mainAppCode args = do
       new_pattern <- pattern_from_parms
       S.json =<< (liftIO $ SqlWrite.api_new_pattern connection_data new_pattern)
 
-    S.get "/api/steps" $ do
+    S.get "/api/tag-suggest" $ do
       term <- S.param "term"
-      S.json =<< (liftIO $ SqlRead.api_list_steps connection_data term)
+      S.json =<< (liftIO $ SqlRead.api_autocomplete_tags connection_data term)
 
-    S.get "/api/branches" $ do
+    S.get "/api/step-suggest" $ do
       term <- S.param "term"
-      S.json =<< (liftIO $ SqlRead.api_list_branches connection_data term)
+      S.json =<< (liftIO $ SqlRead.api_autocomplete_steps connection_data term)
+
+    S.get "/api/branch-suggest" $ do
+      term <- S.param "term"
+      S.json =<< (liftIO $ SqlRead.api_autocomplete_branches connection_data term)
 
     S.get "/api/random-scannable-build" $
       S.json =<< liftIO (SqlRead.api_random_scannable_build connection_data)

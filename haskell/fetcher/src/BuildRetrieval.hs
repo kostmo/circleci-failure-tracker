@@ -97,14 +97,25 @@ populate_builds_recurse sess branch_name offset earliest_requested_time max_buil
       let fetched_build_count = length builds
           builds_left = max_build_count - fetched_build_count
 
+
       case Safe.minimumMay $ map Builds.queued_at builds of
         Nothing ->
-          putStrLn "No builds found."
+          putStrLn "No more builds found."
+
+        -- TODO use this time value
         Just earliest_build_time ->
           putStrLn $ "Earliest build time found: " ++ show earliest_build_time
 
+
       let next_offset = offset + fetched_build_count
-      more_builds <- populate_builds_recurse sess branch_name next_offset earliest_requested_time builds_left
+
+      -- If the server returned fewer builds than we asked for,
+      -- then we know that was the last page of available builds.
+      more_builds <- if fetched_build_count < builds_per_page
+        then do
+          putStrLn $ "The earliest build for branch \"" ++ branch_name ++ "\" has been retrieved."
+          return []
+        else populate_builds_recurse sess branch_name next_offset earliest_requested_time builds_left
       return $ builds ++ more_builds
 
   else

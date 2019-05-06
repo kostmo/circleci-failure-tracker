@@ -32,7 +32,7 @@ function setup_autocomplete() {
     $( "#build-step-applicability-input" ).autocomplete({
       source: function( request, response ) {
         $.ajax( {
-          url: "/api/steps",
+          url: "/api/step-suggest",
           dataType: "json",
           data: {
             term: request.term
@@ -52,7 +52,7 @@ function setup_autocomplete() {
     $( "#pattern-tag-input" ).autocomplete({
       source: function( request, response ) {
         $.ajax( {
-          url: "/api/tags",
+          url: "/api/tag-suggest",
           dataType: "json",
           data: {
             term: request.term

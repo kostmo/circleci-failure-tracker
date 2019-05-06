@@ -6,7 +6,7 @@ function setup_autocomplete() {
     $( "#branch-name-input" ).autocomplete({
       source: function( request, response ) {
         $.ajax( {
-          url: "/api/branches",
+          url: "/api/branch-suggest",
           dataType: "json",
           data: {
             term: request.term
