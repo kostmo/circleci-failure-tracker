@@ -151,7 +151,7 @@ store_log_info scan_resources (NewBuildStepId step_id) (ScanRecords.LogInfo byte
 insert_latest_pattern_build_scan :: ScanRecords.ScanCatchupResources -> BuildNumber -> Int64 -> IO ()
 insert_latest_pattern_build_scan scan_resources (NewBuildNumber build_number) pattern_id = do
 
-  execute conn "INSERT INTO scanned_patterns(scan, build, pattern) VALUES(?,?,?);" (ScanRecords.scan_id scan_resources, build_number, pattern_id)
+  execute conn "INSERT INTO scanned_patterns(scan, build, newest_pattern) VALUES(?,?,?);" (ScanRecords.scan_id scan_resources, build_number, pattern_id)
   return ()
 
   where

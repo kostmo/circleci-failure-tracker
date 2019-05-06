@@ -184,7 +184,6 @@ CREATE VIEW public.aggregated_build_matches WITH (security_barrier='false') AS
  SELECT best_pattern_match_for_builds.pattern_id AS pat,
     count(best_pattern_match_for_builds.build) AS matching_build_count,
     max(builds.queued_at) AS most_recent,
-    (0)::numeric AS repetitions_across_builds,
     min(builds.queued_at) AS earliest
    FROM (public.best_pattern_match_for_builds
      JOIN public.builds ON ((builds.build_num = best_pattern_match_for_builds.build)))
@@ -439,27 +438,12 @@ ALTER TABLE public.scannable_build_steps OWNER TO postgres;
 
 CREATE TABLE public.scanned_patterns (
     scan integer NOT NULL,
-    pattern integer NOT NULL,
+    newest_pattern integer NOT NULL,
     build integer NOT NULL
 );
 
 
 ALTER TABLE public.scanned_patterns OWNER TO postgres;
-
---
--- Name: scanned_builds; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.scanned_builds WITH (security_barrier='false') AS
- SELECT builds.build_num,
-    count(*) AS scanned_pattern_count
-   FROM (public.scanned_patterns
-     LEFT JOIN public.builds ON ((builds.build_num = scanned_patterns.build)))
-  GROUP BY builds.build_num
-  ORDER BY (count(*)) DESC, builds.build_num DESC;
-
-
-ALTER TABLE public.scanned_builds OWNER TO postgres;
 
 --
 -- Name: scans; Type: TABLE; Schema: public; Owner: postgres
@@ -524,7 +508,7 @@ CREATE VIEW public.unscanned_patterns WITH (security_barrier='false') AS
             scannable_build_steps.build_num
            FROM public.patterns,
             public.scannable_build_steps) foo
-     LEFT JOIN public.scanned_patterns ON (((foo.patt = scanned_patterns.pattern) AND (foo.build_num = scanned_patterns.build))))
+     LEFT JOIN public.scanned_patterns ON (((foo.patt = scanned_patterns.newest_pattern) AND (foo.build_num = scanned_patterns.build))))
   WHERE (scanned_patterns.scan IS NULL)
   GROUP BY foo.build_num;
 
@@ -664,7 +648,7 @@ ALTER TABLE ONLY public.pattern_tags
 --
 
 ALTER TABLE ONLY public.scanned_patterns
-    ADD CONSTRAINT scanned_patterns_pkey PRIMARY KEY (scan, pattern, build);
+    ADD CONSTRAINT scanned_patterns_pkey PRIMARY KEY (scan, newest_pattern, build);
 
 
 --
@@ -728,7 +712,7 @@ CREATE INDEX fki_fk_build ON public.scanned_patterns USING btree (build);
 -- Name: fki_fk_pattern; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE INDEX fki_fk_pattern ON public.scanned_patterns USING btree (pattern);
+CREATE INDEX fki_fk_pattern ON public.scanned_patterns USING btree (newest_pattern);
 
 
 --
@@ -751,7 +735,7 @@ ALTER TABLE ONLY public.build_steps
 --
 
 ALTER TABLE ONLY public.scanned_patterns
-    ADD CONSTRAINT fk_pattern FOREIGN KEY (pattern) REFERENCES public.patterns(id);
+    ADD CONSTRAINT fk_pattern FOREIGN KEY (newest_pattern) REFERENCES public.patterns(id);
 
 
 --
@@ -978,13 +962,6 @@ GRANT ALL ON TABLE public.scannable_build_steps TO logan;
 --
 
 GRANT ALL ON TABLE public.scanned_patterns TO logan;
-
-
---
--- Name: TABLE scanned_builds; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.scanned_builds TO logan;
 
 
 --

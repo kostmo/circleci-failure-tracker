@@ -65,7 +65,7 @@ function main() {
 	var urlParams = new URLSearchParams(window.location.search);
 	var pattern_id = urlParams.get('pattern_id');
 
-        gen_patterns_table(pattern_id);
+        gen_patterns_table(pattern_id, []);
 
         gen_best_matches_table(pattern_id);
         gen_all_matches_table(pattern_id);

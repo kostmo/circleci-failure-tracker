@@ -18,19 +18,35 @@ function setup_autocomplete() {
       },
       minLength: 1,
       select: function( event, ui ) {
-        console.log( "Selected: " + ui.item.value + " aka " + ui.item.id );
+	console.log( "Selected: " + ui.item.value + " aka " + ui.item.id );
+	requery_patterns();
       }
     } );
 }
 
 
 
+function requery_patterns() {
+
+	var branch_name = $( "#branch-name-input" ).val();
+
+	console.log("Autocomplete box value: " + branch_name);
+	var branches_list = document.getElementById('branch-filter-checkbox').checked ? [branch_name] : [];
+
+	gen_patterns_table(null, branches_list);
+}
+
 
 function main() {
 
+	$("#branch-filter-checkbox").change(function() {
+		requery_patterns();
+	});
+
 	setup_autocomplete();
 
-	gen_patterns_table(null);
+	requery_patterns();
+
 
    $.getJSON('/api/step', function (data) {
 

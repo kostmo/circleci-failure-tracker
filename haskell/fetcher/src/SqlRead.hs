@@ -71,7 +71,7 @@ get_revisitable_builds conn = do
     map read $ splitOn "," $ comma_sep_pattern_ids
     )
   where
-    sql = "SELECT string_agg((patterns.id)::text, ','), MAX(step_id) AS step_id, MAX(name) AS step_name, build_num FROM (SELECT COALESCE(scanned_patterns.pattern, -1) AS latest_pattern, build_steps.build AS build_num, build_steps.name, build_steps.id AS step_id FROM build_steps LEFT JOIN scanned_patterns ON scanned_patterns.build = build_steps.build WHERE build_steps.name IS NOT NULL AND NOT build_steps.is_timeout) foo, patterns WHERE patterns.id > latest_pattern GROUP BY build_num"
+    sql = "SELECT string_agg((patterns.id)::text, ','), MAX(step_id) AS step_id, MAX(name) AS step_name, build_num FROM (SELECT COALESCE(scanned_patterns.newest_pattern, -1) AS latest_pattern, build_steps.build AS build_num, build_steps.name, build_steps.id AS step_id FROM build_steps LEFT JOIN scanned_patterns ON scanned_patterns.build = build_steps.build WHERE build_steps.name IS NOT NULL AND NOT build_steps.is_timeout) foo, patterns WHERE patterns.id > latest_pattern GROUP BY build_num"
 
 
 get_latest_pattern_id :: Connection -> IO ScanRecords.PatternId
@@ -250,19 +250,31 @@ make_pattern_records xs = do
 api_single_pattern :: DbHelpers.DbConnectionData -> Int ->  IO [PatternRecord]
 api_single_pattern conn_data pattern_id = do
   conn <- DbHelpers.get_connection conn_data
-
-  xs <- query conn "SELECT id, regex, expression, description, matching_build_count, most_recent, earliest, tags, specificity FROM pattern_frequency_summary WHERE id = ?" (Only pattern_id)
-
+  xs <- query conn sql (Only pattern_id)
   make_pattern_records xs
+  where
+    sql = "SELECT id, regex, expression, description, matching_build_count, most_recent, earliest, tags, specificity FROM pattern_frequency_summary WHERE id = ?"
 
 
 api_patterns :: DbHelpers.DbConnectionData -> IO [PatternRecord]
 api_patterns conn_data = do
   conn <- DbHelpers.get_connection conn_data
-
-  xs <- query_ conn "SELECT id, regex, expression, description, matching_build_count, most_recent, earliest, tags, specificity FROM pattern_frequency_summary ORDER BY matching_build_count DESC"
-
+  xs <- query_ conn sql
   make_pattern_records xs
+  where
+    sql = "SELECT id, regex, expression, description, matching_build_count, most_recent, earliest, tags, specificity FROM pattern_frequency_summary ORDER BY matching_build_count DESC"
+
+
+-- | Note that this SQL is from decomposing the "pattern_frequency_summary" and "aggregated_build_matches" view
+-- to parameterize the latter by branch.
+api_patterns_branch_filtered :: DbHelpers.DbConnectionData -> [Text] -> IO [PatternRecord]
+api_patterns_branch_filtered conn_data branches = do
+  conn <- DbHelpers.get_connection conn_data
+  xs <- query conn sql $ Only $ In branches
+  make_pattern_records xs
+
+  where
+    sql = "SELECT patterns_augmented.id, patterns_augmented.regex, patterns_augmented.expression, patterns_augmented.description, COALESCE(aggregated_build_matches.matching_build_count, 0::int) AS matching_build_count, aggregated_build_matches.most_recent, aggregated_build_matches.earliest, patterns_augmented.tags, patterns_augmented.specificity FROM patterns_augmented LEFT JOIN ( SELECT best_pattern_match_for_builds.pattern_id AS pat, count(best_pattern_match_for_builds.build) AS matching_build_count, max(builds.queued_at) AS most_recent, min(builds.queued_at) AS earliest FROM best_pattern_match_for_builds JOIN builds ON builds.build_num = best_pattern_match_for_builds.build WHERE builds.branch IN ? GROUP BY best_pattern_match_for_builds.pattern_id) aggregated_build_matches ON patterns_augmented.id = aggregated_build_matches.pat ORDER BY matching_build_count DESC"
 
 
 data PatternOccurrences = PatternOccurrences {

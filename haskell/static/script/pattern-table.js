@@ -1,6 +1,26 @@
-function gen_patterns_table(pattern_id) {
+function gen_patterns_table(pattern_id, filtered_branches) {
 
-        var ajax_url_query_string = pattern_id == null ? "s" : "?pattern_id=" + pattern_id
+
+	// Note the plural ("s")
+	var api_endpoint_url = "/api/patterns";
+
+	if (pattern_id != null) {
+	        var query_parms = {
+			"pattern_id": pattern_id,
+		};
+
+	        var ajax_url_query_string = $.param(query_parms);
+		api_endpoint_url = "/api/pattern?" + ajax_url_query_string;
+
+	} else if (filtered_branches.length > 0) {
+
+	        var query_parms = {
+			"branches": filtered_branches,
+		};
+
+	        var ajax_url_query_string = $.param(query_parms, true);
+		api_endpoint_url = "/api/patterns-branch-filtered?" + ajax_url_query_string;
+	}
 
         var height = pattern_id == null ? "400px" : null;
 
@@ -20,6 +40,6 @@ function gen_patterns_table(pattern_id) {
 		{title:"Last Occurrence", field:"last", sorter:"datetime", align:"center"},
 		{title:"Specificity", field:"specificity", sorter:"number", align:"center"},
 	    ],
-            ajaxURL: "/api/pattern" + ajax_url_query_string,
+            ajaxURL: api_endpoint_url,
 	});
 }

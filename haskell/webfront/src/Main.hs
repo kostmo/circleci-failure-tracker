@@ -114,6 +114,11 @@ mainAppCode args = do
     S.get "/api/patterns" $ do
       S.json =<< liftIO (SqlRead.api_patterns connection_data)
 
+    S.get "/api/patterns-branch-filtered" $ do
+      branches <- S.param "branches"
+      liftIO $ putStrLn $ "Got branch list: " ++ show branches
+      S.json =<< liftIO (SqlRead.api_patterns_branch_filtered connection_data branches)
+
     S.get "/api/best-pattern-matches" $ do
       pattern_id <- S.param "pattern_id"
       S.json =<< (liftIO $ SqlRead.get_best_pattern_matches connection_data pattern_id)
