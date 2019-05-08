@@ -1,6 +1,6 @@
 <html>
 <head>
-<title>Live Scan</title>
+<title>Scan progress</title>
 <link href="https://unpkg.com/tabulator-tables@4.2.5/dist/css/tabulator.min.css" rel="stylesheet">
 <link href="/style.css" rel="stylesheet" type="text/css"></link>
 
@@ -17,10 +17,18 @@
 
 <body onload="gen_summary_nested_pie();">
 
-<h2>Live scan updates</h2>
+<h2>Scan progress</h2>
 
+<p>This chart shows:
+<ul>
+<li>how many failed builds we are aware of</li>
+<li>how many of the failures were due to timeouts or CircleCI infra failures (e.g. build was restarted)</li>
+<li>how many builds have console logs</li>
+<li>how many builds with logs logs matched one of the patterns</li>
+</ul>
 
-<h2>Attribution status</h2>
+This page will also reflect progress of an ongoing scan, when the page is refreshed.</p>
+
 <div id="container-visited-fraction" style="min-width: 300px; height: 400px; max-width: 400; margin: 0 auto"></div>
 
 

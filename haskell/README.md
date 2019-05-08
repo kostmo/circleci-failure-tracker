@@ -46,8 +46,25 @@ Note that we *do not* want the following in `stack.yaml`, because it breaks Inte
     docker:
       enable: true
 
+Tag the image:
+
+    docker tag circleci-failure-tracker-img-small-my-webapp kostmo/circleci-failure-tracker-img-small-my-webapp
+
+Push the image:
+
+    docker push kostmo/circleci-failure-tracker-img-small-my-webapp
+
+Redeploy webapp via `Dockerrun.aws.json`
+
 TODO
 ================
+
+* Support patterns export (json)
+* Ensure infra tags are correct
+* Ensure "falky-test" tags are correct
+* Support filter by tag
+* Store logs in postgres
+
 
 * Allow the rescan to be kicked off on the server
     * Need a monitoring layer to prevent multiple jobs from being started.

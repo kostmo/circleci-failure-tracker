@@ -215,12 +215,17 @@ instance ToJSON MyResponse where
 
 api_new_pattern :: DbHelpers.DbConnectionData -> ScanPatterns.Pattern -> IO MyResponse
 api_new_pattern conn_data new_pattern = do
-  conn <- DbHelpers.get_connection conn_data
 
-  result <- catchViolation catcher $ do
-    record_id <- insert_single_pattern conn new_pattern
-    return $ SuccessResult record_id
-  return $ MyResponse result
+  -- TODO FIXME
+  if True
+    then return $ MyResponse $ FailResult "This feature is not yet enabled."
+    else do
+      conn <- DbHelpers.get_connection conn_data
+
+      result <- catchViolation catcher $ do
+        record_id <- insert_single_pattern conn new_pattern
+        return $ SuccessResult record_id
+      return $ MyResponse result
 
   where
     catcher _ (UniqueViolation some_error) = return $ FailResult $ "Insertion error: " <> BS.unpack some_error

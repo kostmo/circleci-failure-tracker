@@ -48,30 +48,23 @@ function gen_sunburst_data_series(data) {
 		    id: '2.1',
 		    parent: '1.2',
 		    name: 'Cause available',
-		    value: data["explained_failures"],
+		    value: data["explained_failures"] - data["timed_out_steps"],
 		}, {
 		    id: '2.2',
 		    parent: '1.2',
 		    name: 'Cause unvailable',
 		    value: data["visited_builds"] - data["explained_failures"],
 		}, {
-		    id: '3.1',
-		    parent: '2.1',
+		    id: '2.3',
+		    parent: '1.2',
 		    name: 'Timeouts',
 		    value: data["timed_out_steps"],
 		}, {
-		    id: '3.2',
+		    id: '3.1',
 		    parent: '2.1',
-		    name: 'Logs available',
-		    value: data["explained_failures"] - data["timed_out_steps"],
-		}, {
-		    id: '4.1',
-		    parent: '3.2',
 		    name: 'Match found',
 		    value: data["steps_with_a_match"],
 		},
-
-
 		];
 
 
@@ -101,7 +94,8 @@ function gen_sunburst_data_series(data) {
 		}, {
 		    level: 4,
 		    colorByPoint: true,
-		}]
+		}
+		]
 
 	    }];
 }

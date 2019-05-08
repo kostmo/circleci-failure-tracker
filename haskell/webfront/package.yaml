@@ -19,13 +19,16 @@ executables:
     - -threaded
     dependencies:
     - fetcher
-    - scotty
     - split
-    - wai-middleware-static
+    - bytestring
+    - scotty
     - blaze-html
     - blaze-markup
     - directory
     - filepath
     - text
     - optparse-applicative
-
+    - wai
+    - wai-extra
+    - wai-middleware-static
+    - securemem

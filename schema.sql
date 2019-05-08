@@ -99,9 +99,10 @@ ALTER TABLE public.matches OWNER TO postgres;
 -- Name: matches_for_build; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.matches_for_build AS
+CREATE VIEW public.matches_for_build WITH (security_barrier='false') AS
  SELECT matches.pattern AS pat,
-    build_steps.build
+    build_steps.build,
+    build_steps.name AS step_name
    FROM (public.matches
      JOIN public.build_steps ON ((matches.build_step = build_steps.id)));
 
@@ -282,7 +283,7 @@ ALTER SEQUENCE public.match_id_seq OWNED BY public.matches.id;
 -- Name: matches_with_log_metadata; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.matches_with_log_metadata AS
+CREATE VIEW public.matches_with_log_metadata WITH (security_barrier='false') AS
  SELECT matches.id,
     matches.build_step,
     matches.pattern,
@@ -293,9 +294,12 @@ CREATE VIEW public.matches_with_log_metadata AS
     matches.scan_id,
     log_metadata.line_count,
     log_metadata.byte_count,
-    log_metadata.step
-   FROM (public.matches
-     LEFT JOIN public.log_metadata ON ((log_metadata.step = matches.build_step)));
+    log_metadata.step,
+    build_steps.name AS step_name,
+    build_steps.build AS build_num
+   FROM ((public.matches
+     LEFT JOIN public.log_metadata ON ((log_metadata.step = matches.build_step)))
+     LEFT JOIN public.build_steps ON ((build_steps.id = log_metadata.step)));
 
 
 ALTER TABLE public.matches_with_log_metadata OWNER TO postgres;

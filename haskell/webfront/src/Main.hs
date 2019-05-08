@@ -1,20 +1,26 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-import           Control.Monad.IO.Class        (liftIO)
-import           Data.List                     (filter)
-import           Data.List.Split               (splitOn)
-import qualified Data.Maybe                    as Maybe
-import           Data.Text                     (Text)
-import qualified Data.Text                     as T
-import           Data.Text.Encoding            (encodeUtf8)
-import qualified Data.Text.Internal.Lazy       as LT
+import           Control.Monad                   (unless)
+import           Control.Monad.IO.Class          (liftIO)
+import           Data.ByteString                 (ByteString)
+import           Data.List                       (filter)
+import           Data.List.Split                 (splitOn)
+import qualified Data.Maybe                      as Maybe
+import           Data.SecureMem
+import           Data.Text                       (Text)
+import qualified Data.Text                       as T
+import           Data.Text.Encoding              (encodeUtf8)
+import qualified Data.Text.Internal.Lazy         as LT
+import           Network.Wai                     (Request, pathInfo)
+import           Network.Wai.Middleware.ForceSSL (forceSSL)
+import           Network.Wai.Middleware.HttpAuth
 import           Network.Wai.Middleware.Static
 import           Options.Applicative
-import           System.Environment            (lookupEnv)
+import           System.Environment              (lookupEnv)
 import           System.FilePath
-import           Text.Read                     (readMaybe)
-import qualified Web.Scotty                    as S
-import qualified Web.Scotty.Internal.Types     as ScottyTypes
+import           Text.Read                       (readMaybe)
+import qualified Web.Scotty                      as S
+import qualified Web.Scotty.Internal.Types       as ScottyTypes
 
 import qualified Builds
 import qualified DbHelpers
@@ -22,6 +28,10 @@ import qualified ScanPatterns
 import qualified SqlRead
 import qualified SqlWrite
 import qualified WebApi
+
+
+authRealmString :: ByteString
+authRealmString = "PyTorch Devs Only"
 
 
 pattern_from_parms :: ScottyTypes.ActionT LT.Text IO ScanPatterns.Pattern
@@ -48,6 +58,18 @@ pattern_from_parms = do
     listify = filter (not . T.null) . map (T.strip . T.pack) . splitOn ","
 
 
+password :: SecureMem
+password = secureMemFromByteString "hello" -- https://xkcd.com/221/
+
+
+is_resource_protected :: Request -> IO Bool
+is_resource_protected rq = do
+
+  return $ "new-pattern-insert" `elem` requested_path_segments
+  where
+    requested_path_segments = pathInfo rq
+
+
 mainAppCode :: CommandLineArgs -> IO ()
 mainAppCode args = do
 
@@ -58,6 +80,13 @@ mainAppCode args = do
   S.scotty prt $ do
 
     S.middleware $ staticPolicy (noDots >-> addBase static_base)
+
+    let auth_settings = "Bananas" { authIsProtected = is_resource_protected, authRealm = authRealmString } :: AuthSettings
+    S.middleware $ basicAuth (\u p -> return $ u == "user" && secureMemFromByteString p == password) auth_settings
+
+    unless (runningLocally args) $
+      S.middleware $ forceSSL
+
 
     S.get "/api/failed-commits-by-day" $
       S.json =<< liftIO (SqlRead.api_failed_commits_by_day connection_data)
@@ -151,10 +180,11 @@ mainAppCode args = do
 
 
 data CommandLineArgs = NewCommandLineArgs {
-    serverPort :: Int
-  , staticBase :: String
-  , dbHostname :: String
-  , dbPassword :: String
+    serverPort     :: Int
+  , staticBase     :: String
+  , dbHostname     :: String
+  , dbPassword     :: String
+  , runningLocally :: Bool
   }
 
 
@@ -169,6 +199,8 @@ myCliParser = NewCommandLineArgs
   <*> strOption   (long "db-password" <> value "logan01" <> metavar "DATABASE_PASSWORD"
     <> help "Password for database user")
    -- Note: this is not the production password; this default is only for local testing
+  <*> switch      (long "local"
+    <> help "Webserver is being run locally, so don't redirect HTTP to HTTPS")
 
 
 main :: IO ()

@@ -310,7 +310,7 @@ get_best_pattern_matches conn_data pattern_id = do
 
   where
     txform ((Builds.NewBuild (Builds.NewBuildNumber buildnum) vcs_rev queued_at job_name branch), stepname, line_count, ScanPatterns.NewMatchDetails line_text line_number (ScanPatterns.NewMatchSpan start end)) = PatternOccurrences buildnum vcs_rev queued_at job_name branch stepname line_number line_count line_text start end
-    sql = "SELECT DISTINCT ON (build) best_pattern_match_for_builds.build, build_steps.name, line_number, line_count, line_text, span_start, span_end, builds.vcs_revision, builds.queued_at, builds.job_name, branch FROM best_pattern_match_for_builds JOIN matches_with_log_metadata ON matches_with_log_metadata.pattern = best_pattern_match_for_builds.pattern_id JOIN build_steps ON build_steps.id = matches_with_log_metadata.build_step JOIN builds ON builds.build_num = best_pattern_match_for_builds.build WHERE pattern_id = ? ORDER BY build DESC, line_number"
+    sql = "SELECT DISTINCT ON (build) best_pattern_match_for_builds.build, matches_with_log_metadata.step_name, line_number, line_count, line_text, span_start, span_end, builds.vcs_revision, builds.queued_at, builds.job_name, branch FROM best_pattern_match_for_builds JOIN matches_with_log_metadata ON matches_with_log_metadata.pattern = best_pattern_match_for_builds.pattern_id AND matches_with_log_metadata.build_num = best_pattern_match_for_builds.build JOIN builds ON builds.build_num = best_pattern_match_for_builds.build WHERE pattern_id = ? ORDER BY build DESC, line_number"
 
 
 get_pattern_matches :: DbHelpers.DbConnectionData -> Int -> IO [PatternOccurrences]

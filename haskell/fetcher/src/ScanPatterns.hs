@@ -114,7 +114,7 @@ pattern_list = [
       "Ninja build failure" ["build"] ["Test"] 5
 
   , NewPattern (RegularExpression "ERROR: You need Python (\\d+)\\.(\\d+) or later to use mypy")
-      "Python version error for mypy" ["python"] [] 5
+      "Python version error for mypy" ["python"] [] 1
 
   , NewPattern (LiteralExpression "ERROR: ")
       "A generic code error" [] [] 1
@@ -133,6 +133,9 @@ pattern_list = [
 
   , NewPattern (LiteralExpression "unzip:  cannot find zipfile directory")
       "Unzip failed" [] [] 2
+
+  , NewPattern (LiteralExpression "ERROR: test_proper_exit (__main__.TestDataLoader)")
+      "test_proper_exit" [] [] 7
 
   , NewPattern (RegularExpression "RuntimeError: test_(.+) failed!")
       "Python runtime error on test" ["runtime", "python"] ["Test"] 3

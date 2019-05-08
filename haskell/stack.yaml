@@ -2,9 +2,7 @@ resolver: lts-13.17
 
 image:
   containers:
-#    - name: "circleci-failure-tracker-img"
     - name: "circleci-failure-tracker-img-small"
-#      base: fpco/stack-build
       base: fpco/stack-run
       add:
         static: /data/static
