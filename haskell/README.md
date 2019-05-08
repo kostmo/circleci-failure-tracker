@@ -66,6 +66,7 @@ TODO
 * Store logs in postgres
 
 
+
 * Allow the rescan to be kicked off on the server
     * Need a monitoring layer to prevent multiple jobs from being started.
 
