@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -xe
 
 # This name is defined in stack.yaml
 DOCKER_IMAGE_NAME=circleci-failure-tracker-img-small-my-webapp

@@ -29,6 +29,11 @@ import qualified SqlRead
 import qualified SqlWrite
 import qualified WebApi
 
+import qualified Auth
+import qualified AuthConfig
+import qualified IDP
+import qualified Session
+
 
 authRealmString :: ByteString
 authRealmString = "PyTorch Devs Only"
@@ -77,6 +82,10 @@ mainAppCode args = do
   let prt = Maybe.fromMaybe (serverPort args) $ readMaybe =<< maybe_envar_port
   putStrLn $ "Listening on port " <> show prt
 
+
+  cache <- Session.initCacheStore
+  IDP.initIdps cache github_config
+
   S.scotty prt $ do
 
     S.middleware $ staticPolicy (noDots >-> addBase static_base)
@@ -86,6 +95,13 @@ mainAppCode args = do
 
     unless (runningLocally args) $
       S.middleware $ forceSSL
+
+
+    S.get "/login" $ Auth.indexH cache
+
+    S.get "/oauth2/callback" $ Auth.callbackH cache github_config
+    S.get "/logout" $ Auth.logoutH cache
+
 
 
     S.get "/api/failed-commits-by-day" $
@@ -104,6 +120,11 @@ mainAppCode args = do
       buildnum_str <- S.param "build_num"
       new_pattern <- pattern_from_parms
       S.json =<< (liftIO $ SqlWrite.api_new_pattern_test (Builds.NewBuildNumber $ read buildnum_str) new_pattern)
+
+
+    S.post "/api/github-event" $ do
+      S.json =<< return ["hello" :: String]
+
 
     S.post "/api/new-pattern-insert" $ do
       new_pattern <- pattern_from_parms
@@ -171,6 +192,8 @@ mainAppCode args = do
   where
     static_base = staticBase args
 
+    github_config = AuthConfig.GithubConfig (runningLocally args) (gitHubClientSecret args)
+
     connection_data = DbHelpers.NewDbConnectionData {
         DbHelpers.dbHostname = dbHostname args
       , DbHelpers.dbName = "loganci"
@@ -180,11 +203,12 @@ mainAppCode args = do
 
 
 data CommandLineArgs = NewCommandLineArgs {
-    serverPort     :: Int
-  , staticBase     :: String
-  , dbHostname     :: String
-  , dbPassword     :: String
-  , runningLocally :: Bool
+    serverPort         :: Int
+  , staticBase         :: String
+  , dbHostname         :: String
+  , dbPassword         :: String
+  , gitHubClientSecret :: Text
+  , runningLocally     :: Bool
   }
 
 
@@ -199,6 +223,8 @@ myCliParser = NewCommandLineArgs
   <*> strOption   (long "db-password" <> value "logan01" <> metavar "DATABASE_PASSWORD"
     <> help "Password for database user")
    -- Note: this is not the production password; this default is only for local testing
+  <*> strOption   (long "github-client-secret" <> metavar "GITHUB_CLIENT_SECRET"
+    <> help "Client secret for GitHub app")
   <*> switch      (long "local"
     <> help "Webserver is being run locally, so don't redirect HTTP to HTTPS")
 

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -xe
 
 DB_HOSTNAME=circleci-failure-tracker.cmivczl9ccia.us-east-2.rds.amazonaws.com
 DB_PASSWORD=$1

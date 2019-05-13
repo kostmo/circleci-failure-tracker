@@ -86,6 +86,9 @@ pattern_list = [
   , NewPattern (LiteralExpression "No such file or directory")
       "Missing file" [] [] 2
 
+  , NewPattern (LiteralExpression "WARNING: infoROM is corrupted")
+      "CircleCI failure" ["infra"] [] 3
+
   , NewPattern (LiteralExpression "unexpected EOF")
       "Docker problem" ["docker"] [] 2
 

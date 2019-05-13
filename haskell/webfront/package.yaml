@@ -32,3 +32,14 @@ executables:
     - wai-extra
     - wai-middleware-static
     - securemem
+    - hoauth2
+    - uri-bytestring
+    - hashable
+    - unordered-containers
+    - http-conduit
+    - mustache
+    - microlens
+    - parsec
+    - mtl
+    - http-types
+    - warp

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -xe
 
 sudo service postgresql restart
 sudo -u postgres dropdb loganci
