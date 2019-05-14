@@ -6,9 +6,10 @@ import qualified Data.Vault.Lazy as Vault
 
 import Network.Wai
 import Network.Wai.Session (withSession, Session)
-import Network.Wai.Session.Map (mapStore_)
+import Network.Wai.Session.ClientSession (clientsessionStore)
 import Network.Wai.Handler.Warp (run)
 import Network.HTTP.Types (ok200)
+import Web.ClientSession (getDefaultKey)
 
 app :: Vault.Key (Session IO String String) -> Application
 app session env = (>>=) $ do
@@ -22,5 +23,5 @@ app session env = (>>=) $ do
 main :: IO ()
 main = do
 	session <- Vault.newKey
-	store <- mapStore_
+	store <- fmap clientsessionStore getDefaultKey
 	run 3000 $ withSession store (fromString "SESSION") def session $ app session

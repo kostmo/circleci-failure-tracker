@@ -16,5 +16,6 @@ packages:
 
 extra-deps:
 - time-1.9.2
+- wai-session-clientsession-0.1
 
 allow-newer: true

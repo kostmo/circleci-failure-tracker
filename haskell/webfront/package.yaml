@@ -43,3 +43,8 @@ executables:
     - mtl
     - http-types
     - warp
+    - data-default
+    - vault
+    - wai-session
+    - wai-session-clientsession
+    - clientsession

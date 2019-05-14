@@ -46,3 +46,5 @@ executables:
     - vault
     - wai-session
     - warp
+    - wai-session-clientsession
+    - clientsession

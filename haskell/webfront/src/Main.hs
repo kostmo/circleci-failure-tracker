@@ -21,6 +21,7 @@ import           System.FilePath
 import           Text.Read                       (readMaybe)
 import qualified Web.Scotty                      as S
 import qualified Web.Scotty.Internal.Types       as ScottyTypes
+import Network.Wai.Session (SessionStore)
 
 import qualified Builds
 import qualified DbHelpers
@@ -33,6 +34,19 @@ import qualified Auth
 import qualified AuthConfig
 import qualified IDP
 import qualified Session
+import qualified Types
+
+
+import Data.Default (def)
+import Data.String (fromString)
+import qualified Data.Vault.Lazy as Vault
+
+import Network.Wai
+import Network.Wai.Session (withSession, Session)
+import Network.Wai.Session.ClientSession (clientsessionStore)
+import Network.Wai.Handler.Warp (run)
+import Network.HTTP.Types (ok200)
+import Web.ClientSession (getDefaultKey)
 
 
 authRealmString :: ByteString
@@ -75,33 +89,40 @@ is_resource_protected rq = do
     requested_path_segments = pathInfo rq
 
 
-mainAppCode :: CommandLineArgs -> IO ()
-mainAppCode args = do
+data SetupData = SetupData {
+    setup_static_base :: String
+  , setup_github_config :: AuthConfig.GithubConfig
+  , setup_connection_data :: DbHelpers.DbConnectionData
+  }
 
-  maybe_envar_port <- lookupEnv "PORT"
-  let prt = Maybe.fromMaybe (serverPort args) $ readMaybe =<< maybe_envar_port
-  putStrLn $ "Listening on port " <> show prt
 
 
-  cache <- Session.initCacheStore
-  IDP.initIdps cache github_config
+data PersistenceData = PersistenceData {
+    setup_cache :: Types.CacheStore
+  , setup_session :: Vault.Key (Session IO String String)
+  , setup_store :: SessionStore IO String String
+  }
 
-  S.scotty prt $ do
+
+scottyApp :: PersistenceData -> SetupData -> ScottyTypes.ScottyT LT.Text IO ()
+scottyApp (PersistenceData cache session store) (SetupData static_base github_config connection_data) = do
 
     S.middleware $ staticPolicy (noDots >-> addBase static_base)
 
     let auth_settings = "Bananas" { authIsProtected = is_resource_protected, authRealm = authRealmString } :: AuthSettings
     S.middleware $ basicAuth (\u p -> return $ u == "user" && secureMemFromByteString p == password) auth_settings
 
-    unless (runningLocally args) $
+    unless (AuthConfig.is_local github_config) $
       S.middleware $ forceSSL
+
+
+    S.middleware $ withSession store (fromString "SESSION") def session
 
 
     S.get "/login" $ Auth.indexH cache
 
     S.get "/oauth2/callback" $ Auth.callbackH cache github_config
     S.get "/logout" $ Auth.logoutH cache
-
 
 
     S.get "/api/failed-commits-by-day" $
@@ -189,7 +210,27 @@ mainAppCode args = do
       S.setHeader "Content-Type" "text/html; charset=utf-8"
       S.file $ static_base </> "index.html"
 
+
+
+mainAppCode :: CommandLineArgs -> IO ()
+mainAppCode args = do
+
+  maybe_envar_port <- lookupEnv "PORT"
+  let prt = Maybe.fromMaybe (serverPort args) $ readMaybe =<< maybe_envar_port
+  putStrLn $ "Listening on port " <> show prt
+
+
+  cache <- Session.initCacheStore
+  IDP.initIdps cache github_config
+
+  session <- Vault.newKey
+  store <- fmap clientsessionStore getDefaultKey
+  
+  S.scotty prt $ scottyApp (PersistenceData cache session store) credentials_data
+
   where
+
+    credentials_data = SetupData static_base github_config connection_data
     static_base = staticBase args
 
     github_config = AuthConfig.GithubConfig (runningLocally args) (gitHubClientID args) (gitHubClientSecret args)

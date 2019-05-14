@@ -67,12 +67,11 @@ callbackH :: CacheStore -> AuthConfig.GithubConfig -> ActionM ()
 callbackH c github_config = do
   pas <- params
   let codeP = paramValue "code" pas
-  let stateP = paramValue "state" pas
+      stateP = paramValue "state" pas
   when (null codeP) (errorM "callbackH: no code from callback request")
   when (null stateP) (errorM "callbackH: no state from callback request")
 
-  let idp = IGithub.Github
-  fetchTokenAndUser c github_config (head codeP) idp
+  fetchTokenAndUser c github_config (head codeP) IGithub.Github
 
 
 fetchTokenAndUser :: (HasLabel a)
@@ -83,17 +82,25 @@ fetchTokenAndUser :: (HasLabel a)
                   -> ActionM ()
 fetchTokenAndUser c github_config code idp = do
   maybeIdpData <- lookIdp c idp
-  when (isNothing maybeIdpData) (errorM "fetchTokenAndUser: cannot find idp data from cache")
 
-  let idpData = fromJust maybeIdpData
-  result <- liftIO $ tryFetchUser github_config code
+  case maybeIdpData of
+    Nothing -> errorM "fetchTokenAndUser: cannot find idp data from cache"
+    Just idpData -> do
 
-  case result of
-    Right luser -> updateIdp c idpData luser >> redirectToHomeM
-    Left err    -> errorM ("fetchTokenAndUser: " `TL.append` err)
+      result <- liftIO $ tryFetchUser github_config code
+
+      case result of
+        Right luser -> updateIdp c idpData luser >> redirectToHomeM
+        Left err    -> errorM ("fetchTokenAndUser: " `TL.append` err)
 
   where lookIdp c1 idp1 = liftIO $ lookupKey c1 (idpLabel idp1)
         updateIdp c1 oldIdpData luser = liftIO $ insertIDPData c1 (oldIdpData {loginUser = Just luser })
+
+
+data GitHubApiSupport = GitHubApiSupport {
+    tls_manager :: Manager
+  , access_token :: AccessToken
+  }
 
 
 -- TODO: may use Exception monad to capture error in this IO monad
@@ -107,14 +114,14 @@ tryFetchUser github_config code = do
   token <- fetchAccessToken mgr (Keys.githubKey github_config) (ExchangeToken $ TL.toStrict code)
   when debug (print token)
   case token of
-    Right at -> fetchUser mgr (accessToken at)
+    Right at -> fetchUser (GitHubApiSupport mgr (accessToken at))
     Left e   -> return (Left $ TL.pack $ "tryFetchUser: cannot fetch asses token. error detail: " ++ show e)
 
 
 -- * Fetch UserInfo
 --
-fetchUser :: Manager -> AccessToken -> IO (Either Text LoginUser)
-fetchUser mgr token = do
+fetchUser :: GitHubApiSupport -> IO (Either Text LoginUser)
+fetchUser (GitHubApiSupport mgr token) = do
   re <- do
     r <- authGetJSON mgr token Github.userInfoUri
     return (second IGithub.toLoginUser r)
