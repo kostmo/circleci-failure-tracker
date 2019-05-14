@@ -5,6 +5,7 @@ import           Data.Text      (Text)
 
 data GithubConfig = GithubConfig {
     is_local :: Bool
+  , client_id :: Text
   , client_secret :: Text
   }
 

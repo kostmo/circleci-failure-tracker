@@ -2,9 +2,6 @@
 
 module IDP where
 
-import           Data.Text.Lazy      (Text)
-
-import qualified Data.HashMap.Strict as Map
 import qualified IDP.Github          as IGithub
 import qualified Keys
 import           Session

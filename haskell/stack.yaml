@@ -12,6 +12,7 @@ image:
 packages:
 - webfront
 - fetcher
+- session-demo
 
 extra-deps:
 - time-1.9.2

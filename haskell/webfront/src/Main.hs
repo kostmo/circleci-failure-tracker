@@ -192,7 +192,7 @@ mainAppCode args = do
   where
     static_base = staticBase args
 
-    github_config = AuthConfig.GithubConfig (runningLocally args) (gitHubClientSecret args)
+    github_config = AuthConfig.GithubConfig (runningLocally args) (gitHubClientID args) (gitHubClientSecret args)
 
     connection_data = DbHelpers.NewDbConnectionData {
         DbHelpers.dbHostname = dbHostname args
@@ -207,6 +207,7 @@ data CommandLineArgs = NewCommandLineArgs {
   , staticBase         :: String
   , dbHostname         :: String
   , dbPassword         :: String
+  , gitHubClientID     :: Text
   , gitHubClientSecret :: Text
   , runningLocally     :: Bool
   }
@@ -223,6 +224,8 @@ myCliParser = NewCommandLineArgs
   <*> strOption   (long "db-password" <> value "logan01" <> metavar "DATABASE_PASSWORD"
     <> help "Password for database user")
    -- Note: this is not the production password; this default is only for local testing
+  <*> strOption   (long "github-client-id" <> metavar "GITHUB_CLIENT_ID"
+    <> help "Client ID for GitHub app")
   <*> strOption   (long "github-client-secret" <> metavar "GITHUB_CLIENT_SECRET"
     <> help "Client secret for GitHub app")
   <*> switch      (long "local"

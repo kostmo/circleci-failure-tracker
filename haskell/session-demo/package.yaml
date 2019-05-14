@@ -1,0 +1,48 @@
+name: session-demo
+version: '0.1.0.0'
+author: Karl Ostmo
+maintainer: kostmo@gmail.com
+license: BSD3
+dependencies:
+- base
+- aeson
+
+executables:
+  demo-webapp:
+    main: Main.hs
+    source-dirs: src
+    ghc-options:
+    - -W
+    - -Wall
+    - -fwarn-tabs
+    - -fhpc
+    - -threaded
+    dependencies:
+    - fetcher
+    - split
+    - bytestring
+    - scotty
+    - blaze-html
+    - blaze-markup
+    - directory
+    - filepath
+    - text
+    - optparse-applicative
+    - wai
+    - wai-extra
+    - wai-middleware-static
+    - securemem
+    - hoauth2
+    - uri-bytestring
+    - hashable
+    - unordered-containers
+    - http-conduit
+    - mustache
+    - microlens
+    - parsec
+    - mtl
+    - http-types
+    - data-default
+    - vault
+    - wai-session
+    - warp

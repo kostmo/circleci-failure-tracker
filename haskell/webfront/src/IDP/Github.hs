@@ -4,16 +4,12 @@
 
 module IDP.Github where
 import           Data.Aeson
-import           Data.Bifunctor
 import           Data.Hashable
 import           Data.Text.Lazy       (Text)
 import           GHC.Generics
-import           Keys
-import           Network.OAuth.OAuth2
 import           Types
 import           URI.ByteString
 import           URI.ByteString.QQ
-import           Utils
 
 data Github = Github deriving (Show, Generic)
 

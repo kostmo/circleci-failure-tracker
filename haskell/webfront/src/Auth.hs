@@ -17,9 +17,6 @@ import qualified Data.Text.Lazy                as TL
 import           Network.HTTP.Conduit
 import           Network.HTTP.Types
 import           Network.OAuth.OAuth2
-import qualified Network.Wai                   as WAI
-import           Network.Wai.Handler.Warp      (run)
-import           Network.Wai.Middleware.Static
 import           Prelude
 import           Web.Scotty
 import           Web.Scotty.Internal.Types
@@ -27,7 +24,6 @@ import           Web.Scotty.Internal.Types
 
 import qualified AuthConfig
 import qualified IDP.Github          as IGithub
-import           IDP
 import           Session
 import           Types
 import           Utils
@@ -49,8 +45,10 @@ redirectToHomeM = redirect "/"
 errorM :: Text -> ActionM ()
 errorM = throwError . ActionError
 
+
 globalErrorHandler :: Text -> ActionM ()
 globalErrorHandler t = status status401 >> html t
+
 
 logoutH :: CacheStore -> ActionM ()
 logoutH c = do
@@ -63,6 +61,7 @@ logoutH c = do
 
 indexH :: CacheStore -> ActionM ()
 indexH c = liftIO (allValues c) >>= overviewTpl
+
 
 callbackH :: CacheStore -> AuthConfig.GithubConfig -> ActionM ()
 callbackH c github_config = do
@@ -87,7 +86,7 @@ fetchTokenAndUser c github_config code idp = do
   when (isNothing maybeIdpData) (errorM "fetchTokenAndUser: cannot find idp data from cache")
 
   let idpData = fromJust maybeIdpData
-  result <- liftIO $ tryFetchUser idp github_config code
+  result <- liftIO $ tryFetchUser github_config code
 
   case result of
     Right luser -> updateIdp c idpData luser >> redirectToHomeM
@@ -96,30 +95,32 @@ fetchTokenAndUser c github_config code idp = do
   where lookIdp c1 idp1 = liftIO $ lookupKey c1 (idpLabel idp1)
         updateIdp c1 oldIdpData luser = liftIO $ insertIDPData c1 (oldIdpData {loginUser = Just luser })
 
+
 -- TODO: may use Exception monad to capture error in this IO monad
 --
-tryFetchUser :: (HasLabel a)
-  => a
-  -> AuthConfig.GithubConfig
+tryFetchUser ::
+     AuthConfig.GithubConfig
   -> TL.Text           -- ^ code
   -> IO (Either Text LoginUser)
-tryFetchUser idp github_config code = do
+tryFetchUser github_config code = do
   mgr <- newManager tlsManagerSettings
   token <- fetchAccessToken mgr (Keys.githubKey github_config) (ExchangeToken $ TL.toStrict code)
   when debug (print token)
   case token of
-    Right at -> fetchUser idp mgr (accessToken at)
+    Right at -> fetchUser mgr (accessToken at)
     Left e   -> return (Left $ TL.pack $ "tryFetchUser: cannot fetch asses token. error detail: " ++ show e)
+
 
 -- * Fetch UserInfo
 --
-fetchUser :: a -> Manager -> AccessToken -> IO (Either Text LoginUser)
-fetchUser idp mgr token = do
+fetchUser :: Manager -> AccessToken -> IO (Either Text LoginUser)
+fetchUser mgr token = do
   re <- do
     r <- authGetJSON mgr token Github.userInfoUri
     return (second IGithub.toLoginUser r)
 
   return (first displayOAuth2Error re)
+
 
 displayOAuth2Error :: OAuth2Error Errors -> Text
 displayOAuth2Error = TL.pack . show

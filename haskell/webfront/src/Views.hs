@@ -16,6 +16,7 @@ type CookieUser = String
 tpl :: FilePath  -> IO (Either ParseError Template)
 tpl f = automaticCompile ["./example/templates", "./templates"] (f ++ ".mustache")
 
+
 tplS :: FilePath
      -> [IDPData]
      -> IO TL.Text
@@ -26,6 +27,7 @@ tplS path xs = do
                 $ TL.unlines
                 $ map TL.pack [ "can not parse template " ++ path ++ ".mustache" , show e ]
     Right t' -> return $ TL.fromStrict $ substitute t' (TemplateData $ sort xs)
+
 
 tplH :: FilePath
      -> [IDPData]
