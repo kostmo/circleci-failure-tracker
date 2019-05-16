@@ -3,12 +3,15 @@
 import           Control.Monad                   (unless)
 import           Control.Monad.IO.Class          (liftIO)
 import           Data.ByteString                 (ByteString)
+import qualified Data.Text.Encoding                 as TE
+import qualified Data.Text.Lazy                 as LT
 import           Data.List                       (filter)
 import           Data.List.Split                 (splitOn)
 import qualified Data.Maybe                      as Maybe
 import           Data.SecureMem
 import           Data.Text                       (Text)
 import qualified Data.Text                       as T
+import qualified Data.ByteString.Char8 as BSU
 import           Data.Text.Encoding              (encodeUtf8)
 import qualified Data.Text.Internal.Lazy         as LT
 import           Network.Wai                     (Request, pathInfo)
@@ -22,6 +25,10 @@ import           Text.Read                       (readMaybe)
 import qualified Web.Scotty                      as S
 import qualified Web.Scotty.Internal.Types       as ScottyTypes
 import Network.Wai.Session (SessionStore)
+import Network.HTTP.Client.TLS (tlsManagerSettings)
+import Network.HTTP.Client (newManager)
+import qualified Network.OAuth.OAuth2.Internal as OAuth2
+import Network.OAuth.OAuth2.HttpClient (authGetBS)
 
 import qualified Builds
 import qualified DbHelpers
@@ -36,6 +43,7 @@ import qualified IDP
 import qualified Session
 import qualified Types
 
+import Data.Time
 
 import Data.Default (def)
 import Data.String (fromString)
@@ -49,8 +57,7 @@ import Network.HTTP.Types (ok200)
 import Web.ClientSession (getDefaultKey)
 
 
-authRealmString :: ByteString
-authRealmString = "PyTorch Devs Only"
+githubAuthTokenSessionKey = "github_api_token"
 
 
 pattern_from_parms :: ScottyTypes.ActionT LT.Text IO ScanPatterns.Pattern
@@ -77,18 +84,6 @@ pattern_from_parms = do
     listify = filter (not . T.null) . map (T.strip . T.pack) . splitOn ","
 
 
-password :: SecureMem
-password = secureMemFromByteString "hello" -- https://xkcd.com/221/
-
-
-is_resource_protected :: Request -> IO Bool
-is_resource_protected rq = do
-
-  return $ "new-pattern-insert" `elem` requested_path_segments
-  where
-    requested_path_segments = pathInfo rq
-
-
 data SetupData = SetupData {
     setup_static_base :: String
   , setup_github_config :: AuthConfig.GithubConfig
@@ -107,23 +102,30 @@ data PersistenceData = PersistenceData {
 scottyApp :: PersistenceData -> SetupData -> ScottyTypes.ScottyT LT.Text IO ()
 scottyApp (PersistenceData cache session store) (SetupData static_base github_config connection_data) = do
 
-    S.middleware $ staticPolicy (noDots >-> addBase static_base)
+    S.middleware $ withSession store (fromString "SESSION") def session
 
-    let auth_settings = "Bananas" { authIsProtected = is_resource_protected, authRealm = authRealmString } :: AuthSettings
-    S.middleware $ basicAuth (\u p -> return $ u == "user" && secureMemFromByteString p == password) auth_settings
+    S.middleware $ staticPolicy (noDots >-> addBase static_base)
 
     unless (AuthConfig.is_local github_config) $
       S.middleware $ forceSSL
 
 
-    S.middleware $ withSession store (fromString "SESSION") def session
-
 
     S.get "/login" $ Auth.indexH cache
 
-    S.get "/oauth2/callback" $ Auth.callbackH cache github_config
-    S.get "/logout" $ Auth.logoutH cache
+    -- XXX IMPORTANT:
+    -- The session cookie is specific to the parent dir of the path.
+    -- So with the path "/api/callback", only HTTP accesses to paths
+    -- at or below the "/api/" path will be members of the same session.
+    -- Consequentially, a cookie set (namely, the github access token)
+    -- in a request to a certain path will only be accessible to
+    -- other requests at or below that same parent directory.
+    S.get "/api/github-auth-callback" $ do
+      rq <- S.request
+      let Just (sessionLookup, sessionInsert) = Vault.lookup session (vault rq)
+      Auth.callbackH cache github_config (sessionInsert githubAuthTokenSessionKey)
 
+    S.get "/logout" $ Auth.logoutH cache
 
     S.get "/api/failed-commits-by-day" $
       S.json =<< liftIO (SqlRead.api_failed_commits_by_day connection_data)
@@ -143,13 +145,50 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       S.json =<< (liftIO $ SqlWrite.api_new_pattern_test (Builds.NewBuildNumber $ read buildnum_str) new_pattern)
 
 
+    -- TODO
     S.post "/api/github-event" $ do
       S.json =<< return ["hello" :: String]
 
 
+    -- TODO Flatten this via Either monad
     S.post "/api/new-pattern-insert" $ do
-      new_pattern <- pattern_from_parms
-      S.json =<< (liftIO $ SqlWrite.api_new_pattern connection_data new_pattern)
+
+      liftIO $ putStrLn "Trying to insert a pattern..."
+      rq <- S.request
+      let Just (sessionLookup, sessionInsert) = Vault.lookup session (vault rq)
+
+      u <- liftIO $ sessionLookup githubAuthTokenSessionKey
+
+      case u of
+        Just api_token -> do
+          new_pattern <- pattern_from_parms
+          web_response <- liftIO $ do
+
+            mgr <- newManager tlsManagerSettings
+            let wrapped_token = OAuth2.AccessToken $ T.pack api_token
+                api_support_data = Auth.GitHubApiSupport mgr wrapped_token
+
+            either_user <- Auth.fetchUser api_support_data
+            case either_user of
+              Left _some_text -> return $ WebApi.FailResult WebApi.InsertionFailAuthentication "Could not determine username."
+              Right (Types.LoginUser login_name login_alias) -> do
+
+                either_is_org_member <- Auth.isOrgMember (AuthConfig.personal_access_token github_config) $ LT.toStrict login_alias
+                case either_is_org_member of
+                  Left org_membership_determination_err -> return $ WebApi.FailResult WebApi.InsertionFailAuthentication $ "Could not determine org membership: " <> T.unpack 	org_membership_determination_err
+                  Right is_org_member -> if is_org_member
+                    then do
+                      insertion_result <- liftIO $ SqlWrite.api_new_pattern connection_data (LT.toStrict login_alias) new_pattern
+                      return $ insertion_result
+                    else return $ WebApi.FailResult WebApi.InsertionFailAuthentication $ "User \"" <> LT.unpack login_alias <> "\" is not a member of the organization \"" <> T.unpack Auth.targetOrganization <> "\"!"
+
+          S.json $ WebApi.toInsertionResponse web_response
+
+        Nothing -> do
+          liftIO $ putStrLn "Token not found!"
+          S.json $ WebApi.toInsertionResponse $
+            WebApi.FailResult WebApi.InsertionFailAuthentication "token lookup failed; you need to log in!"
+
 
     S.get "/api/tag-suggest" $ do
       term <- S.param "term"
@@ -190,6 +229,10 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       liftIO $ putStrLn $ "Got branch list: " ++ show branches
       S.json =<< liftIO (SqlRead.api_patterns_branch_filtered connection_data branches)
 
+    S.get "/api/build-pattern-matches" $ do
+      build_id <- S.param "build_id"
+      S.json =<< (liftIO $ SqlRead.get_build_pattern_matches connection_data build_id)
+
     S.get "/api/best-pattern-matches" $ do
       pattern_id <- S.param "pattern_id"
       S.json =<< (liftIO $ SqlRead.get_best_pattern_matches connection_data pattern_id)
@@ -211,14 +254,12 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       S.file $ static_base </> "index.html"
 
 
-
 mainAppCode :: CommandLineArgs -> IO ()
 mainAppCode args = do
 
   maybe_envar_port <- lookupEnv "PORT"
   let prt = Maybe.fromMaybe (serverPort args) $ readMaybe =<< maybe_envar_port
   putStrLn $ "Listening on port " <> show prt
-
 
   cache <- Session.initCacheStore
   IDP.initIdps cache github_config
@@ -233,7 +274,11 @@ mainAppCode args = do
     credentials_data = SetupData static_base github_config connection_data
     static_base = staticBase args
 
-    github_config = AuthConfig.GithubConfig (runningLocally args) (gitHubClientID args) (gitHubClientSecret args)
+    github_config = AuthConfig.GithubConfig
+      (runningLocally args)
+      (gitHubClientID args)
+      (gitHubClientSecret args)
+      (gitHubPersonalAccessToken args)
 
     connection_data = DbHelpers.NewDbConnectionData {
         DbHelpers.dbHostname = dbHostname args
@@ -250,6 +295,7 @@ data CommandLineArgs = NewCommandLineArgs {
   , dbPassword         :: String
   , gitHubClientID     :: Text
   , gitHubClientSecret :: Text
+  , gitHubPersonalAccessToken :: Text
   , runningLocally     :: Bool
   }
 
@@ -269,6 +315,8 @@ myCliParser = NewCommandLineArgs
     <> help "Client ID for GitHub app")
   <*> strOption   (long "github-client-secret" <> metavar "GITHUB_CLIENT_SECRET"
     <> help "Client secret for GitHub app")
+  <*> strOption   (long "github-personal-access-token" <> metavar "GITHUB_PERSONAL_ACCESS_TOKEN"
+    <> help "For debugging purposes. This will be removed eventually/")
   <*> switch      (long "local"
     <> help "Webserver is being run locally, so don't redirect HTTP to HTTPS")
 

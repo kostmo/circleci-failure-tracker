@@ -6,7 +6,6 @@ module SqlWrite where
 import           Builds
 import           Control.Exception                 (throwIO)
 import           Control.Monad                     (when)
-import           Data.Aeson
 import qualified Data.ByteString.Char8             as BS
 import           Data.Foldable                     (for_)
 import qualified Data.Maybe                        as Maybe
@@ -18,7 +17,6 @@ import           Data.Time.Format                  (defaultTimeLocale,
                                                     rfc822DateFormat)
 import           Database.PostgreSQL.Simple
 import           Database.PostgreSQL.Simple.Errors
-import           GHC.Generics
 import           GHC.Int                           (Int64)
 
 import qualified Constants
@@ -27,6 +25,10 @@ import qualified ScanPatterns
 import qualified ScanRecords
 import qualified ScanUtils
 import qualified WebApi
+
+
+defaultPatternAuthor :: Text
+defaultPatternAuthor = "kostmo"
 
 
 -- | We do not wipe the "builds" or "build_steps" tables
@@ -105,10 +107,12 @@ store_matches scan_resources (NewBuildStepId build_step_id) _build_num scoped_ma
     insertion_sql = "INSERT INTO matches(scan_id, build_step, pattern, line_number, line_text, span_start, span_end) VALUES(?,?,?,?,?,?,?);"
 
 
-insert_single_pattern :: Connection -> ScanPatterns.Pattern -> IO Int64
-insert_single_pattern conn (ScanPatterns.NewPattern expression_obj description tags applicable_steps specificity) = do
+insert_single_pattern :: Connection -> Text -> ScanPatterns.Pattern -> IO Int64
+insert_single_pattern conn username (ScanPatterns.NewPattern expression_obj description tags applicable_steps specificity) = do
 
   [Only pattern_id] <- query conn pattern_insertion_sql (ScanPatterns.is_regex expression_obj, ScanPatterns.pattern_text expression_obj, description, False, False, specificity)
+
+  execute conn authorship_insertion_sql (pattern_id, username)
 
   for_ tags $ \tag -> do
     execute conn tag_insertion_sql (tag, pattern_id)
@@ -121,12 +125,13 @@ insert_single_pattern conn (ScanPatterns.NewPattern expression_obj description t
   where
     pattern_insertion_sql = "INSERT INTO patterns(regex, expression, description, is_infra, has_nondeterministic_values, specificity) VALUES(?,?,?,?,?,?) RETURNING id;"
     tag_insertion_sql = "INSERT INTO pattern_tags(tag, pattern) VALUES(?,?);"
+    authorship_insertion_sql = "INSERT INTO pattern_authorship(pattern, author) VALUES(?,?);"
     applicable_step_insertion_sql = "INSERT INTO pattern_step_applicability(step_name, pattern) VALUES(?,?);"
 
 
 populate_patterns :: Connection -> [ScanPatterns.Pattern] -> IO ()
 populate_patterns conn pattern_list =
-  for_ pattern_list $ insert_single_pattern conn
+  for_ pattern_list $ insert_single_pattern conn defaultPatternAuthor
 
 
 step_failure_to_tuple :: (BuildNumber, Either BuildStepFailure ScanRecords.UnidentifiedBuildFailure) -> (Int64, Maybe Text, Bool)
@@ -140,9 +145,9 @@ step_failure_to_tuple (NewBuildNumber buildnum, visitation_result) = case visita
 
 
 store_log_info :: ScanRecords.ScanCatchupResources -> BuildStepId -> ScanRecords.LogInfo -> IO Int64
-store_log_info scan_resources (NewBuildStepId step_id) (ScanRecords.LogInfo byte_count line_count) = do
+store_log_info scan_resources (NewBuildStepId step_id) (ScanRecords.LogInfo byte_count line_count log_content) = do
 
-  execute conn "INSERT INTO log_metadata(step, line_count, byte_count) VALUES(?,?,?) ON CONFLICT (step) DO NOTHING;" (step_id, line_count, byte_count)
+  execute conn "INSERT INTO log_metadata(step, line_count, byte_count, content) VALUES(?,?,?,?) ON CONFLICT (step) DO NOTHING;" (step_id, line_count, byte_count, log_content)
 
   where
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
@@ -197,38 +202,18 @@ api_new_pattern_test build_number new_pattern = do
 
 
 
-data InsertionResult =
-    SuccessResult Int64
-  | FailResult String
-  deriving Generic
+api_new_pattern :: DbHelpers.DbConnectionData -> Text -> ScanPatterns.Pattern -> IO WebApi.InsertionResult
+api_new_pattern conn_data author_username new_pattern = do
 
-instance ToJSON InsertionResult
+  conn <- DbHelpers.get_connection conn_data
 
-
-data MyResponse = MyResponse {
-    _insertion_result :: InsertionResult
-  } deriving Generic
-
-instance ToJSON MyResponse where
-  toJSON = genericToJSON WebApi.dropUnderscore
-
-
-api_new_pattern :: DbHelpers.DbConnectionData -> ScanPatterns.Pattern -> IO MyResponse
-api_new_pattern conn_data new_pattern = do
-
-  -- TODO FIXME
-  if True
-    then return $ MyResponse $ FailResult "This feature is not yet enabled."
-    else do
-      conn <- DbHelpers.get_connection conn_data
-
-      result <- catchViolation catcher $ do
-        record_id <- insert_single_pattern conn new_pattern
-        return $ SuccessResult record_id
-      return $ MyResponse result
+  result <- catchViolation catcher $ do
+    record_id <- insert_single_pattern conn author_username new_pattern
+    return $ WebApi.SuccessResult record_id
+  return result
 
   where
-    catcher _ (UniqueViolation some_error) = return $ FailResult $ "Insertion error: " <> BS.unpack some_error
+    catcher _ (UniqueViolation some_error) = return $ WebApi.FailResult WebApi.InsertionFailDatabase $ "Insertion error: " <> BS.unpack some_error
     catcher e _                                  = throwIO e
 
 

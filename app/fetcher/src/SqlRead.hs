@@ -295,6 +295,37 @@ instance ToJSON PatternOccurrences where
   toJSON = genericToJSON WebApi.dropUnderscore
 
 
+
+
+
+data MatchOccurrencesForBuild = MatchOccurrencesForBuild {
+    _build_step   :: Text
+  , _pattern_id   :: Int
+  , _line_number  :: Int
+  , _line_count   :: Int
+  , _line_text    :: Text
+  , _span_start   :: Int
+  , _span_end     :: Int
+  } deriving Generic
+
+instance ToJSON MatchOccurrencesForBuild where
+  toJSON = genericToJSON WebApi.dropUnderscore
+
+
+get_build_pattern_matches :: DbHelpers.DbConnectionData -> Int -> IO [MatchOccurrencesForBuild]
+get_build_pattern_matches conn_data build_id = do
+
+  conn <- DbHelpers.get_connection conn_data
+
+  xs <- query conn sql (Only build_id)
+
+  forM xs $ \(step_name, pattern, line_number, line_count, line_text, span_start, span_end) -> return $ MatchOccurrencesForBuild
+    step_name pattern line_number line_count line_text span_start span_end
+
+  where
+    sql = "SELECT step_name, pattern, line_number, line_count, line_text, span_start, span_end FROM matches_with_log_metadata JOIN build_steps ON matches_with_log_metadata.build_step = build_steps.id JOIN patterns_augmented ON patterns_augmented.id = matches_with_log_metadata.pattern WHERE matches_with_log_metadata.build_num = ? ORDER BY specificity DESC, patterns_augmented.id ASC, line_number ASC"
+
+
 get_best_pattern_matches :: DbHelpers.DbConnectionData -> Int -> IO [PatternOccurrences]
 get_best_pattern_matches conn_data pattern_id = do
 

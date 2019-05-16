@@ -18,18 +18,82 @@ so that scanning may be performed incrementally, or resumed after abort.
 
 ![flow diagram](docs/data-flow.svg)
 
+# Setup
+
+## Prerequisites
+
+Ubuntu packages:
+
+    sudo apt-get install libgmp3-dev libpq-dev
+
+
+
+Local testing
+===========
+
+### Without docker
+
+To run the scanner with a fresh database:
+
+    stack run run-scanner -- --wipe --count 10 --branch master
+
+
+To run the scanner on some specific Pull Requests:
+
+    stack run run-scanner -- --wipe --count 50 --branch pull/18339 --branch pull/18340 --branch pull/18341 --branch pull/18342 --branch pull/18343 --branch pull/18907
+
+
+To launch the server, run the following from the `haskell/` directory:
+
+    find -name "*.tix" -delete && stack run my-webapp -- --data-path static
+
+
+### With docker
+
+To test the server locally via Docker:
+
+    docker run -p 3000:3000 -it circleci-failure-tracker-img-my-webapp
+
+
+Deployment procedure
+===========
+
+Build the docker container with the following command:
+
+    stack image container --docker
+
+
+Note that we *do not* want the following in `stack.yaml`, because it breaks Intero in emacs.  The above `--docker` option takes its place.
+
+    docker:
+      enable: true
+
+Tag the image:
+
+    docker tag circleci-failure-tracker-img-small-my-webapp kostmo/circleci-failure-tracker-img-small-my-webapp
+
+Push the image:
+
+    docker push kostmo/circleci-failure-tracker-img-small-my-webapp
+
+Redeploy webapp via `Dockerrun.aws.json`
+
+
+Deployment
+-------------
+
+* Use an integrated Elastic Beanstalk database, rather than a separate RDS database.
+
+
+Optimizations
+-------------
+
+* We can skip inspecting *all* of the "previously-visited" builds if the master "scan" record points to the newest pattern ID.
+    * Better yet, use a single DB query to get the list of out-of-date "already-visited" builds, instead of a separate query per build to obtain the unscanned pattern list.
+
+
 ## Usage
 
-### Prerequisites
-
-On Ubuntu 18.04:
-
-    # installs version 10
-    sudo apt install postgresql libpq-dev
-    
-Get Python packages:
-
-    pip3 install --upgrade requests-cache psycopg2
 
 ### Running
 

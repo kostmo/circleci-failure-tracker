@@ -5,6 +5,7 @@ import qualified Data.HashMap.Strict        as HashMap
 import           Database.PostgreSQL.Simple (Connection)
 import           GHC.Int                    (Int64)
 import qualified Network.Wreq.Session       as Sess
+import Data.Text (Text)
 
 import qualified DbHelpers
 import qualified ScanPatterns
@@ -19,6 +20,7 @@ data UnidentifiedBuildFailure = NetworkProblem String | NoFailedSteps
 data LogInfo = LogInfo {
     log_byte_count :: Int
   , log_line_count :: Int
+  , log_content :: Text
   }
 
 

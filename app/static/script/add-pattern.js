@@ -9,7 +9,16 @@ function submit_pattern() {
           url: "/api/new-pattern-insert",
           data: pattern_data,
           success: function( data ) {
-		alert("submitted pattern: " + JSON.stringify(data));
+		if (data.success) {
+			alert("submitted pattern with ID: " + data.pattern_id);
+		} else if (data.authentication_failed) {
+			alert("Not logged in: " + data.message);
+			window.location.href = data.login_url;
+		} else if (data.database_failed) {
+			alert("Database error: " + data.message);
+		} else {
+			alert("Unknown error: " + data.message);
+		}
           }
         } );
 }

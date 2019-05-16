@@ -4,7 +4,7 @@ import Data.Default (def)
 import Data.String (fromString)
 import qualified Data.Vault.Lazy as Vault
 
-import Network.Wai
+import Network.Wai (Application, responseLBS, pathInfo, vault)
 import Network.Wai.Session (withSession, Session)
 import Network.Wai.Session.ClientSession (clientsessionStore)
 import Network.Wai.Handler.Warp (run)

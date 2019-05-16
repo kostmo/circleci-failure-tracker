@@ -222,7 +222,7 @@ get_and_cache_log scan_resources build_number build_step_id maybe_failed_build_o
     let lines_list = T.lines console_log
         byte_count = T.length console_log
 
-    SqlWrite.store_log_info scan_resources build_step_id $ ScanRecords.LogInfo byte_count $ length lines_list
+    SqlWrite.store_log_info scan_resources build_step_id $ ScanRecords.LogInfo byte_count (length lines_list) console_log
     return ()
 
   else do
@@ -258,7 +258,7 @@ get_and_cache_log scan_resources build_number build_step_id maybe_failed_build_o
                 lines_list = T.lines console_log
                 byte_count = T.length console_log
 
-            SqlWrite.store_log_info scan_resources build_step_id $ ScanRecords.LogInfo byte_count $ length lines_list
+            SqlWrite.store_log_info scan_resources build_step_id $ ScanRecords.LogInfo byte_count (length lines_list) console_log
 
             TIO.writeFile full_filepath console_log
           Left err_message -> do

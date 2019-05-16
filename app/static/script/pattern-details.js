@@ -1,14 +1,3 @@
-function gen_error_cell_html(cell) {
-
-	var line_text = cell.getValue();
-	var row_data = cell.getRow().getData();
-
-	var cell_html = line_text.substring(0, row_data["span_start"]) +  "<span style='background-color: pink;'>" + line_text.substring(row_data["span_start"], row_data["span_end"]) + "</span>" + line_text.substring(row_data["span_end"]);
-
-	return cell_html;
-}
-
-
 function gen_matches_table(element_id, data_url) {
 
 	var table = new Tabulator("#" + element_id, {
@@ -16,7 +5,7 @@ function gen_matches_table(element_id, data_url) {
 	    layout:"fitColumns",
 	    placeholder:"No Data Set",
 	    columns:[
-		{title:"Build number", field:"build_number", formatter: "link", width: 75, formatterParams: {urlPrefix: "https://circleci.com/gh/pytorch/pytorch/"}},
+		{title:"Build number", field:"build_number", formatter: "link", width: 75, formatterParams: {urlPrefix: "/build-details.html?build_id="}},
 		{title:"Branch", field:"branch", sorter:"string", widthGrow: 2},
 		{title:"Job", field:"job_name", sorter:"string", widthGrow: 3},
 		{title:"Build step", field:"build_step", sorter:"string", widthGrow: 2},

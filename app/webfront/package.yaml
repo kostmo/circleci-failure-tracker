@@ -45,6 +45,9 @@ executables:
     - warp
     - data-default
     - vault
+    - http-client-tls
+    - http-client
+    - time
     - wai-session
     - wai-session-clientsession
     - clientsession

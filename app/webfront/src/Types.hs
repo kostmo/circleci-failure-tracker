@@ -53,8 +53,8 @@ data Errors =
 instance FromJSON Errors where
   parseJSON = genericParseJSON defaultOptions { constructorTagModifier = camelTo2 '_', allNullaryToStringTag = True }
 
-newtype LoginUser =
-  LoginUser { loginUserName :: Text
+data LoginUser = LoginUser { loginUserName :: Text
+            , loginAlias :: Text
             } deriving (Eq, Show)
 
 data IDPData =
