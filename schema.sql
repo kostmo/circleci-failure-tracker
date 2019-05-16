@@ -2,8 +2,8 @@
 -- PostgreSQL database dump
 --
 
--- Dumped from database version 10.7 (Ubuntu 10.7-1.pgdg18.04+1)
--- Dumped by pg_dump version 10.7 (Ubuntu 10.7-1.pgdg18.04+1)
+-- Dumped from database version 10.8 (Ubuntu 10.8-0ubuntu0.18.04.1)
+-- Dumped by pg_dump version 10.8 (Ubuntu 10.8-0ubuntu0.18.04.1)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -12,6 +12,7 @@ SET client_encoding = 'UTF8';
 SET standard_conforming_strings = on;
 SELECT pg_catalog.set_config('search_path', '', false);
 SET check_function_bodies = false;
+SET xmloption = content;
 SET client_min_messages = warning;
 SET row_security = off;
 
@@ -33,6 +34,7 @@ SET client_encoding = 'UTF8';
 SET standard_conforming_strings = on;
 SELECT pg_catalog.set_config('search_path', '', false);
 SET check_function_bodies = false;
+SET xmloption = content;
 SET client_min_messages = warning;
 SET row_security = off;
 
@@ -216,6 +218,24 @@ ALTER SEQUENCE public.build_steps_id_seq OWNED BY public.build_steps.id;
 
 
 --
+-- Name: builds_with_steps; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.builds_with_steps AS
+ SELECT build_steps.id AS step_id,
+    build_steps.name AS step_name,
+    builds.build_num,
+    builds.vcs_revision,
+    builds.queued_at,
+    builds.job_name,
+    builds.branch
+   FROM (public.build_steps
+     LEFT JOIN public.builds ON ((builds.build_num = build_steps.build)));
+
+
+ALTER TABLE public.builds_with_steps OWNER TO postgres;
+
+--
 -- Name: idiopathic_build_failures; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -251,7 +271,8 @@ ALTER TABLE public.job_failure_frequencies OWNER TO postgres;
 CREATE TABLE public.log_metadata (
     line_count integer NOT NULL,
     byte_count integer NOT NULL,
-    step integer NOT NULL
+    step integer NOT NULL,
+    content text
 );
 
 
@@ -305,6 +326,19 @@ CREATE VIEW public.matches_with_log_metadata WITH (security_barrier='false') AS
 ALTER TABLE public.matches_with_log_metadata OWNER TO postgres;
 
 --
+-- Name: pattern_authorship; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.pattern_authorship (
+    pattern integer NOT NULL,
+    author text,
+    created timestamp with time zone DEFAULT now()
+);
+
+
+ALTER TABLE public.pattern_authorship OWNER TO postgres;
+
+--
 -- Name: pattern_step_applicability; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -333,7 +367,7 @@ ALTER TABLE public.pattern_tags OWNER TO postgres;
 -- Name: patterns_augmented; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.patterns_augmented AS
+CREATE VIEW public.patterns_augmented WITH (security_barrier='false') AS
  SELECT patterns.expression,
     patterns.id,
     patterns.description,
@@ -342,8 +376,10 @@ CREATE VIEW public.patterns_augmented AS
     patterns.is_retired,
     patterns.specificity,
     COALESCE(foo.tags, ''::text) AS tags,
-    COALESCE(bar.steps, ''::text) AS steps
-   FROM ((public.patterns
+    COALESCE(bar.steps, ''::text) AS steps,
+    pattern_authorship.author,
+    pattern_authorship.created
+   FROM (((public.patterns
      LEFT JOIN ( SELECT pattern_tags.pattern,
             string_agg((pattern_tags.tag)::text, ';'::text) AS tags
            FROM public.pattern_tags
@@ -351,7 +387,8 @@ CREATE VIEW public.patterns_augmented AS
      LEFT JOIN ( SELECT pattern_step_applicability.pattern,
             string_agg(pattern_step_applicability.step_name, ';'::text) AS steps
            FROM public.pattern_step_applicability
-          GROUP BY pattern_step_applicability.pattern) bar ON ((bar.pattern = patterns.id)));
+          GROUP BY pattern_step_applicability.pattern) bar ON ((bar.pattern = patterns.id)))
+     LEFT JOIN public.pattern_authorship ON ((pattern_authorship.pattern = patterns.id)));
 
 
 ALTER TABLE public.patterns_augmented OWNER TO postgres;
@@ -608,6 +645,14 @@ ALTER TABLE ONLY public.matches
 
 
 --
+-- Name: pattern_authorship pattern_authorship_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.pattern_authorship
+    ADD CONSTRAINT pattern_authorship_pkey PRIMARY KEY (pattern);
+
+
+--
 -- Name: patterns pattern_expression_key; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -783,6 +828,14 @@ ALTER TABLE ONLY public.matches
 
 
 --
+-- Name: pattern_authorship pattern_authorship_pattern_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.pattern_authorship
+    ADD CONSTRAINT pattern_authorship_pattern_fkey FOREIGN KEY (pattern) REFERENCES public.patterns(id);
+
+
+--
 -- Name: pattern_step_applicability pattern_step_applicability_pattern_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -875,6 +928,13 @@ GRANT ALL ON TABLE public.aggregated_build_matches TO logan;
 --
 
 GRANT ALL ON SEQUENCE public.build_steps_id_seq TO logan;
+
+
+--
+-- Name: TABLE builds_with_steps; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.builds_with_steps TO logan;
 
 
 --
