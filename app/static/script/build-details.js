@@ -24,9 +24,19 @@ function gen_builds_table(element_id, data_url) {
 
 function populate_build_info(build_id) {
 
-	var html = "View log <a href='https://circleci.com/gh/pytorch/pytorch/" + build_id + "'>on CircleCI</a>";
+	$.getJSON('/api/single-build-info', {"build_id": build_id}, function (data) {
 
-        $("#build-info-box").html(html);
+		var html = "<dl>"
+		html += "<dt>CircleCI page</dt><dd>View log <a href='https://circleci.com/gh/pytorch/pytorch/" + build_id + "'>on CircleCI</a></dd>";
+		html += "<dt>Build step:</dt><dd>" + data["step_name"] + "</dd>";
+		html += "<dt>Branch:</dt><dd>" + data["build"]["branch"] + "</dd>";
+		html += "<dt>Job name:</dt><dd>" + data["build"]["job_name"] + "</dd>";
+		html += "<dt>Date:</dt><dd>" + data["build"]["queued_at"] + "</dd>";
+		html += "<dt>Revision:</dt><dd><code><a href='https://github.com/pytorch/pytorch/commit/" + data["build"]["vcs_revision"] + "'>" + data["build"]["vcs_revision"].substring(0, 7) + "</a></code></dd>";
+		html += "</ul>";
+
+	        $("#build-info-box").html(html);
+	});
 }
 
 

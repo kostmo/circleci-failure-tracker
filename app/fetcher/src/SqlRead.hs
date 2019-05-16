@@ -19,6 +19,7 @@ import           GHC.Generics
 import           GHC.Int                              (Int64)
 
 import qualified Builds
+import qualified BuildSteps
 import qualified DbHelpers
 import qualified ScanPatterns
 import qualified ScanRecords
@@ -342,6 +343,18 @@ get_best_pattern_matches conn_data pattern_id = do
   where
     txform ((Builds.NewBuild (Builds.NewBuildNumber buildnum) vcs_rev queued_at job_name branch), stepname, line_count, ScanPatterns.NewMatchDetails line_text line_number (ScanPatterns.NewMatchSpan start end)) = PatternOccurrences buildnum vcs_rev queued_at job_name branch stepname line_number line_count line_text start end
     sql = "SELECT DISTINCT ON (build) best_pattern_match_for_builds.build, matches_with_log_metadata.step_name, line_number, line_count, line_text, span_start, span_end, builds.vcs_revision, builds.queued_at, builds.job_name, branch FROM best_pattern_match_for_builds JOIN matches_with_log_metadata ON matches_with_log_metadata.pattern = best_pattern_match_for_builds.pattern_id AND matches_with_log_metadata.build_num = best_pattern_match_for_builds.build JOIN builds ON builds.build_num = best_pattern_match_for_builds.build WHERE pattern_id = ? ORDER BY build DESC, line_number"
+
+
+get_build_info :: DbHelpers.DbConnectionData -> Int -> IO BuildSteps.BuildStep
+get_build_info conn_data build_id = do
+
+  conn <- DbHelpers.get_connection conn_data
+  [(step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch)] <- query conn sql (Only build_id)
+
+  let build_obj = Builds.NewBuild (Builds.NewBuildNumber build_num) vcs_revision queued_at job_name branch
+  return $ BuildSteps.NewBuildStep step_name (Builds.NewBuildStepId step_id) build_obj
+  where
+    sql = "SELECT step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch FROM builds_with_steps where build_num = ?"
 
 
 get_pattern_matches :: DbHelpers.DbConnectionData -> Int -> IO [PatternOccurrences]

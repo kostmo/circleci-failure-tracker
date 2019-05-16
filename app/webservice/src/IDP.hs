@@ -2,7 +2,7 @@
 
 module IDP where
 
-import qualified IDP.Github          as IGithub
+import qualified Github
 import qualified Keys
 import           Session
 import           Types
@@ -16,4 +16,4 @@ initIdps c auth_config = insertIDPData c $ mkIDPData auth_config
 
 
 mkIDPData :: AuthConfig.GithubConfig -> IDPData
-mkIDPData auth_config = IDPData (Utils.createCodeUri (Keys.githubKey auth_config) [("state", "Github.test-state-123")]) Nothing (idpLabel IGithub.Github)
+mkIDPData auth_config = IDPData (Utils.createCodeUri (Keys.githubKey auth_config) [("state", "Github.test-state-123")]) Nothing (idpLabel Github.Github)

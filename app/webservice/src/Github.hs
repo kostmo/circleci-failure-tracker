@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes       #-}
 
-module IDP.Github where
+module Github where
 import           Data.Aeson
 import           Data.Hashable
 import           Data.Text.Lazy       (Text)

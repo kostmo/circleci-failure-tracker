@@ -27,13 +27,13 @@ import           Web.Scotty.Internal.Types
 
 
 import qualified AuthConfig
-import qualified IDP.Github          as IGithub
+import qualified Github
 import           Session
 import           Types
 import           Utils
 import           Views
 
-import qualified IDP.Github                    as Github
+import qualified Github
 import qualified Keys
 
 
@@ -61,7 +61,7 @@ logoutH c = do
   pas <- params
   let idpP = paramValue "idp" pas
   when (null idpP) redirectToHomeM
-  let idp = IGithub.Github
+  let idp = Github.Github
   liftIO (removeKey c (idpLabel idp)) >> redirectToHomeM
 
 
@@ -100,7 +100,7 @@ fetchTokenAndUser c github_config code session_insert = do
 
   where lookIdp c1 idp1 = liftIO $ lookupKey c1 (idpLabel idp1)
         updateIdp c1 oldIdpData luser = liftIO $ insertIDPData c1 (oldIdpData {loginUser = Just luser })
-        idp = IGithub.Github
+        idp = Github.Github
 
 
 data GitHubApiSupport = GitHubApiSupport {
@@ -137,7 +137,7 @@ fetchUser :: GitHubApiSupport -> IO (Either TL.Text LoginUser)
 fetchUser (GitHubApiSupport mgr token) = do
   re <- do
     r <- authGetJSON mgr token Github.userInfoUri
-    return (second IGithub.toLoginUser r)
+    return (second Github.toLoginUser r)
 
   return (first displayOAuth2Error re)
 

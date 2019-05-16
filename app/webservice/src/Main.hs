@@ -229,6 +229,10 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       liftIO $ putStrLn $ "Got branch list: " ++ show branches
       S.json =<< liftIO (SqlRead.api_patterns_branch_filtered connection_data branches)
 
+    S.get "/api/single-build-info" $ do
+      build_id <- S.param "build_id"
+      S.json =<< (liftIO $ SqlRead.get_build_info connection_data build_id)
+
     S.get "/api/build-pattern-matches" $ do
       build_id <- S.param "build_id"
       S.json =<< (liftIO $ SqlRead.get_build_pattern_matches connection_data build_id)

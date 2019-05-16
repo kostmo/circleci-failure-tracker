@@ -10,7 +10,7 @@ image:
         - my-webapp
 
 packages:
-- webfront
+- webservice
 - fetcher
 - session-demo
 
