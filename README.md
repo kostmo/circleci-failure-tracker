@@ -52,7 +52,7 @@ To launch the server, run the following from the `haskell/` directory:
 
 To test the server locally via Docker:
 
-    docker run -p 3000:3000 -it circleci-failure-tracker-img-my-webapp
+    docker run -p 3001:3001 -it circleci-failure-tracker-img-my-webapp
 
 
 Deployment procedure

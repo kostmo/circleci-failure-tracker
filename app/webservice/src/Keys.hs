@@ -20,7 +20,7 @@ githubKey auth_config = OAuth2 {
     }
   where
     callback_url = if AuthConfig.is_local auth_config
-      then [uri|http://localhost:3000/api/github-auth-callback|]
+      then [uri|http://localhost:3001/api/github-auth-callback|]
       else [uri|https://circle.pytorch.org/api/github-auth-callback|]
 
 

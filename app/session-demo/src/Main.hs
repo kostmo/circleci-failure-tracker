@@ -24,4 +24,4 @@ main :: IO ()
 main = do
 	session <- Vault.newKey
 	store <- fmap clientsessionStore getDefaultKey
-	run 3000 $ withSession store (fromString "SESSION") def session $ app session
+	run 3001 $ withSession store (fromString "SESSION") def session $ app session

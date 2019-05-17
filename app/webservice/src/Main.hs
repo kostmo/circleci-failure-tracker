@@ -288,7 +288,7 @@ data CommandLineArgs = NewCommandLineArgs {
 
 myCliParser :: Parser CommandLineArgs
 myCliParser = NewCommandLineArgs
-  <$> option auto (long "port"       <> value 3000           <> metavar "PORT"
+  <$> option auto (long "port"       <> value 3001           <> metavar "PORT"
     <> help "Webserver port")
   <*> strOption   (long "data-path" <> value "/data/static" <> metavar "STATIC_DATA"
     <> help "Path to static data files")
