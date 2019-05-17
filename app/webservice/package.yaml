@@ -51,3 +51,4 @@ executables:
     - wai-session
     - wai-session-clientsession
     - clientsession
+    - github

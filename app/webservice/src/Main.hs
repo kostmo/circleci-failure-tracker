@@ -2,8 +2,10 @@
 
 import           Control.Monad                     (unless)
 import           Control.Monad.IO.Class            (liftIO)
+import qualified Data.ByteString.Lazy              as LBS
 import           Data.Default                      (def)
 import           Data.List                         (filter)
+import           Data.List.Split                   (splitOn)
 import           Data.List.Split                   (splitOn)
 import qualified Data.Maybe                        as Maybe
 import           Data.String                       (fromString)
@@ -12,6 +14,10 @@ import qualified Data.Text                         as T
 import           Data.Text.Encoding                (encodeUtf8)
 import qualified Data.Text.Lazy                    as LT
 import qualified Data.Vault.Lazy                   as Vault
+import qualified GitHub.Auth                       as GHAuth
+import qualified GitHub.Data.Statuses              as GHStatuses
+import qualified GitHub.Data.Webhooks.Validate     as GHValidate
+import qualified GitHub.Endpoints.Repos.Statuses   as GHStatusEndpoint
 import           Network.Wai
 import           Network.Wai.Middleware.ForceSSL   (forceSSL)
 import           Network.Wai.Middleware.Static
@@ -40,6 +46,7 @@ import qualified SqlRead
 import qualified SqlWrite
 import qualified Types
 import qualified WebApi
+import qualified Webhooks
 
 
 pattern_from_parms :: ScottyTypes.ActionT LT.Text IO ScanPatterns.Pattern
@@ -97,6 +104,36 @@ breakage_report_from_parms = do
     notes
 
 
+{-
+-- This doesn't work
+handleStatusWebhook :: GHStatuses.Status -> IO ()
+handleStatusWebhook status_event =
+  putStrLn $ "State: " ++ show (GHStatuses.statusState status_event)
+
+-}
+
+myAppStatusContext = "flaky-checker"
+
+handleStatusWebhook ::
+     Text -- ^ access token
+  -> Webhooks.GitHubStatusEvent -> IO (Either GHStatusEndpoint.Error GHStatusEndpoint.Status)
+handleStatusWebhook access_token status_event = do
+  putStrLn $ "State: " ++ LT.unpack (Webhooks.state status_event)
+
+  let (org:repo:[]) = splitOn "/" $ LT.unpack $ Webhooks.name status_event
+
+  -- Do not act on receipt of statuses in my namespace, or else
+  -- we may get stuck in an infinite loop
+  if Webhooks.context status_event /= myAppStatusContext
+    then GHStatusEndpoint.createStatus
+      (GHAuth.OAuth $ encodeUtf8 access_token)
+      org
+      repo
+      (Webhooks.sha status_event)
+      (GHStatuses.NewStatus GHStatuses.StatusSuccess (Just "https://circle.pytorch.org/foo") (Just "Flakiness check") (Just myAppStatusContext))
+    else return ()
+
+
 scottyApp :: PersistenceData -> SetupData -> ScottyTypes.ScottyT LT.Text IO ()
 scottyApp (PersistenceData cache session store) (SetupData static_base github_config connection_data) = do
 
@@ -106,6 +143,32 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     unless (AuthConfig.is_local github_config) $
       S.middleware $ forceSSL
+
+    S.post "/api/github-event" $ do
+
+      headers <- S.headers
+--      liftIO $ mapM_ (\(x, y) -> putStrLn $ LT.unpack $ x <> ": " <> y) headers
+      maybe_signature_header <- S.header "X-Hub-Signature"
+      rq_body <- S.body
+
+      let is_signature_valid = GHValidate.isValidPayload
+            (AuthConfig.webhook_secret github_config)
+            (LT.toStrict <$> maybe_signature_header)
+            (LBS.toStrict rq_body)
+
+      maybe_event_type <- S.header "X-GitHub-Event"
+      case maybe_event_type of
+        Nothing -> return ()
+        Just event_type -> if is_signature_valid && event_type /= "status"
+          then return ()
+          else do
+            body_json <- S.jsonData
+            liftIO $ do
+              putStrLn $ "Signature valid? " ++ show is_signature_valid
+              handleStatusWebhook (AuthConfig.personal_access_token github_config) body_json
+
+            S.json =<< return ["hello" :: String]
+
 
 
     S.post "/api/report-breakage" $ do
@@ -130,8 +193,6 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
       S.json $ DbInsertion.toInsertionResponse github_config insertion_result
 
-
-    S.get "/login" $ Auth.indexH cache
 
     -- XXX IMPORTANT:
     -- The session cookie is specific to the parent dir of the path.
@@ -163,12 +224,6 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       buildnum_str <- S.param "build_num"
       new_pattern <- pattern_from_parms
       S.json =<< (liftIO $ SqlWrite.api_new_pattern_test (Builds.NewBuildNumber $ read buildnum_str) new_pattern)
-
-
-    -- TODO
-    S.post "/api/github-event" $ do
-      S.json =<< return ["hello" :: String]
-
 
     S.get "/api/tag-suggest" $ do
       term <- S.param "term"
@@ -263,6 +318,7 @@ mainAppCode args = do
       (gitHubClientID args)
       (gitHubClientSecret args)
       (gitHubPersonalAccessToken args)
+      (gitHubWebhookSecret args)
 
     connection_data = DbHelpers.NewDbConnectionData {
         DbHelpers.dbHostname = dbHostname args
@@ -280,6 +336,7 @@ data CommandLineArgs = NewCommandLineArgs {
   , gitHubClientID            :: Text
   , gitHubClientSecret        :: Text
   , gitHubPersonalAccessToken :: Text
+  , gitHubWebhookSecret       :: Text
   , runningLocally            :: Bool
   }
 
@@ -300,7 +357,9 @@ myCliParser = NewCommandLineArgs
   <*> strOption   (long "github-client-secret" <> metavar "GITHUB_CLIENT_SECRET"
     <> help "Client secret for GitHub app")
   <*> strOption   (long "github-personal-access-token" <> metavar "GITHUB_PERSONAL_ACCESS_TOKEN"
-    <> help "For debugging purposes. This will be removed eventually/")
+    <> help "For debugging purposes. This will be removed eventually")
+  <*> strOption   (long "github-webhook-secret" <> metavar "GITHUB_WEBHOOK_SECRET"
+    <> help "GitHub webhook secret")
   <*> switch      (long "local"
     <> help "Webserver is being run locally, so don't redirect HTTP to HTTPS")
 

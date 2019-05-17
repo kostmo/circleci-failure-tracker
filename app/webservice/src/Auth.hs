@@ -13,7 +13,6 @@ import           Control.Monad.IO.Class    (liftIO)
 import           Data.Bifunctor
 import qualified Data.ByteString.Char8     as BSU
 import qualified Data.ByteString.Lazy      as LBS
-import qualified Data.Either               as Either
 import           Data.Maybe
 import qualified Data.Text                 as T
 import qualified Data.Text.Lazy            as TL
@@ -31,15 +30,13 @@ import           Web.Scotty.Internal.Types
 import qualified AuthConfig
 import qualified AuthStages
 import qualified Github
-import qualified Github
 import qualified Keys
 import           Session
 import           Types
 import           Utils
-import           Views
-import qualified WebApi
 
 
+targetOrganization :: T.Text
 targetOrganization = "pytorch"
 
 
@@ -106,11 +103,7 @@ logoutH c = do
   liftIO (removeKey c (idpLabel idp)) >> redirectToHomeM
 
 
-indexH :: CacheStore -> ActionM ()
-indexH c = liftIO (allValues c) >>= overviewTpl
-
-
---callbackH :: CacheStore -> AuthConfig.GithubConfig -> ( ->) -> ActionM ()
+callbackH :: CacheStore -> AuthConfig.GithubConfig -> (String -> IO ()) -> ActionT TL.Text IO ()
 callbackH c github_config session_insert = do
   pas <- params
   let codeP = paramValue "code" pas

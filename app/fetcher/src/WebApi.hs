@@ -53,7 +53,7 @@ instance (ToJSON a) => ToJSON (ApiResponse a)
 
 
 data BuildNumberRecord = BuildNumberRecord {
-  _build_number :: Builds.BuildNumber
+    _build_number :: Builds.BuildNumber
   } deriving Generic
 
 instance ToJSON BuildNumberRecord where
