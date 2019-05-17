@@ -42,8 +42,6 @@ import qualified WebApi
 
 targetOrganization = "pytorch"
 
-debug = True
-
 
 githubAuthTokenSessionKey :: String
 githubAuthTokenSessionKey = "github_api_token"
@@ -162,7 +160,7 @@ tryFetchUser ::
 tryFetchUser github_config code session_insert = do
   mgr <- newManager tlsManagerSettings
   token <- OAuth2.fetchAccessToken mgr (Keys.githubKey github_config) (OAuth2.ExchangeToken $ TL.toStrict code)
-  when debug (print token)
+
   case token of
     Right at -> do
       let access_token_object = OAuth2.accessToken at
