@@ -2,8 +2,8 @@
 -- PostgreSQL database dump
 --
 
--- Dumped from database version 10.8 (Ubuntu 10.8-0ubuntu0.18.04.1)
--- Dumped by pg_dump version 10.8 (Ubuntu 10.8-0ubuntu0.18.04.1)
+-- Dumped from database version 10.8 (Ubuntu 10.8-1.pgdg18.04+1)
+-- Dumped by pg_dump version 10.8 (Ubuntu 10.8-1.pgdg18.04+1)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -196,6 +196,45 @@ CREATE VIEW public.aggregated_build_matches WITH (security_barrier='false') AS
 ALTER TABLE public.aggregated_build_matches OWNER TO postgres;
 
 --
+-- Name: broken_revisions; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.broken_revisions (
+    id integer NOT NULL,
+    revision character(40) NOT NULL,
+    reporter text,
+    "timestamp" timestamp with time zone DEFAULT now(),
+    is_broken boolean NOT NULL,
+    notes text,
+    implicated_revision character(40)
+);
+
+
+ALTER TABLE public.broken_revisions OWNER TO postgres;
+
+--
+-- Name: broken_revisions_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.broken_revisions_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.broken_revisions_id_seq OWNER TO postgres;
+
+--
+-- Name: broken_revisions_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.broken_revisions_id_seq OWNED BY public.broken_revisions.id;
+
+
+--
 -- Name: build_steps_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
 --
 
@@ -218,19 +257,45 @@ ALTER SEQUENCE public.build_steps_id_seq OWNED BY public.build_steps.id;
 
 
 --
+-- Name: latest_broken_revision_reports; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.latest_broken_revision_reports AS
+ SELECT DISTINCT ON (broken_revisions.revision) broken_revisions.id,
+    broken_revisions.revision,
+    broken_revisions.reporter,
+    broken_revisions."timestamp",
+    broken_revisions.is_broken,
+    broken_revisions.notes,
+    broken_revisions.implicated_revision
+   FROM public.broken_revisions
+  ORDER BY broken_revisions.revision, broken_revisions.id DESC;
+
+
+ALTER TABLE public.latest_broken_revision_reports OWNER TO postgres;
+
+--
 -- Name: builds_with_steps; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.builds_with_steps AS
+CREATE VIEW public.builds_with_steps WITH (security_barrier='false') AS
  SELECT build_steps.id AS step_id,
     build_steps.name AS step_name,
     builds.build_num,
     builds.vcs_revision,
     builds.queued_at,
     builds.job_name,
-    builds.branch
-   FROM (public.build_steps
-     LEFT JOIN public.builds ON ((builds.build_num = build_steps.build)));
+    builds.branch,
+    latest_broken_revision_reports.reporter,
+    latest_broken_revision_reports.is_broken,
+    latest_broken_revision_reports."timestamp" AS report_timestamp,
+    latest_broken_revision_reports.notes AS breakage_notes,
+    latest_broken_revision_reports.implicated_revision,
+    latest_broken_revision_reports.id AS report_id
+   FROM ((public.build_steps
+     LEFT JOIN public.builds ON ((builds.build_num = build_steps.build)))
+     LEFT JOIN public.latest_broken_revision_reports ON ((latest_broken_revision_reports.revision = builds.vcs_revision)))
+  ORDER BY COALESCE(latest_broken_revision_reports.is_broken, false) DESC, builds.build_num DESC;
 
 
 ALTER TABLE public.builds_with_steps OWNER TO postgres;
@@ -570,6 +635,13 @@ CREATE VIEW public.unvisited_builds AS
 ALTER TABLE public.unvisited_builds OWNER TO postgres;
 
 --
+-- Name: broken_revisions id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.broken_revisions ALTER COLUMN id SET DEFAULT nextval('public.broken_revisions_id_seq'::regclass);
+
+
+--
 -- Name: build_steps id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
@@ -602,6 +674,14 @@ ALTER TABLE ONLY public.patterns ALTER COLUMN id SET DEFAULT nextval('public.pat
 --
 
 ALTER TABLE ONLY public.scans ALTER COLUMN id SET DEFAULT nextval('public.scans_id_seq'::regclass);
+
+
+--
+-- Name: broken_revisions broken_revisions_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.broken_revisions
+    ADD CONSTRAINT broken_revisions_pkey PRIMARY KEY (id);
 
 
 --
@@ -924,10 +1004,31 @@ GRANT ALL ON TABLE public.aggregated_build_matches TO logan;
 
 
 --
+-- Name: TABLE broken_revisions; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.broken_revisions TO logan;
+
+
+--
+-- Name: SEQUENCE broken_revisions_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE public.broken_revisions_id_seq TO logan;
+
+
+--
 -- Name: SEQUENCE build_steps_id_seq; Type: ACL; Schema: public; Owner: postgres
 --
 
 GRANT ALL ON SEQUENCE public.build_steps_id_seq TO logan;
+
+
+--
+-- Name: TABLE latest_broken_revision_reports; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.latest_broken_revision_reports TO logan;
 
 
 --
@@ -970,6 +1071,13 @@ GRANT ALL ON SEQUENCE public.match_id_seq TO logan;
 --
 
 GRANT ALL ON TABLE public.matches_with_log_metadata TO logan;
+
+
+--
+-- Name: TABLE pattern_authorship; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.pattern_authorship TO logan;
 
 
 --

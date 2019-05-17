@@ -7,44 +7,68 @@ module WebApi where
 import           Data.Aeson
 import           Data.Text             (Text)
 import           GHC.Generics
+import           GHC.Int               (Int64)
 import           System.Directory      (doesDirectoryExist)
 import qualified System.DiskSpace      as DiskSpace
 import           System.FilePath.Posix (takeDirectory)
-import           GHC.Int                           (Int64)
 import           System.Process        (readProcess)
 
+import qualified AuthStages
 import qualified Builds
 import qualified Constants
+import           JsonUtils             (WithErrorMessage, dropUnderscore,
+                                        getMessage)
 
 
-data InsertionFailureMode = InsertionFailDatabase | InsertionFailAuthentication
-
-
-data InsertionResult =
-    SuccessResult Int64
-  | FailResult InsertionFailureMode String
-
-
-toInsertionResponse :: InsertionResult -> InsertionResponse
-toInsertionResponse result = case result of
-  SuccessResult record_id -> InsertionResponse True False False (Just record_id) "Succeeded." Nothing
-  FailResult failure_mode error_message -> case failure_mode of
-    InsertionFailAuthentication -> InsertionResponse False True False Nothing error_message (Just "/login")
-    InsertionFailDatabase -> InsertionResponse False False True Nothing error_message Nothing
-
-
--- | TODO This doesn't have to be flat; use sum types in JSON conversion
-data InsertionResponse = InsertionResponse {
-    _success :: Bool
-  , _authentication_failed :: Bool
-  , _database_failed :: Bool
-  , _pattern_id :: Maybe Int64
-  , _message :: String
-  , _login_url :: Maybe String
+data InsertionFailureResponse = InsertionFailureResponse {
+    _authentication_failed :: Maybe Bool
+  , _database_failed       :: Maybe Bool
+  , _login_url             :: Maybe Text
   } deriving Generic
 
-instance ToJSON InsertionResponse where
+instance ToJSON InsertionFailureResponse where
   toJSON = genericToJSON dropUnderscore
+
+
+data ErrorDetails a = ErrorDetails {
+    _message :: Text
+  , _details :: a
+  } deriving Generic
+
+instance (ToJSON a) => ToJSON (ErrorDetails a) where
+  toJSON = genericToJSON dropUnderscore
+
+
+data JsonEither a b = JsonEither {
+    _success :: Bool
+  , _error   :: Maybe (ErrorDetails a)
+  , _payload :: Maybe b
+  } deriving Generic
+
+
+instance (ToJSON a, ToJSON b) => ToJSON (JsonEither a b) where
+  toJSON = genericToJSON dropUnderscore
+
+
+toJsonEither :: (WithErrorMessage a, ToJSON a, ToJSON b) => Either a b -> JsonEither a b
+toJsonEither input = case input of
+  Right x -> JsonEither True Nothing (Just x)
+  Left x  -> JsonEither False (Just $ ErrorDetails (getMessage x) x) Nothing
+
+
+toInsertionResponse ::
+     Either AuthStages.AuthenticationFailureStage (Either Text Int64)
+  -> JsonEither InsertionFailureResponse Int64
+toInsertionResponse authentication_result = case authentication_result of
+  Right callback_result -> case callback_result of
+    Right record_id -> JsonEither True Nothing $ Just record_id
+    Left db_failure_reason -> let
+      inner = InsertionFailureResponse (Nothing) (Just True) Nothing
+      in JsonEither False (Just $ ErrorDetails db_failure_reason inner) Nothing
+
+  Left auth_failure_stage -> let
+    inner = InsertionFailureResponse (Just True) Nothing (Just "/login")
+    in JsonEither False (Just $ ErrorDetails (AuthStages.getMessage auth_failure_stage) inner) Nothing
 
 
 data ApiResponse a = ApiResponse {
@@ -54,7 +78,7 @@ data ApiResponse a = ApiResponse {
 instance (ToJSON a) => ToJSON (ApiResponse a)
 
 
-dropUnderscore = defaultOptions {fieldLabelModifier = drop 1}
+
 
 
 data BuildNumberRecord = BuildNumberRecord {

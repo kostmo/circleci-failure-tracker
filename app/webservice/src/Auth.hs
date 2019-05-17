@@ -9,37 +9,80 @@ module Auth where
 
 import           Control.Monad
 import           Control.Monad.Error.Class
-import qualified Data.ByteString.Lazy as LBS
-import           Control.Monad.IO.Class        (liftIO)
-import qualified Data.Either as Either
+import           Control.Monad.IO.Class    (liftIO)
 import           Data.Bifunctor
-import           URI.ByteString (parseURI, strictURIParserOptions)
+import qualified Data.ByteString.Char8     as BSU
+import qualified Data.ByteString.Lazy      as LBS
+import qualified Data.Either               as Either
 import           Data.Maybe
-import qualified Data.Text.Lazy                as TL
-import qualified Data.Text                as T
-import           Network.HTTP.Conduit
-import qualified Data.ByteString.Char8 as BSU
-import           Network.HTTP.Types
-import           Network.OAuth.OAuth2 as OAuth2
+import qualified Data.Text                 as T
+import qualified Data.Text.Lazy            as TL
+import qualified Data.Vault.Lazy           as Vault
+import           Network.HTTP.Conduit      hiding (Request)
+import           Network.HTTP.Types        hiding (Request)
+import qualified Network.OAuth.OAuth2      as OAuth2
+import           Network.Wai               (Request, vault)
+import           Network.Wai.Session       (Session)
 import           Prelude
+import           URI.ByteString            (parseURI, strictURIParserOptions)
 import           Web.Scotty
 import           Web.Scotty.Internal.Types
 
-
 import qualified AuthConfig
+import qualified AuthStages
 import qualified Github
+import qualified Github
+import qualified Keys
 import           Session
 import           Types
 import           Utils
 import           Views
-
-import qualified Github
-import qualified Keys
+import qualified WebApi
 
 
 targetOrganization = "pytorch"
 
 debug = True
+
+
+githubAuthTokenSessionKey :: String
+githubAuthTokenSessionKey = "github_api_token"
+
+
+
+getAuthenticatedUser :: Request -> Vault.Key (Session IO String String) -> AuthConfig.GithubConfig -> (AuthStages.Username -> IO a) -> IO (Either AuthStages.AuthenticationFailureStage a)
+getAuthenticatedUser rq session github_config callback = do
+
+  u <- sessionLookup githubAuthTokenSessionKey
+
+  case u of
+    Nothing -> return $ Left $ AuthStages.FailLoginRequired
+    Just api_token -> do
+
+      mgr <- newManager tlsManagerSettings
+      let wrapped_token = OAuth2.AccessToken $ T.pack api_token
+          api_support_data = Auth.GitHubApiSupport mgr wrapped_token
+
+      either_user <- Auth.fetchUser api_support_data
+      case either_user of
+        Left _some_text -> return $ Left AuthStages.FailUsernameDetermination
+        Right (Types.LoginUser _login_name login_alias) -> do
+
+          let username_text = TL.toStrict login_alias
+          either_is_org_member <- Auth.isOrgMember (AuthConfig.personal_access_token github_config) username_text
+          case either_is_org_member of
+            Left org_membership_determination_err -> return $ Left $ AuthStages.FailMembershipDetermination org_membership_determination_err
+            Right is_org_member -> if is_org_member
+              then do
+                callback_result <- callback $ AuthStages.Username username_text
+                return $ Right callback_result
+
+              else return $ Left $ AuthStages.FailOrgMembership (AuthStages.Username username_text) Auth.targetOrganization
+
+  where
+    Just (sessionLookup, _sessionInsert) = Vault.lookup session (vault rq)
+
+
 
 --------------------------------------------------
 -- * Handlers
@@ -104,8 +147,8 @@ fetchTokenAndUser c github_config code session_insert = do
 
 
 data GitHubApiSupport = GitHubApiSupport {
-    tls_manager :: Manager
-  , access_token :: AccessToken
+    tls_manager  :: Manager
+  , access_token :: OAuth2.AccessToken
   }
 
 
@@ -118,11 +161,11 @@ tryFetchUser ::
   -> IO (Either TL.Text LoginUser)
 tryFetchUser github_config code session_insert = do
   mgr <- newManager tlsManagerSettings
-  token <- fetchAccessToken mgr (Keys.githubKey github_config) (ExchangeToken $ TL.toStrict code)
+  token <- OAuth2.fetchAccessToken mgr (Keys.githubKey github_config) (OAuth2.ExchangeToken $ TL.toStrict code)
   when debug (print token)
   case token of
     Right at -> do
-      let access_token_object = accessToken at
+      let access_token_object = OAuth2.accessToken at
           access_token_string = T.unpack $ OAuth2.atoken access_token_object
       liftIO $ session_insert access_token_string
 
@@ -136,13 +179,13 @@ tryFetchUser github_config code session_insert = do
 fetchUser :: GitHubApiSupport -> IO (Either TL.Text LoginUser)
 fetchUser (GitHubApiSupport mgr token) = do
   re <- do
-    r <- authGetJSON mgr token Github.userInfoUri
+    r <- OAuth2.authGetJSON mgr token Github.userInfoUri
     return (second Github.toLoginUser r)
 
   return (first displayOAuth2Error re)
 
 
-displayOAuth2Error :: OAuth2Error Errors -> TL.Text
+displayOAuth2Error :: OAuth2.OAuth2Error Errors -> TL.Text
 displayOAuth2Error = TL.pack . show
 
 
@@ -165,7 +208,7 @@ isOrgMember personal_access_token username = do
   case either_membership_query_uri of
     Left x -> return $ Left ("Bad URL: " <> url_string)
     Right membership_query_uri -> do
-      either_response <- authGetBS mgr wrapped_token membership_query_uri
+      either_response <- OAuth2.authGetBS mgr wrapped_token membership_query_uri
       return $ Right $ isOrgMemberInner either_response
   where
     wrapped_token = OAuth2.AccessToken personal_access_token

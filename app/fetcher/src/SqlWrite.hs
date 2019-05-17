@@ -19,16 +19,17 @@ import           Database.PostgreSQL.Simple
 import           Database.PostgreSQL.Simple.Errors
 import           GHC.Int                           (Int64)
 
+import qualified AuthStages
+import qualified Breakages
 import qualified Constants
 import qualified DbHelpers
 import qualified ScanPatterns
 import qualified ScanRecords
 import qualified ScanUtils
-import qualified WebApi
 
 
-defaultPatternAuthor :: Text
-defaultPatternAuthor = "kostmo"
+defaultPatternAuthor :: AuthStages.Username
+defaultPatternAuthor = AuthStages.Username "kostmo"
 
 
 -- | We do not wipe the "builds" or "build_steps" tables
@@ -107,8 +108,8 @@ store_matches scan_resources (NewBuildStepId build_step_id) _build_num scoped_ma
     insertion_sql = "INSERT INTO matches(scan_id, build_step, pattern, line_number, line_text, span_start, span_end) VALUES(?,?,?,?,?,?,?);"
 
 
-insert_single_pattern :: Connection -> Text -> ScanPatterns.Pattern -> IO Int64
-insert_single_pattern conn username (ScanPatterns.NewPattern expression_obj description tags applicable_steps specificity) = do
+insert_single_pattern :: Connection -> AuthStages.Username -> ScanPatterns.Pattern -> IO Int64
+insert_single_pattern conn (AuthStages.Username username) (ScanPatterns.NewPattern expression_obj description tags applicable_steps specificity) = do
 
   [Only pattern_id] <- query conn pattern_insertion_sql (ScanPatterns.is_regex expression_obj, ScanPatterns.pattern_text expression_obj, description, False, False, specificity)
 
@@ -192,28 +193,49 @@ api_new_pattern_test build_number new_pattern = do
       result = Maybe.mapMaybe apply_pattern $ zip [0::Int ..] $ map T.stripEnd lines_list
 
   putStrLn $ "Results: " ++ show (length result)
-
   return result
 
   where
-
     apply_pattern :: (Int, Text) -> Maybe ScanPatterns.ScanMatch
     apply_pattern line_tuple = ScanUtils.apply_single_pattern line_tuple $ DbHelpers.WithId 0 new_pattern
 
 
+api_new_breakage_report ::
+     DbHelpers.DbConnectionData
+  -> Breakages.BreakageReport
+  -> IO (Either Text Int64)
+api_new_breakage_report
+    conn_data
+    (Breakages.NewBreakageReport rev implicated_rev is_broken notes (AuthStages.Username author_username)) = do
 
-api_new_pattern :: DbHelpers.DbConnectionData -> Text -> ScanPatterns.Pattern -> IO WebApi.InsertionResult
+  conn <- DbHelpers.get_connection conn_data
+  catchViolation catcher $ do
+
+    [Only report_id] <- query conn insertion_sql (rev, implicated_rev, author_username, notes, is_broken)
+    return $ Right report_id
+
+  where
+    insertion_sql = "INSERT INTO broken_revisions(revision, implicated_revision, reporter, notes, is_broken) VALUES(?,?,?,?,?) RETURNING id;"
+
+    catcher _ (UniqueViolation some_error) = return $ Left $ "Insertion error: " <> T.pack (BS.unpack some_error)
+    catcher e _                                  = throwIO e
+
+
+api_new_pattern ::
+     DbHelpers.DbConnectionData
+  -> AuthStages.Username
+  -> ScanPatterns.Pattern
+  -> IO (Either Text Int64)
 api_new_pattern conn_data author_username new_pattern = do
 
   conn <- DbHelpers.get_connection conn_data
 
-  result <- catchViolation catcher $ do
+  catchViolation catcher $ do
     record_id <- insert_single_pattern conn author_username new_pattern
-    return $ WebApi.SuccessResult record_id
-  return result
+    return $ Right record_id
 
   where
-    catcher _ (UniqueViolation some_error) = return $ WebApi.FailResult WebApi.InsertionFailDatabase $ "Insertion error: " <> BS.unpack some_error
+    catcher _ (UniqueViolation some_error) = return $ Left $ "Insertion error: " <> T.pack (BS.unpack some_error)
     catcher e _                                  = throwIO e
 
 

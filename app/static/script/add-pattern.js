@@ -1,6 +1,3 @@
-
-
-
 function submit_pattern() {
 
 	var pattern_data = gather_pattern_data();
@@ -10,14 +7,16 @@ function submit_pattern() {
           data: pattern_data,
           success: function( data ) {
 		if (data.success) {
-			alert("submitted pattern with ID: " + data.pattern_id);
-		} else if (data.authentication_failed) {
-			alert("Not logged in: " + data.message);
-			window.location.href = data.login_url;
-		} else if (data.database_failed) {
-			alert("Database error: " + data.message);
+			alert("submitted pattern with ID: " + data.payload);
 		} else {
-			alert("Unknown error: " + data.message);
+			if (data.error.details.authentication_failed) {
+				alert("Not logged in: " + data.error.message);
+				window.location.href = data.error.details.login_url;
+			} else if (data.error.details.database_failed) {
+				alert("Database error: " + data.error.message);
+			} else {
+				alert("Unknown error: " + data.error.message);
+			}
 		}
           }
         } );

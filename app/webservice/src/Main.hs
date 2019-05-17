@@ -1,63 +1,47 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-import           Control.Monad                   (unless)
-import           Control.Monad.IO.Class          (liftIO)
-import           Data.ByteString                 (ByteString)
-import qualified Data.Text.Encoding                 as TE
-import qualified Data.Text.Lazy                 as LT
-import           Data.List                       (filter)
-import           Data.List.Split                 (splitOn)
-import qualified Data.Maybe                      as Maybe
-import           Data.SecureMem
-import           Data.Text                       (Text)
-import qualified Data.Text                       as T
-import qualified Data.ByteString.Char8 as BSU
-import           Data.Text.Encoding              (encodeUtf8)
-import qualified Data.Text.Internal.Lazy         as LT
-import           Network.Wai                     (Request, pathInfo)
-import           Network.Wai.Middleware.ForceSSL (forceSSL)
-import           Network.Wai.Middleware.HttpAuth
+import           Control.Monad                     (unless)
+import           Control.Monad.IO.Class            (liftIO)
+import           Data.Default                      (def)
+import           Data.List                         (filter)
+import           Data.List.Split                   (splitOn)
+import qualified Data.Maybe                        as Maybe
+import           Data.String                       (fromString)
+import           Data.Text                         (Text)
+import qualified Data.Text                         as T
+import           Data.Text.Encoding                (encodeUtf8)
+import qualified Data.Text.Lazy                    as LT
+import qualified Data.Vault.Lazy                   as Vault
+import           Network.HTTP.Client               (newManager)
+import           Network.HTTP.Client.TLS           (tlsManagerSettings)
+import qualified Network.OAuth.OAuth2.Internal     as OAuth2
+import           Network.Wai
+import           Network.Wai.Middleware.ForceSSL   (forceSSL)
 import           Network.Wai.Middleware.Static
+import           Network.Wai.Session               (SessionStore)
+import           Network.Wai.Session               (Session, withSession)
+import           Network.Wai.Session.ClientSession (clientsessionStore)
 import           Options.Applicative
-import           System.Environment              (lookupEnv)
+import           System.Environment                (lookupEnv)
 import           System.FilePath
-import           Text.Read                       (readMaybe)
-import qualified Web.Scotty                      as S
-import qualified Web.Scotty.Internal.Types       as ScottyTypes
-import Network.Wai.Session (SessionStore)
-import Network.HTTP.Client.TLS (tlsManagerSettings)
-import Network.HTTP.Client (newManager)
-import qualified Network.OAuth.OAuth2.Internal as OAuth2
-import Network.OAuth.OAuth2.HttpClient (authGetBS)
-
-import qualified Builds
-import qualified DbHelpers
-import qualified ScanPatterns
-import qualified SqlRead
-import qualified SqlWrite
-import qualified WebApi
+import           Text.Read                         (readMaybe)
+import           Web.ClientSession                 (getDefaultKey)
+import qualified Web.Scotty                        as S
+import qualified Web.Scotty.Internal.Types         as ScottyTypes
 
 import qualified Auth
 import qualified AuthConfig
+import qualified AuthStages
+import qualified Breakages
+import qualified Builds
+import qualified DbHelpers
 import qualified IDP
+import qualified ScanPatterns
 import qualified Session
+import qualified SqlRead
+import qualified SqlWrite
 import qualified Types
-
-import Data.Time
-
-import Data.Default (def)
-import Data.String (fromString)
-import qualified Data.Vault.Lazy as Vault
-
-import Network.Wai
-import Network.Wai.Session (withSession, Session)
-import Network.Wai.Session.ClientSession (clientsessionStore)
-import Network.Wai.Handler.Warp (run)
-import Network.HTTP.Types (ok200)
-import Web.ClientSession (getDefaultKey)
-
-
-githubAuthTokenSessionKey = "github_api_token"
+import qualified WebApi
 
 
 pattern_from_parms :: ScottyTypes.ActionT LT.Text IO ScanPatterns.Pattern
@@ -85,18 +69,34 @@ pattern_from_parms = do
 
 
 data SetupData = SetupData {
-    setup_static_base :: String
-  , setup_github_config :: AuthConfig.GithubConfig
+    setup_static_base     :: String
+  , setup_github_config   :: AuthConfig.GithubConfig
   , setup_connection_data :: DbHelpers.DbConnectionData
   }
 
 
-
 data PersistenceData = PersistenceData {
-    setup_cache :: Types.CacheStore
+    setup_cache   :: Types.CacheStore
   , setup_session :: Vault.Key (Session IO String String)
-  , setup_store :: SessionStore IO String String
+  , setup_store   :: SessionStore IO String String
   }
+
+
+breakage_report_from_parms :: ScottyTypes.ActionT LT.Text IO (AuthStages.Username -> Breakages.BreakageReport)
+breakage_report_from_parms = do
+
+  notes <- S.param "notes"
+  is_broken <- S.param "is_broken"
+  implicated_revision <- S.param "implicated_revision"
+  revision <- S.param "revision"
+
+
+  -- TODO - structural validation on both Git hashes
+  return $ Breakages.NewBreakageReport
+    revision
+    (if T.null implicated_revision then Nothing else Just implicated_revision)
+    is_broken
+    notes
 
 
 scottyApp :: PersistenceData -> SetupData -> ScottyTypes.ScottyT LT.Text IO ()
@@ -110,6 +110,28 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       S.middleware $ forceSSL
 
 
+    S.post "/api/report-breakage" $ do
+
+      breakage_report_partial <- breakage_report_from_parms
+      let callback_func user_alias = SqlWrite.api_new_breakage_report connection_data breakage_report
+            where
+              breakage_report = breakage_report_partial user_alias
+
+      rq <- S.request
+      insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
+      S.json $ WebApi.toJsonEither insertion_result
+
+
+    -- TODO Flatten this via Either monad
+    S.post "/api/new-pattern-insert" $ do
+
+      new_pattern <- pattern_from_parms
+      let callback_func user_alias = SqlWrite.api_new_pattern connection_data user_alias new_pattern
+
+      rq <- S.request
+      insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
+      S.json $ WebApi.toInsertionResponse insertion_result
+
 
     S.get "/login" $ Auth.indexH cache
 
@@ -122,8 +144,8 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
     -- other requests at or below that same parent directory.
     S.get "/api/github-auth-callback" $ do
       rq <- S.request
-      let Just (sessionLookup, sessionInsert) = Vault.lookup session (vault rq)
-      Auth.callbackH cache github_config (sessionInsert githubAuthTokenSessionKey)
+      let Just (_sessionLookup, sessionInsert) = Vault.lookup session (vault rq)
+      Auth.callbackH cache github_config (sessionInsert Auth.githubAuthTokenSessionKey)
 
     S.get "/logout" $ Auth.logoutH cache
 
@@ -148,46 +170,6 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
     -- TODO
     S.post "/api/github-event" $ do
       S.json =<< return ["hello" :: String]
-
-
-    -- TODO Flatten this via Either monad
-    S.post "/api/new-pattern-insert" $ do
-
-      liftIO $ putStrLn "Trying to insert a pattern..."
-      rq <- S.request
-      let Just (sessionLookup, sessionInsert) = Vault.lookup session (vault rq)
-
-      u <- liftIO $ sessionLookup githubAuthTokenSessionKey
-
-      case u of
-        Just api_token -> do
-          new_pattern <- pattern_from_parms
-          web_response <- liftIO $ do
-
-            mgr <- newManager tlsManagerSettings
-            let wrapped_token = OAuth2.AccessToken $ T.pack api_token
-                api_support_data = Auth.GitHubApiSupport mgr wrapped_token
-
-            either_user <- Auth.fetchUser api_support_data
-            case either_user of
-              Left _some_text -> return $ WebApi.FailResult WebApi.InsertionFailAuthentication "Could not determine username."
-              Right (Types.LoginUser login_name login_alias) -> do
-
-                either_is_org_member <- Auth.isOrgMember (AuthConfig.personal_access_token github_config) $ LT.toStrict login_alias
-                case either_is_org_member of
-                  Left org_membership_determination_err -> return $ WebApi.FailResult WebApi.InsertionFailAuthentication $ "Could not determine org membership: " <> T.unpack 	org_membership_determination_err
-                  Right is_org_member -> if is_org_member
-                    then do
-                      insertion_result <- liftIO $ SqlWrite.api_new_pattern connection_data (LT.toStrict login_alias) new_pattern
-                      return $ insertion_result
-                    else return $ WebApi.FailResult WebApi.InsertionFailAuthentication $ "User \"" <> LT.unpack login_alias <> "\" is not a member of the organization \"" <> T.unpack Auth.targetOrganization <> "\"!"
-
-          S.json $ WebApi.toInsertionResponse web_response
-
-        Nothing -> do
-          liftIO $ putStrLn "Token not found!"
-          S.json $ WebApi.toInsertionResponse $
-            WebApi.FailResult WebApi.InsertionFailAuthentication "token lookup failed; you need to log in!"
 
 
     S.get "/api/tag-suggest" $ do
@@ -270,7 +252,7 @@ mainAppCode args = do
 
   session <- Vault.newKey
   store <- fmap clientsessionStore getDefaultKey
-  
+
   S.scotty prt $ scottyApp (PersistenceData cache session store) credentials_data
 
   where
@@ -293,14 +275,14 @@ mainAppCode args = do
 
 
 data CommandLineArgs = NewCommandLineArgs {
-    serverPort         :: Int
-  , staticBase         :: String
-  , dbHostname         :: String
-  , dbPassword         :: String
-  , gitHubClientID     :: Text
-  , gitHubClientSecret :: Text
+    serverPort                :: Int
+  , staticBase                :: String
+  , dbHostname                :: String
+  , dbPassword                :: String
+  , gitHubClientID            :: Text
+  , gitHubClientSecret        :: Text
   , gitHubPersonalAccessToken :: Text
-  , runningLocally     :: Bool
+  , runningLocally            :: Bool
   }
 
 

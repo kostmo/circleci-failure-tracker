@@ -18,9 +18,12 @@ import           Database.PostgreSQL.Simple.FromField (FromField)
 import           GHC.Generics
 import           GHC.Int                              (Int64)
 
+import qualified AuthStages
+import qualified Breakages
 import qualified Builds
 import qualified BuildSteps
 import qualified DbHelpers
+import qualified JsonUtils
 import qualified ScanPatterns
 import qualified ScanRecords
 import qualified WebApi
@@ -212,7 +215,7 @@ data SummaryStats = SummaryStats {
   } deriving Generic
 
 instance ToJSON SummaryStats where
-  toJSON = genericToJSON WebApi.dropUnderscore
+  toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
 api_summary_stats conn_data = do
@@ -240,7 +243,7 @@ data PatternRecord = PatternRecord {
   } deriving Generic
 
 instance ToJSON PatternRecord where
-  toJSON = genericToJSON WebApi.dropUnderscore
+  toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
 make_pattern_records xs = do
@@ -293,24 +296,24 @@ data PatternOccurrences = PatternOccurrences {
   } deriving Generic
 
 instance ToJSON PatternOccurrences where
-  toJSON = genericToJSON WebApi.dropUnderscore
+  toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
 
 
 
 data MatchOccurrencesForBuild = MatchOccurrencesForBuild {
-    _build_step   :: Text
-  , _pattern_id   :: Int
-  , _line_number  :: Int
-  , _line_count   :: Int
-  , _line_text    :: Text
-  , _span_start   :: Int
-  , _span_end     :: Int
+    _build_step  :: Text
+  , _pattern_id  :: Int
+  , _line_number :: Int
+  , _line_count  :: Int
+  , _line_text   :: Text
+  , _span_start  :: Int
+  , _span_end    :: Int
   } deriving Generic
 
 instance ToJSON MatchOccurrencesForBuild where
-  toJSON = genericToJSON WebApi.dropUnderscore
+  toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
 get_build_pattern_matches :: DbHelpers.DbConnectionData -> Int -> IO [MatchOccurrencesForBuild]
@@ -349,12 +352,18 @@ get_build_info :: DbHelpers.DbConnectionData -> Int -> IO BuildSteps.BuildStep
 get_build_info conn_data build_id = do
 
   conn <- DbHelpers.get_connection conn_data
-  [(step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch)] <- query conn sql (Only build_id)
+  [(step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch, maybe_implicated_revision, maybe_is_broken, maybe_notes, maybe_reporter)] <- query conn sql (Only build_id)
 
   let build_obj = Builds.NewBuild (Builds.NewBuildNumber build_num) vcs_revision queued_at job_name branch
-  return $ BuildSteps.NewBuildStep step_name (Builds.NewBuildStepId step_id) build_obj
+      maybe_breakage_obj = do
+        is_broken <- maybe_is_broken
+        notes <- maybe_notes
+        reporter <- maybe_reporter
+        return $ Breakages.NewBreakageReport vcs_revision maybe_implicated_revision is_broken notes $ AuthStages.Username reporter
+
+  return $ BuildSteps.NewBuildStep step_name (Builds.NewBuildStepId step_id) build_obj maybe_breakage_obj
   where
-    sql = "SELECT step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch FROM builds_with_steps where build_num = ?"
+    sql = "SELECT step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch, implicated_revision, is_broken, breakage_notes, reporter FROM builds_with_steps where build_num = ?"
 
 
 get_pattern_matches :: DbHelpers.DbConnectionData -> Int -> IO [PatternOccurrences]

@@ -1,6 +1,6 @@
 <html>
 <head>
-<title>Build details</title>
+<title>Commit details</title>
 <link href="/style.css" rel="stylesheet" type="text/css"></link>
 <script src="https://code.highcharts.com/highcharts.js"></script>
 <script src="https://code.highcharts.com/modules/exporting.js"></script>
@@ -14,35 +14,16 @@
 <script src="https://cdn.jsdelivr.net/npm/lodash@4.17.11/lodash.min.js"></script>
 
 <script src="/script/table-helpers.js"></script>
-<script src="/script/build-details.js"></script>
+<script src="/script/commit-details.js"></script>
 
 
 </head>
 
 <body onload="main();">
 
-<h2>Build info</h2>
-<div id="build-info-box"></div>
+<h2>Commit details</h2>
 
-<form onsubmit="return false;" style="border: 1px solid gray; padding: 0.3em;">
 
-<label><input id="is-broken-checkbox" type="checkbox" checked="checked"/> is broken?</label>
-<br/>
-<label>Implicated revision: <input id="input-implicated-revision" type="text" value=""/></label>
-<br/>
-<label>Notes: <input id="input-notes" type="text" value=""/></label>
-<br/>
 
-<div id="submission_button_placeholder"></div>
-</form>
-
-<h2>All matches</h2>
-<p>
-This shows <strong>all</strong> pattern matches for the build, including multiple lines matched by the same pattern.
-</p>
-<div id="all-build-matches-table"></div>
-
-<br/>
-<code id="error-display"></code>
 </body>
 </head>
