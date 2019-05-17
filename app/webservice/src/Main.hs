@@ -12,9 +12,6 @@ import qualified Data.Text                         as T
 import           Data.Text.Encoding                (encodeUtf8)
 import qualified Data.Text.Lazy                    as LT
 import qualified Data.Vault.Lazy                   as Vault
-import           Network.HTTP.Client               (newManager)
-import           Network.HTTP.Client.TLS           (tlsManagerSettings)
-import qualified Network.OAuth.OAuth2.Internal     as OAuth2
 import           Network.Wai
 import           Network.Wai.Middleware.ForceSSL   (forceSSL)
 import           Network.Wai.Middleware.Static
@@ -35,6 +32,7 @@ import qualified AuthStages
 import qualified Breakages
 import qualified Builds
 import qualified DbHelpers
+import qualified DbInsertion
 import qualified IDP
 import qualified ScanPatterns
 import qualified Session
@@ -130,7 +128,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
       rq <- S.request
       insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
-      S.json $ WebApi.toInsertionResponse insertion_result
+      S.json $ DbInsertion.toInsertionResponse github_config insertion_result
 
 
     S.get "/login" $ Auth.indexH cache

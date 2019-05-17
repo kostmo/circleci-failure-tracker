@@ -7,27 +7,15 @@ module WebApi where
 import           Data.Aeson
 import           Data.Text             (Text)
 import           GHC.Generics
-import           GHC.Int               (Int64)
 import           System.Directory      (doesDirectoryExist)
 import qualified System.DiskSpace      as DiskSpace
 import           System.FilePath.Posix (takeDirectory)
 import           System.Process        (readProcess)
 
-import qualified AuthStages
 import qualified Builds
 import qualified Constants
 import           JsonUtils             (WithErrorMessage, dropUnderscore,
                                         getMessage)
-
-
-data InsertionFailureResponse = InsertionFailureResponse {
-    _authentication_failed :: Maybe Bool
-  , _database_failed       :: Maybe Bool
-  , _login_url             :: Maybe Text
-  } deriving Generic
-
-instance ToJSON InsertionFailureResponse where
-  toJSON = genericToJSON dropUnderscore
 
 
 data ErrorDetails a = ErrorDetails {
@@ -56,29 +44,12 @@ toJsonEither input = case input of
   Left x  -> JsonEither False (Just $ ErrorDetails (getMessage x) x) Nothing
 
 
-toInsertionResponse ::
-     Either AuthStages.AuthenticationFailureStage (Either Text Int64)
-  -> JsonEither InsertionFailureResponse Int64
-toInsertionResponse authentication_result = case authentication_result of
-  Right callback_result -> case callback_result of
-    Right record_id -> JsonEither True Nothing $ Just record_id
-    Left db_failure_reason -> let
-      inner = InsertionFailureResponse (Nothing) (Just True) Nothing
-      in JsonEither False (Just $ ErrorDetails db_failure_reason inner) Nothing
-
-  Left auth_failure_stage -> let
-    inner = InsertionFailureResponse (Just True) Nothing (Just "/login")
-    in JsonEither False (Just $ ErrorDetails (AuthStages.getMessage auth_failure_stage) inner) Nothing
-
 
 data ApiResponse a = ApiResponse {
     rows :: [a]
   } deriving Generic
 
 instance (ToJSON a) => ToJSON (ApiResponse a)
-
-
-
 
 
 data BuildNumberRecord = BuildNumberRecord {

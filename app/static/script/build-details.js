@@ -41,7 +41,6 @@ function gen_builds_table(element_id, data_url) {
 	    layout:"fitColumns",
 	    placeholder:"No Data Set",
 	    columns:[
-		{title:"Build step", field: "build_step", sorter: "string", widthGrow: 2},
 		{title:"Line", field: "line_number", width: 100, formatter: function(cell, formatterParams, onRendered) {
 			return (cell.getValue() + 1) + " / " + cell.getRow().getData()["line_count"];
 		  }},
@@ -70,7 +69,6 @@ function populate_build_info(build_id) {
 		html += "<dt>Date:</dt><dd>" + data["build"]["queued_at"] + "</dd>";
 		html += "<dt>Revision:</dt><dd><code><a href='https://github.com/pytorch/pytorch/commit/" + data["build"]["vcs_revision"] + "'>" + data["build"]["vcs_revision"].substring(0, 7) + "</a></code></dd>";
 		html += "</dl>";
-
 
 		$.getJSON('https://api.github.com/repos/pytorch/pytorch/commits', {"build_id": build_id}, function (data) {
 			var commit_list = [];
