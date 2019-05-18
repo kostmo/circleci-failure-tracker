@@ -111,15 +111,6 @@ breakage_report_from_parms = do
     notes
 
 
-{-
--- This doesn't work
-handleStatusWebhook :: GHStatuses.Status -> IO ()
-handleStatusWebhook status_event =
-  putStrLn $ "State: " ++ show (GHStatuses.statusState status_event)
-
--}
-
-
 handleStatusWebhook ::
      Text -- ^ access token
   -> Webhooks.GitHubStatusEvent -> IO ()
@@ -133,23 +124,10 @@ handleStatusWebhook access_token status_event = do
   -- we may get stuck in an infinite loop
   if LT.toStrict (Webhooks.context status_event) /= myAppStatusContext
     then do
-      {-
-      -- This is broken; it yields this error:
-      --   key \"created_at\" not present
-
-      response <- GHStatusEndpoint.createStatus
-        (GHAuth.OAuth $ encodeUtf8 access_token)
-        (GHName.N $ T.pack org)
-        (GHName.N $ T.pack repo)
-        (GHName.N $ LT.toStrict $ Webhooks.sha status_event)
-        success_status
-      putStrLn $ "blah: " ++ show response
-      -}
-
       ApiPost.postCommitStatus
         access_token
         owned_repo
-        (LT.toStrict $ Webhooks.sha status_event)
+        sha1
         success_status
 
       return ()
@@ -157,11 +135,11 @@ handleStatusWebhook access_token status_event = do
     else return ()
 
   where
---    success_status = (GHStatuses.NewStatus GHStatuses.StatusSuccess (Just $ GHURL.URL "https://circle.pytorch.org/foo") (Just "Flakiness check") (Just myAppStatusContext))
+    sha1 = LT.toStrict $ Webhooks.sha status_event
     success_status = Webhooks.GitHubStatusEventSetter
       "Flakiness check"
       "success"
-      "https://circle.pytorch.org/foo"
+      ("https://circle.pytorch.org/commit-details.html?sha1=" <> Webhooks.sha status_event)
       (LT.fromStrict myAppStatusContext)
 
 
