@@ -1,8 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-import           Control.Monad                     (unless)
+import           Control.Monad                     (unless, when)
 import           Control.Monad.IO.Class            (liftIO)
 import qualified Data.ByteString.Lazy              as LBS
+import qualified Data.ByteString.Lazy.Char8        as LBSC
 import           Data.Default                      (def)
 import           Data.List                         (filter)
 import           Data.List.Split                   (splitOn)
@@ -15,7 +16,8 @@ import           Data.Text.Encoding                (encodeUtf8)
 import qualified Data.Text.Lazy                    as LT
 import qualified Data.Vault.Lazy                   as Vault
 import qualified GitHub.Auth                       as GHAuth
-import qualified GitHub.Data.Statuses              as GHStatuses
+import qualified GitHub.Data.Definitions           as GHDefinitions
+import qualified GitHub.Data.Name                  as GHName
 import qualified GitHub.Data.Webhooks.Validate     as GHValidate
 import qualified GitHub.Endpoints.Repos.Statuses   as GHStatusEndpoint
 import           Network.Wai
@@ -32,6 +34,7 @@ import           Web.ClientSession                 (getDefaultKey)
 import qualified Web.Scotty                        as S
 import qualified Web.Scotty.Internal.Types         as ScottyTypes
 
+import qualified ApiPost
 import qualified Auth
 import qualified AuthConfig
 import qualified AuthStages
@@ -47,6 +50,10 @@ import qualified SqlWrite
 import qualified Types
 import qualified WebApi
 import qualified Webhooks
+
+
+myAppStatusContext :: Text
+myAppStatusContext = "flaky-checker"
 
 
 pattern_from_parms :: ScottyTypes.ActionT LT.Text IO ScanPatterns.Pattern
@@ -74,16 +81,16 @@ pattern_from_parms = do
 
 
 data SetupData = SetupData {
-    setup_static_base     :: String
-  , setup_github_config   :: AuthConfig.GithubConfig
-  , setup_connection_data :: DbHelpers.DbConnectionData
+    _setup_static_base     :: String
+  , _setup_github_config   :: AuthConfig.GithubConfig
+  , _setup_connection_data :: DbHelpers.DbConnectionData
   }
 
 
 data PersistenceData = PersistenceData {
-    setup_cache   :: Types.CacheStore
-  , setup_session :: Vault.Key (Session IO String String)
-  , setup_store   :: SessionStore IO String String
+    _setup_cache   :: Types.CacheStore
+  , _setup_session :: Vault.Key (Session IO String String)
+  , _setup_store   :: SessionStore IO String String
   }
 
 
@@ -112,26 +119,50 @@ handleStatusWebhook status_event =
 
 -}
 
-myAppStatusContext = "flaky-checker"
 
 handleStatusWebhook ::
      Text -- ^ access token
-  -> Webhooks.GitHubStatusEvent -> IO (Either GHStatusEndpoint.Error GHStatusEndpoint.Status)
+  -> Webhooks.GitHubStatusEvent -> IO ()
 handleStatusWebhook access_token status_event = do
   putStrLn $ "State: " ++ LT.unpack (Webhooks.state status_event)
 
   let (org:repo:[]) = splitOn "/" $ LT.unpack $ Webhooks.name status_event
+      owned_repo = ApiPost.OwnerAndRepo org repo
 
   -- Do not act on receipt of statuses in my namespace, or else
   -- we may get stuck in an infinite loop
-  if Webhooks.context status_event /= myAppStatusContext
-    then GHStatusEndpoint.createStatus
-      (GHAuth.OAuth $ encodeUtf8 access_token)
-      org
-      repo
-      (Webhooks.sha status_event)
-      (GHStatuses.NewStatus GHStatuses.StatusSuccess (Just "https://circle.pytorch.org/foo") (Just "Flakiness check") (Just myAppStatusContext))
+  if LT.toStrict (Webhooks.context status_event) /= myAppStatusContext
+    then do
+      {-
+      -- This is broken; it yields this error:
+      --   key \"created_at\" not present
+
+      response <- GHStatusEndpoint.createStatus
+        (GHAuth.OAuth $ encodeUtf8 access_token)
+        (GHName.N $ T.pack org)
+        (GHName.N $ T.pack repo)
+        (GHName.N $ LT.toStrict $ Webhooks.sha status_event)
+        success_status
+      putStrLn $ "blah: " ++ show response
+      -}
+
+      ApiPost.postCommitStatus
+        access_token
+        owned_repo
+        (LT.toStrict $ Webhooks.sha status_event)
+        success_status
+
+      return ()
+
     else return ()
+
+  where
+--    success_status = (GHStatuses.NewStatus GHStatuses.StatusSuccess (Just $ GHURL.URL "https://circle.pytorch.org/foo") (Just "Flakiness check") (Just myAppStatusContext))
+    success_status = Webhooks.GitHubStatusEventSetter
+      "Flakiness check"
+      "success"
+      "https://circle.pytorch.org/foo"
+      (LT.fromStrict myAppStatusContext)
 
 
 scottyApp :: PersistenceData -> SetupData -> ScottyTypes.ScottyT LT.Text IO ()
@@ -146,8 +177,6 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     S.post "/api/github-event" $ do
 
-      headers <- S.headers
---      liftIO $ mapM_ (\(x, y) -> putStrLn $ LT.unpack $ x <> ": " <> y) headers
       maybe_signature_header <- S.header "X-Hub-Signature"
       rq_body <- S.body
 
@@ -163,13 +192,22 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
           then return ()
           else do
             body_json <- S.jsonData
-            liftIO $ do
-              putStrLn $ "Signature valid? " ++ show is_signature_valid
-              handleStatusWebhook (AuthConfig.personal_access_token github_config) body_json
+            liftIO $ handleStatusWebhook (AuthConfig.personal_access_token github_config) body_json
 
             S.json =<< return ["hello" :: String]
 
+    -- For debugging only
+    when (AuthConfig.is_local github_config) $ S.post "/api/echo" $ do
+      body <- S.body
+      headers <- S.headers
 
+      liftIO $ do
+        putStrLn "===== HEADERS ===="
+        mapM_ (\(x, y) -> putStrLn $ LT.unpack $ x <> ": " <> y) headers
+        putStrLn "== END HEADERS ==="
+        putStrLn "====== BODY ======"
+        putStrLn $ LBSC.unpack body
+        putStrLn "==== END BODY ===="
 
     S.post "/api/report-breakage" $ do
 

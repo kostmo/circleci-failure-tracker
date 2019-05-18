@@ -4,10 +4,14 @@
 {-# LANGUAGE QuasiQuotes           #-}
 
 module Webhooks where
+
 import           Data.Aeson
 import           Data.Text.Lazy (Text)
 import           Data.Time      (UTCTime)
 import           GHC.Generics
+
+import qualified JsonUtils
+
 
 data GitHubStatusEvent = GitHubStatusEvent {
     sha         :: Text
@@ -22,5 +26,13 @@ data GitHubStatusEvent = GitHubStatusEvent {
 
 instance FromJSON GitHubStatusEvent
 
---instance ToJSON GitHubStatusEvent where
---  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+data GitHubStatusEventSetter = GitHubStatusEventSetter {
+    _description :: Text
+  , _state       :: Text
+  , _target_url  :: Text
+  , _context     :: Text
+  } deriving Generic
+
+instance ToJSON GitHubStatusEventSetter where
+  toJSON = genericToJSON JsonUtils.dropUnderscore

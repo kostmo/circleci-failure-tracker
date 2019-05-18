@@ -206,4 +206,3 @@ isOrgMember personal_access_token username = do
     url_string = "https://api.github.com/orgs/" <> targetOrganization <> "/members/" <> username
     either_membership_query_uri = parseURI strictURIParserOptions $ BSU.pack $ T.unpack url_string
 
-
