@@ -27,12 +27,24 @@ data GitHubStatusEvent = GitHubStatusEvent {
 instance FromJSON GitHubStatusEvent
 
 
+data GitHubCombinedStatuses = GitHubCombinedStatuses {
+--    _state    :: Text -- ^ collides with GitHubStatusEventSetter
+    _statuses :: [GitHubStatusEventSetter]
+  } deriving (Generic, Show)
+
+instance FromJSON GitHubCombinedStatuses where
+  parseJSON = genericParseJSON JsonUtils.dropUnderscore
+
+
 data GitHubStatusEventSetter = GitHubStatusEventSetter {
     _description :: Text
   , _state       :: Text
   , _target_url  :: Text
   , _context     :: Text
-  } deriving Generic
+  } deriving (Generic, Show)
 
 instance ToJSON GitHubStatusEventSetter where
   toJSON = genericToJSON JsonUtils.dropUnderscore
+
+instance FromJSON GitHubStatusEventSetter where
+  parseJSON = genericParseJSON JsonUtils.dropUnderscore

@@ -13,12 +13,13 @@ import           Control.Monad.IO.Class    (liftIO)
 import           Data.Bifunctor
 import qualified Data.ByteString.Char8     as BSU
 import qualified Data.ByteString.Lazy      as LBS
+import           Data.List                 (intercalate)
 import           Data.Maybe
 import qualified Data.Text                 as T
 import qualified Data.Text.Lazy            as TL
 import qualified Data.Vault.Lazy           as Vault
 import           Network.HTTP.Conduit      hiding (Request)
-import           Network.HTTP.Types        hiding (Request)
+import           Network.HTTP.Types
 import qualified Network.OAuth.OAuth2      as OAuth2
 import           Network.Wai               (Request, vault)
 import           Network.Wai.Session       (Session)
@@ -27,6 +28,7 @@ import           URI.ByteString            (parseURI, strictURIParserOptions)
 import           Web.Scotty
 import           Web.Scotty.Internal.Types
 
+import qualified ApiPost
 import qualified AuthConfig
 import qualified AuthStages
 import qualified Github
@@ -34,6 +36,7 @@ import qualified Keys
 import           Session
 import           Types
 import           Utils
+import qualified Webhooks
 
 
 targetOrganization :: T.Text
@@ -42,7 +45,6 @@ targetOrganization = "pytorch"
 
 githubAuthTokenSessionKey :: String
 githubAuthTokenSessionKey = "github_api_token"
-
 
 
 getAuthenticatedUser :: Request -> Vault.Key (Session IO String String) -> AuthConfig.GithubConfig -> (AuthStages.Username -> IO a) -> IO (Either AuthStages.AuthenticationFailureStage a)
@@ -56,7 +58,7 @@ getAuthenticatedUser rq session github_config callback = do
 
       mgr <- newManager tlsManagerSettings
       let wrapped_token = OAuth2.AccessToken $ T.pack api_token
-          api_support_data = Auth.GitHubApiSupport mgr wrapped_token
+          api_support_data = GitHubApiSupport mgr wrapped_token
 
       either_user <- Auth.fetchUser api_support_data
       case either_user of
@@ -78,7 +80,6 @@ getAuthenticatedUser rq session github_config callback = do
     Just (sessionLookup, _sessionInsert) = Vault.lookup session (vault rq)
 
 
-
 --------------------------------------------------
 -- * Handlers
 --------------------------------------------------
@@ -88,10 +89,6 @@ redirectToHomeM = redirect "/"
 
 errorM :: TL.Text -> ActionM ()
 errorM = throwError . ActionError
-
-
-globalErrorHandler :: TL.Text -> ActionM ()
-globalErrorHandler t = status status401 >> html t
 
 
 logoutH :: CacheStore -> ActionM ()
@@ -165,6 +162,40 @@ tryFetchUser github_config code session_insert = do
     Left e   -> return (Left $ TL.pack $ "tryFetchUser: cannot fetch asses token. error detail: " ++ show e)
 
 
+getFailedStatuses ::
+     T.Text
+  -> ApiPost.OwnerAndRepo
+  -> T.Text
+  -> IO (Either TL.Text [Webhooks.GitHubStatusEventSetter])
+getFailedStatuses
+    token
+    (ApiPost.OwnerAndRepo repo_owner repo_name)
+    target_sha1 = do
+
+  mgr <- newManager tlsManagerSettings
+
+  case either_uri of
+    Left x -> return $ Left $ "Bad URL: " <> TL.pack uri_string
+    Right uri -> do
+      r <- OAuth2.authGetJSON mgr (OAuth2.AccessToken token) uri
+
+      return $ first displayOAuth2Error $
+        second (filter_failed . Webhooks._statuses) r
+
+  where
+    filter_failed = filter $ (== "failure") . Webhooks._state
+    uri_string = intercalate "/" [
+        "https://api.github.com/repos"
+      , repo_owner
+      , repo_name
+      , "commits"
+      , T.unpack target_sha1
+      , "status"
+      ]
+
+    either_uri = parseURI strictURIParserOptions $ BSU.pack uri_string
+
+
 -- * Fetch UserInfo
 --
 fetchUser :: GitHubApiSupport -> IO (Either TL.Text LoginUser)
@@ -194,7 +225,7 @@ isOrgMember personal_access_token username = do
   mgr <- newManager tlsManagerSettings
   -- Note: This query is currently using a Personal Access Token from a pytorch org member
   -- This must be converted to an App token.
-  let api_support_data = Auth.GitHubApiSupport mgr wrapped_token
+  let api_support_data = GitHubApiSupport mgr wrapped_token
 
   case either_membership_query_uri of
     Left x -> return $ Left ("Bad URL: " <> url_string)

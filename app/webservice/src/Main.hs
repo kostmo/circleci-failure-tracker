@@ -7,7 +7,6 @@ import qualified Data.ByteString.Lazy.Char8        as LBSC
 import           Data.Default                      (def)
 import           Data.List                         (filter)
 import           Data.List.Split                   (splitOn)
-import           Data.List.Split                   (splitOn)
 import qualified Data.Maybe                        as Maybe
 import           Data.String                       (fromString)
 import           Data.Text                         (Text)
@@ -15,11 +14,7 @@ import qualified Data.Text                         as T
 import           Data.Text.Encoding                (encodeUtf8)
 import qualified Data.Text.Lazy                    as LT
 import qualified Data.Vault.Lazy                   as Vault
-import qualified GitHub.Auth                       as GHAuth
-import qualified GitHub.Data.Definitions           as GHDefinitions
-import qualified GitHub.Data.Name                  as GHName
 import qualified GitHub.Data.Webhooks.Validate     as GHValidate
-import qualified GitHub.Endpoints.Repos.Statuses   as GHStatusEndpoint
 import           Network.Wai
 import           Network.Wai.Middleware.ForceSSL   (forceSSL)
 import           Network.Wai.Middleware.Static
@@ -113,10 +108,11 @@ breakage_report_from_parms = do
 
 handleStatusWebhook ::
      Text -- ^ access token
-  -> Webhooks.GitHubStatusEvent -> IO ()
+  -> Webhooks.GitHubStatusEvent -> IO (Either LT.Text ())
 handleStatusWebhook access_token status_event = do
   putStrLn $ "State: " ++ LT.unpack (Webhooks.state status_event)
 
+  -- TODO this is a partial function
   let (org:repo:[]) = splitOn "/" $ LT.unpack $ Webhooks.name status_event
       owned_repo = ApiPost.OwnerAndRepo org repo
 
@@ -124,15 +120,20 @@ handleStatusWebhook access_token status_event = do
   -- we may get stuck in an infinite loop
   if LT.toStrict (Webhooks.context status_event) /= myAppStatusContext
     then do
-      ApiPost.postCommitStatus
-        access_token
-        owned_repo
-        sha1
-        success_status
 
-      return ()
+      either_current_statuses_wrapper <- Auth.getFailedStatuses access_token owned_repo sha1
+      case either_current_statuses_wrapper of
+        Left err -> return $ Left err
+        Right failed_statuses_list -> do
+          putStrLn $ "current status count: " ++ show (length failed_statuses_list)
 
-    else return ()
+          ApiPost.postCommitStatus
+            access_token
+            owned_repo
+            sha1
+            success_status
+
+    else return $ Right ()
 
   where
     sha1 = LT.toStrict $ Webhooks.sha status_event

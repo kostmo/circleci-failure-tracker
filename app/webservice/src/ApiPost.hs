@@ -13,6 +13,7 @@ import           Data.Aeson                (toJSON)
 import           Data.List                 (intercalate)
 import qualified Data.Text                 as T
 import           Data.Text.Encoding        (encodeUtf8)
+import qualified Data.Text.Lazy            as LT
 import qualified Network.OAuth.OAuth2      as OAuth2
 import           Network.Wai               (Request, vault)
 import           Network.Wai.Session       (Session)
@@ -34,17 +35,17 @@ postCommitStatus ::
   -> OwnerAndRepo
   -> T.Text
   -> Webhooks.GitHubStatusEventSetter
-  -> IO (Either T.Text ())
+  -> IO (Either LT.Text ())
 postCommitStatus personal_access_token owned_repo target_sha1 status_obj = do
 
   either_r <- FetchHelpers.safeGetUrl $ NW.postWith opts url_string $ toJSON status_obj
+  -- TODO propagate the error
   return $ Right ()
 
   where
     opts = NW.defaults
       & NW.header "Authorization" .~ ["token " <> encodeUtf8 personal_access_token]
 
-    url_string :: String
     url_string = intercalate "/" [
         "https://api.github.com/repos"
       , owner owned_repo
