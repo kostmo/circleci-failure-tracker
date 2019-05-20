@@ -196,6 +196,70 @@ CREATE VIEW public.aggregated_build_matches WITH (security_barrier='false') AS
 ALTER TABLE public.aggregated_build_matches OWNER TO postgres;
 
 --
+-- Name: log_metadata; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.log_metadata (
+    line_count integer NOT NULL,
+    byte_count integer NOT NULL,
+    step integer NOT NULL,
+    content text
+);
+
+
+ALTER TABLE public.log_metadata OWNER TO postgres;
+
+--
+-- Name: matches_with_log_metadata; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.matches_with_log_metadata WITH (security_barrier='false') AS
+ SELECT matches.id,
+    matches.build_step,
+    matches.pattern,
+    matches.line_number,
+    matches.line_text,
+    matches.span_start,
+    matches.span_end,
+    matches.scan_id,
+    log_metadata.line_count,
+    log_metadata.byte_count,
+    log_metadata.step,
+    build_steps.name AS step_name,
+    build_steps.build AS build_num
+   FROM ((public.matches
+     LEFT JOIN public.log_metadata ON ((log_metadata.step = matches.build_step)))
+     LEFT JOIN public.build_steps ON ((build_steps.id = log_metadata.step)));
+
+
+ALTER TABLE public.matches_with_log_metadata OWNER TO postgres;
+
+--
+-- Name: best_pattern_match_augmented_builds; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.best_pattern_match_augmented_builds WITH (security_barrier='false') AS
+ SELECT DISTINCT ON (best_pattern_match_for_builds.build) best_pattern_match_for_builds.build,
+    matches_with_log_metadata.step_name,
+    matches_with_log_metadata.line_number,
+    matches_with_log_metadata.line_count,
+    matches_with_log_metadata.line_text,
+    matches_with_log_metadata.span_start,
+    matches_with_log_metadata.span_end,
+    builds.vcs_revision,
+    builds.queued_at,
+    builds.job_name,
+    builds.branch,
+    best_pattern_match_for_builds.pattern_id
+   FROM ((public.best_pattern_match_for_builds
+     JOIN public.matches_with_log_metadata ON (((matches_with_log_metadata.pattern = best_pattern_match_for_builds.pattern_id) AND (matches_with_log_metadata.build_num = best_pattern_match_for_builds.build))))
+     JOIN public.builds ON ((builds.build_num = best_pattern_match_for_builds.build)))
+  ORDER BY best_pattern_match_for_builds.build DESC, matches_with_log_metadata.line_number;
+
+
+ALTER TABLE public.best_pattern_match_augmented_builds OWNER TO postgres;
+
+--
 -- Name: broken_revisions; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -257,6 +321,25 @@ ALTER SEQUENCE public.build_steps_id_seq OWNED BY public.build_steps.id;
 
 
 --
+-- Name: builds_join_steps; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.builds_join_steps AS
+ SELECT build_steps.id AS step_id,
+    build_steps.name AS step_name,
+    builds.build_num,
+    builds.vcs_revision,
+    builds.queued_at,
+    builds.job_name,
+    builds.branch
+   FROM (public.build_steps
+     LEFT JOIN public.builds ON ((builds.build_num = build_steps.build)))
+  ORDER BY builds.vcs_revision, builds.build_num DESC;
+
+
+ALTER TABLE public.builds_join_steps OWNER TO postgres;
+
+--
 -- Name: latest_broken_revision_reports; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -275,30 +358,29 @@ CREATE VIEW public.latest_broken_revision_reports AS
 ALTER TABLE public.latest_broken_revision_reports OWNER TO postgres;
 
 --
--- Name: builds_with_steps; Type: VIEW; Schema: public; Owner: postgres
+-- Name: builds_with_reports; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.builds_with_steps WITH (security_barrier='false') AS
- SELECT build_steps.id AS step_id,
-    build_steps.name AS step_name,
-    builds.build_num,
-    builds.vcs_revision,
-    builds.queued_at,
-    builds.job_name,
-    builds.branch,
+CREATE VIEW public.builds_with_reports WITH (security_barrier='false') AS
+ SELECT builds_join_steps.step_id,
+    builds_join_steps.step_name,
+    builds_join_steps.build_num,
+    builds_join_steps.vcs_revision,
+    builds_join_steps.queued_at,
+    builds_join_steps.job_name,
+    builds_join_steps.branch,
     latest_broken_revision_reports.reporter,
     latest_broken_revision_reports.is_broken,
     latest_broken_revision_reports."timestamp" AS report_timestamp,
     latest_broken_revision_reports.notes AS breakage_notes,
     latest_broken_revision_reports.implicated_revision,
     latest_broken_revision_reports.id AS report_id
-   FROM ((public.build_steps
-     LEFT JOIN public.builds ON ((builds.build_num = build_steps.build)))
-     LEFT JOIN public.latest_broken_revision_reports ON ((latest_broken_revision_reports.revision = builds.vcs_revision)))
-  ORDER BY COALESCE(latest_broken_revision_reports.is_broken, false) DESC, builds.build_num DESC;
+   FROM (public.builds_join_steps
+     LEFT JOIN public.latest_broken_revision_reports ON ((latest_broken_revision_reports.revision = builds_join_steps.vcs_revision)))
+  ORDER BY COALESCE(latest_broken_revision_reports.is_broken, false) DESC, builds_join_steps.build_num DESC;
 
 
-ALTER TABLE public.builds_with_steps OWNER TO postgres;
+ALTER TABLE public.builds_with_reports OWNER TO postgres;
 
 --
 -- Name: idiopathic_build_failures; Type: VIEW; Schema: public; Owner: postgres
@@ -330,20 +412,6 @@ CREATE VIEW public.job_failure_frequencies AS
 ALTER TABLE public.job_failure_frequencies OWNER TO postgres;
 
 --
--- Name: log_metadata; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.log_metadata (
-    line_count integer NOT NULL,
-    byte_count integer NOT NULL,
-    step integer NOT NULL,
-    content text
-);
-
-
-ALTER TABLE public.log_metadata OWNER TO postgres;
-
---
 -- Name: match_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
 --
 
@@ -364,31 +432,6 @@ ALTER TABLE public.match_id_seq OWNER TO postgres;
 
 ALTER SEQUENCE public.match_id_seq OWNED BY public.matches.id;
 
-
---
--- Name: matches_with_log_metadata; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.matches_with_log_metadata WITH (security_barrier='false') AS
- SELECT matches.id,
-    matches.build_step,
-    matches.pattern,
-    matches.line_number,
-    matches.line_text,
-    matches.span_start,
-    matches.span_end,
-    matches.scan_id,
-    log_metadata.line_count,
-    log_metadata.byte_count,
-    log_metadata.step,
-    build_steps.name AS step_name,
-    build_steps.build AS build_num
-   FROM ((public.matches
-     LEFT JOIN public.log_metadata ON ((log_metadata.step = matches.build_step)))
-     LEFT JOIN public.build_steps ON ((build_steps.id = log_metadata.step)));
-
-
-ALTER TABLE public.matches_with_log_metadata OWNER TO postgres;
 
 --
 -- Name: pattern_authorship; Type: TABLE; Schema: public; Owner: postgres
@@ -1004,6 +1047,27 @@ GRANT ALL ON TABLE public.aggregated_build_matches TO logan;
 
 
 --
+-- Name: TABLE log_metadata; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.log_metadata TO logan;
+
+
+--
+-- Name: TABLE matches_with_log_metadata; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.matches_with_log_metadata TO logan;
+
+
+--
+-- Name: TABLE best_pattern_match_augmented_builds; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.best_pattern_match_augmented_builds TO logan;
+
+
+--
 -- Name: TABLE broken_revisions; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -1025,6 +1089,13 @@ GRANT ALL ON SEQUENCE public.build_steps_id_seq TO logan;
 
 
 --
+-- Name: TABLE builds_join_steps; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.builds_join_steps TO logan;
+
+
+--
 -- Name: TABLE latest_broken_revision_reports; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -1032,10 +1103,10 @@ GRANT ALL ON TABLE public.latest_broken_revision_reports TO logan;
 
 
 --
--- Name: TABLE builds_with_steps; Type: ACL; Schema: public; Owner: postgres
+-- Name: TABLE builds_with_reports; Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON TABLE public.builds_with_steps TO logan;
+GRANT ALL ON TABLE public.builds_with_reports TO logan;
 
 
 --
@@ -1053,24 +1124,10 @@ GRANT ALL ON TABLE public.job_failure_frequencies TO logan;
 
 
 --
--- Name: TABLE log_metadata; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.log_metadata TO logan;
-
-
---
 -- Name: SEQUENCE match_id_seq; Type: ACL; Schema: public; Owner: postgres
 --
 
 GRANT ALL ON SEQUENCE public.match_id_seq TO logan;
-
-
---
--- Name: TABLE matches_with_log_metadata; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.matches_with_log_metadata TO logan;
 
 
 --

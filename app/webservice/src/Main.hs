@@ -37,6 +37,7 @@ import qualified Breakages
 import qualified Builds
 import qualified DbHelpers
 import qualified DbInsertion
+import qualified GitRev
 import qualified IDP
 import qualified ScanPatterns
 import qualified Session
@@ -236,6 +237,28 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     S.get "/api/step" $
       S.json =<< liftIO (SqlRead.api_step connection_data)
+
+    S.get "/api/commit-info" $ do
+      commit_sha1_text <- S.param "sha1"
+      let either_validated_sha1 = GitRev.validateSha1 commit_sha1_text
+      json_result <- case either_validated_sha1 of
+        Left err_text -> return $ WebApi.toJsonEither $ Left err_text
+        Right sha1 -> liftIO $ do
+          result <- SqlRead.count_revision_builds connection_data sha1
+          return $ WebApi.toJsonEither $ Right result
+
+      S.json json_result
+
+    S.get "/api/commit-builds" $ do
+      commit_sha1_text <- S.param "sha1"
+      let either_validated_sha1 = GitRev.validateSha1 commit_sha1_text
+      json_result <- case either_validated_sha1 of
+        Left err_text -> return $ WebApi.toJsonEither $ Left err_text
+        Right sha1 -> liftIO $ do
+          result <- SqlRead.get_revision_builds connection_data sha1
+          return $ WebApi.toJsonEither $ Right result
+
+      S.json json_result
 
     S.get "/api/new-pattern-test" $ do
       buildnum_str <- S.param "build_num"

@@ -80,18 +80,8 @@ function populate_build_info(build_id) {
 
 	        $("#build-info-box").html(html);
 
-		var submission_button_html = "<button onclick='submit_breakage_report(this, \"" + data["build"]["vcs_revision"] + "\");'>Update broken status</button>";
-	        $("#submission_button_placeholder").html(submission_button_html);
+		populate_breakage_form("submission_button_placeholder", data["build"]["vcs_revision"], data);
 
-
-		if (_.has(data, "breakage") && data["breakage"] != null) {
-
-			$('#input-notes').val( data["breakage"]["notes"] );
-			$('#input-implicated-revision').val( data["breakage"]["implicated_revision"] );
-
-//			$('#input-implicated-revision').val( data["breakage"]["reporter"] );
-			$('#is-broken-checkbox').prop('checked', data["breakage"]["is_broken"]);
-		}
 	});
 }
 

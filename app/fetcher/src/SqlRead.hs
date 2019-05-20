@@ -22,8 +22,11 @@ import qualified AuthStages
 import qualified Breakages
 import qualified Builds
 import qualified BuildSteps
+import qualified CommitBuilds
 import qualified DbHelpers
+import qualified GitRev
 import qualified JsonUtils
+import qualified MatchOccurrences
 import qualified ScanPatterns
 import qualified ScanRecords
 import qualified WebApi
@@ -91,9 +94,11 @@ query_builds :: DbHelpers.DbConnectionData -> IO [Builds.Build]
 query_builds conn_data = do
   conn <- DbHelpers.get_connection conn_data
 
-  xs <- query_ conn "SELECT build_num, vcs_revision, queued_at, job_name, branch FROM builds"
+  xs <- query_ conn sql
   forM xs $ \(buildnum, vcs_rev, queuedat, jobname, branch) ->
     return $ Builds.NewBuild (Builds.NewBuildNumber buildnum) vcs_rev queuedat jobname branch
+  where
+    sql = "SELECT build_num, vcs_revision, queued_at, job_name, branch FROM builds"
 
 
 api_line_count_histogram :: DbHelpers.DbConnectionData -> IO [(Text, Int)]
@@ -112,22 +117,26 @@ api_jobs :: DbHelpers.DbConnectionData -> IO (WebApi.ApiResponse WebApi.JobApiRe
 api_jobs conn_data = do
   conn <- DbHelpers.get_connection conn_data
 
-  xs <- query_ conn "SELECT job_name, freq FROM job_failure_frequencies"
+  xs <- query_ conn sql
   inners <- forM xs $ \(jobname, freq) ->
     return $ WebApi.JobApiRecord jobname [freq]
 
   return $ WebApi.ApiResponse inners
+  where
+    sql = "SELECT job_name, freq FROM job_failure_frequencies"
 
 
 api_step :: DbHelpers.DbConnectionData -> IO (WebApi.ApiResponse WebApi.PieSliceApiRecord)
 api_step conn_data = do
   conn <- DbHelpers.get_connection conn_data
 
-  xs <- query_ conn "SELECT name, COUNT(*) AS freq FROM build_steps WHERE name IS NOT NULL GROUP BY name ORDER BY freq DESC"
+  xs <- query_ conn sql
   inners <- forM xs $ \(stepname, freq) ->
     return $ WebApi.PieSliceApiRecord stepname freq
 
   return $ WebApi.ApiResponse inners
+  where
+    sql = "SELECT name, COUNT(*) AS freq FROM build_steps WHERE name IS NOT NULL GROUP BY name ORDER BY freq DESC"
 
 
 -- | Note that Highcharts expects the dates to be in ascending order
@@ -204,6 +213,35 @@ api_list_branches conn_data = do
 
   where
     sql = "SELECT branch, COUNT(*) AS count FROM builds GROUP BY branch ORDER BY count DESC"
+
+
+get_revision_builds :: DbHelpers.DbConnectionData -> GitRev.GitSha1 -> IO [CommitBuilds.CommitBuild]
+get_revision_builds conn_data git_revision = do
+  conn <- DbHelpers.get_connection conn_data
+  xs <- query conn sql (Only $ GitRev.sha1 git_revision)
+  forM xs $ \(step_name, buildnum, vcs_rev, queuedat, jobname, branch, pattern, line_number, line_count, line_text, span_start, span_end) ->
+    return $ CommitBuilds.NewCommitBuild (Builds.NewBuild (Builds.NewBuildNumber buildnum) vcs_rev queuedat jobname branch) (MatchOccurrences.MatchOccurrencesForBuild step_name pattern line_number line_count line_text span_start span_end)
+
+   where
+    sql = "SELECT step_name, build, vcs_revision, queued_at, job_name, branch, pattern_id, line_number, line_count, line_text, span_start, span_end FROM best_pattern_match_augmented_builds JOIN patterns_augmented on best_pattern_match_augmented_builds.pattern_id = patterns_augmented.id WHERE vcs_revision = ?"
+
+
+
+data CommitInfo = NewCommitInfo {
+    _failed_build_count :: Int
+  } deriving Generic
+
+instance ToJSON CommitInfo where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+count_revision_builds :: DbHelpers.DbConnectionData -> GitRev.GitSha1 -> IO CommitInfo
+count_revision_builds conn_data git_revision = do
+  conn <- DbHelpers.get_connection conn_data
+  [Only x] <- query conn sql (Only $ GitRev.sha1 git_revision)
+  return $ NewCommitInfo x
+  where
+    sql = "SELECT COUNT(*) FROM best_pattern_match_augmented_builds WHERE vcs_revision = ?"
 
 
 data SummaryStats = SummaryStats {
@@ -299,31 +337,14 @@ instance ToJSON PatternOccurrences where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
-
-
-
-data MatchOccurrencesForBuild = MatchOccurrencesForBuild {
-    _build_step  :: Text
-  , _pattern_id  :: Int
-  , _line_number :: Int
-  , _line_count  :: Int
-  , _line_text   :: Text
-  , _span_start  :: Int
-  , _span_end    :: Int
-  } deriving Generic
-
-instance ToJSON MatchOccurrencesForBuild where
-  toJSON = genericToJSON JsonUtils.dropUnderscore
-
-
-get_build_pattern_matches :: DbHelpers.DbConnectionData -> Int -> IO [MatchOccurrencesForBuild]
+get_build_pattern_matches :: DbHelpers.DbConnectionData -> Int -> IO [MatchOccurrences.MatchOccurrencesForBuild]
 get_build_pattern_matches conn_data build_id = do
 
   conn <- DbHelpers.get_connection conn_data
 
   xs <- query conn sql (Only build_id)
 
-  forM xs $ \(step_name, pattern, line_number, line_count, line_text, span_start, span_end) -> return $ MatchOccurrencesForBuild
+  forM xs $ \(step_name, pattern, line_number, line_count, line_text, span_start, span_end) -> return $ MatchOccurrences.MatchOccurrencesForBuild
     step_name pattern line_number line_count line_text span_start span_end
 
   where
@@ -345,7 +366,7 @@ get_best_pattern_matches conn_data pattern_id = do
 
   where
     txform ((Builds.NewBuild (Builds.NewBuildNumber buildnum) vcs_rev queued_at job_name branch), stepname, line_count, ScanPatterns.NewMatchDetails line_text line_number (ScanPatterns.NewMatchSpan start end)) = PatternOccurrences buildnum vcs_rev queued_at job_name branch stepname line_number line_count line_text start end
-    sql = "SELECT DISTINCT ON (build) best_pattern_match_for_builds.build, matches_with_log_metadata.step_name, line_number, line_count, line_text, span_start, span_end, builds.vcs_revision, builds.queued_at, builds.job_name, branch FROM best_pattern_match_for_builds JOIN matches_with_log_metadata ON matches_with_log_metadata.pattern = best_pattern_match_for_builds.pattern_id AND matches_with_log_metadata.build_num = best_pattern_match_for_builds.build JOIN builds ON builds.build_num = best_pattern_match_for_builds.build WHERE pattern_id = ? ORDER BY build DESC, line_number"
+    sql = "SELECT build, step_name, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch FROM best_pattern_match_augmented_builds WHERE pattern_id = ?"
 
 
 get_build_info :: DbHelpers.DbConnectionData -> Int -> IO BuildSteps.BuildStep
@@ -363,7 +384,7 @@ get_build_info conn_data build_id = do
 
   return $ BuildSteps.NewBuildStep step_name (Builds.NewBuildStepId step_id) build_obj maybe_breakage_obj
   where
-    sql = "SELECT step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch, implicated_revision, is_broken, breakage_notes, reporter FROM builds_with_steps where build_num = ?"
+    sql = "SELECT step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch, implicated_revision, is_broken, breakage_notes, reporter FROM builds_with_reports where build_num = ?"
 
 
 get_pattern_matches :: DbHelpers.DbConnectionData -> Int -> IO [PatternOccurrences]
@@ -380,9 +401,11 @@ get_pattern_occurrence_rows conn_data pattern_id = do
 
   conn <- DbHelpers.get_connection conn_data
 
-  xs <- query conn "SELECT builds.build_num, step_name, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch FROM (SELECT build_steps.build AS build_num, build_steps.name AS step_name, line_number, COALESCE(line_count, 0) AS line_count, line_text, span_start, span_end FROM (SELECT * FROM matches WHERE pattern = ?) foo JOIN build_steps ON build_steps.id = foo.build_step LEFT JOIN log_metadata ON log_metadata.step = build_steps.id ORDER BY build_num DESC) bar JOIN builds ON builds.build_num = bar.build_num" (Only pattern_id)
+  xs <- query conn sql (Only pattern_id)
 
   inners <- forM xs $ \(buildnum, stepname, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch) ->
     return $ (Builds.NewBuild (Builds.NewBuildNumber buildnum) vcs_revision queued_at job_name branch, stepname, line_count, ScanPatterns.NewMatchDetails line_text line_number $ ScanPatterns.NewMatchSpan span_start span_end)
 
   return inners
+  where
+    sql = "SELECT builds.build_num, step_name, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch FROM (SELECT build_steps.build AS build_num, build_steps.name AS step_name, line_number, COALESCE(line_count, 0) AS line_count, line_text, span_start, span_end FROM (SELECT * FROM matches WHERE pattern = ?) foo JOIN build_steps ON build_steps.id = foo.build_step LEFT JOIN log_metadata ON log_metadata.step = build_steps.id ORDER BY build_num DESC) bar JOIN builds ON builds.build_num = bar.build_num"

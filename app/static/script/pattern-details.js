@@ -7,7 +7,7 @@ function gen_matches_table(element_id, data_url) {
 	    columns:[
 		{title:"Build number", field:"build_number", formatter: "link", width: 75, formatterParams: {urlPrefix: "/build-details.html?build_id="}},
 		{title:"Revision", field:"vsc_revision", formatter: function(cell, formatterParams, onRendered) {
-			return '<code><a href="/commit-details.html?sha1' + cell.getValue() + '">' + cell.getValue().substring(0, 7) + '</a></code>';
+			return '<code><a href="/commit-details.html?sha1=' + cell.getValue() + '">' + cell.getValue().substring(0, 7) + '</a></code>';
 		  }, width: 75, formatterParams: {urlPrefix: "/build-details.html?build_id="}},
 		{title:"Branch", field:"branch", sorter:"string", widthGrow: 2},
 		{title:"Job", field:"job_name", sorter:"string", widthGrow: 3},

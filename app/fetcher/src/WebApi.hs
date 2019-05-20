@@ -44,7 +44,6 @@ toJsonEither input = case input of
   Left x  -> JsonEither False (Just $ ErrorDetails (getMessage x) x) Nothing
 
 
-
 data ApiResponse a = ApiResponse {
     rows :: [a]
   } deriving Generic
