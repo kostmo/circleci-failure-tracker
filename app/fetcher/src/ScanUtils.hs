@@ -23,7 +23,7 @@ apply_single_pattern ::
 apply_single_pattern (line_number, line) db_pattern = match_partial <$> match_span
   where
     match_span = case ScanPatterns.expression pattern_obj of
-      ScanPatterns.RegularExpression regex_text -> case ((T.unpack line) =~~ regex_text :: Maybe (MatchOffset, MatchLength)) of
+      ScanPatterns.RegularExpression regex_text _ -> case ((T.unpack line) =~~ regex_text :: Maybe (MatchOffset, MatchLength)) of
         Just (match_offset, match_length) -> Just $ ScanPatterns.NewMatchSpan match_offset (match_offset + match_length)
         Nothing -> Nothing
       ScanPatterns.LiteralExpression literal_text -> case Safe.headMay (Search.indices literal_text line) of

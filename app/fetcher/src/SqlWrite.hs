@@ -109,9 +109,9 @@ store_matches scan_resources (NewBuildStepId build_step_id) _build_num scoped_ma
 
 
 insert_single_pattern :: Connection -> AuthStages.Username -> ScanPatterns.Pattern -> IO Int64
-insert_single_pattern conn (AuthStages.Username username) (ScanPatterns.NewPattern expression_obj description tags applicable_steps specificity) = do
+insert_single_pattern conn (AuthStages.Username username) (ScanPatterns.NewPattern expression_obj description tags applicable_steps specificity is_retired) = do
 
-  [Only pattern_id] <- query conn pattern_insertion_sql (ScanPatterns.is_regex expression_obj, ScanPatterns.pattern_text expression_obj, description, False, False, specificity)
+  [Only pattern_id] <- query conn pattern_insertion_sql (ScanPatterns.is_regex expression_obj, ScanPatterns.pattern_text expression_obj, description, is_retired, has_nondeterminisic_values, specificity)
 
   execute conn authorship_insertion_sql (pattern_id, username)
 
@@ -124,7 +124,11 @@ insert_single_pattern conn (AuthStages.Username username) (ScanPatterns.NewPatte
   return pattern_id
 
   where
-    pattern_insertion_sql = "INSERT INTO patterns(regex, expression, description, is_infra, has_nondeterministic_values, specificity) VALUES(?,?,?,?,?,?) RETURNING id;"
+    has_nondeterminisic_values = case expression_obj of
+      ScanPatterns.RegularExpression _ has_nondeterministic -> has_nondeterministic
+      ScanPatterns.LiteralExpression _                       -> False
+
+    pattern_insertion_sql = "INSERT INTO patterns(regex, expression, description, is_retired, has_nondeterministic_values, specificity) VALUES(?,?,?,?,?,?) RETURNING id;"
     tag_insertion_sql = "INSERT INTO pattern_tags(tag, pattern) VALUES(?,?);"
     authorship_insertion_sql = "INSERT INTO pattern_authorship(pattern, author) VALUES(?,?);"
     applicable_step_insertion_sql = "INSERT INTO pattern_step_applicability(step_name, pattern) VALUES(?,?);"

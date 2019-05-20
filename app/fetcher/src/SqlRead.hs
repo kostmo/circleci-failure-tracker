@@ -32,29 +32,31 @@ import qualified ScanRecords
 import qualified WebApi
 
 
+wrap_pattern :: Int64 -> Bool -> Text -> Bool -> Text -> [Text] -> [Text] -> Int -> Bool -> ScanPatterns.DbPattern
+wrap_pattern pattern_id is_regex pattern_text is_nondeterministic description tags_list steps_list specificity is_retired = DbHelpers.WithId pattern_id inner_pattern
+  where
+    expression_obj = if is_regex
+      then ScanPatterns.RegularExpression (encodeUtf8 pattern_text) is_nondeterministic
+      else ScanPatterns.LiteralExpression pattern_text
+    inner_pattern = ScanPatterns.NewPattern expression_obj description tags_list steps_list specificity is_retired
+
+
 get_patterns :: Connection -> IO [ScanPatterns.DbPattern]
 get_patterns conn = do
 
   patterns_rows <- query_ conn patterns_sql
 
-  forM patterns_rows $ \(pattern_id, is_regex, pattern_text, description, specificity) -> do
-
+  forM patterns_rows $ \(pattern_id, is_regex, pattern_text, has_nondeterministic_values, description, specificity, is_retired) -> do
     tags_rows <- query conn tags_sql (Only pattern_id)
     tags_list <- forM tags_rows $ \(Only tag_text) -> return tag_text
 
     steps_rows <- query conn applicable_steps_sql (Only pattern_id)
     steps_list <- forM steps_rows $ \(Only step_text) -> return step_text
 
-    let expression_obj = if is_regex
-          then ScanPatterns.RegularExpression $ encodeUtf8 pattern_text
-          else ScanPatterns.LiteralExpression pattern_text
-        inner_pattern = ScanPatterns.NewPattern expression_obj description tags_list steps_list specificity
-        outer_pattern = DbHelpers.WithId pattern_id inner_pattern
-
-    return outer_pattern
+    return $ wrap_pattern pattern_id is_regex pattern_text has_nondeterministic_values description tags_list steps_list specificity is_retired
 
   where
-    patterns_sql = "SELECT id, regex, expression, description, specificity FROM patterns ORDER BY description;"
+    patterns_sql = "SELECT id, regex, expression, has_nondeterministic_values, description, specificity, is_retired FROM patterns ORDER BY description;"
 
     tags_sql = "SELECT tag FROM pattern_tags WHERE pattern = ?;"
     applicable_steps_sql = "SELECT step_name FROM pattern_step_applicability WHERE pattern = ?;"
@@ -226,7 +228,6 @@ get_revision_builds conn_data git_revision = do
     sql = "SELECT step_name, build, vcs_revision, queued_at, job_name, branch, pattern_id, line_number, line_count, line_text, span_start, span_end FROM best_pattern_match_augmented_builds JOIN patterns_augmented on best_pattern_match_augmented_builds.pattern_id = patterns_augmented.id WHERE vcs_revision = ?"
 
 
-
 data CommitInfo = NewCommitInfo {
     _failed_build_count :: Int
   } deriving Generic
@@ -284,9 +285,13 @@ instance ToJSON PatternRecord where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
+split_agg_text :: String -> [String]
+split_agg_text = filter (not . null) . splitOn ";"
+
+
 make_pattern_records xs = do
   forM xs $ \(a, b, c, d, e, f, g, h, i) ->
-    return $ PatternRecord a b c d e f g (filter (not . null) $ splitOn ";" h) i
+    return $ PatternRecord a b c d e f g (split_agg_text h) i
 
 
 api_single_pattern :: DbHelpers.DbConnectionData -> Int ->  IO [PatternRecord]
@@ -305,6 +310,17 @@ api_patterns conn_data = do
   make_pattern_records xs
   where
     sql = "SELECT id, regex, expression, description, matching_build_count, most_recent, earliest, tags, specificity FROM pattern_frequency_summary ORDER BY matching_build_count DESC"
+
+
+-- | For the purpose of database upgrades
+dump_patterns :: DbHelpers.DbConnectionData -> IO [DbHelpers.WithAuthorship ScanPatterns.DbPattern]
+dump_patterns conn_data = do
+  conn <- DbHelpers.get_connection conn_data
+  xs <- query_ conn sql
+  forM xs $ \(author, created, pattern_id, is_regex, expression, has_nondeterministic_values, description, tags, steps, specificity, is_retired) -> return $ DbHelpers.WithAuthorship author created $ wrap_pattern pattern_id is_regex expression has_nondeterministic_values description (map T.pack $ split_agg_text tags) (map T.pack $ split_agg_text steps) specificity is_retired
+
+  where
+    sql = "SELECT author, created, id, regex, expression, has_nondeterministic_values, description, tags, steps, specificity, is_retired FROM patterns_augmented"
 
 
 -- | Note that this SQL is from decomposing the "pattern_frequency_summary" and "aggregated_build_matches" view

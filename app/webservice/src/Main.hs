@@ -57,13 +57,15 @@ pattern_from_parms = do
 
   expression <- S.param "pattern"
   is_regex_str <- S.param "is_regex"
+  is_nondeterministic_str <- S.param "is_nondeterministic"
   description <- S.param "description"
   tags <- S.param "tags"
   applicable_steps <- S.param "applicable_steps"
 
   let is_regex = is_regex_str == ("true" :: Text)
+      is_nondeterministic = is_nondeterministic_str == ("true" :: Text)
       match_expression = if is_regex
-        then ScanPatterns.RegularExpression $ encodeUtf8 expression
+        then ScanPatterns.RegularExpression (encodeUtf8 expression) is_nondeterministic
         else ScanPatterns.LiteralExpression expression
 
   return $ ScanPatterns.NewPattern
@@ -72,7 +74,9 @@ pattern_from_parms = do
     (listify tags)
     (listify applicable_steps)
     1
+    False
   where
+    -- TODO use semicolon as delimiter to be consistent with the database
     listify = filter (not . T.null) . map (T.strip . T.pack) . splitOn ","
 
 
@@ -295,6 +299,9 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
     S.get "/api/pattern" $ do
       pattern_id <- S.param "pattern_id"
       S.json =<< (liftIO $ SqlRead.api_single_pattern connection_data $ read pattern_id)
+
+    S.get "/api/patterns-dump" $ do
+      S.json =<< liftIO (SqlRead.dump_patterns connection_data)
 
     S.get "/api/patterns" $ do
       S.json =<< liftIO (SqlRead.api_patterns connection_data)

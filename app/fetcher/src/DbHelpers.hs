@@ -6,9 +6,21 @@ import           Control.Arrow              ((&&&))
 import           Data.Aeson
 import           Data.HashMap.Strict        (HashMap)
 import qualified Data.HashMap.Strict        as HashMap
+import           Data.Text                  (Text)
+import           Data.Time                  (UTCTime)
 import           Database.PostgreSQL.Simple
 import           GHC.Generics
 import           GHC.Int                    (Int64)
+
+
+data WithAuthorship a = WithAuthorship {
+    author  :: Text
+  , created :: UTCTime
+  , payload :: a
+  } deriving Generic
+
+instance ToJSON a => ToJSON (WithAuthorship a)
+
 
 data WithId a = WithId {
     db_id  :: Int64

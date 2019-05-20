@@ -87,7 +87,7 @@ function gather_pattern_data() {
             description: $('#input-pattern-description').val(),
             tags: $('#pattern-tag-input').val(),
             applicable_steps: $('#build-step-applicability-input').val(),
-          };
+	};
 }
 
 
