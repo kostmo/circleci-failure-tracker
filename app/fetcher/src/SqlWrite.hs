@@ -15,6 +15,7 @@ import qualified Data.Text.IO                      as TIO
 import           Data.Time.Format                  (defaultTimeLocale,
                                                     formatTime,
                                                     rfc822DateFormat)
+import           Data.Traversable                  (for)
 import           Database.PostgreSQL.Simple
 import           Database.PostgreSQL.Simple.Errors
 import           GHC.Int                           (Int64)
@@ -58,8 +59,9 @@ prepare_database conn_data wipe = do
   conn <- DbHelpers.get_connection conn_data
 
   when wipe $ do
-    SqlWrite.scrub_tables conn
-    SqlWrite.populate_patterns conn ScanPatterns.pattern_list
+    scrub_tables conn
+    populate_patterns conn ScanPatterns.pattern_list
+    return ()
   return conn
 
 
@@ -147,9 +149,16 @@ insert_single_pattern conn (AuthStages.Username username) (ScanPatterns.NewPatte
     applicable_step_insertion_sql = "INSERT INTO pattern_step_applicability(step_name, pattern) VALUES(?,?);"
 
 
-populate_patterns :: Connection -> [ScanPatterns.Pattern] -> IO ()
+-- | For seeding initial data
+populate_patterns :: Connection -> [ScanPatterns.Pattern] -> IO [Int64]
 populate_patterns conn pattern_list =
-  for_ pattern_list $ insert_single_pattern conn defaultPatternAuthor
+  for pattern_list $ insert_single_pattern conn defaultPatternAuthor
+
+
+restore_patterns :: DbHelpers.DbConnectionData -> AuthStages.Username -> [DbHelpers.WithAuthorship ScanPatterns.DbPattern] -> IO [Int64]
+restore_patterns conn_data user pattern_list = do
+  conn <- DbHelpers.get_connection conn_data
+  for pattern_list $ insert_single_pattern conn user . DbHelpers.record . DbHelpers.payload
 
 
 step_failure_to_tuple :: (BuildNumber, Either BuildStepFailure ScanRecords.UnidentifiedBuildFailure) -> (Int64, Maybe Text, Bool)

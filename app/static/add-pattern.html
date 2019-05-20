@@ -50,6 +50,25 @@ Applicable build steps (none means applicable to all steps):
 <button onclick="submit_pattern();">Submit</button>
 </form>
 
+
+<hr/>
+<h2>Database backup</h2>
+
+<a href="/api/patterns-dump">Download patterns</a>
+
+<hr/>
+<h2>Database restoration</h2>
+
+<form method="POST" onsubmit="return import_patterns();">
+
+<input type="file" id="selectFiles"/>
+<br />
+<textarea id="upload-result-box"></textarea>
+
+<input type="submit" value="Upload"/>
+</form>
+
+
 </body>
 </head>
 

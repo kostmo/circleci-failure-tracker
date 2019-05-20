@@ -121,10 +121,46 @@ function test_pattern() {
 
 		$("#test-match-results-container").html( inner_html );
           }
-        } );
+        });
 }
 
 
+function shipOff(event) {
+
+	var result = event.target.result;
+
+	var parsed_json_from_file = JSON.parse( result );
+
+	$.ajax("/api/patterns-restore", {
+	    'data': JSON.stringify(parsed_json_from_file),
+	    'type': 'POST',
+	    'processData': false,
+	    'contentType': 'application/json',
+            'success': continueSubmission,
+            'error': showUploadFailure,
+	});
+}
+
+function showUploadFailure(data) {
+	alert("FAILED: " + data);
+}
+
+
+
+function continueSubmission(data) {
+	document.getElementById('upload-result-box').value = data;
+}
+
+
+function import_patterns(button_obj) {
+
+	var file = document.getElementById('selectFiles').files[0]; //Files[0] = 1st file
+	var reader = new FileReader();
+	reader.readAsText(file, 'UTF-8');
+	reader.onload = shipOff;
+
+	return false;
+}
 
 
 

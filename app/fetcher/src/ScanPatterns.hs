@@ -6,9 +6,7 @@
 module ScanPatterns where
 
 import           Data.Aeson
-import           Data.ByteString    (ByteString)
-import           Data.Text          (Text)
-import           Data.Text.Encoding (decodeUtf8)
+import           Data.Text    (Text)
 import           GHC.Generics
 
 import qualified DbHelpers
@@ -16,16 +14,13 @@ import qualified DbHelpers
 
 data MatchExpression =
     RegularExpression
-      ByteString
+      Text
       Bool -- ^ has nondeterminisitic values (e.g. timestamps; some capture groups are still deterministic)
   | LiteralExpression Text
   deriving (Show, Generic)
 
 instance ToJSON MatchExpression
-
-
-instance ToJSON ByteString where
-  toJSON = toJSON . decodeUtf8
+instance FromJSON MatchExpression
 
 
 is_regex :: MatchExpression -> Bool
@@ -36,7 +31,7 @@ is_regex x = case x of
 
 pattern_text :: MatchExpression -> Text
 pattern_text = \case
-  RegularExpression x _ -> decodeUtf8 x
+  RegularExpression x _ -> x
   LiteralExpression x -> x
 
 
@@ -50,6 +45,7 @@ data Pattern = NewPattern {
   } deriving (Generic, Show)
 
 instance ToJSON Pattern
+instance FromJSON Pattern
 
 
 type DbPattern = DbHelpers.WithId Pattern
@@ -61,6 +57,7 @@ data MatchSpan = NewMatchSpan {
   } deriving Generic
 
 instance ToJSON MatchSpan
+instance FromJSON MatchSpan
 
 
 data MatchDetails = NewMatchDetails {

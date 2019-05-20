@@ -6,11 +6,9 @@ module SqlRead where
 
 import           Control.Monad                        (forM)
 import           Data.Aeson
-
 import           Data.List.Split                      (splitOn)
 import           Data.Text                            (Text)
 import qualified Data.Text                            as T
-import           Data.Text.Encoding                   (encodeUtf8)
 import           Data.Time                            (UTCTime)
 import           Data.Time.Calendar                   (Day)
 import           Database.PostgreSQL.Simple
@@ -36,7 +34,7 @@ wrap_pattern :: Int64 -> Bool -> Text -> Bool -> Text -> [Text] -> [Text] -> Int
 wrap_pattern pattern_id is_regex pattern_text is_nondeterministic description tags_list steps_list specificity is_retired = DbHelpers.WithId pattern_id inner_pattern
   where
     expression_obj = if is_regex
-      then ScanPatterns.RegularExpression (encodeUtf8 pattern_text) is_nondeterministic
+      then ScanPatterns.RegularExpression pattern_text is_nondeterministic
       else ScanPatterns.LiteralExpression pattern_text
     inner_pattern = ScanPatterns.NewPattern expression_obj description tags_list steps_list specificity is_retired
 

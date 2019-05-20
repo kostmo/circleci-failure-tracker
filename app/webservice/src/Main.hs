@@ -66,7 +66,7 @@ pattern_from_parms = do
   let is_regex = is_regex_str == ("true" :: Text)
       is_nondeterministic = is_nondeterministic_str == ("true" :: Text)
       match_expression = if is_regex
-        then ScanPatterns.RegularExpression (encodeUtf8 expression) is_nondeterministic
+        then ScanPatterns.RegularExpression expression is_nondeterministic
         else ScanPatterns.LiteralExpression expression
 
   return $ ScanPatterns.NewPattern
@@ -311,6 +311,15 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     S.get "/api/patterns-dump" $ do
       S.json =<< liftIO (SqlRead.dump_patterns connection_data)
+
+    S.post "/api/patterns-restore" $ do
+      body_json <- S.jsonData
+
+      let callback_func user_alias = SqlWrite.restore_patterns connection_data user_alias body_json
+
+      rq <- S.request
+      insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
+      S.json $ WebApi.toJsonEither insertion_result
 
     S.get "/api/patterns" $ do
       S.json =<< liftIO (SqlRead.api_patterns connection_data)

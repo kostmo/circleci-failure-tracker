@@ -26,7 +26,7 @@ data WithAuthorship a = WithAuthorship {
   } deriving Generic
 
 instance ToJSON a => ToJSON (WithAuthorship a)
-
+instance FromJSON a => FromJSON (WithAuthorship a)
 
 data WithId a = WithId {
     db_id  :: Int64
@@ -34,7 +34,7 @@ data WithId a = WithId {
   } deriving Generic
 
 instance ToJSON a => ToJSON (WithId a)
-
+instance FromJSON a => FromJSON (WithId a)
 
 
 data DbConnectionData = NewDbConnectionData {
@@ -43,7 +43,6 @@ data DbConnectionData = NewDbConnectionData {
   , dbUsername :: String
   , dbPassword :: String
   }
-
 
 
 as_tuple :: WithId a -> (Int64, a)
