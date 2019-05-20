@@ -133,7 +133,6 @@ CREATE TABLE public.patterns (
     expression text,
     id integer NOT NULL,
     description text,
-    is_infra boolean,
     regex boolean,
     has_nondeterministic_values boolean,
     is_retired boolean DEFAULT false NOT NULL,
@@ -381,6 +380,27 @@ CREATE VIEW public.builds_with_reports WITH (security_barrier='false') AS
 
 
 ALTER TABLE public.builds_with_reports OWNER TO postgres;
+
+--
+-- Name: created_github_statuses; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.created_github_statuses (
+    id bigint NOT NULL,
+    url text,
+    state character varying(7),
+    description text,
+    target_url text,
+    context text,
+    created_at timestamp with time zone,
+    updated_at timestamp with time zone,
+    sha1 character(40),
+    project text,
+    repo text
+);
+
+
+ALTER TABLE public.created_github_statuses OWNER TO postgres;
 
 --
 -- Name: idiopathic_build_failures; Type: VIEW; Schema: public; Owner: postgres
@@ -752,6 +772,14 @@ ALTER TABLE ONLY public.build_steps
 
 
 --
+-- Name: created_github_statuses created_github_statuses_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.created_github_statuses
+    ADD CONSTRAINT created_github_statuses_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: log_metadata log_metadata_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -1107,6 +1135,13 @@ GRANT ALL ON TABLE public.latest_broken_revision_reports TO logan;
 --
 
 GRANT ALL ON TABLE public.builds_with_reports TO logan;
+
+
+--
+-- Name: TABLE created_github_statuses; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.created_github_statuses TO logan;
 
 
 --

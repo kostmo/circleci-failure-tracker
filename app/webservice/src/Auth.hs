@@ -31,9 +31,11 @@ import           Web.Scotty.Internal.Types
 import qualified ApiPost
 import qualified AuthConfig
 import qualified AuthStages
+import qualified DbHelpers
 import qualified Github
 import qualified Keys
 import           Session
+import qualified StatusEvent
 import           Types
 import           Utils
 import qualified Webhooks
@@ -164,12 +166,12 @@ tryFetchUser github_config code session_insert = do
 
 getFailedStatuses ::
      T.Text
-  -> ApiPost.OwnerAndRepo
+  -> DbHelpers.OwnerAndRepo
   -> T.Text
-  -> IO (Either TL.Text [Webhooks.GitHubStatusEventSetter])
+  -> IO (Either TL.Text [StatusEvent.GitHubStatusEventSetter])
 getFailedStatuses
     token
-    (ApiPost.OwnerAndRepo repo_owner repo_name)
+    (DbHelpers.OwnerAndRepo repo_owner repo_name)
     target_sha1 = do
 
   mgr <- newManager tlsManagerSettings
@@ -183,7 +185,7 @@ getFailedStatuses
         second (filter_failed . Webhooks._statuses) r
 
   where
-    filter_failed = filter $ (== "failure") . Webhooks._state
+    filter_failed = filter $ (== "failure") . StatusEvent._state
     uri_string = intercalate "/" [
         "https://api.github.com/repos"
       , repo_owner

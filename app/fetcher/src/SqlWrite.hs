@@ -19,6 +19,7 @@ import           Database.PostgreSQL.Simple
 import           Database.PostgreSQL.Simple.Errors
 import           GHC.Int                           (Int64)
 
+import qualified ApiPost
 import qualified AuthStages
 import qualified Breakages
 import qualified Constants
@@ -41,9 +42,12 @@ allTableTruncations = [
   , "TRUNCATE matches CASCADE;"
   , "TRUNCATE pattern_step_applicability CASCADE;"
   , "TRUNCATE pattern_tags CASCADE;"
+  , "TRUNCATE pattern_authorship CASCADE;"
   , "TRUNCATE patterns CASCADE;"
   , "TRUNCATE log_metadata CASCADE;"
   , "TRUNCATE build_steps CASCADE;"
+  , "TRUNCATE created_github_statuses CASCADE;"
+  , "TRUNCATE broken_revisions CASCADE;"
   , "TRUNCATE builds CASCADE;"
   ]
 
@@ -106,6 +110,15 @@ store_matches scan_resources (NewBuildStepId build_step_id) _build_num scoped_ma
         match_deets = ScanPatterns.match_details match
 
     insertion_sql = "INSERT INTO matches(scan_id, build_step, pattern, line_number, line_text, span_start, span_end) VALUES(?,?,?,?,?,?,?);"
+
+
+insert_posted_github_status :: DbHelpers.DbConnectionData -> Text -> DbHelpers.OwnerAndRepo -> ApiPost.StatusPostResult -> IO Int64
+insert_posted_github_status conn_data git_sha1 (DbHelpers.OwnerAndRepo owner repo) (ApiPost.StatusPostResult id url state desc target_url context created_at updated_at) = do
+  conn <- DbHelpers.get_connection conn_data
+  [Only pattern_id] <- query conn sql (id, git_sha1, owner, repo, url, state, desc, target_url, context, created_at, updated_at)
+  return pattern_id
+  where
+    sql = "INSERT INTO created_github_statuses(id, sha1, project, repo, url, state, description, target_url, context, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?) RETURNING id;"
 
 
 insert_single_pattern :: Connection -> AuthStages.Username -> ScanPatterns.Pattern -> IO Int64

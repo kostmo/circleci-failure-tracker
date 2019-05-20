@@ -13,6 +13,12 @@ import           GHC.Generics
 import           GHC.Int                    (Int64)
 
 
+data OwnerAndRepo = OwnerAndRepo {
+    owner :: String
+  , repo  :: String
+  }
+
+
 data WithAuthorship a = WithAuthorship {
     author  :: Text
   , created :: UTCTime

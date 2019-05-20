@@ -43,6 +43,7 @@ import qualified ScanPatterns
 import qualified Session
 import qualified SqlRead
 import qualified SqlWrite
+import qualified StatusEvent
 import qualified Types
 import qualified WebApi
 import qualified Webhooks
@@ -112,16 +113,18 @@ breakage_report_from_parms = do
 
 
 handleStatusWebhook ::
-     Text -- ^ access token
-  -> Webhooks.GitHubStatusEvent -> IO (Either LT.Text ())
-handleStatusWebhook access_token status_event = do
+     DbHelpers.DbConnectionData
+  -> Text -- ^ access token
+  -> Webhooks.GitHubStatusEvent
+  -> IO (Either LT.Text ())
+handleStatusWebhook db_connection_data access_token status_event = do
   putStrLn $ "State: " ++ LT.unpack (Webhooks.state status_event)
 
   -- TODO this is a partial function
   let (org:repo:[]) = splitOn "/" $ LT.unpack $ Webhooks.name status_event
-      owned_repo = ApiPost.OwnerAndRepo org repo
+      owned_repo = DbHelpers.OwnerAndRepo org repo
 
-  -- Do not act on receipt of statuses in my namespace, or else
+  -- Do not act on receipt of statuses from the context I have created, or else
   -- we may get stuck in an infinite loop
   if LT.toStrict (Webhooks.context status_event) /= myAppStatusContext
     then do
@@ -132,17 +135,23 @@ handleStatusWebhook access_token status_event = do
         Right failed_statuses_list -> do
           putStrLn $ "current status count: " ++ show (length failed_statuses_list)
 
-          ApiPost.postCommitStatus
+          post_result <- ApiPost.postCommitStatus
             access_token
             owned_repo
             sha1
             success_status
 
+          case post_result of
+            Left _ -> return $ Right ()
+            Right result_obj -> do
+              SqlWrite.insert_posted_github_status db_connection_data sha1 owned_repo result_obj
+              return $ Right ()
+
     else return $ Right ()
 
   where
     sha1 = LT.toStrict $ Webhooks.sha status_event
-    success_status = Webhooks.GitHubStatusEventSetter
+    success_status = StatusEvent.GitHubStatusEventSetter
       "Flakiness check"
       "success"
       ("https://circle.pytorch.org/commit-details.html?sha1=" <> Webhooks.sha status_event)
@@ -176,7 +185,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
           then return ()
           else do
             body_json <- S.jsonData
-            liftIO $ handleStatusWebhook (AuthConfig.personal_access_token github_config) body_json
+            liftIO $ handleStatusWebhook connection_data (AuthConfig.personal_access_token github_config) body_json
 
             S.json =<< return ["hello" :: String]
 

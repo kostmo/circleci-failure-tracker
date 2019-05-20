@@ -14,7 +14,17 @@ pattern are tracked and presented in a web UI.
 The database tracks which builds have been already scanned for a given pattern,
 so that scanning may be performed incrementally, or resumed after abort.
 
-## Flow diagram
+## Tool workflow
+
+The tool supports a "tactical" usage model with fast iterations.
+
+* A webhook listens for build status changes on a GitHub PR
+* For each failed build, that build's log will be scanned for any of the patterns in the database tagged as "flaky"
+* The tool will automatically post one more status (atop the 75 or so current statuses) that says how many of the failures were flaky.
+* If all of the failures were flaky, the indicator will be green.  There will be a link in the status box to dive into the details.
+* likewise for failures marked with my tool as "known problems"
+
+## Data flow diagram
 
 ![flow diagram](docs/data-flow.svg)
 
