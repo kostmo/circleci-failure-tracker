@@ -165,5 +165,12 @@ function import_patterns(button_obj) {
 
 
 function main() {
+
+	$("#is-regex-checkbox").change(function(event) {
+		var checkbox = event.target;
+		$("#is-nondeterministic-checkbox").prop("disabled", !checkbox.checked);
+	});
+
+
 	setup_autocomplete();
 }

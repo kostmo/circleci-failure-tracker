@@ -133,8 +133,6 @@ handleStatusWebhook db_connection_data access_token status_event = do
       case either_current_statuses_wrapper of
         Left err -> return $ Left err
         Right failed_statuses_list -> do
-          putStrLn $ "current status count: " ++ show (length failed_statuses_list)
-
           post_result <- ApiPost.postCommitStatus
             access_token
             owned_repo
@@ -276,7 +274,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
     S.get "/api/new-pattern-test" $ do
       buildnum_str <- S.param "build_num"
       new_pattern <- pattern_from_parms
-      S.json =<< (liftIO $ SqlWrite.api_new_pattern_test (Builds.NewBuildNumber $ read buildnum_str) new_pattern)
+      S.json =<< (liftIO $ SqlWrite.api_new_pattern_test connection_data (Builds.NewBuildNumber $ read buildnum_str) new_pattern)
 
     S.get "/api/tag-suggest" $ do
       term <- S.param "term"

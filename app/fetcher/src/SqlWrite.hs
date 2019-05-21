@@ -11,7 +11,6 @@ import           Data.Foldable                     (for_)
 import qualified Data.Maybe                        as Maybe
 import           Data.Text                         (Text)
 import qualified Data.Text                         as T
-import qualified Data.Text.IO                      as TIO
 import           Data.Time.Format                  (defaultTimeLocale,
                                                     formatTime,
                                                     rfc822DateFormat)
@@ -23,11 +22,11 @@ import           GHC.Int                           (Int64)
 import qualified ApiPost
 import qualified AuthStages
 import qualified Breakages
-import qualified Constants
 import qualified DbHelpers
 import qualified ScanPatterns
 import qualified ScanRecords
 import qualified ScanUtils
+import qualified SqlRead
 
 
 defaultPatternAuthor :: AuthStages.Username
@@ -60,7 +59,7 @@ prepare_database conn_data wipe = do
 
   when wipe $ do
     scrub_tables conn
-    populate_patterns conn ScanPatterns.pattern_list
+--    populate_patterns conn ScanPatterns.pattern_list
     return ()
   return conn
 
@@ -206,15 +205,13 @@ insert_scan_id conn (ScanRecords.NewPatternId pattern_id)  = do
   return pattern_id
 
 
-api_new_pattern_test :: Builds.BuildNumber -> ScanPatterns.Pattern -> IO [ScanPatterns.ScanMatch]
-api_new_pattern_test build_number new_pattern = do
+api_new_pattern_test :: DbHelpers.DbConnectionData -> Builds.BuildNumber -> ScanPatterns.Pattern -> IO [ScanPatterns.ScanMatch]
+api_new_pattern_test conn_data build_number new_pattern = do
 
-  cache_dir <- Constants.get_url_cache_basedir
-  let full_filepath = ScanUtils.gen_log_path cache_dir build_number
-  putStrLn $ "Scanning log: " ++ full_filepath
+  conn <- DbHelpers.get_connection conn_data
 
   -- TODO consolidate with Scanning.scan_log
-  console_log <- TIO.readFile full_filepath
+  console_log <- SqlRead.read_log conn build_number
   let lines_list = T.lines console_log
       result = Maybe.mapMaybe apply_pattern $ zip [0::Int ..] $ map T.stripEnd lines_list
 

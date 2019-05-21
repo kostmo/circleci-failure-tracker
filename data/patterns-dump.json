@@ -1,0 +1,769 @@
+[
+  {
+    "author": "kostmo",
+    "created": "2019-05-20T21:42:42.300839Z",
+    "payload": {
+      "db_id": 194,
+      "record": {
+        "applicable_steps": [
+          "Test"
+        ],
+        "description": "Failed test",
+        "expression": {
+          "contents": [
+            "\\[  FAILED  \\]\\s+([^\\s]+)",
+            true
+          ],
+          "tag": "RegularExpression"
+        },
+        "is_retired": false,
+        "specificity": 3,
+        "tags": [
+          "runtime"
+        ]
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-20T21:42:42.305008Z",
+    "payload": {
+      "db_id": 195,
+      "record": {
+        "applicable_steps": [
+          "Test"
+        ],
+        "description": "Failed test count",
+        "expression": {
+          "contents": [
+            "\\[  FAILED  \\]\\s+(\\d+) tests?, listed below:",
+            true
+          ],
+          "tag": "RegularExpression"
+        },
+        "is_retired": false,
+        "specificity": 2,
+        "tags": [
+          "runtime"
+        ]
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-20T21:42:42.307994Z",
+    "payload": {
+      "db_id": 196,
+      "record": {
+        "applicable_steps": [
+          "Doc Build and Push"
+        ],
+        "description": "Python error",
+        "expression": {
+          "contents": "TypeError: ",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "specificity": 2,
+        "tags": [
+          "python",
+          "runtime"
+        ]
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-20T21:42:42.311427Z",
+    "payload": {
+      "db_id": 197,
+      "record": {
+        "applicable_steps": [
+          "Test"
+        ],
+        "description": "Test assertion failure",
+        "expression": {
+          "contents": "AssertionError: ",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "specificity": 2,
+        "tags": [
+          "python",
+          "runtime"
+        ]
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-20T21:42:42.31495Z",
+    "payload": {
+      "db_id": 198,
+      "record": {
+        "applicable_steps": [
+          "Test"
+        ],
+        "description": "Ninja build failure",
+        "expression": {
+          "contents": "CalledProcessError: Command '['ninja', '-v']' returned non-zero exit status",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "specificity": 5,
+        "tags": [
+          "build"
+        ]
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-20T21:42:42.317692Z",
+    "payload": {
+      "db_id": 199,
+      "record": {
+        "applicable_steps": [
+          "Build"
+        ],
+        "description": "find error",
+        "expression": {
+          "contents": [
+            "find: (.+): No such file or directory",
+            true
+          ],
+          "tag": "RegularExpression"
+        },
+        "is_retired": false,
+        "specificity": 1,
+        "tags": []
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-20T21:42:42.319598Z",
+    "payload": {
+      "db_id": 200,
+      "record": {
+        "applicable_steps": [
+          "Test"
+        ],
+        "description": "Python runtime error on test",
+        "expression": {
+          "contents": [
+            "RuntimeError: test_(.+) failed!",
+            false
+          ],
+          "tag": "RegularExpression"
+        },
+        "is_retired": false,
+        "specificity": 3,
+        "tags": [
+          "python",
+          "runtime"
+        ]
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-20T21:42:42.322464Z",
+    "payload": {
+      "db_id": 201,
+      "record": {
+        "applicable_steps": [
+          "Test"
+        ],
+        "description": "Python build error",
+        "expression": {
+          "contents": [
+            "RuntimeError: Error building extension '([^']+)'",
+            false
+          ],
+          "tag": "RegularExpression"
+        },
+        "is_retired": false,
+        "specificity": 3,
+        "tags": [
+          "python",
+          "build"
+        ]
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-20T21:42:42.325345Z",
+    "payload": {
+      "db_id": 202,
+      "record": {
+        "applicable_steps": [
+          "Test"
+        ],
+        "description": "Python network error",
+        "expression": {
+          "contents": [
+            "RuntimeError: \\[([^:]+):(\\d+)\\] Read error \\[127.0.0.1\\]:(\\d+): Connection reset by peer",
+            true
+          ],
+          "tag": "RegularExpression"
+        },
+        "is_retired": false,
+        "specificity": 5,
+        "tags": [
+          "flaky",
+          "python"
+        ]
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-20T21:42:42.328244Z",
+    "payload": {
+      "db_id": 203,
+      "record": {
+        "applicable_steps": [
+          "Test"
+        ],
+        "description": "Build dirtied the source tree",
+        "expression": {
+          "contents": "Build left local git repository checkout dirty",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "specificity": 2,
+        "tags": []
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-20T21:42:42.329966Z",
+    "payload": {
+      "db_id": 204,
+      "record": {
+        "applicable_steps": [
+          "Set Up CI Environment After Checkout"
+        ],
+        "description": "apt error",
+        "expression": {
+          "contents": "E: Failed to fetch",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "specificity": 5,
+        "tags": [
+          "apt"
+        ]
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-20T21:42:42.332548Z",
+    "payload": {
+      "db_id": 205,
+      "record": {
+        "applicable_steps": [
+          "Spin up Environment"
+        ],
+        "description": "CircleCI outage",
+        "expression": {
+          "contents": "Waiting for a VM assignment",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "specificity": 5,
+        "tags": [
+          "flaky",
+          "circleci",
+          "infra"
+        ]
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-20T21:42:42.335868Z",
+    "payload": {
+      "db_id": 206,
+      "record": {
+        "applicable_steps": [
+          "Doc Build and Push"
+        ],
+        "description": "Git push failed",
+        "expression": {
+          "contents": "error: failed to push some refs to",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "specificity": 5,
+        "tags": [
+          "flaky",
+          "git",
+          "infra"
+        ]
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-20T21:42:42.339046Z",
+    "payload": {
+      "db_id": 207,
+      "record": {
+        "applicable_steps": [
+          "Run in docker",
+          "Build"
+        ],
+        "description": "Git submodules failure",
+        "expression": {
+          "contents": [
+            "Failed to recurse into submodule path '(.+)'",
+            false
+          ],
+          "tag": "RegularExpression"
+        },
+        "is_retired": false,
+        "specificity": 5,
+        "tags": [
+          "flaky",
+          "git",
+          "infra"
+        ]
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-20T23:35:08.058674Z",
+    "payload": {
+      "db_id": 228,
+      "record": {
+        "applicable_steps": [
+          "Checkout code"
+        ],
+        "description": "bad git object",
+        "expression": {
+          "contents": "fatal: Could not parse object",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "specificity": 1,
+        "tags": [
+          "git"
+        ]
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-20T21:42:42.344352Z",
+    "payload": {
+      "db_id": 209,
+      "record": {
+        "applicable_steps": [],
+        "description": "test_proper_exit",
+        "expression": {
+          "contents": "ERROR: test_proper_exit (__main__.TestDataLoader)",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "specificity": 7,
+        "tags": [
+          "flaky"
+        ]
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-20T21:42:42.350078Z",
+    "payload": {
+      "db_id": 214,
+      "record": {
+        "applicable_steps": [],
+        "description": "env problem",
+        "expression": {
+          "contents": "Could not install packages due to an EnvironmentError",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "specificity": 2,
+        "tags": [
+          "python"
+        ]
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-20T21:42:42.348792Z",
+    "payload": {
+      "db_id": 213,
+      "record": {
+        "applicable_steps": [],
+        "description": "Compilation error",
+        "expression": {
+          "contents": [
+            "([^\\s]+):(\\d+):(\\d+): error:",
+            true
+          ],
+          "tag": "RegularExpression"
+        },
+        "is_retired": false,
+        "specificity": 5,
+        "tags": [
+          "compile"
+        ]
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-20T21:42:42.355087Z",
+    "payload": {
+      "db_id": 218,
+      "record": {
+        "applicable_steps": [],
+        "description": "Docker problem",
+        "expression": {
+          "contents": "unexpected EOF",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "specificity": 2,
+        "tags": [
+          "docker"
+        ]
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-20T21:42:42.3466Z",
+    "payload": {
+      "db_id": 211,
+      "record": {
+        "applicable_steps": [],
+        "description": "Docker problem",
+        "expression": {
+          "contents": "received unexpected HTTP status",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "specificity": 2,
+        "tags": [
+          "docker"
+        ]
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-20T21:42:42.364054Z",
+    "payload": {
+      "db_id": 226,
+      "record": {
+        "applicable_steps": [],
+        "description": "CircleCI failure",
+        "expression": {
+          "contents": "WARNING: infoROM is corrupted",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "specificity": 3,
+        "tags": [
+          "flaky",
+          "infra"
+        ]
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-20T21:42:42.358859Z",
+    "payload": {
+      "db_id": 221,
+      "record": {
+        "applicable_steps": [],
+        "description": "apt package incompatibility",
+        "expression": {
+          "contents": "E: Unable to correct problems, you have held broken packages",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "specificity": 5,
+        "tags": [
+          "apt",
+          "infra"
+        ]
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-20T21:42:42.351392Z",
+    "payload": {
+      "db_id": 215,
+      "record": {
+        "applicable_steps": [],
+        "description": "A generic code error",
+        "expression": {
+          "contents": "ERROR: ",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "specificity": 1,
+        "tags": []
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-20T21:42:42.352242Z",
+    "payload": {
+      "db_id": 216,
+      "record": {
+        "applicable_steps": [],
+        "description": "CircleCI apt lock failure",
+        "expression": {
+          "contents": "E: Could not get lock /var/lib/apt/lists/lock",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "specificity": 5,
+        "tags": [
+          "apt",
+          "infra"
+        ]
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-20T21:42:42.362316Z",
+    "payload": {
+      "db_id": 224,
+      "record": {
+        "applicable_steps": [],
+        "description": "Unit test failure",
+        "expression": {
+          "contents": [
+            "::(.+) FAILED",
+            false
+          ],
+          "tag": "RegularExpression"
+        },
+        "is_retired": false,
+        "specificity": 3,
+        "tags": [
+          "runtime"
+        ]
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-20T21:42:42.356356Z",
+    "payload": {
+      "db_id": 219,
+      "record": {
+        "applicable_steps": [],
+        "description": "apt failure",
+        "expression": {
+          "contents": "E: Unable to acquire the dpkg frontend lock",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "specificity": 5,
+        "tags": [
+          "apt",
+          "infra"
+        ]
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-20T21:42:42.365355Z",
+    "payload": {
+      "db_id": 227,
+      "record": {
+        "applicable_steps": [],
+        "description": "Graphs differ",
+        "expression": {
+          "contents": "ERROR: Graphs differed across invocations",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "specificity": 5,
+        "tags": [
+          "flaky"
+        ]
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-20T21:42:42.342359Z",
+    "payload": {
+      "db_id": 208,
+      "record": {
+        "applicable_steps": [],
+        "description": "Git fetch failed",
+        "expression": {
+          "contents": [
+            "fatal: unable to access '(.+)': gnutls_handshake\\(\\) failed: Error in the pull function",
+            true
+          ],
+          "tag": "RegularExpression"
+        },
+        "is_retired": false,
+        "specificity": 2,
+        "tags": [
+          "git",
+          "infra"
+        ]
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-20T21:42:42.360333Z",
+    "payload": {
+      "db_id": 222,
+      "record": {
+        "applicable_steps": [],
+        "description": "Ninja build failed",
+        "expression": {
+          "contents": "FAILED: ",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "specificity": 5,
+        "tags": []
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-20T21:42:42.363422Z",
+    "payload": {
+      "db_id": 225,
+      "record": {
+        "applicable_steps": [],
+        "description": "Test failure",
+        "expression": {
+          "contents": [
+            "ERROR: ([^\\s]+) \\(__main__\\.(.+)\\)",
+            false
+          ],
+          "tag": "RegularExpression"
+        },
+        "is_retired": false,
+        "specificity": 4,
+        "tags": []
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-20T21:42:42.358068Z",
+    "payload": {
+      "db_id": 220,
+      "record": {
+        "applicable_steps": [],
+        "description": "Conda error",
+        "expression": {
+          "contents": "Probably the package for the version we want does not exist",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "specificity": 5,
+        "tags": []
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-20T21:42:42.345711Z",
+    "payload": {
+      "db_id": 210,
+      "record": {
+        "applicable_steps": [],
+        "description": "Missing file",
+        "expression": {
+          "contents": "No such file or directory",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "specificity": 2,
+        "tags": []
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-20T21:42:42.361204Z",
+    "payload": {
+      "db_id": 223,
+      "record": {
+        "applicable_steps": [],
+        "description": "Python version error for mypy",
+        "expression": {
+          "contents": [
+            "ERROR: You need Python (\\d+)\\.(\\d+) or later to use mypy",
+            false
+          ],
+          "tag": "RegularExpression"
+        },
+        "is_retired": false,
+        "specificity": 1,
+        "tags": [
+          "python"
+        ]
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-20T21:42:42.353834Z",
+    "payload": {
+      "db_id": 217,
+      "record": {
+        "applicable_steps": [],
+        "description": "Segfault",
+        "expression": {
+          "contents": "Segmentation fault",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "specificity": 5,
+        "tags": [
+          "runtime"
+        ]
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-20T21:42:42.347936Z",
+    "payload": {
+      "db_id": 212,
+      "record": {
+        "applicable_steps": [],
+        "description": "Unzip failed",
+        "expression": {
+          "contents": "unzip:  cannot find zipfile directory",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "specificity": 2,
+        "tags": []
+      }
+    }
+  }
+]

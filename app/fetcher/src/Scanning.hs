@@ -19,8 +19,6 @@ import qualified Network.Wreq.Session       as Sess
 import qualified Safe
 import           System.Directory           (createDirectoryIfMissing,
                                              doesFileExist)
-import           System.Posix.Files         (fileSize, getFileStatus)
-import           System.Posix.Types         (COff (COff))
 
 import qualified Builds
 import qualified Constants
@@ -270,13 +268,6 @@ get_and_cache_log scan_resources build_number build_step_id maybe_failed_build_o
     full_filepath = ScanUtils.gen_log_path (ScanRecords.cache_dir $ ScanRecords.fetching scan_resources) build_number
 
 
-getFileSize :: String -> IO Int64
-getFileSize path = do
-    stat <- getFileStatus path
-    let (COff bytecount) = fileSize stat
-    return bytecount
-
-
 scan_log_text ::
      [T.Text]
   -> [ScanPatterns.DbPattern]
@@ -294,12 +285,10 @@ scan_log ::
   -> IO [ScanPatterns.ScanMatch]
 scan_log scan_resources build_number patterns = do
 
-  putStrLn $ "Scanning log for " ++ show (length patterns) ++ " patterns: " ++ full_filepath
-
-  console_log <- TIO.readFile full_filepath
+  putStrLn $ "Scanning log for " ++ show (length patterns) ++ " patterns..."
+  console_log <- SqlRead.read_log conn build_number
   let lines_list = T.lines console_log
-
   return $ scan_log_text lines_list patterns
 
   where
-    full_filepath = ScanUtils.gen_log_path (ScanRecords.cache_dir $ ScanRecords.fetching scan_resources) build_number
+    conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources

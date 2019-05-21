@@ -403,57 +403,6 @@ CREATE TABLE public.created_github_statuses (
 ALTER TABLE public.created_github_statuses OWNER TO postgres;
 
 --
--- Name: idiopathic_build_failures; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.idiopathic_build_failures WITH (security_barrier='false') AS
- SELECT build_steps.build,
-    builds.branch
-   FROM (public.build_steps
-     JOIN public.builds ON ((build_steps.build = builds.build_num)))
-  WHERE (build_steps.name IS NULL);
-
-
-ALTER TABLE public.idiopathic_build_failures OWNER TO postgres;
-
---
--- Name: job_failure_frequencies; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.job_failure_frequencies AS
- SELECT builds.job_name,
-    count(*) AS freq,
-    max(builds.queued_at) AS last
-   FROM public.builds
-  GROUP BY builds.job_name
-  ORDER BY (count(*)) DESC, builds.job_name;
-
-
-ALTER TABLE public.job_failure_frequencies OWNER TO postgres;
-
---
--- Name: match_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
---
-
-CREATE SEQUENCE public.match_id_seq
-    AS integer
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
-ALTER TABLE public.match_id_seq OWNER TO postgres;
-
---
--- Name: match_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
---
-
-ALTER SEQUENCE public.match_id_seq OWNED BY public.matches.id;
-
-
---
 -- Name: pattern_authorship; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -520,6 +469,82 @@ CREATE VIEW public.patterns_augmented WITH (security_barrier='false') AS
 
 
 ALTER TABLE public.patterns_augmented OWNER TO postgres;
+
+--
+-- Name: flaky_patterns_augmented; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.flaky_patterns_augmented AS
+ SELECT foo.pattern,
+    patterns_augmented.expression,
+    patterns_augmented.id,
+    patterns_augmented.description,
+    patterns_augmented.regex,
+    patterns_augmented.has_nondeterministic_values,
+    patterns_augmented.is_retired,
+    patterns_augmented.specificity,
+    patterns_augmented.tags,
+    patterns_augmented.steps,
+    patterns_augmented.author,
+    patterns_augmented.created
+   FROM (( SELECT pattern_tags.pattern
+           FROM public.pattern_tags
+          WHERE ((pattern_tags.tag)::text = 'flaky'::text)) foo
+     JOIN public.patterns_augmented ON ((patterns_augmented.id = foo.pattern)));
+
+
+ALTER TABLE public.flaky_patterns_augmented OWNER TO postgres;
+
+--
+-- Name: idiopathic_build_failures; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.idiopathic_build_failures WITH (security_barrier='false') AS
+ SELECT build_steps.build,
+    builds.branch
+   FROM (public.build_steps
+     JOIN public.builds ON ((build_steps.build = builds.build_num)))
+  WHERE (build_steps.name IS NULL);
+
+
+ALTER TABLE public.idiopathic_build_failures OWNER TO postgres;
+
+--
+-- Name: job_failure_frequencies; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.job_failure_frequencies AS
+ SELECT builds.job_name,
+    count(*) AS freq,
+    max(builds.queued_at) AS last
+   FROM public.builds
+  GROUP BY builds.job_name
+  ORDER BY (count(*)) DESC, builds.job_name;
+
+
+ALTER TABLE public.job_failure_frequencies OWNER TO postgres;
+
+--
+-- Name: match_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.match_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.match_id_seq OWNER TO postgres;
+
+--
+-- Name: match_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.match_id_seq OWNED BY public.matches.id;
+
 
 --
 -- Name: pattern_frequency_summary; Type: VIEW; Schema: public; Owner: postgres
@@ -1145,27 +1170,6 @@ GRANT ALL ON TABLE public.created_github_statuses TO logan;
 
 
 --
--- Name: TABLE idiopathic_build_failures; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.idiopathic_build_failures TO logan;
-
-
---
--- Name: TABLE job_failure_frequencies; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.job_failure_frequencies TO logan;
-
-
---
--- Name: SEQUENCE match_id_seq; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON SEQUENCE public.match_id_seq TO logan;
-
-
---
 -- Name: TABLE pattern_authorship; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -1191,6 +1195,34 @@ GRANT ALL ON TABLE public.pattern_tags TO logan;
 --
 
 GRANT ALL ON TABLE public.patterns_augmented TO logan;
+
+
+--
+-- Name: TABLE flaky_patterns_augmented; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.flaky_patterns_augmented TO logan;
+
+
+--
+-- Name: TABLE idiopathic_build_failures; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.idiopathic_build_failures TO logan;
+
+
+--
+-- Name: TABLE job_failure_frequencies; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.job_failure_frequencies TO logan;
+
+
+--
+-- Name: SEQUENCE match_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE public.match_id_seq TO logan;
 
 
 --

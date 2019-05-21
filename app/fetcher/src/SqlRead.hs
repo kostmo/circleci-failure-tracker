@@ -186,6 +186,14 @@ list_flat conn_data sql t = do
   return $ map (\(Only x) -> x) inners
 
 
+read_log :: Connection -> Builds.BuildNumber -> IO Text
+read_log conn (Builds.NewBuildNumber build_num) = do
+  [Only log_text] <- query conn sql (Only build_num)
+  return log_text
+  where
+    sql = "SELECT log_metadata.content FROM log_metadata JOIN builds_join_steps ON log_metadata.step = builds_join_steps.step_id WHERE builds_join_steps.build_num = ? LIMIT 1"
+
+
 api_autocomplete_tags :: DbHelpers.DbConnectionData -> Text -> IO [Text]
 api_autocomplete_tags conn_data = list_flat conn_data sql
   where
