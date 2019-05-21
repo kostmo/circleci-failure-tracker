@@ -86,7 +86,7 @@ build_to_tuple (NewBuild (NewBuildNumber build_num) vcs_rev queuedat jobname bra
 store_builds_list :: Connection -> [Build] -> IO Int64
 store_builds_list conn builds_list =
 
-  executeMany conn "INSERT INTO builds(build_num, vcs_revision, queued_at, job_name, branch) VALUES(?,?,?,?,?) ON CONFLICT (build_num) DO NOTHING" $
+  executeMany conn "INSERT INTO builds(build_num, vcs_revision, queued_at, job_name, branch) VALUES(?,?,?,?,?) ON CONFLICT (build_num) DO NOTHING;" $
     map build_to_tuple builds_list
 
 
@@ -205,18 +205,17 @@ insert_scan_id conn (ScanRecords.NewPatternId pattern_id)  = do
   return pattern_id
 
 
-api_new_pattern_test :: DbHelpers.DbConnectionData -> Builds.BuildNumber -> ScanPatterns.Pattern -> IO [ScanPatterns.ScanMatch]
-api_new_pattern_test conn_data build_number new_pattern = do
+api_new_pattern_test :: DbHelpers.DbConnectionData -> Builds.BuildNumber -> ScanPatterns.Pattern -> IO (Either String [ScanPatterns.ScanMatch])
+api_new_pattern_test conn_data build_number@(Builds.NewBuildNumber buildnum) new_pattern = do
 
   conn <- DbHelpers.get_connection conn_data
 
   -- TODO consolidate with Scanning.scan_log
-  console_log <- SqlRead.read_log conn build_number
-  let lines_list = T.lines console_log
-      result = Maybe.mapMaybe apply_pattern $ zip [0::Int ..] $ map T.stripEnd lines_list
-
-  putStrLn $ "Results: " ++ show (length result)
-  return result
+  maybe_console_log <- SqlRead.read_log conn build_number
+  return $ case maybe_console_log of
+    Just console_log -> Right $
+      Maybe.mapMaybe apply_pattern $ zip [0::Int ..] $ map T.stripEnd $ T.lines console_log
+    Nothing -> Left $ "No log found for build number " ++ show buildnum
 
   where
     apply_pattern :: (Int, Text) -> Maybe ScanPatterns.ScanMatch

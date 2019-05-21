@@ -108,10 +108,13 @@ catchup_scan scan_resources buildstep_id step_name (buildnum, maybe_console_outp
     Just maximum_pattern_id -> do
 
       get_and_cache_log scan_resources buildnum buildstep_id maybe_console_output_url
-      matches <- scan_log scan_resources buildnum applicable_patterns
+      either_matches <- scan_log scan_resources buildnum applicable_patterns
 
-      SqlWrite.store_matches scan_resources buildstep_id buildnum matches
-      SqlWrite.insert_latest_pattern_build_scan scan_resources buildnum maximum_pattern_id
+      case either_matches of
+        Right matches -> do
+          SqlWrite.store_matches scan_resources buildstep_id buildnum matches
+          SqlWrite.insert_latest_pattern_build_scan scan_resources buildnum maximum_pattern_id
+        Left _ -> return () -- TODO propagate this error
 
       return ()
 
@@ -282,13 +285,15 @@ scan_log ::
      ScanRecords.ScanCatchupResources
   -> Builds.BuildNumber
   -> [ScanPatterns.DbPattern]
-  -> IO [ScanPatterns.ScanMatch]
-scan_log scan_resources build_number patterns = do
+  -> IO (Either String [ScanPatterns.ScanMatch])
+scan_log scan_resources build_number@(Builds.NewBuildNumber buildnum) patterns = do
 
   putStrLn $ "Scanning log for " ++ show (length patterns) ++ " patterns..."
-  console_log <- SqlRead.read_log conn build_number
-  let lines_list = T.lines console_log
-  return $ scan_log_text lines_list patterns
+
+  maybe_console_log <- SqlRead.read_log conn build_number
+  return $ case maybe_console_log of
+    Just console_log -> Right $ scan_log_text (T.lines console_log) patterns
+    Nothing -> Left $ "No log found for build number " ++ show buildnum
 
   where
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources

@@ -15,6 +15,7 @@ import           Database.PostgreSQL.Simple
 import           Database.PostgreSQL.Simple.FromField (FromField)
 import           GHC.Generics
 import           GHC.Int                              (Int64)
+import qualified Safe
 
 import qualified AuthStages
 import qualified Breakages
@@ -30,7 +31,17 @@ import qualified ScanRecords
 import qualified WebApi
 
 
-wrap_pattern :: Int64 -> Bool -> Text -> Bool -> Text -> [Text] -> [Text] -> Int -> Bool -> ScanPatterns.DbPattern
+wrap_pattern ::
+     Int64
+  -> Bool
+  -> Text
+  -> Bool
+  -> Text
+  -> [Text]
+  -> [Text]
+  -> Int
+  -> Bool
+  -> ScanPatterns.DbPattern
 wrap_pattern pattern_id is_regex pattern_text is_nondeterministic description tags_list steps_list specificity is_retired = DbHelpers.WithId pattern_id inner_pattern
   where
     expression_obj = if is_regex
@@ -186,10 +197,10 @@ list_flat conn_data sql t = do
   return $ map (\(Only x) -> x) inners
 
 
-read_log :: Connection -> Builds.BuildNumber -> IO Text
+read_log :: Connection -> Builds.BuildNumber -> IO (Maybe Text)
 read_log conn (Builds.NewBuildNumber build_num) = do
-  [Only log_text] <- query conn sql (Only build_num)
-  return log_text
+  result <- query conn sql (Only build_num)
+  return $ (\(Only log_text) -> log_text) <$> Safe.headMay result
   where
     sql = "SELECT log_metadata.content FROM log_metadata JOIN builds_join_steps ON log_metadata.step = builds_join_steps.step_id WHERE builds_join_steps.build_num = ? LIMIT 1"
 

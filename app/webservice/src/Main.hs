@@ -156,6 +156,43 @@ handleStatusWebhook db_connection_data access_token status_event = do
       (LT.fromStrict myAppStatusContext)
 
 
+echo_endpoint :: S.ScottyM ()
+echo_endpoint = S.post "/api/echo" $ do
+  body <- S.body
+  headers <- S.headers
+
+  liftIO $ do
+    putStrLn "===== HEADERS ===="
+    mapM_ (\(x, y) -> putStrLn $ LT.unpack $ x <> ": " <> y) headers
+    putStrLn "== END HEADERS ==="
+    putStrLn "====== BODY ======"
+    putStrLn $ LBSC.unpack body
+    putStrLn "==== END BODY ===="
+
+
+github_event_endpoint :: DbHelpers.DbConnectionData -> AuthConfig.GithubConfig -> S.ScottyM ()
+github_event_endpoint connection_data github_config  = do
+  S.post "/api/github-event" $ do
+
+    maybe_signature_header <- S.header "X-Hub-Signature"
+    rq_body <- S.body
+
+    let is_signature_valid = GHValidate.isValidPayload
+          (AuthConfig.webhook_secret github_config)
+          (LT.toStrict <$> maybe_signature_header)
+          (LBS.toStrict rq_body)
+
+    maybe_event_type <- S.header "X-GitHub-Event"
+    case maybe_event_type of
+      Nothing -> return ()
+      Just event_type -> if is_signature_valid && event_type /= "status"
+        then return ()
+        else do
+          body_json <- S.jsonData
+          liftIO $ handleStatusWebhook connection_data (AuthConfig.personal_access_token github_config) body_json
+          S.json =<< return ["hello" :: String]
+
+
 scottyApp :: PersistenceData -> SetupData -> ScottyTypes.ScottyT LT.Text IO ()
 scottyApp (PersistenceData cache session store) (SetupData static_base github_config connection_data) = do
 
@@ -166,39 +203,11 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
     unless (AuthConfig.is_local github_config) $
       S.middleware $ forceSSL
 
-    S.post "/api/github-event" $ do
-
-      maybe_signature_header <- S.header "X-Hub-Signature"
-      rq_body <- S.body
-
-      let is_signature_valid = GHValidate.isValidPayload
-            (AuthConfig.webhook_secret github_config)
-            (LT.toStrict <$> maybe_signature_header)
-            (LBS.toStrict rq_body)
-
-      maybe_event_type <- S.header "X-GitHub-Event"
-      case maybe_event_type of
-        Nothing -> return ()
-        Just event_type -> if is_signature_valid && event_type /= "status"
-          then return ()
-          else do
-            body_json <- S.jsonData
-            liftIO $ handleStatusWebhook connection_data (AuthConfig.personal_access_token github_config) body_json
-
-            S.json =<< return ["hello" :: String]
 
     -- For debugging only
-    when (AuthConfig.is_local github_config) $ S.post "/api/echo" $ do
-      body <- S.body
-      headers <- S.headers
+    when (AuthConfig.is_local github_config) echo_endpoint
 
-      liftIO $ do
-        putStrLn "===== HEADERS ===="
-        mapM_ (\(x, y) -> putStrLn $ LT.unpack $ x <> ": " <> y) headers
-        putStrLn "== END HEADERS ==="
-        putStrLn "====== BODY ======"
-        putStrLn $ LBSC.unpack body
-        putStrLn "==== END BODY ===="
+    github_event_endpoint connection_data github_config
 
     S.post "/api/report-breakage" $ do
 
@@ -211,8 +220,6 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
       S.json $ WebApi.toJsonEither insertion_result
 
-
-    -- TODO Flatten this via Either monad
     S.post "/api/new-pattern-insert" $ do
 
       new_pattern <- pattern_from_parms
