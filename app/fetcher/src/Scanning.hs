@@ -239,9 +239,7 @@ get_and_cache_log scan_resources build_number build_step_id maybe_failed_build_o
             Builds.ScannableFailure failure_output -> Right $ Builds.log_url failure_output
 
     case either_download_url of
-      Left err_msg ->
-         putStrLn $ "PROBLEM: Failed in store_log with message: " ++ err_msg
-
+      Left err_msg ->  putStrLn $ "PROBLEM: Failed in store_log with message: " ++ err_msg
       Right download_url -> do
 
         putStrLn $ "Log not on disk. Downloading from: " ++ T.unpack download_url

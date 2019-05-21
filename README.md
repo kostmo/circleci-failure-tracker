@@ -24,6 +24,12 @@ The tool supports a "tactical" usage model with fast iterations.
 * If all of the failures were flaky, the indicator will be green.  There will be a link in the status box to dive into the details.
 * likewise for failures marked with my tool as "known problems"
 
+# Known Problem reporting
+
+Requiring that failures in the master branch be annotated will facilitate tracking of the frequency of "brokenness" of master over time, and allow us to measure whether this metric is improving.
+
+It is possible for only specific jobs of a commit to be marked as "known broken", e.g. the Travis CI Lint job.
+
 ## Data flow diagram
 
 ![flow diagram](docs/data-flow.svg)

@@ -126,18 +126,28 @@ handleStatusWebhook db_connection_data access_token status_event = do
 
   -- Do not act on receipt of statuses from the context I have created, or else
   -- we may get stuck in an infinite loop
-  if LT.toStrict (Webhooks.context status_event) /= myAppStatusContext
-    then do
+  if LT.toStrict (Webhooks.context status_event) == myAppStatusContext
+    then return $ Right ()
+    else do
 
       either_current_statuses_wrapper <- Auth.getFailedStatuses access_token owned_repo sha1
       case either_current_statuses_wrapper of
         Left err -> return $ Left err
         Right failed_statuses_list -> do
+
+          let total_failcount = length failed_statuses_list
+              flaky_count = 0 -- FIXME
+
+          -- Check if the builds have been scanned yet.
+          -- Scan each CircleCI build that needs to be scanned.
+
+          -- For each match, check if that match's pattern is tagged as "flaky".
+
           post_result <- ApiPost.postCommitStatus
             access_token
             owned_repo
             sha1
-            success_status
+            (gen_flakiness_status status_event flaky_count total_failcount)
 
           case post_result of
             Left _ -> return $ Right ()
@@ -145,29 +155,21 @@ handleStatusWebhook db_connection_data access_token status_event = do
               SqlWrite.insert_posted_github_status db_connection_data sha1 owned_repo result_obj
               return $ Right ()
 
-    else return $ Right ()
-
   where
     sha1 = LT.toStrict $ Webhooks.sha status_event
-    success_status = StatusEvent.GitHubStatusEventSetter
-      "Flakiness check"
-      "success"
-      ("https://circle.pytorch.org/commit-details.html?sha1=" <> Webhooks.sha status_event)
-      (LT.fromStrict myAppStatusContext)
 
 
-echo_endpoint :: S.ScottyM ()
-echo_endpoint = S.post "/api/echo" $ do
-  body <- S.body
-  headers <- S.headers
-
-  liftIO $ do
-    putStrLn "===== HEADERS ===="
-    mapM_ (\(x, y) -> putStrLn $ LT.unpack $ x <> ": " <> y) headers
-    putStrLn "== END HEADERS ==="
-    putStrLn "====== BODY ======"
-    putStrLn $ LBSC.unpack body
-    putStrLn "==== END BODY ===="
+gen_flakiness_status :: Webhooks.GitHubStatusEvent -> Int -> Int -> StatusEvent.GitHubStatusEventSetter
+gen_flakiness_status status_event flaky_count total_failcount = StatusEvent.GitHubStatusEventSetter
+  description
+  status_string
+  ("https://circle.pytorch.org/commit-details.html?sha1=" <> Webhooks.sha status_event)
+  (LT.fromStrict myAppStatusContext)
+  where
+    description = LT.pack $ show flaky_count <> "/" <> show total_failcount <> " flaky, " <> "/" <> " KPs"
+    status_string = if flaky_count == total_failcount
+      then "success"
+      else "failure"
 
 
 github_event_endpoint :: DbHelpers.DbConnectionData -> AuthConfig.GithubConfig -> S.ScottyM ()
@@ -191,6 +193,20 @@ github_event_endpoint connection_data github_config  = do
           body_json <- S.jsonData
           liftIO $ handleStatusWebhook connection_data (AuthConfig.personal_access_token github_config) body_json
           S.json =<< return ["hello" :: String]
+
+
+echo_endpoint :: S.ScottyM ()
+echo_endpoint = S.post "/api/echo" $ do
+  body <- S.body
+  headers <- S.headers
+
+  liftIO $ do
+    putStrLn "===== HEADERS ===="
+    mapM_ (\(x, y) -> putStrLn $ LT.unpack $ x <> ": " <> y) headers
+    putStrLn "== END HEADERS ==="
+    putStrLn "====== BODY ======"
+    putStrLn $ LBSC.unpack body
+    putStrLn "==== END BODY ===="
 
 
 scottyApp :: PersistenceData -> SetupData -> ScottyTypes.ScottyT LT.Text IO ()
@@ -246,6 +262,14 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     S.get "/api/failed-commits-by-day" $
       S.json =<< liftIO (SqlRead.api_failed_commits_by_day connection_data)
+
+    {-
+    S.get "/api/is-ancestor" $ do
+      ancestor_sha1_text <- S.param "ancestor"
+      ancestor_sha1_text <- S.param "descendent"
+
+      S.json =<< liftIO (SqlRead.api_jobs connection_data)
+    -}
 
     S.get "/api/job" $
       S.json =<< liftIO (SqlRead.api_jobs connection_data)
