@@ -236,6 +236,11 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
       S.json $ WebApi.toJsonEither insertion_result
 
+
+    S.post "/api/fetch-master-commits" $ do
+      S.json $ ("TODO" :: String)
+
+
     S.post "/api/new-pattern-insert" $ do
 
       new_pattern <- pattern_from_parms

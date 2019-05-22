@@ -5,7 +5,6 @@ module SqlWrite where
 
 import           Builds
 import           Control.Exception                 (throwIO)
-import           Control.Monad                     (when)
 import qualified Data.ByteString.Char8             as BS
 import           Data.Foldable                     (for_)
 import qualified Data.Maybe                        as Maybe
@@ -33,52 +32,9 @@ defaultPatternAuthor :: AuthStages.Username
 defaultPatternAuthor = AuthStages.Username "kostmo"
 
 
--- | We do not wipe the "builds" or "build_steps" tables
--- because visiting each build is expensive.
-allTableTruncations :: [Query]
-allTableTruncations = [
-    "TRUNCATE scanned_patterns CASCADE;"
-  , "TRUNCATE scans CASCADE;"
-  , "TRUNCATE matches CASCADE;"
-  , "TRUNCATE pattern_step_applicability CASCADE;"
-  , "TRUNCATE pattern_tags CASCADE;"
-  , "TRUNCATE pattern_authorship CASCADE;"
-  , "TRUNCATE patterns CASCADE;"
-  , "TRUNCATE log_metadata CASCADE;"
-  , "TRUNCATE build_steps CASCADE;"
-  , "TRUNCATE created_github_statuses CASCADE;"
-  , "TRUNCATE broken_revisions CASCADE;"
-  , "TRUNCATE builds CASCADE;"
-  ]
-
-
-prepare_database :: DbHelpers.DbConnectionData -> Bool -> IO Connection
-prepare_database conn_data wipe = do
-
-  conn <- DbHelpers.get_connection conn_data
-
-  when wipe $ do
-    scrub_tables conn
---    populate_patterns conn ScanPatterns.pattern_list
-    return ()
-  return conn
-
-
-scrub_tables :: Connection -> IO ()
-scrub_tables conn = do
-
-  for_ table_truncation_commands $ \table_truncation_command -> do
-    execute_ conn table_truncation_command
-
-  where
-    table_truncation_commands = allTableTruncations
-
-    -- TODO optionally exclude the last table, which is the "builds" table
-    -- table_truncation_commands = init allTableTruncations
-
-
 build_to_tuple :: Build -> (Int64, Text, Text, Text, Text)
-build_to_tuple (NewBuild (NewBuildNumber build_num) vcs_rev queuedat jobname branch) = (build_num, vcs_rev, queued_at_string, jobname, branch)
+build_to_tuple (NewBuild (NewBuildNumber build_num) vcs_rev queuedat jobname branch) =
+  (build_num, vcs_rev, queued_at_string, jobname, branch)
   where
     queued_at_string = T.pack $ formatTime defaultTimeLocale rfc822DateFormat queuedat
 
@@ -90,7 +46,12 @@ store_builds_list conn builds_list =
     map build_to_tuple builds_list
 
 
-store_matches :: ScanRecords.ScanCatchupResources -> BuildStepId -> BuildNumber -> [ScanPatterns.ScanMatch] -> IO Int64
+store_matches ::
+     ScanRecords.ScanCatchupResources
+  -> BuildStepId
+  -> BuildNumber
+  -> [ScanPatterns.ScanMatch]
+  -> IO Int64
 store_matches scan_resources (NewBuildStepId build_step_id) _build_num scoped_matches =
   executeMany conn insertion_sql $ map to_tuple scoped_matches
 
@@ -113,7 +74,12 @@ store_matches scan_resources (NewBuildStepId build_step_id) _build_num scoped_ma
     insertion_sql = "INSERT INTO matches(scan_id, build_step, pattern, line_number, line_text, span_start, span_end) VALUES(?,?,?,?,?,?,?);"
 
 
-insert_posted_github_status :: DbHelpers.DbConnectionData -> Text -> DbHelpers.OwnerAndRepo -> ApiPost.StatusPostResult -> IO Int64
+insert_posted_github_status ::
+     DbHelpers.DbConnectionData
+  -> Text
+  -> DbHelpers.OwnerAndRepo
+  -> ApiPost.StatusPostResult
+  -> IO Int64
 insert_posted_github_status conn_data git_sha1 (DbHelpers.OwnerAndRepo owner repo) (ApiPost.StatusPostResult id url state desc target_url context created_at updated_at) = do
   conn <- DbHelpers.get_connection conn_data
   [Only pattern_id] <- query conn sql (id, git_sha1, owner, repo, url, state, desc, target_url, context, created_at, updated_at)
@@ -146,12 +112,6 @@ insert_single_pattern conn (AuthStages.Username username) (ScanPatterns.NewPatte
     tag_insertion_sql = "INSERT INTO pattern_tags(tag, pattern) VALUES(?,?);"
     authorship_insertion_sql = "INSERT INTO pattern_authorship(pattern, author) VALUES(?,?);"
     applicable_step_insertion_sql = "INSERT INTO pattern_step_applicability(step_name, pattern) VALUES(?,?);"
-
-
--- | For seeding initial data
-populate_patterns :: Connection -> [ScanPatterns.Pattern] -> IO [Int64]
-populate_patterns conn pattern_list =
-  for pattern_list $ insert_single_pattern conn defaultPatternAuthor
 
 
 restore_patterns :: DbHelpers.DbConnectionData -> AuthStages.Username -> [DbHelpers.WithAuthorship ScanPatterns.DbPattern] -> IO [Int64]
@@ -194,7 +154,6 @@ insert_build_visitation scan_resources visitation = do
 
   [Only step_id] <- query conn "INSERT INTO build_steps(build, name, is_timeout) VALUES(?,?,?) RETURNING id;" $ step_failure_to_tuple visitation
   return $ NewBuildStepId step_id
-
   where
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
 

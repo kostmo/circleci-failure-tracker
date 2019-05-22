@@ -4,6 +4,7 @@ import           System.IO
 
 import qualified BuildRetrieval
 import qualified DbHelpers
+import qualified DbPreparation
 import qualified Scanning
 import qualified SqlRead
 import qualified SqlWrite
@@ -45,7 +46,7 @@ mainAppCode args = do
   capability_count <- getNumCapabilities
   print $ "Num capabilities: " ++ show capability_count
 
-  conn <- SqlWrite.prepare_database connection_data $ wipeDatabase args
+  conn <- DbPreparation.prepare_database connection_data $ wipeDatabase args
 
   BuildRetrieval.updateBuildsList conn (branchName args) fetch_count age_days
 
