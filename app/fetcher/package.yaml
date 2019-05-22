@@ -39,6 +39,7 @@ library:
     - safe
     - disk-free-space
     - process
+    - transformers
     
 executables:
   run-scanner:

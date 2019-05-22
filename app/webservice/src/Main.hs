@@ -2,6 +2,9 @@
 
 import           Control.Monad                     (unless, when)
 import           Control.Monad.IO.Class            (liftIO)
+import           Control.Monad.IO.Class            (liftIO)
+import           Control.Monad.Trans.Except        (ExceptT (ExceptT),
+                                                    runExceptT)
 import qualified Data.ByteString.Lazy              as LBS
 import qualified Data.ByteString.Lazy.Char8        as LBSC
 import           Data.Default                      (def)
@@ -11,7 +14,6 @@ import qualified Data.Maybe                        as Maybe
 import           Data.String                       (fromString)
 import           Data.Text                         (Text)
 import qualified Data.Text                         as T
-import           Data.Text.Encoding                (encodeUtf8)
 import qualified Data.Text.Lazy                    as LT
 import qualified Data.Vault.Lazy                   as Vault
 import qualified GitHub.Data.Webhooks.Validate     as GHValidate
@@ -126,34 +128,25 @@ handleStatusWebhook db_connection_data access_token status_event = do
 
   -- Do not act on receipt of statuses from the context I have created, or else
   -- we may get stuck in an infinite loop
-  if LT.toStrict (Webhooks.context status_event) == myAppStatusContext
-    then return $ Right ()
-    else do
+  runExceptT $ when (LT.toStrict (Webhooks.context status_event) == myAppStatusContext) $ do
+    failed_statuses_list <- ExceptT $ Auth.getFailedStatuses access_token owned_repo sha1
 
-      either_current_statuses_wrapper <- Auth.getFailedStatuses access_token owned_repo sha1
-      case either_current_statuses_wrapper of
-        Left err -> return $ Left err
-        Right failed_statuses_list -> do
+    let total_failcount = length failed_statuses_list
+        flaky_count = 0 -- FIXME
 
-          let total_failcount = length failed_statuses_list
-              flaky_count = 0 -- FIXME
+    -- Check if the builds have been scanned yet.
+    -- Scan each CircleCI build that needs to be scanned.
 
-          -- Check if the builds have been scanned yet.
-          -- Scan each CircleCI build that needs to be scanned.
+    -- For each match, check if that match's pattern is tagged as "flaky".
 
-          -- For each match, check if that match's pattern is tagged as "flaky".
+    post_result <- ExceptT $ ApiPost.postCommitStatus
+      access_token
+      owned_repo
+      sha1
+      (gen_flakiness_status status_event flaky_count total_failcount)
 
-          post_result <- ApiPost.postCommitStatus
-            access_token
-            owned_repo
-            sha1
-            (gen_flakiness_status status_event flaky_count total_failcount)
-
-          case post_result of
-            Left _ -> return $ Right ()
-            Right result_obj -> do
-              SqlWrite.insert_posted_github_status db_connection_data sha1 owned_repo result_obj
-              return $ Right ()
+    liftIO $ SqlWrite.insert_posted_github_status db_connection_data sha1 owned_repo post_result
+    return ()
 
   where
     sha1 = LT.toStrict $ Webhooks.sha status_event

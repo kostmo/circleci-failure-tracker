@@ -54,3 +54,4 @@ executables:
     - github
     - wreq
     - lens
+    - transformers 

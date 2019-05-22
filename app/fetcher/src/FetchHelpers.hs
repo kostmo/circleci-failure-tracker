@@ -18,6 +18,6 @@ safeGetUrl f = do
   where
     handler :: HttpException -> IO (Either String (Response LBS.ByteString))
     handler (HttpExceptionRequest _ (StatusCodeException r _)) =
-      return $ Left $ BSC.unpack (r ^. NW.responseStatus . statusMessage)
+      return $ Left $ BSC.unpack $ r ^. NW.responseStatus . statusMessage
     handler x =
       return $ Left $ show x
