@@ -10,13 +10,14 @@ import           GHC.Generics
 import           GHC.Int      (Int64)
 
 
-data BuildNumber = NewBuildNumber Int64
-  deriving (Show, Generic)
+newtype BuildNumber = NewBuildNumber Int64
+  deriving (Show, Generic, Eq, Ord)
 
 instance ToJSON BuildNumber
 instance FromJSON BuildNumber
 
-data BuildStepId = NewBuildStepId Int64
+
+newtype BuildStepId = NewBuildStepId Int64
   deriving (Show, Generic)
 
 instance ToJSON BuildStepId

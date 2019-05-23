@@ -1,4 +1,5 @@
 import           Control.Concurrent  (getNumCapabilities)
+import qualified Data.Set            as Set
 import           Options.Applicative
 import           System.IO
 
@@ -51,12 +52,7 @@ mainAppCode args = do
   BuildRetrieval.updateBuildsList conn (branchName args) fetch_count age_days
 
   scan_resources <- Scanning.prepare_scan_resources conn
-
-  visited_builds_list <- SqlRead.get_revisitable_builds conn
-  Scanning.rescan_visited_builds scan_resources visited_builds_list
-
-  unvisited_builds_list <- SqlRead.get_unvisited_build_ids conn fetch_count
-  Scanning.process_unvisited_builds scan_resources unvisited_builds_list
+  Scanning.scan_builds scan_resources (Right fetch_count)
 
   where
     fetch_count = buildCount args

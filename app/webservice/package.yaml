@@ -54,4 +54,7 @@ executables:
     - github
     - wreq
     - lens
-    - transformers 
+    - transformers
+    - network-uri 
+    - safe
+    - containers

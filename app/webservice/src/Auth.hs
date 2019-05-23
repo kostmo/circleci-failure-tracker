@@ -49,7 +49,12 @@ githubAuthTokenSessionKey :: String
 githubAuthTokenSessionKey = "github_api_token"
 
 
-getAuthenticatedUser :: Request -> Vault.Key (Session IO String String) -> AuthConfig.GithubConfig -> (AuthStages.Username -> IO a) -> IO (Either AuthStages.AuthenticationFailureStage a)
+getAuthenticatedUser ::
+     Request
+  -> Vault.Key (Session IO String String)
+  -> AuthConfig.GithubConfig
+  -> (AuthStages.Username -> IO a)
+  -> IO (Either AuthStages.AuthenticationFailureStage a)
 getAuthenticatedUser rq session github_config callback = do
 
   u <- sessionLookup githubAuthTokenSessionKey
@@ -82,12 +87,9 @@ getAuthenticatedUser rq session github_config callback = do
     Just (sessionLookup, _sessionInsert) = Vault.lookup session (vault rq)
 
 
---------------------------------------------------
--- * Handlers
---------------------------------------------------
-
 redirectToHomeM :: ActionM ()
 redirectToHomeM = redirect "/"
+
 
 errorM :: TL.Text -> ActionM ()
 errorM = throwError . ActionError
@@ -142,8 +144,6 @@ data GitHubApiSupport = GitHubApiSupport {
   }
 
 
--- TODO: may use Exception monad to capture error in this IO monad
---
 tryFetchUser ::
      AuthConfig.GithubConfig
   -> TL.Text           -- ^ code
@@ -157,11 +157,11 @@ tryFetchUser github_config code session_insert = do
     Right at -> do
       let access_token_object = OAuth2.accessToken at
           access_token_string = T.unpack $ OAuth2.atoken access_token_object
+
       liftIO $ session_insert access_token_string
+      fetchUser $ GitHubApiSupport mgr access_token_object
 
-      fetchUser (GitHubApiSupport mgr access_token_object)
-
-    Left e   -> return (Left $ TL.pack $ "tryFetchUser: cannot fetch asses token. error detail: " ++ show e)
+    Left e   -> return $ Left $ TL.pack $ "tryFetchUser: cannot fetch asses token. error detail: " ++ show e
 
 
 getFailedStatuses ::
@@ -186,6 +186,7 @@ getFailedStatuses
 
   where
     filter_failed = filter $ (== "failure") . StatusEvent._state
+    either_uri = parseURI strictURIParserOptions $ BSU.pack uri_string
     uri_string = intercalate "/" [
         "https://api.github.com/repos"
       , repo_owner
@@ -195,16 +196,12 @@ getFailedStatuses
       , "status"
       ]
 
-    either_uri = parseURI strictURIParserOptions $ BSU.pack uri_string
 
-
--- * Fetch UserInfo
---
 fetchUser :: GitHubApiSupport -> IO (Either TL.Text LoginUser)
 fetchUser (GitHubApiSupport mgr token) = do
   re <- do
     r <- OAuth2.authGetJSON mgr token Github.userInfoUri
-    return (second Github.toLoginUser r)
+    return $ second Github.toLoginUser r
 
   return (first displayOAuth2Error re)
 
@@ -221,16 +218,18 @@ isOrgMemberInner either_response = case either_response of
   Right _ -> True
 
 
--- | Alternate (user-centric) API endpoint is: https://developer.github.com/v3/orgs/members/#get-your-organization-membership
+-- | Alternate (user-centric) API endpoint is:
+-- https://developer.github.com/v3/orgs/members/#get-your-organization-membership
 isOrgMember :: T.Text -> T.Text -> IO (Either T.Text Bool)
 isOrgMember personal_access_token username = do
   mgr <- newManager tlsManagerSettings
-  -- Note: This query is currently using a Personal Access Token from a pytorch org member
-  -- This must be converted to an App token.
+
+  -- Note: This query is currently using a Personal Access Token from a pytorch org member.
+  -- TODO This must be converted to an App token.
   let api_support_data = GitHubApiSupport mgr wrapped_token
 
   case either_membership_query_uri of
-    Left x -> return $ Left ("Bad URL: " <> url_string)
+    Left x -> return $ Left $ "Bad URL: " <> url_string
     Right membership_query_uri -> do
       either_response <- OAuth2.authGetBS mgr wrapped_token membership_query_uri
       return $ Right $ isOrgMemberInner either_response
@@ -238,4 +237,3 @@ isOrgMember personal_access_token username = do
     wrapped_token = OAuth2.AccessToken personal_access_token
     url_string = "https://api.github.com/orgs/" <> targetOrganization <> "/members/" <> username
     either_membership_query_uri = parseURI strictURIParserOptions $ BSU.pack $ T.unpack url_string
-

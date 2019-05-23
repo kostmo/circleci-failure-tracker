@@ -39,11 +39,12 @@ build_to_tuple (NewBuild (NewBuildNumber build_num) vcs_rev queuedat jobname bra
     queued_at_string = T.pack $ formatTime defaultTimeLocale rfc822DateFormat queuedat
 
 
+-- | This is idempotent; builds that are already present will not be overwritten
 store_builds_list :: Connection -> [Build] -> IO Int64
 store_builds_list conn builds_list =
-
-  executeMany conn "INSERT INTO builds(build_num, vcs_revision, queued_at, job_name, branch) VALUES(?,?,?,?,?) ON CONFLICT (build_num) DO NOTHING;" $
-    map build_to_tuple builds_list
+  executeMany conn sql $ map build_to_tuple builds_list
+  where
+    sql = "INSERT INTO builds(build_num, vcs_revision, queued_at, job_name, branch) VALUES(?,?,?,?,?) ON CONFLICT (build_num) DO NOTHING;"
 
 
 store_matches ::
@@ -133,35 +134,40 @@ step_failure_to_tuple (NewBuildNumber buildnum, visitation_result) = case visita
 store_log_info :: ScanRecords.ScanCatchupResources -> BuildStepId -> ScanRecords.LogInfo -> IO Int64
 store_log_info scan_resources (NewBuildStepId step_id) (ScanRecords.LogInfo byte_count line_count log_content) = do
 
-  execute conn "INSERT INTO log_metadata(step, line_count, byte_count, content) VALUES(?,?,?,?) ON CONFLICT (step) DO NOTHING;" (step_id, line_count, byte_count, log_content)
+  execute conn sql (step_id, line_count, byte_count, log_content)
 
   where
+    sql = "INSERT INTO log_metadata(step, line_count, byte_count, content) VALUES(?,?,?,?) ON CONFLICT (step) DO NOTHING;"
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
 
 
 insert_latest_pattern_build_scan :: ScanRecords.ScanCatchupResources -> BuildNumber -> Int64 -> IO ()
 insert_latest_pattern_build_scan scan_resources (NewBuildNumber build_number) pattern_id = do
 
-  execute conn "INSERT INTO scanned_patterns(scan, build, newest_pattern) VALUES(?,?,?);" (ScanRecords.scan_id scan_resources, build_number, pattern_id)
+  execute conn sql (ScanRecords.scan_id scan_resources, build_number, pattern_id)
   return ()
 
   where
+    sql = "INSERT INTO scanned_patterns(scan, build, newest_pattern) VALUES(?,?,?);"
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
 
 
 insert_build_visitation :: ScanRecords.ScanCatchupResources -> (BuildNumber, Either BuildStepFailure ScanRecords.UnidentifiedBuildFailure) -> IO BuildStepId
 insert_build_visitation scan_resources visitation = do
 
-  [Only step_id] <- query conn "INSERT INTO build_steps(build, name, is_timeout) VALUES(?,?,?) RETURNING id;" $ step_failure_to_tuple visitation
+  [Only step_id] <- query conn sql $ step_failure_to_tuple visitation
   return $ NewBuildStepId step_id
   where
+    sql = "INSERT INTO build_steps(build, name, is_timeout) VALUES(?,?,?) RETURNING id;"
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
 
 
 insert_scan_id :: Connection -> ScanRecords.PatternId -> IO Int64
 insert_scan_id conn (ScanRecords.NewPatternId pattern_id)  = do
-  [Only pattern_id] <- query conn "INSERT INTO scans(latest_pattern_id) VALUES(?) RETURNING id;" (Only pattern_id)
+  [Only pattern_id] <- query conn sql $ Only pattern_id
   return pattern_id
+  where
+    sql = "INSERT INTO scans(latest_pattern_id) VALUES(?) RETURNING id;"
 
 
 api_new_pattern_test :: DbHelpers.DbConnectionData -> Builds.BuildNumber -> ScanPatterns.Pattern -> IO (Either String [ScanPatterns.ScanMatch])

@@ -5,10 +5,13 @@ module Scanning where
 import           Control.Lens               hiding ((<.>))
 import           Data.Aeson                 (Value)
 import           Data.Aeson.Lens            (key, _Array, _Bool, _String)
+import           Data.Either.Combinators    (rightToMaybe)
 import           Data.Foldable              (for_)
 import qualified Data.HashMap.Strict        as HashMap
 import           Data.List                  (intercalate)
 import qualified Data.Maybe                 as Maybe
+import           Data.Set                   (Set)
+import qualified Data.Set                   as Set
 import qualified Data.Text                  as T
 import qualified Data.Text.IO               as TIO
 import qualified Data.Vector                as V
@@ -30,6 +33,29 @@ import qualified ScanUtils
 import           SillyMonoids               ()
 import qualified SqlRead
 import qualified SqlWrite
+
+
+scan_builds :: ScanRecords.ScanCatchupResources -> Either (Set Builds.BuildNumber) Int -> IO ()
+scan_builds scan_resources whitelisted_builds_or_fetch_count = do
+
+  visited_builds_list <- SqlRead.get_revisitable_builds conn
+  let whitelisted_visited = visited_filter visited_builds_list
+  rescan_visited_builds scan_resources whitelisted_visited
+
+  unvisited_builds_list <- SqlRead.get_unvisited_build_ids conn maybe_fetch_limit
+  let whitelisted_unvisited = unvisited_filter unvisited_builds_list
+  process_unvisited_builds scan_resources whitelisted_unvisited
+
+  where
+    conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
+    maybe_fetch_limit = rightToMaybe whitelisted_builds_or_fetch_count
+
+    (visited_filter, unvisited_filter) = case whitelisted_builds_or_fetch_count of
+      Right _ -> (id, id)
+      Left whitelisted_builds -> (
+          filter $ (\(_, _, buildnum, _) -> buildnum `Set.member` whitelisted_builds)
+        , filter $ (`Set.member` whitelisted_builds)
+        )
 
 
 get_single_build_url :: Builds.BuildNumber -> String

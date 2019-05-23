@@ -36,6 +36,7 @@ library:
     - containers
     - unordered-containers
     - split
+    - either
     - safe
     - disk-free-space
     - process
@@ -60,3 +61,4 @@ executables:
     - fetcher
     - optparse-applicative
     - parallel-io
+    - containers

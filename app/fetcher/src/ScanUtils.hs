@@ -21,22 +21,24 @@ apply_single_pattern ::
      (Int, T.Text)
   -> ScanPatterns.DbPattern
   -> Maybe ScanPatterns.ScanMatch
-apply_single_pattern (line_number, line) db_pattern = match_partial <$> match_span
+apply_single_pattern (line_number, line) db_pattern =
+  match_partial <$> match_span
   where
+    pattern_obj = DbHelpers.record db_pattern
+
     match_span = case ScanPatterns.expression pattern_obj of
-      ScanPatterns.RegularExpression regex_text _ -> case ((T.unpack line) =~~ (encodeUtf8 regex_text) :: Maybe (MatchOffset, MatchLength)) of
-        Just (match_offset, match_length) -> Just $ ScanPatterns.NewMatchSpan match_offset (match_offset + match_length)
-        Nothing -> Nothing
-      ScanPatterns.LiteralExpression literal_text -> case Safe.headMay (Search.indices literal_text line) of
-        Just first_index -> Just $ ScanPatterns.NewMatchSpan first_index (first_index + T.length literal_text)
-        Nothing -> Nothing
+      ScanPatterns.RegularExpression regex_text _ -> do
+        (match_offset, match_length) <- ((T.unpack line) =~~ (encodeUtf8 regex_text) :: Maybe (MatchOffset, MatchLength))
+        return $ ScanPatterns.NewMatchSpan match_offset (match_offset + match_length)
+      ScanPatterns.LiteralExpression literal_text -> do
+        first_index <- Safe.headMay (Search.indices literal_text line)
+        return $ ScanPatterns.NewMatchSpan first_index (first_index + T.length literal_text)
 
     match_partial x = ScanPatterns.NewScanMatch db_pattern $
       ScanPatterns.NewMatchDetails
         line
         line_number
         x
-    pattern_obj = DbHelpers.record db_pattern
 
 
 gen_log_path :: FilePath -> Builds.BuildNumber -> FilePath

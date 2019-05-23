@@ -1,22 +1,26 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-import           Control.Monad                     (unless, when)
+import           Control.Monad                     (guard, unless, when)
 import           Control.Monad.IO.Class            (liftIO)
-import           Control.Monad.IO.Class            (liftIO)
-import           Control.Monad.Trans.Except        (ExceptT (ExceptT),
+import           Control.Monad.Trans.Except        (ExceptT (ExceptT), except,
                                                     runExceptT)
+import           Data.Bifunctor                    (first)
+import qualified Data.ByteString.Char8             as BSU
 import qualified Data.ByteString.Lazy              as LBS
 import qualified Data.ByteString.Lazy.Char8        as LBSC
 import           Data.Default                      (def)
 import           Data.List                         (filter)
 import           Data.List.Split                   (splitOn)
 import qualified Data.Maybe                        as Maybe
+import qualified Data.Set                          as Set
 import           Data.String                       (fromString)
 import           Data.Text                         (Text)
 import qualified Data.Text                         as T
 import qualified Data.Text.Lazy                    as LT
+import qualified Data.Time.Clock                   as Clock
 import qualified Data.Vault.Lazy                   as Vault
 import qualified GitHub.Data.Webhooks.Validate     as GHValidate
+import qualified Network.URI                       as URI
 import           Network.Wai
 import           Network.Wai.Middleware.ForceSSL   (forceSSL)
 import           Network.Wai.Middleware.Static
@@ -24,6 +28,7 @@ import           Network.Wai.Session               (SessionStore)
 import           Network.Wai.Session               (Session, withSession)
 import           Network.Wai.Session.ClientSession (clientsessionStore)
 import           Options.Applicative
+import qualified Safe
 import           System.Environment                (lookupEnv)
 import           System.FilePath
 import           Text.Read                         (readMaybe)
@@ -41,6 +46,7 @@ import qualified DbHelpers
 import qualified DbInsertion
 import qualified GitRev
 import qualified IDP
+import qualified Scanning
 import qualified ScanPatterns
 import qualified Session
 import qualified SqlRead
@@ -105,7 +111,6 @@ breakage_report_from_parms = do
   implicated_revision <- S.param "implicated_revision"
   revision <- S.param "revision"
 
-
   -- TODO - structural validation on both Git hashes
   return $ Breakages.NewBreakageReport
     revision
@@ -114,31 +119,78 @@ breakage_report_from_parms = do
     notes
 
 
+get_circleci_failure :: Text -> Clock.UTCTime -> StatusEvent.GitHubStatusEventSetter -> Maybe Builds.Build
+get_circleci_failure sha1 current_time event_setter = do
+  guard $ circleci_context_prefix `T.isPrefixOf` context_text
+  parsed_uri <- URI.parseURI $ LT.unpack url_text
+  last_segment <- Safe.lastMay $ splitOn "/" $ URI.uriPath parsed_uri
+  build_number <- readMaybe last_segment
+  return $ Builds.NewBuild (Builds.NewBuildNumber build_number) sha1 current_time build_name ""
+
+  where
+    context_text = LT.toStrict context
+    circleci_context_prefix = "ci/circleci: "
+    build_name = T.drop (T.length circleci_context_prefix) context_text
+
+    context = StatusEvent._context event_setter
+    url_text = StatusEvent._target_url event_setter
+
+
 handleStatusWebhook ::
      DbHelpers.DbConnectionData
   -> Text -- ^ access token
   -> Webhooks.GitHubStatusEvent
   -> IO (Either LT.Text ())
 handleStatusWebhook db_connection_data access_token status_event = do
-  putStrLn $ "State: " ++ LT.unpack (Webhooks.state status_event)
-
-  -- TODO this is a partial function
-  let (org:repo:[]) = splitOn "/" $ LT.unpack $ Webhooks.name status_event
-      owned_repo = DbHelpers.OwnerAndRepo org repo
+  current_time <- Clock.getCurrentTime
+  putStrLn $ "Notified of state: " ++ notified_status_state_string ++ " at " ++ show current_time
 
   -- Do not act on receipt of statuses from the context I have created, or else
-  -- we may get stuck in an infinite loop
-  runExceptT $ when (LT.toStrict (Webhooks.context status_event) == myAppStatusContext) $ do
+  -- we may get stuck in an infinite notification loop
+  runExceptT $ when (is_not_my_own_context && is_failure_notification) $ do
+
+    liftIO $ putStrLn $ "Notified status context was: " ++ notified_status_context_string
+
+    let notified_status_url_string = LT.unpack (Webhooks.target_url status_event)
+    when ("ci/circleci" `T.isPrefixOf` notified_status_context_text) $ do
+
+      liftIO $ putStrLn $ "CircleCI URL was: " ++ notified_status_url_string
+
+
+    let owner_repo_text = Webhooks.name status_event
+        splitted = splitOn "/" $ LT.unpack owner_repo_text
+
+    owned_repo <- except $ case splitted of
+      (org:repo:[]) -> Right $ DbHelpers.OwnerAndRepo org repo
+      _ -> Left $ "un-parseable owner/repo text: " <> owner_repo_text
+
     failed_statuses_list <- ExceptT $ Auth.getFailedStatuses access_token owned_repo sha1
+
+    let circleci_failed_builds = Maybe.mapMaybe (get_circleci_failure (LT.toStrict $ Webhooks.sha status_event) current_time) failed_statuses_list
+        scannable_build_numbers = map Builds.build_id circleci_failed_builds
+
+    liftIO $ do
+      conn <- DbHelpers.get_connection db_connection_data
+      scan_resources <- Scanning.prepare_scan_resources conn
+      SqlWrite.store_builds_list conn circleci_failed_builds
+      Scanning.scan_builds scan_resources $ Left $ Set.fromList scannable_build_numbers
+
 
     let total_failcount = length failed_statuses_list
         flaky_count = 0 -- FIXME
+
+    liftIO $ putStrLn $ "KARL: There are " <> show total_failcount <> " failed builds"
+
+    -- Filter out the CircleCI builds
 
     -- Check if the builds have been scanned yet.
     -- Scan each CircleCI build that needs to be scanned.
 
     -- For each match, check if that match's pattern is tagged as "flaky".
 
+
+    -- TODO RE-enable this
+    {-
     post_result <- ExceptT $ ApiPost.postCommitStatus
       access_token
       owned_repo
@@ -146,9 +198,16 @@ handleStatusWebhook db_connection_data access_token status_event = do
       (gen_flakiness_status status_event flaky_count total_failcount)
 
     liftIO $ SqlWrite.insert_posted_github_status db_connection_data sha1 owned_repo post_result
+    -}
     return ()
 
   where
+    notified_status_state_string = LT.unpack (Webhooks.state status_event)
+    is_failure_notification = notified_status_state_string == "failure"
+
+    notified_status_context_string = LT.unpack $ Webhooks.context status_event
+    notified_status_context_text = LT.toStrict $ Webhooks.context status_event
+    is_not_my_own_context = notified_status_context_text /= myAppStatusContext
     sha1 = LT.toStrict $ Webhooks.sha status_event
 
 
@@ -169,6 +228,8 @@ github_event_endpoint :: DbHelpers.DbConnectionData -> AuthConfig.GithubConfig -
 github_event_endpoint connection_data github_config  = do
   S.post "/api/github-event" $ do
 
+--    liftIO $ putStrLn "GOT A POST..."
+
     maybe_signature_header <- S.header "X-Hub-Signature"
     rq_body <- S.body
 
@@ -180,12 +241,15 @@ github_event_endpoint connection_data github_config  = do
     maybe_event_type <- S.header "X-GitHub-Event"
     case maybe_event_type of
       Nothing -> return ()
-      Just event_type -> if is_signature_valid && event_type /= "status"
+      Just event_type -> if not is_signature_valid
         then return ()
-        else do
-          body_json <- S.jsonData
-          liftIO $ handleStatusWebhook connection_data (AuthConfig.personal_access_token github_config) body_json
-          S.json =<< return ["hello" :: String]
+        else if event_type /= "status"
+          then do
+            S.json =<< return ["hello" :: String]
+          else do
+            body_json <- S.jsonData
+            liftIO $ handleStatusWebhook connection_data (AuthConfig.personal_access_token github_config) body_json
+            S.json =<< return ["hello" :: String]
 
 
 echo_endpoint :: S.ScottyM ()
