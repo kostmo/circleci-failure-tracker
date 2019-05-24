@@ -3,6 +3,8 @@
 module Scanning where
 
 import           Control.Lens               hiding ((<.>))
+import           Control.Monad.IO.Class     (liftIO)
+import           Control.Monad.Trans.Except (ExceptT (ExceptT), runExceptT)
 import           Data.Aeson                 (Value)
 import           Data.Aeson.Lens            (key, _Array, _Bool, _String)
 import           Data.Either.Combinators    (rightToMaybe)
@@ -232,7 +234,6 @@ is_log_cached scan_resources build_num = do
     full_filepath = ScanUtils.gen_log_path (ScanRecords.cache_dir $ ScanRecords.fetching scan_resources) build_num
 
 
--- | TODO Untangle the Eithers and IOs
 get_and_cache_log :: ScanRecords.ScanCatchupResources -> Builds.BuildNumber -> Builds.BuildStepId -> Maybe Builds.BuildFailureOutput -> IO ()
 get_and_cache_log scan_resources build_number build_step_id maybe_failed_build_output = do
 
@@ -249,11 +250,13 @@ get_and_cache_log scan_resources build_number build_step_id maybe_failed_build_o
     let lines_list = T.lines console_log
         byte_count = T.length console_log
 
-    SqlWrite.store_log_info scan_resources build_step_id $ ScanRecords.LogInfo byte_count (length lines_list) console_log
-    return ()
+    SqlWrite.store_log_info scan_resources build_step_id $
+      ScanRecords.LogInfo byte_count (length lines_list) console_log
 
-  else do
-    either_download_url <- case maybe_failed_build_output of
+    return $ Right ()
+
+  else runExceptT $ do
+    download_url <- ExceptT $ case maybe_failed_build_output of
       Just failed_build_output -> return $ Right $ Builds.log_url failed_build_output
       Nothing -> do
         visitation_result <- get_failed_build_info scan_resources build_number
@@ -264,31 +267,27 @@ get_and_cache_log scan_resources build_number build_step_id maybe_failed_build_o
             Builds.BuildTimeoutFailure             -> Left "This build didn't have a console log because it was a timeout!"
             Builds.ScannableFailure failure_output -> Right $ Builds.log_url failure_output
 
-    case either_download_url of
-      Left err_msg ->  putStrLn $ "PROBLEM: Failed in store_log with message: " ++ err_msg
-      Right download_url -> do
 
-        putStrLn $ "Log not on disk. Downloading from: " ++ T.unpack download_url
+    liftIO $ putStrLn $ "Log not on disk. Downloading from: " ++ T.unpack download_url
 
-        either_r <- FetchHelpers.safeGetUrl $ Sess.get aws_sess $ T.unpack download_url
+    log_download_result <- ExceptT $ FetchHelpers.safeGetUrl $ Sess.get aws_sess $ T.unpack download_url
 
-        case either_r of
-          Right r -> do
-            let parent_elements = r ^. NW.responseBody . _Array
-                -- we need to concatenate all of the "out" elements
-                pred x = x ^. key "type" . _String == "out"
-                output_elements = filter pred $ V.toList parent_elements
+    let parent_elements = log_download_result ^. NW.responseBody . _Array
+        -- we need to concatenate all of the "out" elements
+        pred x = x ^. key "type" . _String == "out"
+        output_elements = filter pred $ V.toList parent_elements
 
-                console_log = mconcat $ map (\x -> x ^. key "message" . _String) output_elements
-                lines_list = T.lines console_log
-                byte_count = T.length console_log
+        console_log = mconcat $ map (\x -> x ^. key "message" . _String) output_elements
+        lines_list = T.lines console_log
+        byte_count = T.length console_log
 
-            SqlWrite.store_log_info scan_resources build_step_id $ ScanRecords.LogInfo byte_count (length lines_list) console_log
+    liftIO $ do
+      SqlWrite.store_log_info scan_resources build_step_id $
+        ScanRecords.LogInfo byte_count (length lines_list) console_log
 
-            TIO.writeFile full_filepath console_log
-          Left err_message -> do
-            putStrLn $ "PROBLEM: Failed in store_log with message: " ++ err_message
-            return ()
+      TIO.writeFile full_filepath console_log
+
+  return ()
 
   where
     aws_sess = ScanRecords.aws_sess $ ScanRecords.fetching scan_resources

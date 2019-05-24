@@ -4,8 +4,6 @@ import           Control.Monad                     (guard, unless, when)
 import           Control.Monad.IO.Class            (liftIO)
 import           Control.Monad.Trans.Except        (ExceptT (ExceptT), except,
                                                     runExceptT)
-import           Data.Bifunctor                    (first)
-import qualified Data.ByteString.Char8             as BSU
 import qualified Data.ByteString.Lazy              as LBS
 import qualified Data.ByteString.Lazy.Char8        as LBSC
 import           Data.Default                      (def)
