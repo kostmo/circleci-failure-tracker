@@ -9,26 +9,26 @@ module Auth where
 
 import           Control.Monad
 import           Control.Monad.Error.Class
-import           Control.Monad.IO.Class    (liftIO)
+import           Control.Monad.IO.Class     (liftIO)
+import           Control.Monad.Trans.Except (ExceptT (ExceptT), except,
+                                             runExceptT)
 import           Data.Bifunctor
-import qualified Data.ByteString.Char8     as BSU
-import qualified Data.ByteString.Lazy      as LBS
-import           Data.List                 (intercalate)
+import qualified Data.ByteString.Char8      as BSU
+import qualified Data.ByteString.Lazy       as LBS
+import           Data.List                  (intercalate)
 import           Data.Maybe
-import qualified Data.Text                 as T
-import qualified Data.Text.Lazy            as TL
-import qualified Data.Vault.Lazy           as Vault
-import           Network.HTTP.Conduit      hiding (Request)
-import           Network.HTTP.Types
-import qualified Network.OAuth.OAuth2      as OAuth2
-import           Network.Wai               (Request, vault)
-import           Network.Wai.Session       (Session)
+import qualified Data.Text                  as T
+import qualified Data.Text.Lazy             as TL
+import qualified Data.Vault.Lazy            as Vault
+import           Network.HTTP.Conduit       hiding (Request)
+import qualified Network.OAuth.OAuth2       as OAuth2
+import           Network.Wai                (Request, vault)
+import           Network.Wai.Session        (Session)
 import           Prelude
-import           URI.ByteString            (parseURI, strictURIParserOptions)
+import           URI.ByteString             (parseURI, strictURIParserOptions)
 import           Web.Scotty
 import           Web.Scotty.Internal.Types
 
-import qualified ApiPost
 import qualified AuthConfig
 import qualified AuthStages
 import qualified DbHelpers
@@ -67,24 +67,20 @@ getAuthenticatedUser rq session github_config callback = do
       let wrapped_token = OAuth2.AccessToken $ T.pack api_token
           api_support_data = GitHubApiSupport mgr wrapped_token
 
-      either_user <- Auth.fetchUser api_support_data
-      case either_user of
-        Left _some_text -> return $ Left AuthStages.FailUsernameDetermination
-        Right (Types.LoginUser _login_name login_alias) -> do
+      runExceptT $ do
+        (Types.LoginUser _login_name login_alias) <- ExceptT $
+          (first $ const AuthStages.FailUsernameDetermination) <$> Auth.fetchUser api_support_data
 
-          let username_text = TL.toStrict login_alias
-          either_is_org_member <- Auth.isOrgMember (AuthConfig.personal_access_token github_config) username_text
-          case either_is_org_member of
-            Left org_membership_determination_err -> return $ Left $ AuthStages.FailMembershipDetermination org_membership_determination_err
-            Right is_org_member -> if is_org_member
-              then do
-                callback_result <- callback $ AuthStages.Username username_text
-                return $ Right callback_result
+        let username_text = TL.toStrict login_alias
+        is_org_member <- ExceptT $ isOrgMember (AuthConfig.personal_access_token github_config) username_text
 
-              else return $ Left $ AuthStages.FailOrgMembership (AuthStages.Username username_text) Auth.targetOrganization
+        unless is_org_member $ except $
+          Left $ AuthStages.FailOrgMembership (AuthStages.Username username_text) Auth.targetOrganization
+
+        liftIO $ callback $ AuthStages.Username username_text
 
   where
-    Just (sessionLookup, _sessionInsert) = Vault.lookup session (vault rq)
+    Just (sessionLookup, _sessionInsert) = Vault.lookup session $ vault rq
 
 
 redirectToHomeM :: ActionM ()
@@ -109,8 +105,8 @@ callbackH c github_config session_insert = do
   pas <- params
   let codeP = paramValue "code" pas
       stateP = paramValue "state" pas
-  when (null codeP) (errorM "callbackH: no code from callback request")
-  when (null stateP) (errorM "callbackH: no state from callback request")
+  when (null codeP) $ errorM "callbackH: no code from callback request"
+  when (null stateP) $ errorM "callbackH: no state from callback request"
 
   fetchTokenAndUser c github_config (head codeP) session_insert
 
@@ -131,7 +127,7 @@ fetchTokenAndUser c github_config code session_insert = do
 
       case result of
         Right luser -> updateIdp c idpData luser >> redirectToHomeM
-        Left err    -> errorM ("fetchTokenAndUser: " `TL.append` err)
+        Left err    -> errorM $ "fetchTokenAndUser: " `TL.append` err
 
   where lookIdp c1 idp1 = liftIO $ lookupKey c1 (idpLabel idp1)
         updateIdp c1 oldIdpData luser = liftIO $ insertIDPData c1 (oldIdpData {loginUser = Just luser })
@@ -220,7 +216,7 @@ isOrgMemberInner either_response = case either_response of
 
 -- | Alternate (user-centric) API endpoint is:
 -- https://developer.github.com/v3/orgs/members/#get-your-organization-membership
-isOrgMember :: T.Text -> T.Text -> IO (Either T.Text Bool)
+isOrgMember :: T.Text -> T.Text -> IO (Either AuthStages.AuthenticationFailureStage Bool)
 isOrgMember personal_access_token username = do
   mgr <- newManager tlsManagerSettings
 
@@ -229,10 +225,11 @@ isOrgMember personal_access_token username = do
   let api_support_data = GitHubApiSupport mgr wrapped_token
 
   case either_membership_query_uri of
-    Left x -> return $ Left $ "Bad URL: " <> url_string
+    Left x -> return $ Left $ AuthStages.FailMembershipDetermination $ "Bad URL: " <> url_string
     Right membership_query_uri -> do
       either_response <- OAuth2.authGetBS mgr wrapped_token membership_query_uri
       return $ Right $ isOrgMemberInner either_response
+
   where
     wrapped_token = OAuth2.AccessToken personal_access_token
     url_string = "https://api.github.com/orgs/" <> targetOrganization <> "/members/" <> username
