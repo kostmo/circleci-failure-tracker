@@ -1,5 +1,4 @@
 import           Control.Concurrent  (getNumCapabilities)
-import qualified Data.Set            as Set
 import           Options.Applicative
 import           System.IO
 
@@ -7,8 +6,6 @@ import qualified BuildRetrieval
 import qualified DbHelpers
 import qualified DbPreparation
 import qualified Scanning
-import qualified SqlRead
-import qualified SqlWrite
 
 
 data CommandLineArgs = NewCommandLineArgs {

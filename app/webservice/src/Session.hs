@@ -12,11 +12,6 @@ import           Types
 initCacheStore :: IO CacheStore
 initCacheStore = newMVar Map.empty
 
-allValues :: CacheStore -> IO [IDPData]
-allValues store = do
-  m1 <- tryReadMVar store
-  return $ maybe [] Map.elems m1
-
 removeKey :: CacheStore -> IDPLabel -> IO ()
 removeKey store idpKey = do
   m1 <- takeMVar store

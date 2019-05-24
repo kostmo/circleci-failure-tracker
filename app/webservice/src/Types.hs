@@ -10,16 +10,13 @@ module Types where
 import           Control.Concurrent.MVar
 import           Data.Aeson
 import           Data.Hashable
-import qualified Data.HashMap.Strict               as Map
+import qualified Data.HashMap.Strict     as Map
 import           Data.Maybe
 import           Data.Text.Lazy
-import qualified Data.Text.Lazy                    as TL
+import qualified Data.Text.Lazy          as TL
 import           GHC.Generics
-import           Network.HTTP.Conduit
-import           Network.OAuth.OAuth2
-import qualified Network.OAuth.OAuth2.TokenRequest as TR
 import           Text.Mustache
-import qualified Text.Mustache                     as M
+import qualified Text.Mustache           as M
 
 type IDPLabel = Text
 
@@ -35,26 +32,15 @@ class (IDP a) => HasLabel a where
   idpLabel :: a -> IDPLabel
   idpLabel = TL.pack . show
 
-class (IDP a) => HasAuthUri a where
-  authUri :: a -> Text
-
-class (IDP a) => HasTokenReq a where
-  tokenReq :: a -> Manager -> ExchangeToken -> IO (OAuth2Result TR.Errors OAuth2Token)
-
-class (IDP a) => HasUserReq a where
-  userReq :: FromJSON b => a -> Manager -> AccessToken -> IO (OAuth2Result b LoginUser)
-
 -- dummy oauth2 request error
 --
-data Errors =
-  SomeRandomError
-  deriving (Show, Eq, Generic)
+data Errors = X deriving (Generic, Show)
 
 instance FromJSON Errors where
   parseJSON = genericParseJSON defaultOptions { constructorTagModifier = camelTo2 '_', allNullaryToStringTag = True }
 
 data LoginUser = LoginUser { loginUserName :: Text
-            , loginAlias :: Text
+            , loginAlias                   :: Text
             } deriving (Eq, Show)
 
 data IDPData =
@@ -70,8 +56,6 @@ instance Eq IDPData where
 instance Ord IDPData where
   a `compare` b = idpDisplayLabel a `compare` idpDisplayLabel b
 
-newtype TemplateData = TemplateData { idpTemplateData :: [IDPData]
-                                    } deriving (Eq)
 
 -- * Mustache instances
 instance ToMustache IDPData where
@@ -86,7 +70,3 @@ instance ToMustache LoginUser where
   toMustache t' = M.object
     [ "name" ~> loginUserName t' ]
 
-instance ToMustache TemplateData where
-  toMustache td' = M.object
-    [ "idps" ~> idpTemplateData td'
-    ]

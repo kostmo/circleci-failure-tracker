@@ -2,17 +2,12 @@
 
 module Constants where
 
-import           Data.ByteString  (ByteString)
-import           Data.List        (intercalate)
-import           System.Directory (XdgDirectory (XdgCache), getXdgDirectory)
+import           Data.ByteString (ByteString)
+import           Data.List       (intercalate)
 
 
 app_name :: FilePath
 app_name = "circleci-failure-tracker"
-
-
-get_url_cache_basedir :: IO FilePath
-get_url_cache_basedir = getXdgDirectory XdgCache app_name
 
 
 json_mime_type :: ByteString

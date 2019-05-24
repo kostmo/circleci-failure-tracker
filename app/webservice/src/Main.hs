@@ -391,9 +391,6 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
     S.get "/api/idiopathic-failed-builds" $
       S.json =<< liftIO (SqlRead.api_idiopathic_builds connection_data)
 
-    S.get "/api/disk" $ do
-      S.json =<< liftIO WebApi.api_disk_space
-
     S.get "/api/pattern" $ do
       pattern_id <- S.param "pattern_id"
       S.json =<< (liftIO $ SqlRead.api_single_pattern connection_data $ read pattern_id)

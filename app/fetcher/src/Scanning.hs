@@ -15,15 +15,12 @@ import qualified Data.Maybe                 as Maybe
 import           Data.Set                   (Set)
 import qualified Data.Set                   as Set
 import qualified Data.Text                  as T
-import qualified Data.Text.IO               as TIO
 import qualified Data.Vector                as V
 import           Database.PostgreSQL.Simple (Connection)
 import           GHC.Int                    (Int64)
 import           Network.Wreq               as NW
 import qualified Network.Wreq.Session       as Sess
 import qualified Safe
-import           System.Directory           (createDirectoryIfMissing,
-                                             doesFileExist)
 
 import qualified Builds
 import qualified Constants
@@ -89,9 +86,6 @@ prepare_scan_resources conn = do
   aws_sess <- Sess.newSession
   circle_sess <- Sess.newSession
 
-  cache_dir <- Constants.get_url_cache_basedir
-  createDirectoryIfMissing True cache_dir
-
   pattern_records <- SqlRead.get_patterns conn
   let patterns_by_id = DbHelpers.to_dict pattern_records
 
@@ -105,7 +99,6 @@ prepare_scan_resources conn = do
       conn
       aws_sess
       circle_sess
-      cache_dir
 
 
 get_pattern_objects :: ScanRecords.ScanCatchupResources -> [Int64] -> [ScanPatterns.DbPattern]
@@ -135,7 +128,7 @@ catchup_scan scan_resources buildstep_id step_name (buildnum, maybe_console_outp
     Nothing -> return ()
     Just maximum_pattern_id -> do
 
-      get_and_cache_log scan_resources buildnum buildstep_id maybe_console_output_url
+      get_and_store_log scan_resources buildnum buildstep_id maybe_console_output_url
       either_matches <- scan_log scan_resources buildnum applicable_patterns
 
       case either_matches of
@@ -223,39 +216,15 @@ get_failed_build_info scan_resources build_number = do
     sess = ScanRecords.circle_sess $ ScanRecords.fetching scan_resources
 
 
-is_log_cached :: ScanRecords.ScanCatchupResources -> Builds.BuildNumber -> IO Bool
-is_log_cached scan_resources build_num = do
+get_and_store_log ::
+     ScanRecords.ScanCatchupResources
+  -> Builds.BuildNumber
+  -> Builds.BuildStepId
+  -> Maybe Builds.BuildFailureOutput
+  -> IO ()
+get_and_store_log scan_resources build_number build_step_id maybe_failed_build_output = do
 
-  is_file_existing <- doesFileExist full_filepath
-
-  putStrLn $ "Does log exist at path " ++ full_filepath ++ "? " ++ show is_file_existing
-  return is_file_existing
-  where
-    full_filepath = ScanUtils.gen_log_path (ScanRecords.cache_dir $ ScanRecords.fetching scan_resources) build_num
-
-
-get_and_cache_log :: ScanRecords.ScanCatchupResources -> Builds.BuildNumber -> Builds.BuildStepId -> Maybe Builds.BuildFailureOutput -> IO ()
-get_and_cache_log scan_resources build_number build_step_id maybe_failed_build_output = do
-
-  -- We normally shouldn't even need to perform this check, because upstream we've already
-  -- filtered out pre-cached build logs via the SQL query.
-  -- HOWEVER, the existence check at this layer is still useful for when the database is wiped (for development).
-  log_is_cached <- is_log_cached scan_resources build_number
-
-  if log_is_cached then do
-    -- XXX The disk cache can persist across wipes of the database.
-    -- Therefore, we may need to re-store log metadata to the database, given a cached log.
-
-    console_log <- TIO.readFile full_filepath
-    let lines_list = T.lines console_log
-        byte_count = T.length console_log
-
-    SqlWrite.store_log_info scan_resources build_step_id $
-      ScanRecords.LogInfo byte_count (length lines_list) console_log
-
-    return $ Right ()
-
-  else runExceptT $ do
+  runExceptT $ do
     download_url <- ExceptT $ case maybe_failed_build_output of
       Just failed_build_output -> return $ Right $ Builds.log_url failed_build_output
       Nothing -> do
@@ -268,7 +237,7 @@ get_and_cache_log scan_resources build_number build_step_id maybe_failed_build_o
             Builds.ScannableFailure failure_output -> Right $ Builds.log_url failure_output
 
 
-    liftIO $ putStrLn $ "Log not on disk. Downloading from: " ++ T.unpack download_url
+    liftIO $ putStrLn $ "Downloading log from: " ++ T.unpack download_url
 
     log_download_result <- ExceptT $ FetchHelpers.safeGetUrl $ Sess.get aws_sess $ T.unpack download_url
 
@@ -281,17 +250,13 @@ get_and_cache_log scan_resources build_number build_step_id maybe_failed_build_o
         lines_list = T.lines console_log
         byte_count = T.length console_log
 
-    liftIO $ do
-      SqlWrite.store_log_info scan_resources build_step_id $
-        ScanRecords.LogInfo byte_count (length lines_list) console_log
-
-      TIO.writeFile full_filepath console_log
+    liftIO $ SqlWrite.store_log_info scan_resources build_step_id $
+      ScanRecords.LogInfo byte_count (length lines_list) console_log
 
   return ()
 
   where
     aws_sess = ScanRecords.aws_sess $ ScanRecords.fetching scan_resources
-    full_filepath = ScanUtils.gen_log_path (ScanRecords.cache_dir $ ScanRecords.fetching scan_resources) build_number
 
 
 scan_log_text ::

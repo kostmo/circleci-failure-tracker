@@ -5,7 +5,6 @@ maintainer: kostmo@gmail.com
 license: BSD3
 dependencies:
 - base
-- aeson
 
 executables:
   demo-webapp:
@@ -18,29 +17,7 @@ executables:
     - -fhpc
     - -threaded
     dependencies:
-    - fetcher
-    - split
-    - bytestring
-    - scotty
-    - blaze-html
-    - blaze-markup
-    - directory
-    - filepath
-    - text
-    - optparse-applicative
     - wai
-    - wai-extra
-    - wai-middleware-static
-    - securemem
-    - hoauth2
-    - uri-bytestring
-    - hashable
-    - unordered-containers
-    - http-conduit
-    - mustache
-    - microlens
-    - parsec
-    - mtl
     - http-types
     - data-default
     - vault

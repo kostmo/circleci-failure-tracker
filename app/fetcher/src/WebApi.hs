@@ -5,17 +5,11 @@
 module WebApi where
 
 import           Data.Aeson
-import           Data.Text             (Text)
+import           Data.Text    (Text)
 import           GHC.Generics
-import           System.Directory      (doesDirectoryExist)
-import qualified System.DiskSpace      as DiskSpace
-import           System.FilePath.Posix (takeDirectory)
-import           System.Process        (readProcess)
 
 import qualified Builds
-import qualified Constants
-import           JsonUtils             (WithErrorMessage, dropUnderscore,
-                                        getMessage)
+import           JsonUtils    (WithErrorMessage, dropUnderscore, getMessage)
 
 
 data ErrorDetails a = ErrorDetails {
@@ -84,26 +78,3 @@ data PieSliceApiRecord = PieSliceApiRecord {
 
 instance ToJSON PieSliceApiRecord where
   toJSON = genericToJSON dropUnderscore
-
-
-api_disk_space = do
-
-  cache_dir <- Constants.get_url_cache_basedir
-  dir_exists <- doesDirectoryExist cache_dir
-
-  cache_bytes <- if dir_exists
-    then do
-      output <- readProcess "/usr/bin/du" ["--bytes", cache_dir] ""
-      return $ read $ takeWhile (\x -> x /= '\t') output
-    else return 0
-
-  let avail_space_reference_dir = if dir_exists
-        then cache_dir
-        else takeDirectory cache_dir
-
-  avail_bytes <- DiskSpace.getAvailSpace avail_space_reference_dir
-
-  return $ [
-      PieSliceApiRecord "Available" avail_bytes
-    , PieSliceApiRecord "Consumed" cache_bytes
-    ]
