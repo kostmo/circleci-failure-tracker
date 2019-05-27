@@ -37,6 +37,7 @@ executables:
     - mtl
     - data-default
     - containers
+    - MissingH
     - vault
     - http-client-tls
     - http-client

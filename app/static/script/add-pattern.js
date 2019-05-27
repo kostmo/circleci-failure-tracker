@@ -28,8 +28,7 @@ function get_random_build(destination_field_id) {
         $.get( {
           url: "/api/random-scannable-build",
           success: function( data ) {
-            $("#" + destination_field_id).val(data["build_number"]);
-
+		$("#" + destination_field_id).val(data["build_number"]);
           }
         } );
 }
@@ -92,10 +91,9 @@ function gather_pattern_data() {
 
 
 
-
 function test_pattern() {
 
-	$("#test-match-results-container").html( "" );
+	$("#test-match-results-container").html("");
 
 	var pattern_data = gather_pattern_data();
         pattern_data["build_num"] = $('#test-build-id').val();
@@ -107,10 +105,11 @@ function test_pattern() {
 
 		var inner_html = "";
 
-		if (data.length > 0) {
+		var payload = data.payload;
+		if (payload.length > 0) {
 			inner_html += "<table><tbody>";
-			for (var i=0; i<data.length; i++) {
-				var match_details = data[i]["match_details"];
+			for (var i=0; i<payload.length; i++) {
+				var match_details = payload[i]["match_details"];
 				inner_html += "<tr><td>Line " + match_details["line_number"] + ":</td><td>" + match_details["line_text"] + "</td></tr>";
 			}
 
@@ -146,7 +145,6 @@ function showUploadFailure(data) {
 }
 
 
-
 function continueSubmission(data) {
 	document.getElementById('upload-result-box').value = data;
 }
@@ -163,6 +161,15 @@ function import_patterns(button_obj) {
 }
 
 
+function prepopulate_build_number() {
+	var urlParams = new URLSearchParams(window.location.search);
+	var build_id = urlParams.get('build_id');
+
+	if (build_id) {
+		$("#test-build-id").val(build_id);
+	}
+}
+
 
 function main() {
 
@@ -171,6 +178,6 @@ function main() {
 		$("#is-nondeterministic-checkbox").prop("disabled", !checkbox.checked);
 	});
 
-
 	setup_autocomplete();
+	prepopulate_build_number();
 }

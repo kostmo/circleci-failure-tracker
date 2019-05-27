@@ -57,12 +57,23 @@ function gen_builds_table(element_id, data_url) {
 }
 
 
+function get_log_text(build_id) {
+	$.getJSON('/api/view-log', {"build_id": build_id}, function (data) {
+		console.log(data);
+	});
+}
+
+
 function populate_build_info(build_id) {
 
 	$.getJSON('/api/single-build-info', {"build_id": build_id}, function (data) {
 
+//		var local_logview_item = "<button onclick='get_log_text(" + build_id + ");'>View log</button>";
+		var local_logview_item = "<a href='/api/view-log?build_id=" + build_id + "'>Download log</a>";
+		var logview_items = "<ul><li>View log <a href='https://circleci.com/gh/pytorch/pytorch/" + build_id + "'>on CircleCI</a></li><li>" + local_logview_item + "</li></ul>";
+
 		var html = "<dl>"
-		html += "<dt>CircleCI page</dt><dd>View log <a href='https://circleci.com/gh/pytorch/pytorch/" + build_id + "'>on CircleCI</a></dd>";
+		html += "<dt>CircleCI page</dt><dd>" + logview_items + "</dd>";
 		html += "<dt>Build step:</dt><dd>" + data["step_name"] + "</dd>";
 		html += "<dt>Branch:</dt><dd>" + data["build"]["branch"] + "</dd>";
 		html += "<dt>Job name:</dt><dd>" + data["build"]["job_name"] + "</dd>";
@@ -85,6 +96,12 @@ function populate_build_info(build_id) {
 	});
 }
 
+function gen_pattern_test_link(build_id) {
+
+        $("#pattern-add-link-container").html("<a href='add-pattern.html?build_id=" + build_id + "'>Add pattern</a>");
+	
+}
+
 
 function main() {
 
@@ -93,5 +110,7 @@ function main() {
 
 	populate_build_info(build_id);
 	gen_builds_table("all-build-matches-table", "/api/build-pattern-matches?build_id=" + build_id);
+
+	gen_pattern_test_link(build_id);
 }
 

@@ -4,9 +4,11 @@ import           Control.Monad                     (guard, unless, when)
 import           Control.Monad.IO.Class            (liftIO)
 import           Control.Monad.Trans.Except        (ExceptT (ExceptT), except,
                                                     runExceptT)
+import           Data.Bifunctor                    (first)
 import qualified Data.ByteString.Lazy              as LBS
 import qualified Data.ByteString.Lazy.Char8        as LBSC
 import           Data.Default                      (def)
+import           Data.Either.Utils                 (maybeToEither)
 import           Data.List                         (filter)
 import           Data.List.Split                   (splitOn)
 import qualified Data.Maybe                        as Maybe
@@ -50,6 +52,7 @@ import qualified Session
 import qualified SqlRead
 import qualified SqlWrite
 import qualified StatusEvent
+import qualified StatusEventQuery
 import qualified Types
 import qualified WebApi
 import qualified Webhooks
@@ -109,16 +112,20 @@ breakage_report_from_parms = do
   implicated_revision <- S.param "implicated_revision"
   revision <- S.param "revision"
 
+  let maybe_implicated_revision = if T.null implicated_revision then Nothing else Just implicated_revision
+
   -- TODO - structural validation on both Git hashes
   return $ Breakages.NewBreakageReport
     revision
-    (if T.null implicated_revision then Nothing else Just implicated_revision)
+    maybe_implicated_revision
     is_broken
     notes
 
 
-get_circleci_failure :: Text -> Clock.UTCTime -> StatusEvent.GitHubStatusEventSetter -> Maybe Builds.Build
-get_circleci_failure sha1 current_time event_setter = do
+-- | XXX Note that we are obtaining the build metadata from an "unofficial"
+-- source; the queued_at time is inaccurate and the branch name is empty.
+get_circleci_failure :: Text -> StatusEventQuery.GitHubStatusEventGetter -> Maybe Builds.Build
+get_circleci_failure sha1 event_setter = do
   guard $ circleci_context_prefix `T.isPrefixOf` context_text
   parsed_uri <- URI.parseURI $ LT.unpack url_text
   last_segment <- Safe.lastMay $ splitOn "/" $ URI.uriPath parsed_uri
@@ -130,8 +137,43 @@ get_circleci_failure sha1 current_time event_setter = do
     circleci_context_prefix = "ci/circleci: "
     build_name = T.drop (T.length circleci_context_prefix) context_text
 
-    context = StatusEvent._context event_setter
-    url_text = StatusEvent._target_url event_setter
+    current_time = StatusEventQuery._created_at event_setter
+    context = StatusEventQuery._context event_setter
+    url_text = StatusEventQuery._target_url event_setter
+
+
+handleFailedStatuses ::
+     DbHelpers.DbConnectionData
+  -> Text -- ^ access token
+  -> DbHelpers.OwnerAndRepo
+  -> Text
+  -> ExceptT LT.Text IO ()
+handleFailedStatuses
+    db_connection_data
+    access_token
+    owned_repo
+    sha1 = do
+
+  current_time <- liftIO $ Clock.getCurrentTime
+  liftIO $ putStrLn $ "Processing at " ++ show current_time
+
+  failed_statuses_list <- ExceptT $ Auth.getFailedStatuses access_token owned_repo sha1
+
+  let circleci_failed_builds = Maybe.mapMaybe (get_circleci_failure sha1) failed_statuses_list
+      scannable_build_numbers = map Builds.build_id circleci_failed_builds
+
+  liftIO $ do
+    conn <- DbHelpers.get_connection db_connection_data
+    scan_resources <- Scanning.prepare_scan_resources conn
+    SqlWrite.store_builds_list conn circleci_failed_builds
+    Scanning.scan_builds scan_resources $ Left $ Set.fromList scannable_build_numbers
+
+
+  let total_failcount = length failed_statuses_list
+      flaky_count = 0 -- FIXME
+
+  liftIO $ putStrLn $ "KARL: There are " <> show total_failcount <> " failed builds"
+
 
 
 handleStatusWebhook ::
@@ -140,8 +182,6 @@ handleStatusWebhook ::
   -> Webhooks.GitHubStatusEvent
   -> IO (Either LT.Text ())
 handleStatusWebhook db_connection_data access_token status_event = do
-  current_time <- Clock.getCurrentTime
-  putStrLn $ "Notified of state: " ++ notified_status_state_string ++ " at " ++ show current_time
 
   -- Do not act on receipt of statuses from the context I have created, or else
   -- we may get stuck in an infinite notification loop
@@ -162,22 +202,11 @@ handleStatusWebhook db_connection_data access_token status_event = do
       (org:repo:[]) -> Right $ DbHelpers.OwnerAndRepo org repo
       _ -> Left $ "un-parseable owner/repo text: " <> owner_repo_text
 
-    failed_statuses_list <- ExceptT $ Auth.getFailedStatuses access_token owned_repo sha1
-
-    let circleci_failed_builds = Maybe.mapMaybe (get_circleci_failure (LT.toStrict $ Webhooks.sha status_event) current_time) failed_statuses_list
-        scannable_build_numbers = map Builds.build_id circleci_failed_builds
-
-    liftIO $ do
-      conn <- DbHelpers.get_connection db_connection_data
-      scan_resources <- Scanning.prepare_scan_resources conn
-      SqlWrite.store_builds_list conn circleci_failed_builds
-      Scanning.scan_builds scan_resources $ Left $ Set.fromList scannable_build_numbers
-
-
-    let total_failcount = length failed_statuses_list
-        flaky_count = 0 -- FIXME
-
-    liftIO $ putStrLn $ "KARL: There are " <> show total_failcount <> " failed builds"
+    handleFailedStatuses
+      db_connection_data
+      access_token
+      owned_repo
+      sha1
 
     -- Filter out the CircleCI builds
 
@@ -363,9 +392,12 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       S.json json_result
 
     S.get "/api/new-pattern-test" $ do
+      liftIO $ putStrLn $ "Testing pattern..."
       buildnum_str <- S.param "build_num"
       new_pattern <- pattern_from_parms
-      S.json =<< (liftIO $ SqlWrite.api_new_pattern_test connection_data (Builds.NewBuildNumber $ read buildnum_str) new_pattern)
+      S.json =<< (liftIO $ do
+        foo <- SqlWrite.api_new_pattern_test connection_data (Builds.NewBuildNumber $ read buildnum_str) new_pattern
+        return $ WebApi.toJsonEither foo)
 
     S.get "/api/tag-suggest" $ do
       term <- S.param "term"
@@ -390,6 +422,25 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     S.get "/api/idiopathic-failed-builds" $
       S.json =<< liftIO (SqlRead.api_idiopathic_builds connection_data)
+
+
+    -- | Access-controlled endpoint
+    S.get "/api/view-log" $ do
+      build_id <- S.param "build_id"
+
+      let callback_func _user_alias = do
+            conn <- DbHelpers.get_connection connection_data
+            SqlRead.read_log conn $ Builds.NewBuildNumber build_id
+
+      rq <- S.request
+      either_log_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
+      let log_result = do
+            maybe_log_result <- first (LT.pack . show) either_log_result
+            maybeToEither "log not in database" maybe_log_result
+
+      case log_result of
+         Right x -> S.text $ LT.fromStrict x
+         Left x  -> S.html $ "Log not available: " <> x
 
     S.get "/api/pattern" $ do
       pattern_id <- S.param "pattern_id"

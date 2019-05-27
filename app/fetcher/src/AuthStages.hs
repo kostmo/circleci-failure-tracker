@@ -9,7 +9,7 @@ import           GHC.Generics
 
 import qualified JsonUtils
 
-newtype Username = Username Text deriving Generic
+newtype Username = Username Text deriving (Generic, Show)
 
 instance ToJSON Username
 instance FromJSON Username
@@ -20,6 +20,7 @@ data AuthenticationFailureStage =
   | FailUsernameDetermination
   | FailLoginRequired
   | FailOrgMembership Username Text
+  deriving Show
 
 
 getMessage :: AuthenticationFailureStage -> Text

@@ -5,7 +5,13 @@
 {-# LANGUAGE RankNTypes                #-}
 {-# LANGUAGE TypeFamilies              #-}
 
-module Auth where
+module Auth (
+    getAuthenticatedUser
+  , getFailedStatuses
+  , logoutH
+  , callbackH
+  , githubAuthTokenSessionKey
+  ) where
 
 import           Control.Monad
 import           Control.Monad.Error.Class
@@ -36,6 +42,7 @@ import qualified Github
 import qualified Keys
 import           Session
 import qualified StatusEvent
+import qualified StatusEventQuery
 import           Types
 import           Utils
 import qualified Webhooks
@@ -164,7 +171,7 @@ getFailedStatuses ::
      T.Text
   -> DbHelpers.OwnerAndRepo
   -> T.Text
-  -> IO (Either TL.Text [StatusEvent.GitHubStatusEventSetter])
+  -> IO (Either TL.Text [StatusEventQuery.GitHubStatusEventGetter])
 getFailedStatuses
     token
     (DbHelpers.OwnerAndRepo repo_owner repo_name)
@@ -181,7 +188,7 @@ getFailedStatuses
         second (filter_failed . Webhooks._statuses) r
 
   where
-    filter_failed = filter $ (== "failure") . StatusEvent._state
+    filter_failed = filter $ (== "failure") . StatusEventQuery._state
     either_uri = parseURI strictURIParserOptions $ BSU.pack uri_string
     uri_string = intercalate "/" [
         "https://api.github.com/repos"

@@ -201,6 +201,7 @@ list_flat conn_data sql t = do
   return $ map (\(Only x) -> x) inners
 
 
+-- | Obtains the console log from database
 read_log :: Connection -> Builds.BuildNumber -> IO (Maybe Text)
 read_log conn (Builds.NewBuildNumber build_num) = do
   result <- query conn sql (Only build_num)
