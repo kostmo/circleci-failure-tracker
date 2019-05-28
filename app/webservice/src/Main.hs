@@ -42,10 +42,11 @@ import qualified AuthConfig
 import qualified AuthStages
 import qualified Breakages
 import qualified Builds
+import qualified Constants
 import qualified DbHelpers
 import qualified DbInsertion
 import qualified GitRev
-import qualified IDP
+import qualified JsonUtils
 import qualified Scanning
 import qualified ScanPatterns
 import qualified Session
@@ -128,6 +129,11 @@ get_circleci_failure :: Text -> StatusEventQuery.GitHubStatusEventGetter -> Mayb
 get_circleci_failure sha1 event_setter = do
   guard $ circleci_context_prefix `T.isPrefixOf` context_text
   parsed_uri <- URI.parseURI $ LT.unpack url_text
+
+  uri_authority <- URI.uriAuthority parsed_uri
+  let hostname = URI.uriRegName uri_authority
+  guard $ hostname == "circleci.com"
+
   last_segment <- Safe.lastMay $ splitOn "/" $ URI.uriPath parsed_uri
   build_number <- readMaybe last_segment
   return $ Builds.NewBuild (Builds.NewBuildNumber build_number) sha1 current_time build_name ""
@@ -328,7 +334,9 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
     S.post "/api/new-pattern-insert" $ do
 
       new_pattern <- pattern_from_parms
-      let callback_func user_alias = SqlWrite.api_new_pattern connection_data user_alias new_pattern
+      let callback_func user_alias = do
+            conn <- DbHelpers.get_connection connection_data
+            SqlWrite.api_new_pattern conn user_alias new_pattern
 
       rq <- S.request
       insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
@@ -344,8 +352,8 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
     -- other requests at or below that same parent directory.
     S.get "/api/github-auth-callback" $ do
       rq <- S.request
-      let Just (_sessionLookup, sessionInsert) = Vault.lookup session (vault rq)
-      Auth.callbackH cache github_config (sessionInsert Auth.githubAuthTokenSessionKey)
+      let Just (_sessionLookup, sessionInsert) = Vault.lookup session $ vault rq
+      Auth.callbackH cache github_config $ sessionInsert Auth.githubAuthTokenSessionKey
 
     S.get "/logout" $ Auth.logoutH cache
 
@@ -393,10 +401,10 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     S.get "/api/new-pattern-test" $ do
       liftIO $ putStrLn $ "Testing pattern..."
-      buildnum_str <- S.param "build_num"
+      buildnum <- S.param "build_num"
       new_pattern <- pattern_from_parms
       S.json =<< (liftIO $ do
-        foo <- SqlWrite.api_new_pattern_test connection_data (Builds.NewBuildNumber $ read buildnum_str) new_pattern
+        foo <- SqlWrite.api_new_pattern_test connection_data (Builds.NewBuildNumber buildnum) new_pattern
         return $ WebApi.toJsonEither foo)
 
     S.get "/api/tag-suggest" $ do
@@ -428,23 +436,25 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
     S.get "/api/view-log" $ do
       build_id <- S.param "build_id"
 
-      let callback_func _user_alias = do
+      let callback_func :: AuthStages.Username -> IO (Either Text Text)
+          callback_func _user_alias = do
             conn <- DbHelpers.get_connection connection_data
-            SqlRead.read_log conn $ Builds.NewBuildNumber build_id
+            maybe_log <- SqlRead.read_log conn $ Builds.NewBuildNumber build_id
+            return $ maybeToEither "log not in database" maybe_log
 
       rq <- S.request
       either_log_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
-      let log_result = do
-            maybe_log_result <- first (LT.pack . show) either_log_result
-            maybeToEither "log not in database" maybe_log_result
 
-      case log_result of
+      S.json $ WebApi.toJsonEither either_log_result
+      {-
+      case either_log_result of
          Right x -> S.text $ LT.fromStrict x
-         Left x  -> S.html $ "Log not available: " <> x
+         Left x  -> S.html $ LT.fromStrict $ "Log not available: " <> JsonUtils.getMessage x
+      -}
 
     S.get "/api/pattern" $ do
       pattern_id <- S.param "pattern_id"
-      S.json =<< (liftIO $ SqlRead.api_single_pattern connection_data $ read pattern_id)
+      S.json =<< (liftIO $ SqlRead.api_single_pattern connection_data pattern_id)
 
     S.get "/api/patterns-dump" $ do
       S.json =<< liftIO (SqlRead.dump_patterns connection_data)
@@ -502,16 +512,28 @@ mainAppCode args = do
   let prt = Maybe.fromMaybe (serverPort args) $ readMaybe =<< maybe_envar_port
   putStrLn $ "Listening on port " <> show prt
 
+  -- TODO get rid of this
   cache <- Session.initCacheStore
-  IDP.initIdps cache github_config
+  AuthConfig.initIdps cache github_config
 
   session <- Vault.newKey
   store <- fmap clientsessionStore getDefaultKey
 
-  S.scotty prt $ scottyApp (PersistenceData cache session store) credentials_data
+  let persistence_data = PersistenceData cache session store
+
+  -- XXX FOR TESTING ONLY
+  putStrLn "Starting test..."
+  runExceptT $ handleFailedStatuses
+    connection_data
+    (AuthConfig.personal_access_token github_config)
+    (DbHelpers.OwnerAndRepo Constants.project_name Constants.repo_name)
+    "39cedc8474aa641b30b427de8f90014ba3d20c13"
+  putStrLn "Ending test..."
+
+
+  S.scotty prt $ scottyApp persistence_data credentials_data
 
   where
-
     credentials_data = SetupData static_base github_config connection_data
     static_base = staticBase args
 

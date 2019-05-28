@@ -9,33 +9,26 @@ import           Data.Text    (Text)
 import           GHC.Generics
 
 import qualified Builds
-import           JsonUtils    (WithErrorMessage, dropUnderscore, getMessage)
+import qualified JsonUtils
 
 
-data ErrorDetails a = ErrorDetails {
-    _message :: Text
-  , _details :: a
-  } deriving Generic
-
-instance (ToJSON a) => ToJSON (ErrorDetails a) where
-  toJSON = genericToJSON dropUnderscore
 
 
 data JsonEither a b = JsonEither {
     _success :: Bool
-  , _error   :: Maybe (ErrorDetails a)
+  , _error   :: Maybe JsonUtils.ErrorDetails
   , _payload :: Maybe b
   } deriving Generic
 
 
 instance (ToJSON a, ToJSON b) => ToJSON (JsonEither a b) where
-  toJSON = genericToJSON dropUnderscore
+  toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
-toJsonEither :: (WithErrorMessage a, ToJSON a, ToJSON b) => Either a b -> JsonEither a b
+toJsonEither :: (JsonUtils.WithErrorDetails a, ToJSON a, ToJSON b) => Either a b -> JsonEither a b
 toJsonEither input = case input of
   Right x -> JsonEither True Nothing (Just x)
-  Left x  -> JsonEither False (Just $ ErrorDetails (getMessage x) x) Nothing
+  Left x  -> JsonEither False (Just $ JsonUtils.getDetails x) Nothing
 
 
 data ApiResponse a = ApiResponse {
@@ -50,7 +43,7 @@ data BuildNumberRecord = BuildNumberRecord {
   } deriving Generic
 
 instance ToJSON BuildNumberRecord where
-  toJSON = genericToJSON dropUnderscore
+  toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
 data BuildBranchRecord = BuildBranchRecord {
@@ -59,7 +52,7 @@ data BuildBranchRecord = BuildBranchRecord {
   } deriving Generic
 
 instance ToJSON BuildBranchRecord where
-  toJSON = genericToJSON dropUnderscore
+  toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
 data JobApiRecord = JobApiRecord {
@@ -68,7 +61,7 @@ data JobApiRecord = JobApiRecord {
   } deriving Generic
 
 instance ToJSON JobApiRecord where
-  toJSON = genericToJSON dropUnderscore
+  toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
 data PieSliceApiRecord = PieSliceApiRecord {
@@ -77,4 +70,4 @@ data PieSliceApiRecord = PieSliceApiRecord {
   } deriving Generic
 
 instance ToJSON PieSliceApiRecord where
-  toJSON = genericToJSON dropUnderscore
+  toJSON = genericToJSON JsonUtils.dropUnderscore

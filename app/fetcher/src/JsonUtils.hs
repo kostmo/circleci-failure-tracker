@@ -1,22 +1,33 @@
+{-# LANGUAGE DeriveGeneric        #-}
 {-# LANGUAGE FlexibleInstances    #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 
 module JsonUtils where
 
 import           Data.Aeson
-import           Data.Text  (Text)
-import qualified Data.Text  as T
+import           Data.Text    (Text)
+import qualified Data.Text    as T
+import           GHC.Generics
 
 
 dropUnderscore = defaultOptions {fieldLabelModifier = drop 1}
 
 
-class WithErrorMessage a where
-  getMessage :: a -> Text
+data ErrorDetails = ErrorDetails {
+    _message :: Text
+  , _details :: Maybe Value
+  } deriving Generic
+
+instance ToJSON ErrorDetails where
+  toJSON = genericToJSON dropUnderscore
 
 
-instance WithErrorMessage Text where
-  getMessage = id
+class WithErrorDetails a where
+  getDetails :: a -> ErrorDetails
 
-instance WithErrorMessage String where
-  getMessage = T.pack
+
+instance WithErrorDetails Text where
+  getDetails x = ErrorDetails x Nothing
+
+instance WithErrorDetails String where
+  getDetails x = ErrorDetails (T.pack x) Nothing

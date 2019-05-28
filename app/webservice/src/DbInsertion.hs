@@ -13,39 +13,39 @@ import           GHC.Int        (Int64)
 
 import qualified AuthConfig
 import qualified AuthStages
-import qualified IDP
-import           JsonUtils      (dropUnderscore)
+import qualified JsonUtils
 import qualified Types
 import qualified WebApi
 
 
-
-data InsertionFailureResponse = InsertionFailureResponse {
+data BackendFailureResponse = BackendFailureResponse {
     _authentication_failed :: Maybe Bool
   , _database_failed       :: Maybe Bool
   , _login_url             :: Maybe Text
   } deriving Generic
 
-instance ToJSON InsertionFailureResponse where
-  toJSON = genericToJSON dropUnderscore
+instance ToJSON BackendFailureResponse where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
 
+
+backendFailureToResponse auth_config failure_mode =
+  WebApi.JsonEither False (Just stuff) Nothing
+  where
+  stuff = case failure_mode of
+    AuthStages.AuthFailure (AuthStages.AuthenticationFailure _maybe_login_url auth_failure_stage) -> let
+         inner = BackendFailureResponse (Just True) Nothing (Just $ AuthConfig.getLoginUrl auth_config)
+      in JsonUtils.ErrorDetails (AuthStages.getErrorMessage auth_failure_stage) $ Just $ toJSON inner
+
+    AuthStages.DbFailure db_failure_reason -> let
+      inner = Just $ toJSON $ BackendFailureResponse Nothing (Just True) Nothing
+      in JsonUtils.ErrorDetails db_failure_reason inner
 
 
 toInsertionResponse ::
      AuthConfig.GithubConfig
-  -> Either AuthStages.AuthenticationFailureStage (Either Text Int64)
-  -> WebApi.JsonEither InsertionFailureResponse Int64
-toInsertionResponse auth_config authentication_result = case authentication_result of
-  Right callback_result -> case callback_result of
-    Right record_id -> WebApi.JsonEither True Nothing $ Just record_id
-    Left db_failure_reason -> let
-      inner = InsertionFailureResponse (Nothing) (Just True) Nothing
-      in WebApi.JsonEither False (Just $ WebApi.ErrorDetails db_failure_reason inner) Nothing
-
-  Left auth_failure_stage -> let
-    idp_data = IDP.mkIDPData auth_config
-    inner = InsertionFailureResponse (Just True) Nothing (Just $ TL.toStrict $ Types.codeFlowUri idp_data)
-    in WebApi.JsonEither False (Just $ WebApi.ErrorDetails (AuthStages.getMessage auth_failure_stage) inner) Nothing
-
-
+  -> Either (AuthStages.BackendFailure Text) Int64
+  -> WebApi.JsonEither BackendFailureResponse Int64
+toInsertionResponse auth_config interaction_result = case interaction_result of
+  Right record_id   -> WebApi.JsonEither True Nothing $ Just record_id
+  Left failure_mode -> backendFailureToResponse auth_config failure_mode
 

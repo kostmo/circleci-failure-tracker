@@ -39,7 +39,6 @@ import qualified AuthConfig
 import qualified AuthStages
 import qualified DbHelpers
 import qualified Github
-import qualified Keys
 import           Session
 import qualified StatusEvent
 import qualified StatusEventQuery
@@ -60,14 +59,14 @@ getAuthenticatedUser ::
      Request
   -> Vault.Key (Session IO String String)
   -> AuthConfig.GithubConfig
-  -> (AuthStages.Username -> IO a)
-  -> IO (Either AuthStages.AuthenticationFailureStage a)
+  -> (AuthStages.Username -> IO (Either a b))
+  -> IO (Either (AuthStages.BackendFailure a) b)
 getAuthenticatedUser rq session github_config callback = do
 
   u <- sessionLookup githubAuthTokenSessionKey
 
   case u of
-    Nothing -> return $ Left $ AuthStages.FailLoginRequired
+    Nothing -> return $ Left $ AuthStages.AuthFailure $ AuthStages.AuthenticationFailure (Just $ AuthStages.LoginUrl login_url) AuthStages.FailLoginRequired
     Just api_token -> do
 
       mgr <- newManager tlsManagerSettings
@@ -76,18 +75,23 @@ getAuthenticatedUser rq session github_config callback = do
 
       runExceptT $ do
         (Types.LoginUser _login_name login_alias) <- ExceptT $
-          (first $ const AuthStages.FailUsernameDetermination) <$> Auth.fetchUser api_support_data
+          (first $ const (AuthStages.AuthFailure $ AuthStages.AuthenticationFailure (Just $ AuthStages.LoginUrl login_url) AuthStages.FailUsernameDetermination)) <$> Auth.fetchUser api_support_data
 
         let username_text = TL.toStrict login_alias
-        is_org_member <- ExceptT $ isOrgMember (AuthConfig.personal_access_token github_config) username_text
+        is_org_member <- ExceptT $ do
+          either_membership <- isOrgMember (AuthConfig.personal_access_token github_config) username_text
+          return $ first (\x -> AuthStages.AuthFailure $ AuthStages.AuthenticationFailure (Just $ AuthStages.LoginUrl login_url) x)  either_membership
 
         unless is_org_member $ except $
-          Left $ AuthStages.FailOrgMembership (AuthStages.Username username_text) Auth.targetOrganization
+          Left $ AuthStages.AuthFailure $ AuthStages.AuthenticationFailure (Just $ AuthStages.LoginUrl login_url)
+            $ AuthStages.FailOrgMembership (AuthStages.Username username_text) Auth.targetOrganization
 
-        liftIO $ callback $ AuthStages.Username username_text
+        ExceptT $ fmap (first AuthStages.DbFailure) $
+          callback $ AuthStages.Username username_text
 
   where
     Just (sessionLookup, _sessionInsert) = Vault.lookup session $ vault rq
+    login_url = AuthConfig.getLoginUrl github_config
 
 
 redirectToHomeM :: ActionM ()
@@ -154,7 +158,7 @@ tryFetchUser ::
   -> IO (Either TL.Text LoginUser)
 tryFetchUser github_config code session_insert = do
   mgr <- newManager tlsManagerSettings
-  token <- OAuth2.fetchAccessToken mgr (Keys.githubKey github_config) (OAuth2.ExchangeToken $ TL.toStrict code)
+  token <- OAuth2.fetchAccessToken mgr (AuthConfig.githubKey github_config) (OAuth2.ExchangeToken $ TL.toStrict code)
 
   case token of
     Right at -> do
@@ -165,6 +169,40 @@ tryFetchUser github_config code session_insert = do
       fetchUser $ GitHubApiSupport mgr access_token_object
 
     Left e   -> return $ Left $ TL.pack $ "tryFetchUser: cannot fetch asses token. error detail: " ++ show e
+
+
+getFailedStatusesRecurse
+    mgr
+    token
+    uri_prefix
+    page_offset
+    old_retrieved_items = do
+
+  putStrLn $ "Querying URL for build statuses: " ++ uri_string
+
+  runExceptT $ do
+
+    uri <- except $ first (const $ "Bad URL: " <> TL.pack uri_string) either_uri
+    r <- ExceptT $ fmap (first displayOAuth2Error) $ OAuth2.authGetJSON mgr (OAuth2.AccessToken token) uri
+
+    let newly_retrieved_items = Webhooks._statuses r
+        expected_count = Webhooks._total_count r
+        combined_list = old_retrieved_items ++ newly_retrieved_items
+
+    if length combined_list < expected_count
+      then ExceptT $ getFailedStatusesRecurse
+        mgr
+        token
+        uri_prefix
+        (page_offset + 1)
+        combined_list
+      else return combined_list
+
+  where
+    either_uri = parseURI strictURIParserOptions $ BSU.pack uri_string
+
+    per_page_count = 100
+    uri_string = uri_prefix <> "?per_page=" <> show per_page_count <> "&page=" <> show page_offset
 
 
 getFailedStatuses ::
@@ -179,18 +217,18 @@ getFailedStatuses
 
   mgr <- newManager tlsManagerSettings
 
-  case either_uri of
-    Left x -> return $ Left $ "Bad URL: " <> TL.pack uri_string
-    Right uri -> do
-      r <- OAuth2.authGetJSON mgr (OAuth2.AccessToken token) uri
+  either_items <- getFailedStatusesRecurse
+    mgr
+    token
+    uri_prefix
+    1
+    []
 
-      return $ first displayOAuth2Error $
-        second (filter_failed . Webhooks._statuses) r
-
+  return $ fmap filter_failed either_items
   where
     filter_failed = filter $ (== "failure") . StatusEventQuery._state
-    either_uri = parseURI strictURIParserOptions $ BSU.pack uri_string
-    uri_string = intercalate "/" [
+
+    uri_prefix = intercalate "/" [
         "https://api.github.com/repos"
       , repo_owner
       , repo_name
@@ -223,7 +261,7 @@ isOrgMemberInner either_response = case either_response of
 
 -- | Alternate (user-centric) API endpoint is:
 -- https://developer.github.com/v3/orgs/members/#get-your-organization-membership
-isOrgMember :: T.Text -> T.Text -> IO (Either AuthStages.AuthenticationFailureStage Bool)
+isOrgMember :: T.Text -> T.Text -> IO (Either AuthStages.AuthenticationFailureStageInfo Bool)
 isOrgMember personal_access_token username = do
   mgr <- newManager tlsManagerSettings
 

@@ -24,7 +24,7 @@ instance FromJSON MatchExpression
 
 
 is_regex :: MatchExpression -> Bool
-is_regex x = case x of
+is_regex = \case
   RegularExpression _ _ -> True
   LiteralExpression _   -> False
 

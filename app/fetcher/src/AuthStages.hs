@@ -15,25 +15,58 @@ instance ToJSON Username
 instance FromJSON Username
 
 
-data AuthenticationFailureStage =
+data BackendFailure a
+  = AuthFailure AuthenticationFailureStage
+  | DbFailure a
+  deriving Generic
+
+instance (ToJSON a) => ToJSON (BackendFailure a)
+
+instance (JsonUtils.WithErrorDetails a) => JsonUtils.WithErrorDetails (BackendFailure a) where
+  getDetails mode = case mode of
+    AuthFailure y -> JsonUtils.getDetails y
+    DbFailure z   -> JsonUtils.getDetails z
+
+
+
+data LoginUrl = LoginUrl {
+    login_url :: Text
+  } deriving Generic
+
+instance ToJSON LoginUrl
+
+
+data AuthenticationFailureStage = AuthenticationFailure (Maybe LoginUrl) AuthenticationFailureStageInfo
+  deriving Generic
+
+instance ToJSON AuthenticationFailureStage
+
+
+data AuthenticationFailureStageInfo =
     FailMembershipDetermination Text
   | FailUsernameDetermination
   | FailLoginRequired
   | FailOrgMembership Username Text
   deriving Show
 
+instance ToJSON AuthenticationFailureStageInfo where
+  toJSON = toJSON . getErrorMessage
 
-getMessage :: AuthenticationFailureStage -> Text
-getMessage (FailMembershipDetermination msg) = "Could not determine org membership: " <> msg
-getMessage FailUsernameDetermination = "Could not determine username."
-getMessage FailLoginRequired = "token lookup failed; you need to log in!"
-getMessage (FailOrgMembership (Username username_text) x) = "User \"" <> username_text <> "\" is not a member of the organization \"" <> x <> "\"!"
+instance JsonUtils.WithErrorDetails AuthenticationFailureStage where
+  getDetails (AuthenticationFailure login_url stage_info) = JsonUtils.ErrorDetails (getErrorMessage stage_info) z
+    where
+      z = case stage_info of
+        FailUsernameDetermination -> Just $ toJSON login_url
+        FailLoginRequired         -> Just $ toJSON login_url
+        _                         -> Nothing
 
 
-instance JsonUtils.WithErrorMessage AuthenticationFailureStage where
-  getMessage = getMessage
+getErrorMessage :: AuthenticationFailureStageInfo -> Text
+getErrorMessage (FailMembershipDetermination msg) = "Could not determine org membership: " <> msg
+getErrorMessage FailUsernameDetermination = "Could not determine username."
+getErrorMessage FailLoginRequired = "token lookup failed; you need to log in!"
+getErrorMessage (FailOrgMembership (Username username_text) x) = "User \"" <> username_text <> "\" is not a member of the organization \"" <> x <> "\"!"
 
 
-instance ToJSON AuthenticationFailureStage where
-  toJSON = toJSON . getMessage
+
 

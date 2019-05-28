@@ -43,6 +43,16 @@ Ubuntu packages:
     sudo apt-get install libgmp3-dev libpq-dev
 
 
+Architecture notes
+=============
+
+Log storage
+-----------
+
+Console logs are stored in the Postgres database. Since large string fields (including `text` datatype)
+are [automatically "TOAST"ed](https://stackoverflow.com/a/3801515/105137), this sidesteps the issue
+of implementing compression.
+
 
 Local testing
 ===========

@@ -115,10 +115,11 @@ insert_single_pattern conn (AuthStages.Username username) (ScanPatterns.NewPatte
     applicable_step_insertion_sql = "INSERT INTO pattern_step_applicability(step_name, pattern) VALUES(?,?);"
 
 
-restore_patterns :: DbHelpers.DbConnectionData -> AuthStages.Username -> [DbHelpers.WithAuthorship ScanPatterns.DbPattern] -> IO [Int64]
+restore_patterns :: DbHelpers.DbConnectionData -> AuthStages.Username -> [DbHelpers.WithAuthorship ScanPatterns.DbPattern] -> IO (Either Text [Int64])
 restore_patterns conn_data user pattern_list = do
   conn <- DbHelpers.get_connection conn_data
-  for pattern_list $ insert_single_pattern conn user . DbHelpers.record . DbHelpers.payload
+  eithers <- for pattern_list $ api_new_pattern conn user . DbHelpers.record . DbHelpers.payload
+  return $ sequenceA eithers
 
 
 step_failure_to_tuple :: (BuildNumber, Either BuildStepFailure ScanRecords.UnidentifiedBuildFailure) -> (Int64, Maybe Text, Bool)
@@ -209,13 +210,11 @@ api_new_breakage_report
 
 
 api_new_pattern ::
-     DbHelpers.DbConnectionData
+     Connection
   -> AuthStages.Username
   -> ScanPatterns.Pattern
   -> IO (Either Text Int64)
-api_new_pattern conn_data author_username new_pattern = do
-
-  conn <- DbHelpers.get_connection conn_data
+api_new_pattern conn author_username new_pattern = do
 
   catchViolation catcher $ do
     record_id <- insert_single_pattern conn author_username new_pattern

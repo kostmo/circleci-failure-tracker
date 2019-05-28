@@ -11,7 +11,6 @@ import           Data.Time        (UTCTime)
 import           GHC.Generics
 
 import qualified JsonUtils
-import qualified StatusEvent
 import qualified StatusEventQuery
 
 
@@ -31,7 +30,8 @@ instance FromJSON GitHubStatusEvent
 
 data GitHubCombinedStatuses = GitHubCombinedStatuses {
 --    _state    :: Text -- ^ collides with GitHubStatusEventSetter
-    _statuses :: [StatusEventQuery.GitHubStatusEventGetter]
+    _statuses    :: [StatusEventQuery.GitHubStatusEventGetter]
+  , _total_count :: Int
   } deriving (Generic, Show)
 
 instance FromJSON GitHubCombinedStatuses where

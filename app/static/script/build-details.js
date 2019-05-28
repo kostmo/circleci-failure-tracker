@@ -60,6 +60,17 @@ function gen_builds_table(element_id, data_url) {
 function get_log_text(build_id) {
 	$.getJSON('/api/view-log', {"build_id": build_id}, function (data) {
 		console.log(data);
+
+		if (data.success) {
+			var w = window.open('', '', 'width=400,height=400,resizeable,scrollbars');
+			w.document.write(data.payload);
+			w.document.close();
+		} else {
+			var proceed = confirm("Need to login first...");
+			if (proceed) {
+				window.location.href = data.error.details.login_url;
+			}
+		}
 	});
 }
 
@@ -68,8 +79,8 @@ function populate_build_info(build_id) {
 
 	$.getJSON('/api/single-build-info', {"build_id": build_id}, function (data) {
 
-//		var local_logview_item = "<button onclick='get_log_text(" + build_id + ");'>View log</button>";
-		var local_logview_item = "<a href='/api/view-log?build_id=" + build_id + "'>Download log</a>";
+		var local_logview_item = "<button onclick='get_log_text(" + build_id + ");'>View log</button>";
+//		var local_logview_item = "<a href='/api/view-log?build_id=" + build_id + "'>Download log</a>";
 		var logview_items = "<ul><li>View log <a href='https://circleci.com/gh/pytorch/pytorch/" + build_id + "'>on CircleCI</a></li><li>" + local_logview_item + "</li></ul>";
 
 		var html = "<dl>"

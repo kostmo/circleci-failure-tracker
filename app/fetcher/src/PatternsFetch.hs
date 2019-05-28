@@ -2,10 +2,11 @@
 
 module PatternsFetch where
 
-import           Control.Monad.IO.Class     (liftIO)
 import           Control.Monad.Trans.Except (ExceptT (ExceptT), except,
                                              runExceptT)
 import           Data.Aeson                 (eitherDecode)
+import           Data.Bifunctor             (first)
+import qualified Data.Text                  as T
 import           GHC.Int                    (Int64)
 import qualified Network.HTTP.Client        as NC
 import           Network.Wreq               as NW
@@ -22,7 +23,7 @@ populate_patterns ::
 populate_patterns connection_data = runExceptT $ do
   response <- ExceptT $ FetchHelpers.safeGetUrl $ NW.get url_string
   decoded_json <- except $ eitherDecode $ NC.responseBody response
-  liftIO $ SqlWrite.restore_patterns connection_data SqlWrite.defaultPatternAuthor decoded_json
+  ExceptT $ fmap (first T.unpack) $ SqlWrite.restore_patterns connection_data SqlWrite.defaultPatternAuthor decoded_json
 
   where
     url_string = "https://raw.githubusercontent.com/kostmo/circleci-failure-tracker/master/data/patterns-dump.json"
