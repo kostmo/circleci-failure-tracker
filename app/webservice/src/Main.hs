@@ -4,7 +4,6 @@ import           Control.Monad                     (guard, unless, when)
 import           Control.Monad.IO.Class            (liftIO)
 import           Control.Monad.Trans.Except        (ExceptT (ExceptT), except,
                                                     runExceptT)
-import           Data.Bifunctor                    (first)
 import qualified Data.ByteString.Lazy              as LBS
 import qualified Data.ByteString.Lazy.Char8        as LBSC
 import           Data.Default                      (def)
@@ -36,7 +35,6 @@ import           Web.ClientSession                 (getDefaultKey)
 import qualified Web.Scotty                        as S
 import qualified Web.Scotty.Internal.Types         as ScottyTypes
 
-import qualified ApiPost
 import qualified Auth
 import qualified AuthConfig
 import qualified AuthStages
@@ -46,7 +44,6 @@ import qualified Constants
 import qualified DbHelpers
 import qualified DbInsertion
 import qualified GitRev
-import qualified JsonUtils
 import qualified Scanning
 import qualified ScanPatterns
 import qualified Session
@@ -431,7 +428,6 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
     S.get "/api/idiopathic-failed-builds" $
       S.json =<< liftIO (SqlRead.api_idiopathic_builds connection_data)
 
-
     -- | Access-controlled endpoint
     S.get "/api/view-log" $ do
       build_id <- S.param "build_id"
@@ -444,13 +440,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
       rq <- S.request
       either_log_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
-
       S.json $ WebApi.toJsonEither either_log_result
-      {-
-      case either_log_result of
-         Right x -> S.text $ LT.fromStrict x
-         Left x  -> S.html $ LT.fromStrict $ "Log not available: " <> JsonUtils.getMessage x
-      -}
 
     S.get "/api/pattern" $ do
       pattern_id <- S.param "pattern_id"

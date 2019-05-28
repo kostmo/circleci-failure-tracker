@@ -7,6 +7,7 @@ module SqlRead where
 import           Control.Monad                        (forM)
 import           Data.Aeson
 import           Data.List.Split                      (splitOn)
+import           Data.Scientific                      (Scientific)
 import           Data.Text                            (Text)
 import qualified Data.Text                            as T
 import           Data.Time                            (UTCTime)
@@ -276,12 +277,16 @@ count_revision_builds conn_data git_revision = do
     sql = "SELECT COUNT(*) FROM best_pattern_match_augmented_builds WHERE vcs_revision = ?;"
 
 
+-- | NOTE: Some of these values can be derived from the others.
+-- We query for them all as a sanity check.
 data SummaryStats = SummaryStats {
-    _failed_builds      :: Int
-  , _visited_builds     :: Int
-  , _explained_failures :: Int
-  , _timed_out_steps    :: Int
-  , _steps_with_a_match :: Int
+    _failed_builds              :: Int
+  , _visited_builds             :: Int
+  , _explained_failures         :: Int
+  , _timed_out_steps            :: Int
+  , _steps_with_a_match         :: Int
+  , _unattributed_failed_builds :: Int
+  , _idiopathic_build_failures  :: Int
   } deriving Generic
 
 instance ToJSON SummaryStats where
@@ -296,20 +301,23 @@ api_summary_stats conn_data = do
   [Only explained_count] <- query_ conn "SELECT COUNT(*) FROM build_steps WHERE name IS NOT NULL"
   [Only timeout_count] <- query_ conn "SELECT COUNT(*) FROM build_steps WHERE is_timeout"
   [Only matched_steps_count] <- query_ conn "SELECT COUNT(*) FROM (SELECT build_step FROM public.matches GROUP BY build_step) x"
-
-  return $ SummaryStats build_count visited_count explained_count timeout_count matched_steps_count
+  [Only unattributed_failed_builds] <- query_ conn "SELECT COUNT(*) FROM unattributed_failed_builds"
+  [Only idiopathic_build_failures] <- query_ conn "SELECT COUNT(*) FROM idiopathic_build_failures"
+  return $ SummaryStats build_count visited_count explained_count timeout_count matched_steps_count unattributed_failed_builds idiopathic_build_failures
 
 
 data PatternRecord = PatternRecord {
-    _id          :: Int64
-  , _is_regex    :: Bool
-  , _pattern     :: Text
-  , _description :: Text
-  , _frequency   :: Int
-  , _last        :: Maybe UTCTime
-  , _earliest    :: Maybe UTCTime
-  , _tags        :: [String]
-  , _specificity :: Int
+    _id              :: Int64
+  , _is_regex        :: Bool
+  , _pattern         :: Text
+  , _description     :: Text
+  , _frequency       :: Int
+  , _last            :: Maybe UTCTime
+  , _earliest        :: Maybe UTCTime
+  , _tags            :: [String]
+  , _steps           :: [String]
+  , _specificity     :: Int
+  , _percent_scanned :: Scientific
   } deriving Generic
 
 instance ToJSON PatternRecord where
@@ -317,17 +325,17 @@ instance ToJSON PatternRecord where
 
 
 make_pattern_records =
-  map $ \(a, b, c, d, e, f, g, h, i) ->
-    PatternRecord a b c d e f g (split_agg_text h) i
+  map $ \(a, b, c, d, e, f, g, h, i, j, k) ->
+    PatternRecord a b c d e f g (split_agg_text h) (split_agg_text i) j k
 
 
 api_single_pattern :: DbHelpers.DbConnectionData -> Int ->  IO [PatternRecord]
 api_single_pattern conn_data pattern_id = do
   conn <- DbHelpers.get_connection conn_data
-  xs <- query conn sql (Only pattern_id)
+  xs <- query conn sql $ Only pattern_id
   return $ make_pattern_records xs
   where
-    sql = "SELECT id, regex, expression, description, matching_build_count, most_recent, earliest, tags, specificity FROM pattern_frequency_summary WHERE id = ?;"
+    sql = "SELECT id, regex, expression, description, matching_build_count, most_recent, earliest, tags, steps, specificity, CAST((scanned_count * 100 / total_scanned_builds) AS DECIMAL(6, 1)) AS percent_scanned FROM pattern_frequency_summary WHERE id = ?;"
 
 
 api_patterns :: DbHelpers.DbConnectionData -> IO [PatternRecord]
@@ -336,7 +344,7 @@ api_patterns conn_data = do
   xs <- query_ conn sql
   return $ make_pattern_records xs
   where
-    sql = "SELECT id, regex, expression, description, matching_build_count, most_recent, earliest, tags, specificity FROM pattern_frequency_summary ORDER BY matching_build_count DESC;"
+    sql = "SELECT id, regex, expression, description, matching_build_count, most_recent, earliest, tags, steps, specificity, CAST((scanned_count * 100 / total_scanned_builds) AS DECIMAL(6, 1)) AS percent_scanned FROM pattern_frequency_summary ORDER BY matching_build_count DESC;"
 
 
 -- | For the purpose of database upgrades
@@ -366,7 +374,7 @@ api_patterns_branch_filtered conn_data branches = do
   return $ make_pattern_records xs
 
   where
-    sql = "SELECT patterns_augmented.id, patterns_augmented.regex, patterns_augmented.expression, patterns_augmented.description, COALESCE(aggregated_build_matches.matching_build_count, 0::int) AS matching_build_count, aggregated_build_matches.most_recent, aggregated_build_matches.earliest, patterns_augmented.tags, patterns_augmented.specificity FROM patterns_augmented LEFT JOIN ( SELECT best_pattern_match_for_builds.pattern_id AS pat, count(best_pattern_match_for_builds.build) AS matching_build_count, max(builds.queued_at) AS most_recent, min(builds.queued_at) AS earliest FROM best_pattern_match_for_builds JOIN builds ON builds.build_num = best_pattern_match_for_builds.build WHERE builds.branch IN ? GROUP BY best_pattern_match_for_builds.pattern_id) aggregated_build_matches ON patterns_augmented.id = aggregated_build_matches.pat ORDER BY matching_build_count DESC;"
+    sql = "SELECT patterns_augmented.id, patterns_augmented.regex, patterns_augmented.expression, patterns_augmented.description, COALESCE(aggregated_build_matches.matching_build_count, 0::int) AS matching_build_count, aggregated_build_matches.most_recent, aggregated_build_matches.earliest, patterns_augmented.tags, patterns_augmented.steps, patterns_augmented.specificity, CAST((patterns_augmented.scanned_count * 100 / patterns_augmented.total_scanned_builds) AS DECIMAL(6, 1)) AS percent_scanned FROM patterns_augmented LEFT JOIN ( SELECT best_pattern_match_for_builds.pattern_id AS pat, count(best_pattern_match_for_builds.build) AS matching_build_count, max(builds.queued_at) AS most_recent, min(builds.queued_at) AS earliest FROM best_pattern_match_for_builds JOIN builds ON builds.build_num = best_pattern_match_for_builds.build WHERE builds.branch IN ? GROUP BY best_pattern_match_for_builds.pattern_id) aggregated_build_matches ON patterns_augmented.id = aggregated_build_matches.pat ORDER BY matching_build_count DESC;"
 
 
 data PatternOccurrences = PatternOccurrences {

@@ -124,20 +124,18 @@ catchup_scan scan_resources buildstep_id step_name (buildnum, maybe_console_outp
 
   -- | We only access the console log if there is at least one
   -- pattern to scan:
-  case Safe.maximumMay (map DbHelpers.db_id applicable_patterns) of
-    Nothing -> return ()
-    Just maximum_pattern_id -> do
+  case Safe.maximumMay $ map DbHelpers.db_id applicable_patterns of
+    Nothing -> return $ Right ()
+    Just maximum_pattern_id -> runExceptT $ do
 
-      get_and_store_log scan_resources buildnum buildstep_id maybe_console_output_url
-      either_matches <- scan_log scan_resources buildnum applicable_patterns
+      lines_list <- ExceptT $ get_and_store_log scan_resources buildnum buildstep_id maybe_console_output_url
+      let matches = scan_log_text lines_list applicable_patterns
 
-      case either_matches of
-        Right matches -> do
-          SqlWrite.store_matches scan_resources buildstep_id buildnum matches
-          SqlWrite.insert_latest_pattern_build_scan scan_resources buildnum maximum_pattern_id
-        Left _ -> return () -- TODO propagate this error
+      liftIO $ do
+        SqlWrite.store_matches scan_resources buildstep_id buildnum matches
+        SqlWrite.insert_latest_pattern_build_scan scan_resources buildnum maximum_pattern_id
 
-      return ()
+  return ()
 
 
 rescan_visited_builds :: ScanRecords.ScanCatchupResources -> [(Builds.BuildStepId, T.Text, Builds.BuildNumber, [Int64])] -> IO ()
@@ -221,42 +219,46 @@ get_and_store_log ::
   -> Builds.BuildNumber
   -> Builds.BuildStepId
   -> Maybe Builds.BuildFailureOutput
-  -> IO ()
+  -> IO (Either String [T.Text])
 get_and_store_log scan_resources build_number build_step_id maybe_failed_build_output = do
 
-  runExceptT $ do
-    download_url <- ExceptT $ case maybe_failed_build_output of
-      Just failed_build_output -> return $ Right $ Builds.log_url failed_build_output
-      Nothing -> do
-        visitation_result <- get_failed_build_info scan_resources build_number
+  maybe_console_log <- SqlRead.read_log conn build_number
+  case maybe_console_log of
+    Just console_log -> return $ Right $ T.lines console_log  -- Log was already fetched
+    Nothing -> runExceptT $ do
+      download_url <- ExceptT $ case maybe_failed_build_output of
+        Just failed_build_output -> return $ Right $ Builds.log_url failed_build_output
+        Nothing -> do
+          visitation_result <- get_failed_build_info scan_resources build_number
 
-        return $ case visitation_result of
-          Right _ -> Left "This build didn't have a console log!"
-          Left (Builds.NewBuildStepFailure _step_name mode) -> case mode of
-            Builds.BuildTimeoutFailure             -> Left "This build didn't have a console log because it was a timeout!"
-            Builds.ScannableFailure failure_output -> Right $ Builds.log_url failure_output
+          return $ case visitation_result of
+            Right _ -> Left "This build didn't have a console log!"
+            Left (Builds.NewBuildStepFailure _step_name mode) -> case mode of
+              Builds.BuildTimeoutFailure             -> Left "This build didn't have a console log because it was a timeout!"
+              Builds.ScannableFailure failure_output -> Right $ Builds.log_url failure_output
 
 
-    liftIO $ putStrLn $ "Downloading log from: " ++ T.unpack download_url
+      liftIO $ putStrLn $ "Downloading log from: " ++ T.unpack download_url
 
-    log_download_result <- ExceptT $ FetchHelpers.safeGetUrl $ Sess.get aws_sess $ T.unpack download_url
+      log_download_result <- ExceptT $ FetchHelpers.safeGetUrl $ Sess.get aws_sess $ T.unpack download_url
 
-    let parent_elements = log_download_result ^. NW.responseBody . _Array
-        -- we need to concatenate all of the "out" elements
-        pred x = x ^. key "type" . _String == "out"
-        output_elements = filter pred $ V.toList parent_elements
+      let parent_elements = log_download_result ^. NW.responseBody . _Array
+          -- we need to concatenate all of the "out" elements
+          pred x = x ^. key "type" . _String == "out"
+          output_elements = filter pred $ V.toList parent_elements
 
-        console_log = mconcat $ map (\x -> x ^. key "message" . _String) output_elements
-        lines_list = T.lines console_log
-        byte_count = T.length console_log
+          console_log = mconcat $ map (\x -> x ^. key "message" . _String) output_elements
+          lines_list = T.lines console_log
+          byte_count = T.length console_log
 
-    liftIO $ SqlWrite.store_log_info scan_resources build_step_id $
-      ScanRecords.LogInfo byte_count (length lines_list) console_log
+      liftIO $ SqlWrite.store_log_info scan_resources build_step_id $
+        ScanRecords.LogInfo byte_count (length lines_list) console_log
 
-  return ()
+      return lines_list
 
   where
     aws_sess = ScanRecords.aws_sess $ ScanRecords.fetching scan_resources
+    conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
 
 
 scan_log_text ::

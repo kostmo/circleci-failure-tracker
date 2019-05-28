@@ -47,6 +47,10 @@ import           Utils
 import qualified Webhooks
 
 
+perPageCount :: Int
+perPageCount = 100
+
+
 targetOrganization :: T.Text
 targetOrganization = "pytorch"
 
@@ -66,7 +70,7 @@ getAuthenticatedUser rq session github_config callback = do
   u <- sessionLookup githubAuthTokenSessionKey
 
   case u of
-    Nothing -> return $ Left $ AuthStages.AuthFailure $ AuthStages.AuthenticationFailure (Just $ AuthStages.LoginUrl login_url) AuthStages.FailLoginRequired
+    Nothing -> return $ Left $ wrap_err AuthStages.FailLoginRequired
     Just api_token -> do
 
       mgr <- newManager tlsManagerSettings
@@ -75,12 +79,12 @@ getAuthenticatedUser rq session github_config callback = do
 
       runExceptT $ do
         (Types.LoginUser _login_name login_alias) <- ExceptT $
-          (first $ const (AuthStages.AuthFailure $ AuthStages.AuthenticationFailure (Just $ AuthStages.LoginUrl login_url) AuthStages.FailUsernameDetermination)) <$> Auth.fetchUser api_support_data
+          (first $ const (wrap_err AuthStages.FailUsernameDetermination)) <$> Auth.fetchUser api_support_data
 
         let username_text = TL.toStrict login_alias
         is_org_member <- ExceptT $ do
           either_membership <- isOrgMember (AuthConfig.personal_access_token github_config) username_text
-          return $ first (\x -> AuthStages.AuthFailure $ AuthStages.AuthenticationFailure (Just $ AuthStages.LoginUrl login_url) x)  either_membership
+          return $ first wrap_err either_membership
 
         unless is_org_member $ except $
           Left $ AuthStages.AuthFailure $ AuthStages.AuthenticationFailure (Just $ AuthStages.LoginUrl login_url)
@@ -92,6 +96,7 @@ getAuthenticatedUser rq session github_config callback = do
   where
     Just (sessionLookup, _sessionInsert) = Vault.lookup session $ vault rq
     login_url = AuthConfig.getLoginUrl github_config
+    wrap_err = AuthStages.AuthFailure . AuthStages.AuthenticationFailure (Just $ AuthStages.LoginUrl login_url)
 
 
 redirectToHomeM :: ActionM ()
@@ -201,8 +206,7 @@ getFailedStatusesRecurse
   where
     either_uri = parseURI strictURIParserOptions $ BSU.pack uri_string
 
-    per_page_count = 100
-    uri_string = uri_prefix <> "?per_page=" <> show per_page_count <> "&page=" <> show page_offset
+    uri_string = uri_prefix <> "?per_page=" <> show perPageCount <> "&page=" <> show page_offset
 
 
 getFailedStatuses ::

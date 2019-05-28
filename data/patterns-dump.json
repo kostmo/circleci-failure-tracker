@@ -343,6 +343,7 @@
       "db_id": 228,
       "record": {
         "applicable_steps": [
+          "Checkout",
           "Checkout code"
         ],
         "description": "bad git object",
@@ -355,6 +356,46 @@
         "tags": [
           "git"
         ]
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-28T22:54:23.030981Z",
+    "payload": {
+      "db_id": 230,
+      "record": {
+        "applicable_steps": [
+          "Set Up System Environment"
+        ],
+        "description": "weird setup issue",
+        "expression": {
+          "contents": "+ ps auxfww",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "specificity": 1,
+        "tags": []
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-28T23:05:23.63582Z",
+    "payload": {
+      "db_id": 231,
+      "record": {
+        "applicable_steps": [
+          "Set Up CI Environment After Checkout"
+        ],
+        "description": "setup failure",
+        "expression": {
+          "contents": "TypeError: unsupported operand type(s) for -=: 'Retry' and 'int'",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "specificity": 1,
+        "tags": []
       }
     }
   },

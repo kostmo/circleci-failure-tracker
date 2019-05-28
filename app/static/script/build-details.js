@@ -62,8 +62,8 @@ function get_log_text(build_id) {
 		console.log(data);
 
 		if (data.success) {
-			var w = window.open('', '', 'width=400,height=400,resizeable,scrollbars');
-			w.document.write(data.payload);
+			var w = window.open('', '', 'resizeable,scrollbars');
+			w.document.write("<html><head><title>Log output</title></head><body><code style='white-space: pre'>" + data.payload + "</code></body></html>");
 			w.document.close();
 		} else {
 			var proceed = confirm("Need to login first...");

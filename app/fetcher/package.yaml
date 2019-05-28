@@ -35,6 +35,7 @@ library:
     - either
     - safe
     - transformers
+    - scientific
     - text
    
 executables:

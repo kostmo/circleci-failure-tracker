@@ -416,6 +416,33 @@ CREATE TABLE public.pattern_authorship (
 ALTER TABLE public.pattern_authorship OWNER TO postgres;
 
 --
+-- Name: scanned_patterns; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.scanned_patterns (
+    scan integer NOT NULL,
+    newest_pattern integer NOT NULL,
+    build integer NOT NULL
+);
+
+
+ALTER TABLE public.scanned_patterns OWNER TO postgres;
+
+--
+-- Name: pattern_scan_counts; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.pattern_scan_counts AS
+ SELECT scanned_patterns.newest_pattern,
+    count(scanned_patterns.build) AS count
+   FROM public.scanned_patterns
+  GROUP BY scanned_patterns.newest_pattern
+  ORDER BY scanned_patterns.newest_pattern DESC;
+
+
+ALTER TABLE public.pattern_scan_counts OWNER TO postgres;
+
+--
 -- Name: pattern_step_applicability; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -455,7 +482,12 @@ CREATE VIEW public.patterns_augmented WITH (security_barrier='false') AS
     COALESCE(foo.tags, ''::text) AS tags,
     COALESCE(bar.steps, ''::text) AS steps,
     pattern_authorship.author,
-    pattern_authorship.created
+    pattern_authorship.created,
+    ( SELECT COALESCE(sum(pattern_scan_counts.count), (0)::numeric) AS "coalesce"
+           FROM public.pattern_scan_counts
+          WHERE (pattern_scan_counts.newest_pattern >= patterns.id)) AS scanned_count,
+    ( SELECT sum(pattern_scan_counts.count) AS sum
+           FROM public.pattern_scan_counts) AS total_scanned_builds
    FROM (((public.patterns
      LEFT JOIN ( SELECT pattern_tags.pattern,
             string_agg((pattern_tags.tag)::text, ';'::text) AS tags
@@ -547,10 +579,44 @@ ALTER SEQUENCE public.match_id_seq OWNED BY public.matches.id;
 
 
 --
+-- Name: ordered_master_commits; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.ordered_master_commits (
+    id integer NOT NULL,
+    sha1 character(40) NOT NULL
+);
+
+
+ALTER TABLE public.ordered_master_commits OWNER TO postgres;
+
+--
+-- Name: ordered_master_commits_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.ordered_master_commits_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.ordered_master_commits_id_seq OWNER TO postgres;
+
+--
+-- Name: ordered_master_commits_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.ordered_master_commits_id_seq OWNED BY public.ordered_master_commits.id;
+
+
+--
 -- Name: pattern_frequency_summary; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.pattern_frequency_summary AS
+CREATE VIEW public.pattern_frequency_summary WITH (security_barrier='false') AS
  SELECT patterns_augmented.expression,
     patterns_augmented.description,
     COALESCE(aggregated_build_matches.matching_build_count, (0)::bigint) AS matching_build_count,
@@ -560,7 +626,9 @@ CREATE VIEW public.pattern_frequency_summary AS
     patterns_augmented.regex,
     patterns_augmented.specificity,
     patterns_augmented.tags,
-    patterns_augmented.steps
+    patterns_augmented.steps,
+    patterns_augmented.scanned_count,
+    patterns_augmented.total_scanned_builds
    FROM (public.patterns_augmented
      LEFT JOIN public.aggregated_build_matches ON ((patterns_augmented.id = aggregated_build_matches.pat)));
 
@@ -625,19 +693,6 @@ CREATE VIEW public.scannable_build_steps AS
 
 
 ALTER TABLE public.scannable_build_steps OWNER TO postgres;
-
---
--- Name: scanned_patterns; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.scanned_patterns (
-    scan integer NOT NULL,
-    newest_pattern integer NOT NULL,
-    build integer NOT NULL
-);
-
-
-ALTER TABLE public.scanned_patterns OWNER TO postgres;
 
 --
 -- Name: scans; Type: TABLE; Schema: public; Owner: postgres
@@ -744,6 +799,13 @@ ALTER TABLE ONLY public.matches ALTER COLUMN id SET DEFAULT nextval('public.matc
 
 
 --
+-- Name: ordered_master_commits id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ordered_master_commits ALTER COLUMN id SET DEFAULT nextval('public.ordered_master_commits_id_seq'::regclass);
+
+
+--
 -- Name: pattern_step_applicability id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
@@ -818,6 +880,14 @@ ALTER TABLE ONLY public.log_metadata
 
 ALTER TABLE ONLY public.matches
     ADD CONSTRAINT match_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: ordered_master_commits ordered_master_commits_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ordered_master_commits
+    ADD CONSTRAINT ordered_master_commits_pkey PRIMARY KEY (id);
 
 
 --
@@ -1177,6 +1247,20 @@ GRANT ALL ON TABLE public.pattern_authorship TO logan;
 
 
 --
+-- Name: TABLE scanned_patterns; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.scanned_patterns TO logan;
+
+
+--
+-- Name: TABLE pattern_scan_counts; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.pattern_scan_counts TO logan;
+
+
+--
 -- Name: TABLE pattern_step_applicability; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -1226,6 +1310,13 @@ GRANT ALL ON SEQUENCE public.match_id_seq TO logan;
 
 
 --
+-- Name: TABLE ordered_master_commits; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.ordered_master_commits TO logan;
+
+
+--
 -- Name: TABLE pattern_frequency_summary; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -1251,13 +1342,6 @@ GRANT ALL ON SEQUENCE public.pattern_step_applicability_id_seq TO logan;
 --
 
 GRANT ALL ON TABLE public.scannable_build_steps TO logan;
-
-
---
--- Name: TABLE scanned_patterns; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.scanned_patterns TO logan;
 
 
 --

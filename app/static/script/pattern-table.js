@@ -30,6 +30,7 @@ function gen_patterns_table(pattern_id, filtered_branches) {
 	    placeholder:"No Data Set",
 	    columns:[
 		{title:"Tags", field:"tags", sorter:"string"},
+		{title:"Steps", field:"steps", sorter:"string"},
 		{title:"Regex", field:"is_regex", align:"center", formatter:"tickCross", sorter:"boolean", formatterParams: {crossElement: false}, width: 75},
 		{title:"Pattern", field:"pattern", sorter:"string", widthGrow: 3, formatter: function(cell, formatterParams, onRendered) {
 			return "<code>" + cell.getValue() + "</code>";
@@ -39,6 +40,7 @@ function gen_patterns_table(pattern_id, filtered_branches) {
 		{title:"Frequency", field:"frequency", sorter:"number", align:"center", width: 75},
 		{title:"Last Occurrence", field:"last", sorter:"datetime", align:"center"},
 		{title:"Specificity", field:"specificity", sorter:"number", align:"center"},
+		{title:"Scanned percent", field:"percent_scanned", align:"center", sorter:"number"},
 	    ],
             ajaxURL: api_endpoint_url,
 	});
