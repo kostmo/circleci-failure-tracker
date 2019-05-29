@@ -511,14 +511,15 @@ mainAppCode args = do
 
   let persistence_data = PersistenceData cache session store
 
-  -- XXX FOR TESTING ONLY
-  putStrLn "Starting test..."
-  runExceptT $ handleFailedStatuses
-    connection_data
-    (AuthConfig.personal_access_token github_config)
-    (DbHelpers.OwnerAndRepo Constants.project_name Constants.repo_name)
-    "39cedc8474aa641b30b427de8f90014ba3d20c13"
-  putStrLn "Ending test..."
+  when (AuthConfig.is_local github_config) $ do
+    -- XXX FOR TESTING ONLY
+    putStrLn "Starting test..."
+    runExceptT $ handleFailedStatuses
+      connection_data
+      (AuthConfig.personal_access_token github_config)
+      (DbHelpers.OwnerAndRepo Constants.project_name Constants.repo_name)
+      "39cedc8474aa641b30b427de8f90014ba3d20c13"
+    putStrLn "Ending test..."
 
 
   S.scotty prt $ scottyApp persistence_data credentials_data
