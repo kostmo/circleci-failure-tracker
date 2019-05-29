@@ -1027,5 +1027,106 @@
         ]
       }
     }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-29T06:17:50.926971Z",
+    "payload": {
+      "db_id": 321,
+      "record": {
+        "applicable_steps": [],
+        "description": "blah",
+        "expression": {
+          "contents": "fatal: The remote end hung up unexpectedly",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "specificity": 1,
+        "tags": [
+          "git"
+        ]
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-29T06:18:12.391329Z",
+    "payload": {
+      "db_id": 322,
+      "record": {
+        "applicable_steps": [],
+        "description": "blah",
+        "expression": {
+          "contents": "error: RPC failed;",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "specificity": 1,
+        "tags": [
+          "git"
+        ]
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-29T06:20:35.057611Z",
+    "payload": {
+      "db_id": 323,
+      "record": {
+        "applicable_steps": [],
+        "description": "pip network error",
+        "expression": {
+          "contents": "Connection broken: error(104, 'Connection reset by peer')",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "specificity": 1,
+        "tags": [
+          "network"
+        ]
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-29T06:42:29.904621Z",
+    "payload": {
+      "db_id": 324,
+      "record": {
+        "applicable_steps": [],
+        "description": "test session collection broken",
+        "expression": {
+          "contents": [
+            "ERROR collecting test session",
+            false
+          ],
+          "tag": "RegularExpression"
+        },
+        "is_retired": false,
+        "specificity": 1,
+        "tags": []
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-29T06:44:48.511321Z",
+    "payload": {
+      "db_id": 325,
+      "record": {
+        "applicable_steps": [],
+        "description": "blah",
+        "expression": {
+          "contents": "AttributeError: 'module' object has no attribute",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "specificity": 1,
+        "tags": [
+          "python"
+        ]
+      }
+    }
   }
 ]
