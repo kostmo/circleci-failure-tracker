@@ -11,10 +11,19 @@ import qualified DbHelpers
 import qualified PatternsFetch
 
 
--- | We do not wipe the "builds" or "build_steps" tables
--- because visiting each build is expensive.
-allTableTruncations :: [Query]
-allTableTruncations = [
+buildDataTruncations :: [Query]
+buildDataTruncations = [
+    "TRUNCATE log_metadata CASCADE;"
+  , "TRUNCATE build_steps CASCADE;"
+  , "TRUNCATE created_github_statuses CASCADE;"
+  , "TRUNCATE broken_revisions CASCADE;"
+  , "TRUNCATE builds CASCADE;"
+  , "TRUNCATE ordered_master_commits CASCADE;"
+  ]
+
+
+scanTruncations :: [Query]
+scanTruncations = [
     "TRUNCATE scanned_patterns CASCADE;"
   , "TRUNCATE scans CASCADE;"
   , "TRUNCATE matches CASCADE;"
@@ -22,13 +31,13 @@ allTableTruncations = [
   , "TRUNCATE pattern_tags CASCADE;"
   , "TRUNCATE pattern_authorship CASCADE;"
   , "TRUNCATE patterns CASCADE;"
-  , "TRUNCATE log_metadata CASCADE;"
-  , "TRUNCATE build_steps CASCADE;"
-  , "TRUNCATE created_github_statuses CASCADE;"
-  , "TRUNCATE broken_revisions CASCADE;"
-  , "TRUNCATE builds CASCADE;"
-  , "TRUNCATE ordered_master_commits CASCADE;"
   ]
+
+
+-- | We do not wipe the "builds" or "build_steps" tables
+-- because visiting each build is expensive.
+allTableTruncations :: [Query]
+allTableTruncations = scanTruncations ++ buildDataTruncations
 
 
 prepare_database :: DbHelpers.DbConnectionData -> Bool -> IO Connection
@@ -50,7 +59,5 @@ scrub_tables conn = do
     execute_ conn table_truncation_command
 
   where
-    table_truncation_commands = allTableTruncations
-
-    -- TODO optionally exclude the last table, which is the "builds" table
-    -- table_truncation_commands = init allTableTruncations
+--    table_truncation_commands = allTableTruncations
+    table_truncation_commands = scanTruncations

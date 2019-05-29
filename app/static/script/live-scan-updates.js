@@ -30,9 +30,7 @@ function gen_summary_nested_pie() {
 		}, {
 		    level: 4,
 		    colorByPoint: true,
-		}
-		]
-
+		}]
 	}];
 
 	var chart = Highcharts.chart('container-visited-fraction', {
@@ -88,7 +86,6 @@ function gen_sunburst_data(data) {
 	    id: '0.0',
 	    parent: '',
 	    name: 'Failures'
-
 	}, {
 	    id: '1.1',
 	    parent: '0.0',

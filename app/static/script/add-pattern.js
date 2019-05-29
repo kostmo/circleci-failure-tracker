@@ -3,23 +3,23 @@ function submit_pattern() {
 	var pattern_data = gather_pattern_data();
 
         $.post( {
-          url: "/api/new-pattern-insert",
-          data: pattern_data,
-          success: function( data ) {
-		if (data.success) {
-			alert("submitted pattern with ID: " + data.payload);
-		} else {
-			if (data.error.details.authentication_failed) {
-				alert("Not logged in: " + data.error.message);
-				window.location.href = data.error.details.login_url;
-			} else if (data.error.details.database_failed) {
-				alert("Database error: " + data.error.message);
+		url: "/api/new-pattern-insert",
+		data: pattern_data,
+		success: function( data ) {
+			if (data.success) {
+				alert("submitted pattern with ID: " + data.payload);
 			} else {
-				alert("Unknown error: " + data.error.message);
+				if (data.error.details.authentication_failed) {
+					alert("Not logged in: " + data.error.message);
+					window.location.href = data.error.details.login_url;
+				} else if (data.error.details.database_failed) {
+					alert("Database error: " + data.error.message);
+				} else {
+					alert("Unknown error: " + data.error.message);
+				}
 			}
 		}
-          }
-        } );
+        });
 }
 
 
@@ -80,12 +80,12 @@ function setup_autocomplete() {
 
 function gather_pattern_data() {
 	return {
-            is_regex: $('#is-regex-checkbox').is(":checked"),
-            is_nondeterministic: $('#is-nondeterministic-checkbox').is(":checked"),
-            pattern: $('#input-pattern-text').val(),
-            description: $('#input-pattern-description').val(),
-            tags: $('#pattern-tag-input').val(),
-            applicable_steps: $('#build-step-applicability-input').val(),
+		is_regex: $('#is-regex-checkbox').is(":checked"),
+		is_nondeterministic: $('#is-nondeterministic-checkbox').is(":checked"),
+		pattern: $('#input-pattern-text').val(),
+		description: $('#input-pattern-description').val(),
+		tags: $('#pattern-tag-input').val(),
+		applicable_steps: $('#build-step-applicability-input').val(),
 	};
 }
 
@@ -152,7 +152,7 @@ function continueSubmission(data) {
 
 function import_patterns(button_obj) {
 
-	var file = document.getElementById('selectFiles').files[0]; //Files[0] = 1st file
+	var file = document.getElementById('selectFiles').files[0];
 	var reader = new FileReader();
 	reader.readAsText(file, 'UTF-8');
 	reader.onload = shipOff;

@@ -6,6 +6,7 @@ module SqlRead where
 
 import           Control.Monad                        (forM)
 import           Data.Aeson
+import           Data.List                            (sort)
 import           Data.List.Split                      (splitOn)
 import           Data.Scientific                      (Scientific)
 import           Data.Text                            (Text)
@@ -357,12 +358,12 @@ dump_patterns conn_data = do
   where
     f (author, created, pattern_id, is_regex, expression, has_nondeterministic_values, description, tags, steps, specificity, is_retired) =
       DbHelpers.WithAuthorship author created $ wrap_pattern pattern_id is_regex expression has_nondeterministic_values description
-        (map T.pack $ split_agg_text tags)
-        (map T.pack $ split_agg_text steps)
+        (sort $ map T.pack $ split_agg_text tags)
+        (sort $ map T.pack $ split_agg_text steps)
         specificity
         is_retired
 
-    sql = "SELECT author, created, id, regex, expression, has_nondeterministic_values, description, tags, steps, specificity, is_retired FROM patterns_augmented;"
+    sql = "SELECT author, created, id, regex, expression, has_nondeterministic_values, description, tags, steps, specificity, is_retired FROM patterns_augmented ORDER BY id;"
 
 
 -- | Note that this SQL is from decomposing the "pattern_frequency_summary" and "aggregated_build_matches" view
