@@ -126,7 +126,7 @@ insert_single_pattern conn either_pattern = do
       ScanPatterns.LiteralExpression _                       -> False
 
     pattern_insertion_sql = "INSERT INTO patterns(regex, expression, description, is_retired, has_nondeterministic_values, specificity) VALUES(?,?,?,?,?,?) RETURNING id;"
-    pattern_insertion_with_id_sql = "INSERT INTO patterns(id, regex, expression, description, is_retired, has_nondeterministic_values, specificity) VALUES(?,?,?,?,?,?) RETURNING id;"
+    pattern_insertion_with_id_sql = "INSERT INTO patterns(id, regex, expression, description, is_retired, has_nondeterministic_values, specificity) VALUES(?,?,?,?,?,?,?) RETURNING id;"
 
     tag_insertion_sql = "INSERT INTO pattern_tags(tag, pattern) VALUES(?,?);"
 
