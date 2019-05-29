@@ -333,7 +333,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       new_pattern <- pattern_from_parms
       let callback_func user_alias = do
             conn <- DbHelpers.get_connection connection_data
-            SqlWrite.api_new_pattern conn user_alias new_pattern
+            SqlWrite.api_new_pattern conn $ Left (new_pattern, user_alias)
 
       rq <- S.request
       insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
@@ -452,7 +452,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
     S.post "/api/patterns-restore" $ do
       body_json <- S.jsonData
 
-      let callback_func user_alias = SqlWrite.restore_patterns connection_data user_alias body_json
+      let callback_func _user_alias = SqlWrite.restore_patterns connection_data body_json
 
       rq <- S.request
       insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func

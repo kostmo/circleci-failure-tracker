@@ -1,9 +1,9 @@
 [
   {
     "author": "kostmo",
-    "created": "2019-05-28T23:22:45.341565Z",
+    "created": "2019-05-29T00:09:28.071078Z",
     "payload": {
-      "db_id": 232,
+      "db_id": 271,
       "record": {
         "applicable_steps": [
           "Test"
@@ -26,9 +26,9 @@
   },
   {
     "author": "kostmo",
-    "created": "2019-05-28T23:22:45.345345Z",
+    "created": "2019-05-29T00:09:28.085924Z",
     "payload": {
-      "db_id": 233,
+      "db_id": 272,
       "record": {
         "applicable_steps": [
           "Test"
@@ -51,9 +51,9 @@
   },
   {
     "author": "kostmo",
-    "created": "2019-05-28T23:22:45.347987Z",
+    "created": "2019-05-29T00:09:28.088219Z",
     "payload": {
-      "db_id": 234,
+      "db_id": 273,
       "record": {
         "applicable_steps": [
           "Doc Build and Push"
@@ -74,9 +74,9 @@
   },
   {
     "author": "kostmo",
-    "created": "2019-05-28T23:22:45.351364Z",
+    "created": "2019-05-29T00:09:28.090421Z",
     "payload": {
-      "db_id": 235,
+      "db_id": 274,
       "record": {
         "applicable_steps": [
           "Test"
@@ -97,9 +97,9 @@
   },
   {
     "author": "kostmo",
-    "created": "2019-05-28T23:22:45.354636Z",
+    "created": "2019-05-29T00:09:28.092616Z",
     "payload": {
-      "db_id": 236,
+      "db_id": 275,
       "record": {
         "applicable_steps": [
           "Test"
@@ -119,9 +119,9 @@
   },
   {
     "author": "kostmo",
-    "created": "2019-05-28T23:22:45.357095Z",
+    "created": "2019-05-29T00:09:28.094355Z",
     "payload": {
-      "db_id": 237,
+      "db_id": 276,
       "record": {
         "applicable_steps": [
           "Build"
@@ -142,9 +142,9 @@
   },
   {
     "author": "kostmo",
-    "created": "2019-05-28T23:22:45.358928Z",
+    "created": "2019-05-29T00:09:28.095816Z",
     "payload": {
-      "db_id": 238,
+      "db_id": 277,
       "record": {
         "applicable_steps": [
           "Test"
@@ -168,9 +168,9 @@
   },
   {
     "author": "kostmo",
-    "created": "2019-05-28T23:22:45.361895Z",
+    "created": "2019-05-29T00:09:28.098026Z",
     "payload": {
-      "db_id": 239,
+      "db_id": 278,
       "record": {
         "applicable_steps": [
           "Test"
@@ -194,9 +194,9 @@
   },
   {
     "author": "kostmo",
-    "created": "2019-05-28T23:22:45.364846Z",
+    "created": "2019-05-29T00:09:28.100171Z",
     "payload": {
-      "db_id": 240,
+      "db_id": 279,
       "record": {
         "applicable_steps": [
           "Test"
@@ -220,9 +220,9 @@
   },
   {
     "author": "kostmo",
-    "created": "2019-05-28T23:22:45.367705Z",
+    "created": "2019-05-29T00:09:28.102137Z",
     "payload": {
-      "db_id": 241,
+      "db_id": 280,
       "record": {
         "applicable_steps": [
           "Test"
@@ -240,12 +240,13 @@
   },
   {
     "author": "kostmo",
-    "created": "2019-05-28T23:22:45.369488Z",
+    "created": "2019-05-29T00:09:28.10327Z",
     "payload": {
-      "db_id": 242,
+      "db_id": 281,
       "record": {
         "applicable_steps": [
-          "Set Up CI Environment After Checkout"
+          "Set Up CI Environment After Checkout",
+          "Set Up CI Environment After attach_workspace"
         ],
         "description": "apt error",
         "expression": {
@@ -262,9 +263,9 @@
   },
   {
     "author": "kostmo",
-    "created": "2019-05-28T23:22:45.371826Z",
+    "created": "2019-05-29T00:09:28.104906Z",
     "payload": {
-      "db_id": 243,
+      "db_id": 282,
       "record": {
         "applicable_steps": [
           "Spin up Environment"
@@ -286,9 +287,9 @@
   },
   {
     "author": "kostmo",
-    "created": "2019-05-28T23:22:45.375315Z",
+    "created": "2019-05-29T00:09:28.107372Z",
     "payload": {
-      "db_id": 244,
+      "db_id": 283,
       "record": {
         "applicable_steps": [
           "Doc Build and Push"
@@ -310,9 +311,9 @@
   },
   {
     "author": "kostmo",
-    "created": "2019-05-28T23:22:45.378545Z",
+    "created": "2019-05-29T00:09:28.10962Z",
     "payload": {
-      "db_id": 245,
+      "db_id": 284,
       "record": {
         "applicable_steps": [
           "Build",
@@ -338,9 +339,9 @@
   },
   {
     "author": "kostmo",
-    "created": "2019-05-28T23:22:45.382268Z",
+    "created": "2019-05-29T00:09:28.111961Z",
     "payload": {
-      "db_id": 246,
+      "db_id": 285,
       "record": {
         "applicable_steps": [
           "Checkout",
@@ -362,9 +363,9 @@
   },
   {
     "author": "kostmo",
-    "created": "2019-05-28T23:22:45.38506Z",
+    "created": "2019-05-29T00:09:28.114034Z",
     "payload": {
-      "db_id": 247,
+      "db_id": 286,
       "record": {
         "applicable_steps": [
           "Set Up System Environment"
@@ -382,12 +383,13 @@
   },
   {
     "author": "kostmo",
-    "created": "2019-05-28T23:22:45.386702Z",
+    "created": "2019-05-29T00:09:28.115074Z",
     "payload": {
-      "db_id": 248,
+      "db_id": 287,
       "record": {
         "applicable_steps": [
-          "Set Up CI Environment After Checkout"
+          "Set Up CI Environment After Checkout",
+          "Set Up CI Environment After attach_workspace"
         ],
         "description": "setup failure",
         "expression": {
@@ -402,9 +404,9 @@
   },
   {
     "author": "kostmo",
-    "created": "2019-05-28T23:22:45.388368Z",
+    "created": "2019-05-29T00:09:28.116051Z",
     "payload": {
-      "db_id": 249,
+      "db_id": 288,
       "record": {
         "applicable_steps": [],
         "description": "test_proper_exit",
@@ -422,9 +424,9 @@
   },
   {
     "author": "kostmo",
-    "created": "2019-05-28T23:22:45.389927Z",
+    "created": "2019-05-29T00:09:28.117004Z",
     "payload": {
-      "db_id": 250,
+      "db_id": 289,
       "record": {
         "applicable_steps": [],
         "description": "env problem",
@@ -442,9 +444,9 @@
   },
   {
     "author": "kostmo",
-    "created": "2019-05-28T23:22:45.391488Z",
+    "created": "2019-05-29T00:09:28.117988Z",
     "payload": {
-      "db_id": 251,
+      "db_id": 290,
       "record": {
         "applicable_steps": [],
         "description": "Compilation error",
@@ -465,9 +467,9 @@
   },
   {
     "author": "kostmo",
-    "created": "2019-05-28T23:22:45.392967Z",
+    "created": "2019-05-29T00:09:28.118933Z",
     "payload": {
-      "db_id": 252,
+      "db_id": 291,
       "record": {
         "applicable_steps": [],
         "description": "Docker problem",
@@ -485,9 +487,9 @@
   },
   {
     "author": "kostmo",
-    "created": "2019-05-28T23:22:45.394555Z",
+    "created": "2019-05-29T00:09:28.120051Z",
     "payload": {
-      "db_id": 253,
+      "db_id": 292,
       "record": {
         "applicable_steps": [],
         "description": "Docker problem",
@@ -505,9 +507,9 @@
   },
   {
     "author": "kostmo",
-    "created": "2019-05-28T23:22:45.396152Z",
+    "created": "2019-05-29T00:09:28.121Z",
     "payload": {
-      "db_id": 254,
+      "db_id": 293,
       "record": {
         "applicable_steps": [],
         "description": "CircleCI failure",
@@ -526,9 +528,9 @@
   },
   {
     "author": "kostmo",
-    "created": "2019-05-28T23:22:45.398401Z",
+    "created": "2019-05-29T00:09:28.122201Z",
     "payload": {
-      "db_id": 255,
+      "db_id": 294,
       "record": {
         "applicable_steps": [],
         "description": "apt package incompatibility",
@@ -547,9 +549,9 @@
   },
   {
     "author": "kostmo",
-    "created": "2019-05-28T23:22:45.400341Z",
+    "created": "2019-05-29T00:09:28.123511Z",
     "payload": {
-      "db_id": 256,
+      "db_id": 295,
       "record": {
         "applicable_steps": [],
         "description": "A generic code error",
@@ -565,9 +567,9 @@
   },
   {
     "author": "kostmo",
-    "created": "2019-05-28T23:22:45.401251Z",
+    "created": "2019-05-29T00:09:28.124095Z",
     "payload": {
-      "db_id": 257,
+      "db_id": 296,
       "record": {
         "applicable_steps": [],
         "description": "CircleCI apt lock failure",
@@ -586,9 +588,9 @@
   },
   {
     "author": "kostmo",
-    "created": "2019-05-28T23:22:45.4032Z",
+    "created": "2019-05-29T00:09:28.12527Z",
     "payload": {
-      "db_id": 258,
+      "db_id": 297,
       "record": {
         "applicable_steps": [],
         "description": "Unit test failure",
@@ -609,9 +611,9 @@
   },
   {
     "author": "kostmo",
-    "created": "2019-05-28T23:22:45.404626Z",
+    "created": "2019-05-29T00:09:28.126084Z",
     "payload": {
-      "db_id": 259,
+      "db_id": 298,
       "record": {
         "applicable_steps": [],
         "description": "apt failure",
@@ -630,9 +632,9 @@
   },
   {
     "author": "kostmo",
-    "created": "2019-05-28T23:22:45.406611Z",
+    "created": "2019-05-29T00:09:28.127146Z",
     "payload": {
-      "db_id": 260,
+      "db_id": 299,
       "record": {
         "applicable_steps": [],
         "description": "Graphs differ",
@@ -650,9 +652,9 @@
   },
   {
     "author": "kostmo",
-    "created": "2019-05-28T23:22:45.408127Z",
+    "created": "2019-05-29T00:09:28.128019Z",
     "payload": {
-      "db_id": 261,
+      "db_id": 300,
       "record": {
         "applicable_steps": [],
         "description": "Git fetch failed",
@@ -674,9 +676,9 @@
   },
   {
     "author": "kostmo",
-    "created": "2019-05-28T23:22:45.409949Z",
+    "created": "2019-05-29T00:09:28.129269Z",
     "payload": {
-      "db_id": 262,
+      "db_id": 301,
       "record": {
         "applicable_steps": [],
         "description": "Ninja build failed",
@@ -692,9 +694,9 @@
   },
   {
     "author": "kostmo",
-    "created": "2019-05-28T23:22:45.410814Z",
+    "created": "2019-05-29T00:09:28.130073Z",
     "payload": {
-      "db_id": 263,
+      "db_id": 302,
       "record": {
         "applicable_steps": [],
         "description": "Test failure",
@@ -713,9 +715,9 @@
   },
   {
     "author": "kostmo",
-    "created": "2019-05-28T23:22:45.411595Z",
+    "created": "2019-05-29T00:09:28.130736Z",
     "payload": {
-      "db_id": 264,
+      "db_id": 303,
       "record": {
         "applicable_steps": [],
         "description": "A script could not be executed",
@@ -731,9 +733,9 @@
   },
   {
     "author": "kostmo",
-    "created": "2019-05-28T23:22:45.412349Z",
+    "created": "2019-05-29T00:09:28.131335Z",
     "payload": {
-      "db_id": 265,
+      "db_id": 304,
       "record": {
         "applicable_steps": [],
         "description": "Conda error",
@@ -749,9 +751,9 @@
   },
   {
     "author": "kostmo",
-    "created": "2019-05-28T23:22:45.41328Z",
+    "created": "2019-05-29T00:09:28.131891Z",
     "payload": {
-      "db_id": 266,
+      "db_id": 305,
       "record": {
         "applicable_steps": [],
         "description": "Missing file",
@@ -767,9 +769,9 @@
   },
   {
     "author": "kostmo",
-    "created": "2019-05-28T23:22:45.414074Z",
+    "created": "2019-05-29T00:09:28.132463Z",
     "payload": {
-      "db_id": 267,
+      "db_id": 306,
       "record": {
         "applicable_steps": [],
         "description": "Python version error for mypy",
@@ -790,9 +792,9 @@
   },
   {
     "author": "kostmo",
-    "created": "2019-05-28T23:22:45.415552Z",
+    "created": "2019-05-29T00:09:28.133285Z",
     "payload": {
-      "db_id": 268,
+      "db_id": 307,
       "record": {
         "applicable_steps": [],
         "description": "Segfault",
@@ -810,9 +812,9 @@
   },
   {
     "author": "kostmo",
-    "created": "2019-05-28T23:22:45.416718Z",
+    "created": "2019-05-29T00:09:28.134123Z",
     "payload": {
-      "db_id": 269,
+      "db_id": 308,
       "record": {
         "applicable_steps": [],
         "description": "Unzip failed",
@@ -828,9 +830,9 @@
   },
   {
     "author": "kostmo",
-    "created": "2019-05-28T23:56:28.487667Z",
+    "created": "2019-05-29T00:09:28.134727Z",
     "payload": {
-      "db_id": 270,
+      "db_id": 309,
       "record": {
         "applicable_steps": [],
         "description": "core dump",
@@ -841,6 +843,188 @@
         "is_retired": false,
         "specificity": 1,
         "tags": []
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-29T00:18:44.819701Z",
+    "payload": {
+      "db_id": 310,
+      "record": {
+        "applicable_steps": [
+          "Build"
+        ],
+        "description": "rate limited",
+        "expression": {
+          "contents": "toomanyrequests: Rate exceeded",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "specificity": 1,
+        "tags": [
+          "docker"
+        ]
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-29T00:30:43.245171Z",
+    "payload": {
+      "db_id": 312,
+      "record": {
+        "applicable_steps": [],
+        "description": "can't find python module",
+        "expression": {
+          "contents": [
+            "ImportError: No module named ([^\\s]+)",
+            false
+          ],
+          "tag": "RegularExpression"
+        },
+        "is_retired": false,
+        "specificity": 1,
+        "tags": [
+          "python"
+        ]
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-29T00:31:50.40071Z",
+    "payload": {
+      "db_id": 313,
+      "record": {
+        "applicable_steps": [],
+        "description": "network issue in file retrieval",
+        "expression": {
+          "contents": "ReadTimeoutError: HTTPSConnectionPool(host='files.pythonhosted.org', port=443): Read timed out.",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "specificity": 1,
+        "tags": []
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-29T00:34:45.98919Z",
+    "payload": {
+      "db_id": 314,
+      "record": {
+        "applicable_steps": [],
+        "description": "network issue",
+        "expression": {
+          "contents": "fatal: Could not read from remote repository",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "specificity": 1,
+        "tags": [
+          "git"
+        ]
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-29T00:35:20.261273Z",
+    "payload": {
+      "db_id": 315,
+      "record": {
+        "applicable_steps": [],
+        "description": "PGP issue",
+        "expression": {
+          "contents": "gpg: no valid OpenPGP data found",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "specificity": 1,
+        "tags": [
+          "apt"
+        ]
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-29T00:36:41.339753Z",
+    "payload": {
+      "db_id": 316,
+      "record": {
+        "applicable_steps": [],
+        "description": "shell script error",
+        "expression": {
+          "contents": [
+            "([^\\s]+)\\.sh: line (\\d+): ",
+            false
+          ],
+          "tag": "RegularExpression"
+        },
+        "is_retired": false,
+        "specificity": 1,
+        "tags": []
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-29T00:42:28.041868Z",
+    "payload": {
+      "db_id": 317,
+      "record": {
+        "applicable_steps": [],
+        "description": "git failure",
+        "expression": {
+          "contents": "fatal: remote error: upload-pack: not our ref",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "specificity": 1,
+        "tags": [
+          "git"
+        ]
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-29T00:45:45.143938Z",
+    "payload": {
+      "db_id": 318,
+      "record": {
+        "applicable_steps": [],
+        "description": "system clock is out of sync",
+        "expression": {
+          "contents": "Downloading workspace layers",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "specificity": 1,
+        "tags": []
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-05-29T00:47:13.734232Z",
+    "payload": {
+      "db_id": 319,
+      "record": {
+        "applicable_steps": [],
+        "description": "download issue",
+        "expression": {
+          "contents": "No address associated with hostname",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "specificity": 1,
+        "tags": [
+          "network"
+        ]
       }
     }
   }

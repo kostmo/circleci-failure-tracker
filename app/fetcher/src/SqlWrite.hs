@@ -89,12 +89,19 @@ insert_posted_github_status conn_data git_sha1 (DbHelpers.OwnerAndRepo owner rep
     sql = "INSERT INTO created_github_statuses(id, sha1, project, repo, url, state, description, target_url, context, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?) RETURNING id;"
 
 
-insert_single_pattern :: Connection -> AuthStages.Username -> ScanPatterns.Pattern -> IO Int64
-insert_single_pattern conn (AuthStages.Username username) (ScanPatterns.NewPattern expression_obj description tags applicable_steps specificity is_retired) = do
+insert_single_pattern ::
+     Connection
+  -> Either (ScanPatterns.Pattern, AuthStages.Username) (DbHelpers.WithAuthorship ScanPatterns.DbPattern)
+  -> IO Int64
+insert_single_pattern conn either_pattern = do
 
-  [Only pattern_id] <- query conn pattern_insertion_sql (ScanPatterns.is_regex expression_obj, ScanPatterns.pattern_text expression_obj, description, is_retired, has_nondeterminisic_values, specificity)
+  [Only pattern_id] <- case maybe_id of
+    Nothing -> query conn pattern_insertion_sql (is_regex, pattern_text, description, is_retired, has_nondeterminisic_values, specificity)
+    Just record_id -> query conn pattern_insertion_with_id_sql (record_id, is_regex, pattern_text, description, is_retired, has_nondeterminisic_values, specificity)
 
-  execute conn authorship_insertion_sql (pattern_id, username)
+  case maybe_timestamp of
+    Just timestamp -> execute conn authorship_insertion_with_timestamp_sql (pattern_id, author, timestamp)
+    Nothing -> execute conn authorship_insertion_sql (pattern_id, author)
 
   for_ tags $ \tag -> do
     execute conn tag_insertion_sql (tag, pattern_id)
@@ -105,20 +112,38 @@ insert_single_pattern conn (AuthStages.Username username) (ScanPatterns.NewPatte
   return pattern_id
 
   where
+    pattern_text = ScanPatterns.pattern_text expression_obj
+    is_regex = ScanPatterns.is_regex expression_obj
+
+    (ScanPatterns.NewPattern expression_obj description tags applicable_steps specificity is_retired) = pattern_obj
+
+    (pattern_obj, AuthStages.Username author, maybe_timestamp, maybe_id) = case either_pattern of
+      Left (patt_obj, username) -> (patt_obj, username, Nothing, Nothing)
+      Right (DbHelpers.WithAuthorship auth created_time (DbHelpers.WithId record_id patt_obj)) -> (patt_obj, AuthStages.Username auth, Just created_time, Just record_id)
+
     has_nondeterminisic_values = case expression_obj of
       ScanPatterns.RegularExpression _ has_nondeterministic -> has_nondeterministic
       ScanPatterns.LiteralExpression _                       -> False
 
     pattern_insertion_sql = "INSERT INTO patterns(regex, expression, description, is_retired, has_nondeterministic_values, specificity) VALUES(?,?,?,?,?,?) RETURNING id;"
+    pattern_insertion_with_id_sql = "INSERT INTO patterns(id, regex, expression, description, is_retired, has_nondeterministic_values, specificity) VALUES(?,?,?,?,?,?) RETURNING id;"
+
     tag_insertion_sql = "INSERT INTO pattern_tags(tag, pattern) VALUES(?,?);"
+
+    authorship_insertion_with_timestamp_sql = "INSERT INTO pattern_authorship(pattern, author, created) VALUES(?,?,?);"
     authorship_insertion_sql = "INSERT INTO pattern_authorship(pattern, author) VALUES(?,?);"
+
+
     applicable_step_insertion_sql = "INSERT INTO pattern_step_applicability(step_name, pattern) VALUES(?,?);"
 
 
-restore_patterns :: DbHelpers.DbConnectionData -> AuthStages.Username -> [DbHelpers.WithAuthorship ScanPatterns.DbPattern] -> IO (Either Text [Int64])
-restore_patterns conn_data user pattern_list = do
+restore_patterns ::
+     DbHelpers.DbConnectionData
+  -> [DbHelpers.WithAuthorship ScanPatterns.DbPattern]
+  -> IO (Either Text [Int64])
+restore_patterns conn_data pattern_list = do
   conn <- DbHelpers.get_connection conn_data
-  eithers <- for pattern_list $ api_new_pattern conn user . DbHelpers.record . DbHelpers.payload
+  eithers <- for pattern_list $ api_new_pattern conn . Right
   return $ sequenceA eithers
 
 
@@ -171,7 +196,11 @@ insert_scan_id conn (ScanRecords.NewPatternId pattern_id)  = do
     sql = "INSERT INTO scans(latest_pattern_id) VALUES(?) RETURNING id;"
 
 
-api_new_pattern_test :: DbHelpers.DbConnectionData -> Builds.BuildNumber -> ScanPatterns.Pattern -> IO (Either String [ScanPatterns.ScanMatch])
+api_new_pattern_test ::
+     DbHelpers.DbConnectionData
+  -> Builds.BuildNumber
+  -> ScanPatterns.Pattern
+  -> IO (Either String [ScanPatterns.ScanMatch])
 api_new_pattern_test conn_data build_number@(Builds.NewBuildNumber buildnum) new_pattern = do
 
   conn <- DbHelpers.get_connection conn_data
@@ -211,17 +240,14 @@ api_new_breakage_report
 
 api_new_pattern ::
      Connection
-  -> AuthStages.Username
-  -> ScanPatterns.Pattern
+  -> Either (ScanPatterns.Pattern, AuthStages.Username) (DbHelpers.WithAuthorship ScanPatterns.DbPattern)
   -> IO (Either Text Int64)
-api_new_pattern conn author_username new_pattern = do
+api_new_pattern conn new_pattern = do
 
   catchViolation catcher $ do
-    record_id <- insert_single_pattern conn author_username new_pattern
+    record_id <- insert_single_pattern conn new_pattern
     return $ Right record_id
 
   where
     catcher _ (UniqueViolation some_error) = return $ Left $ "Insertion error: " <> T.pack (BS.unpack some_error)
     catcher e _                                  = throwIO e
-
-
