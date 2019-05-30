@@ -16,7 +16,9 @@
 <body onload="main();">
 
 
+<span style="float: right">[<a href="/">home</a>]</span>
 <h2>Build failures with no attributed cause in the log</h2>
+
 <p>These are logs for which no pattern has matched yet.</p>
 <p id="unattributed-builds-count-container"></p>
 <div id="container-unattributed-failures" style="min-width: 300px; height: 400px; max-width: 400; margin: 0 auto"></div>
@@ -25,6 +27,11 @@
 <p>This happens when CircleCI restarts a job; it's reported as failure to GitHub while the restarted job is running.</p>
 <p id="idiopathic-builds-count-container"></p>
 <div id="container-idiopathic-failures" style="min-width: 300px; height: 400px; max-width: 400; margin: 0 auto"></div>
+
+<hr/>
+
+<i>by <a href="https://github.com/kostmo" rel="author">kostmo</a></i>
+<span style="float: right">See <a href="https://github.com/kostmo/circleci-failure-tracker/blob/master/README.md">project README</a> for details.</span>
 
 </body>
 </head>

@@ -9,7 +9,7 @@ import qualified Data.ByteString.Lazy              as LBS
 import qualified Data.ByteString.Lazy.Char8        as LBSC
 import           Data.Default                      (def)
 import           Data.Either.Utils                 (maybeToEither)
-import           Data.List                         (filter)
+import           Data.List                         (filter, intercalate)
 import           Data.List.Split                   (splitOn)
 import qualified Data.Maybe                        as Maybe
 import qualified Data.Set                          as Set
@@ -58,8 +58,11 @@ import qualified WebApi
 import qualified Webhooks
 
 
+-- | Name is "Dr. CI" -- where doctor refers to a diagnostician.
+-- It is prefixed with an undescore so it appears first in the lexicographical
+-- ordering in the faild builds list.
 myAppStatusContext :: Text
-myAppStatusContext = "flaky-checker"
+myAppStatusContext = "_dr.ci"
 
 
 pattern_from_parms :: ScottyTypes.ActionT LT.Text IO ScanPatterns.Pattern
@@ -264,7 +267,10 @@ gen_flakiness_status sha1 flaky_count total_failcount =
     (LT.fromStrict myAppStatusContext)
 
   where
-    description = LT.pack $ show flaky_count <> "/" <> show total_failcount <> " flaky, " <> "/" <> " KPs"
+    description = LT.pack $ intercalate ", " [
+        show flaky_count <> "/" <> show total_failcount <> " flaky"
+--      , show 0 <> "/" <> show 0 <> " KPs"
+      ]
     status_string = if flaky_count == total_failcount
       then "success"
       else "failure"
@@ -275,8 +281,6 @@ gen_flakiness_status sha1 flaky_count total_failcount =
 github_event_endpoint :: DbHelpers.DbConnectionData -> AuthConfig.GithubConfig -> S.ScottyM ()
 github_event_endpoint connection_data github_config  = do
   S.post "/api/github-event" $ do
-
---    liftIO $ putStrLn "GOT A POST..."
 
     maybe_signature_header <- S.header "X-Hub-Signature"
     rq_body <- S.body
@@ -382,6 +386,9 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
       S.json =<< liftIO (SqlRead.api_jobs connection_data)
     -}
+
+    S.get "/api/posted-statuses" $
+      S.json =<< liftIO (SqlRead.api_posted_statuses connection_data)
 
     S.get "/api/job" $
       S.json =<< liftIO (SqlRead.api_jobs connection_data)
@@ -533,6 +540,7 @@ mainAppCode args = do
 
   let persistence_data = PersistenceData cache session store
 
+  {-
   when (AuthConfig.is_local github_config) $ do
     -- XXX FOR TESTING ONLY
     putStrLn "Starting test..."
@@ -548,7 +556,7 @@ mainAppCode args = do
 
     forkIO computation
     putStrLn "Forking from test..."
-
+  -}
 
 
   S.scotty prt $ scottyApp persistence_data credentials_data

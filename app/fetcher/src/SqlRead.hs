@@ -122,6 +122,25 @@ get_latest_pattern_id conn = do
     sql = "SELECT id FROM patterns ORDER BY id DESC LIMIT 1;"
 
 
+data PostedStatus = PostedStatus {
+    _sha1        :: Text
+  , _description :: Text
+  , _created_at  :: UTCTime
+  } deriving Generic
+
+instance ToJSON PostedStatus where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+api_posted_statuses :: DbHelpers.DbConnectionData -> IO [PostedStatus]
+api_posted_statuses conn_data = do
+  conn <- DbHelpers.get_connection conn_data
+  map f <$> query_ conn sql
+  where
+    f (sha1, description, created_at) = PostedStatus sha1 description created_at
+    sql = "SELECT sha1, description, created_at FROM created_github_statuses LIMIT 50;"
+
+
 -- XXX NOT USED
 query_builds :: DbHelpers.DbConnectionData -> IO [Builds.Build]
 query_builds conn_data = do
