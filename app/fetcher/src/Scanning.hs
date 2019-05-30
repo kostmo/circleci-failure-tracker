@@ -7,14 +7,15 @@ import           Control.Monad.IO.Class     (liftIO)
 import           Control.Monad.Trans.Except (ExceptT (ExceptT), runExceptT)
 import           Data.Aeson                 (Value)
 import           Data.Aeson.Lens            (key, _Array, _Bool, _String)
+import qualified Data.Either                as Either
 import           Data.Either.Combinators    (rightToMaybe)
-import           Data.Foldable              (for_)
 import qualified Data.HashMap.Strict        as HashMap
 import           Data.List                  (intercalate)
 import qualified Data.Maybe                 as Maybe
 import           Data.Set                   (Set)
 import qualified Data.Set                   as Set
 import qualified Data.Text                  as T
+import           Data.Traversable           (for)
 import qualified Data.Vector                as V
 import           Database.PostgreSQL.Simple (Connection)
 import           GHC.Int                    (Int64)
@@ -34,16 +35,18 @@ import qualified SqlRead
 import qualified SqlWrite
 
 
-scan_builds :: ScanRecords.ScanCatchupResources -> Either (Set Builds.BuildNumber) Int -> IO ()
+scan_builds :: ScanRecords.ScanCatchupResources -> Either (Set Builds.BuildNumber) Int -> IO [(Builds.BuildNumber, [ScanPatterns.ScanMatch])]
 scan_builds scan_resources whitelisted_builds_or_fetch_count = do
 
   visited_builds_list <- SqlRead.get_revisitable_builds conn
   let whitelisted_visited = visited_filter visited_builds_list
-  rescan_visited_builds scan_resources whitelisted_visited
+  rescan_matches <- rescan_visited_builds scan_resources whitelisted_visited
 
   unvisited_builds_list <- SqlRead.get_unvisited_build_ids conn maybe_fetch_limit
   let whitelisted_unvisited = unvisited_filter unvisited_builds_list
-  process_unvisited_builds scan_resources whitelisted_unvisited
+  first_scan_matches <- process_unvisited_builds scan_resources whitelisted_unvisited
+
+  return $ rescan_matches ++ first_scan_matches
 
   where
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
@@ -53,7 +56,7 @@ scan_builds scan_resources whitelisted_builds_or_fetch_count = do
       Right _ -> (id, id)
       Left whitelisted_builds -> (
           filter $ (\(_, _, buildnum, _) -> buildnum `Set.member` whitelisted_builds)
-        , filter $ (`Set.member` whitelisted_builds)
+        , filter (`Set.member` whitelisted_builds)
         )
 
 
@@ -110,7 +113,7 @@ get_pattern_objects scan_resources =
 -- failed step of this build.
 -- Patterns that are not annotated with applicability will apply
 -- to any step.
-catchup_scan :: ScanRecords.ScanCatchupResources -> Builds.BuildStepId -> T.Text -> (Builds.BuildNumber, Maybe Builds.BuildFailureOutput) -> [ScanPatterns.DbPattern] -> IO ()
+catchup_scan :: ScanRecords.ScanCatchupResources -> Builds.BuildStepId -> T.Text -> (Builds.BuildNumber, Maybe Builds.BuildFailureOutput) -> [ScanPatterns.DbPattern] -> IO (Either String [ScanPatterns.ScanMatch])
 catchup_scan scan_resources buildstep_id step_name (buildnum, maybe_console_output_url) scannable_patterns = do
 
   putStrLn $ "\tThere are " ++ (show $ length scannable_patterns) ++ " scannable patterns"
@@ -125,7 +128,7 @@ catchup_scan scan_resources buildstep_id step_name (buildnum, maybe_console_outp
   -- | We only access the console log if there is at least one
   -- pattern to scan:
   case Safe.maximumMay $ map DbHelpers.db_id applicable_patterns of
-    Nothing -> return $ Right ()
+    Nothing -> return $ Right []
     Just maximum_pattern_id -> runExceptT $ do
 
       lines_list <- ExceptT $ get_and_store_log scan_resources buildnum buildstep_id maybe_console_output_url
@@ -135,17 +138,21 @@ catchup_scan scan_resources buildstep_id step_name (buildnum, maybe_console_outp
         SqlWrite.store_matches scan_resources buildstep_id buildnum matches
         SqlWrite.insert_latest_pattern_build_scan scan_resources buildnum maximum_pattern_id
 
-  return ()
+      return matches
 
 
-rescan_visited_builds :: ScanRecords.ScanCatchupResources -> [(Builds.BuildStepId, T.Text, Builds.BuildNumber, [Int64])] -> IO ()
+rescan_visited_builds :: ScanRecords.ScanCatchupResources -> [(Builds.BuildStepId, T.Text, Builds.BuildNumber, [Int64])] -> IO [(Builds.BuildNumber, [ScanPatterns.ScanMatch])]
 rescan_visited_builds scan_resources visited_builds_list = do
 
-  for_ (zip [1::Int ..] visited_builds_list) $ \(idx, (build_step_id, step_name, build_num, pattern_ids)) -> do
+  match_lists <- for (zip [1::Int ..] visited_builds_list) $ \(idx, (build_step_id, step_name, build_num, pattern_ids)) -> do
     putStrLn $ "Visiting " ++ show idx ++ "/" ++ show visited_count ++ " previously-visited builds (" ++ show build_num ++ ")..."
 
-    catchup_scan scan_resources build_step_id step_name (build_num, Nothing) $
+    either_matches <- catchup_scan scan_resources build_step_id step_name (build_num, Nothing) $
       get_pattern_objects scan_resources pattern_ids
+
+    return $ (build_num, Either.fromRight [] either_matches)
+
+  return match_lists
 
   where
     visited_count = length visited_builds_list
@@ -155,23 +162,25 @@ rescan_visited_builds scan_resources visited_builds_list = do
 -- immediately upon build visitation. We do this instead of waiting
 -- until the end so that we can resume progress if the process is
 -- interrupted.
-process_unvisited_builds :: ScanRecords.ScanCatchupResources -> [Builds.BuildNumber] -> IO ()
+process_unvisited_builds :: ScanRecords.ScanCatchupResources -> [Builds.BuildNumber] -> IO [(Builds.BuildNumber, [ScanPatterns.ScanMatch])]
 process_unvisited_builds scan_resources unvisited_builds_list = do
 
-  for_ (zip [1::Int ..] unvisited_builds_list) $ \(idx, build_num) -> do
+  for (zip [1::Int ..] unvisited_builds_list) $ \(idx, build_num) -> do
     putStrLn $ "Visiting " ++ show idx ++ "/" ++ show unvisited_count ++ " unvisited builds..."
     visitation_result <- get_failed_build_info scan_resources build_num
 
     let pair = (build_num, visitation_result)
     build_step_id <- SqlWrite.insert_build_visitation scan_resources pair
 
-    case visitation_result of
-      Right _ -> return ()
+    either_matches <- case visitation_result of
+      Right _ -> return $ Right []
       Left (Builds.NewBuildStepFailure step_name mode) -> case mode of
-        Builds.BuildTimeoutFailure             -> return ()
+        Builds.BuildTimeoutFailure             -> return $ Right []
         Builds.ScannableFailure failure_output ->
           catchup_scan scan_resources build_step_id step_name (build_num, Just failure_output) $
             ScanRecords.get_patterns_with_id scan_resources
+
+    return $ (build_num, Either.fromRight [] either_matches)
 
   where
     unvisited_count = length unvisited_builds_list

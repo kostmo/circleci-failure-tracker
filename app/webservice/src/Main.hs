@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+import           Control.Concurrent                (forkIO)
 import           Control.Monad                     (guard, unless, when)
 import           Control.Monad.IO.Class            (liftIO)
 import           Control.Monad.Trans.Except        (ExceptT (ExceptT), except,
@@ -35,6 +36,7 @@ import           Web.ClientSession                 (getDefaultKey)
 import qualified Web.Scotty                        as S
 import qualified Web.Scotty.Internal.Types         as ScottyTypes
 
+import qualified ApiPost
 import qualified Auth
 import qualified AuthConfig
 import qualified AuthStages
@@ -145,6 +147,11 @@ get_circleci_failure sha1 event_setter = do
     url_text = StatusEventQuery._target_url event_setter
 
 
+-- | Operations:
+-- * Filter out the CircleCI builds
+-- * Check if the builds have been scanned yet.
+-- * Scan each CircleCI build that needs to be scanned.
+-- * For each match, check if that match's pattern is tagged as "flaky".
 handleFailedStatuses ::
      DbHelpers.DbConnectionData
   -> Text -- ^ access token
@@ -169,7 +176,11 @@ handleFailedStatuses
     conn <- DbHelpers.get_connection db_connection_data
     scan_resources <- Scanning.prepare_scan_resources conn
     SqlWrite.store_builds_list conn circleci_failed_builds
-    Scanning.scan_builds scan_resources $ Left $ Set.fromList scannable_build_numbers
+    scan_matches <- Scanning.scan_builds scan_resources $ Left $ Set.fromList scannable_build_numbers
+
+    -- TODO
+    _flaky_pattern_ids <- SqlRead.get_flaky_pattern_ids conn
+    return ()
 
 
   let total_failcount = length failed_statuses_list
@@ -177,6 +188,14 @@ handleFailedStatuses
 
   liftIO $ putStrLn $ "KARL: There are " <> show total_failcount <> " failed builds"
 
+  post_result <- ExceptT $ ApiPost.postCommitStatus
+    access_token
+    owned_repo
+    sha1
+    (gen_flakiness_status (LT.fromStrict sha1) flaky_count total_failcount)
+
+  liftIO $ SqlWrite.insert_posted_github_status db_connection_data sha1 owned_repo post_result
+  return ()
 
 
 handleStatusWebhook ::
@@ -192,7 +211,7 @@ handleStatusWebhook db_connection_data access_token status_event = do
 
     liftIO $ putStrLn $ "Notified status context was: " ++ notified_status_context_string
 
-    let notified_status_url_string = LT.unpack (Webhooks.target_url status_event)
+    let notified_status_url_string = LT.unpack $ Webhooks.target_url status_event
     when ("ci/circleci" `T.isPrefixOf` notified_status_context_text) $ do
 
       liftIO $ putStrLn $ "CircleCI URL was: " ++ notified_status_url_string
@@ -205,30 +224,17 @@ handleStatusWebhook db_connection_data access_token status_event = do
       (org:repo:[]) -> Right $ DbHelpers.OwnerAndRepo org repo
       _ -> Left $ "un-parseable owner/repo text: " <> owner_repo_text
 
-    handleFailedStatuses
-      db_connection_data
-      access_token
-      owned_repo
-      sha1
+    let computation = do
+          runExceptT $
+            handleFailedStatuses
+              db_connection_data
+              access_token
+              owned_repo
+              sha1
+          return ()
 
-    -- Filter out the CircleCI builds
+    _thread_id <- liftIO $ forkIO computation
 
-    -- Check if the builds have been scanned yet.
-    -- Scan each CircleCI build that needs to be scanned.
-
-    -- For each match, check if that match's pattern is tagged as "flaky".
-
-
-    -- TODO RE-enable this
-    {-
-    post_result <- ExceptT $ ApiPost.postCommitStatus
-      access_token
-      owned_repo
-      sha1
-      (gen_flakiness_status status_event flaky_count total_failcount)
-
-    liftIO $ SqlWrite.insert_posted_github_status db_connection_data sha1 owned_repo post_result
-    -}
     return ()
 
   where
@@ -241,17 +247,25 @@ handleStatusWebhook db_connection_data access_token status_event = do
     sha1 = LT.toStrict $ Webhooks.sha status_event
 
 
-gen_flakiness_status :: Webhooks.GitHubStatusEvent -> Int -> Int -> StatusEvent.GitHubStatusEventSetter
-gen_flakiness_status status_event flaky_count total_failcount = StatusEvent.GitHubStatusEventSetter
-  description
-  status_string
-  ("https://circle.pytorch.org/commit-details.html?sha1=" <> Webhooks.sha status_event)
-  (LT.fromStrict myAppStatusContext)
+gen_flakiness_status ::
+     LT.Text
+  -> Int
+  -> Int
+  -> StatusEvent.GitHubStatusEventSetter
+gen_flakiness_status sha1 flaky_count total_failcount =
+  StatusEvent.GitHubStatusEventSetter
+    description
+    status_string
+    (base_url <> "/commit-details.html?sha1=" <> sha1)
+    (LT.fromStrict myAppStatusContext)
+
   where
     description = LT.pack $ show flaky_count <> "/" <> show total_failcount <> " flaky, " <> "/" <> " KPs"
     status_string = if flaky_count == total_failcount
       then "success"
       else "failure"
+
+    base_url = "https://circle.pytorch.org"
 
 
 github_event_endpoint :: DbHelpers.DbConnectionData -> AuthConfig.GithubConfig -> S.ScottyM ()
@@ -275,7 +289,7 @@ github_event_endpoint connection_data github_config  = do
         then return ()
         else if event_type /= "status"
           then do
-            S.json =<< return ["hello" :: String]
+            S.json =<< return ["hello" :: String] -- XXX Do I even need to send a response?
           else do
             body_json <- S.jsonData
             liftIO $ handleStatusWebhook connection_data (AuthConfig.personal_access_token github_config) body_json
@@ -470,6 +484,10 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       build_id <- S.param "build_id"
       S.json =<< (liftIO $ SqlRead.get_build_info connection_data build_id)
 
+    S.get "/api/best-build-match" $ do
+      build_id <- S.param "build_id"
+      S.json =<< (liftIO $ SqlRead.get_best_build_match connection_data build_id)
+
     S.get "/api/build-pattern-matches" $ do
       build_id <- S.param "build_id"
       S.json =<< (liftIO $ SqlRead.get_build_pattern_matches connection_data build_id)
@@ -514,12 +532,19 @@ mainAppCode args = do
   when (AuthConfig.is_local github_config) $ do
     -- XXX FOR TESTING ONLY
     putStrLn "Starting test..."
-    runExceptT $ handleFailedStatuses
-      connection_data
-      (AuthConfig.personal_access_token github_config)
-      (DbHelpers.OwnerAndRepo Constants.project_name Constants.repo_name)
-      "39cedc8474aa641b30b427de8f90014ba3d20c13"
-    putStrLn "Ending test..."
+
+    let computation = do
+          runExceptT $ handleFailedStatuses
+            connection_data
+            (AuthConfig.personal_access_token github_config)
+            (DbHelpers.OwnerAndRepo Constants.project_name Constants.repo_name)
+           "39cedc8474aa641b30b427de8f90014ba3d20c13"
+          putStrLn "Ending test..."
+          return ()
+
+    forkIO computation
+    putStrLn "Forking from test..."
+
 
 
   S.scotty prt $ scottyApp persistence_data credentials_data

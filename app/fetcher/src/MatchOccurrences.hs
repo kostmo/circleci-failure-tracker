@@ -18,6 +18,7 @@ data MatchOccurrencesForBuild = MatchOccurrencesForBuild {
   , _line_text   :: Text
   , _span_start  :: Int
   , _span_end    :: Int
+  , _specificity :: Int
   } deriving Generic
 
 instance ToJSON MatchOccurrencesForBuild where

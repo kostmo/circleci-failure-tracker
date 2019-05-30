@@ -49,7 +49,8 @@ mainAppCode args = do
   BuildRetrieval.updateBuildsList conn (branchName args) fetch_count age_days
 
   scan_resources <- Scanning.prepare_scan_resources conn
-  Scanning.scan_builds scan_resources (Right fetch_count)
+  build_matches <- Scanning.scan_builds scan_resources $ Right fetch_count
+  putStrLn $ "Scanned " ++ show (length build_matches) ++ " builds."
 
   where
     fetch_count = buildCount args

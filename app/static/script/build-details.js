@@ -34,10 +34,10 @@ function submit_breakage_report(button, full_sha1) {
 }
 
 
-function gen_builds_table(element_id, data_url) {
+function gen_builds_table(element_id, data_url, height_string) {
 
 	var table = new Tabulator("#" + element_id, {
-	    height:"300px",
+	    height: height_string,
 	    layout:"fitColumns",
 	    placeholder:"No Data Set",
 	    columns:[
@@ -75,6 +75,11 @@ function get_log_text(build_id) {
 }
 
 
+function render_pair(term, definition) {
+	return "<dt>" + term + "</dt><dd>" + definition + "</dd>";
+}
+
+
 function populate_build_info(build_id) {
 
 	$.getJSON('/api/single-build-info', {"build_id": build_id}, function (data) {
@@ -83,13 +88,20 @@ function populate_build_info(build_id) {
 //		var local_logview_item = "<a href='/api/view-log?build_id=" + build_id + "'>Download log</a>";
 		var logview_items = "<ul><li>View log <a href='https://circleci.com/gh/pytorch/pytorch/" + build_id + "'>on CircleCI</a></li><li>" + local_logview_item + "</li></ul>";
 
+		var full_commit = data["build"]["vcs_revision"];
+		var short_commit = full_commit.substring(0, 7);
+
+		var github_link = "<a href='https://github.com/pytorch/pytorch/commit/" + full_commit + "'>View <code>" + short_commit + "</code> on GitHub</a>";
+		var local_link = "<a href='/commit-details.html?sha1=" + full_commit + "'>View <code>" + short_commit + "</code> builds</a>";
+		var commit_links = "<ul><li>" + github_link + "</li><li>" + local_link + "</li><ul>"
+
 		var html = "<dl>"
-		html += "<dt>CircleCI page</dt><dd>" + logview_items + "</dd>";
-		html += "<dt>Build step:</dt><dd>" + data["step_name"] + "</dd>";
-		html += "<dt>Branch:</dt><dd>" + data["build"]["branch"] + "</dd>";
-		html += "<dt>Job name:</dt><dd>" + data["build"]["job_name"] + "</dd>";
-		html += "<dt>Date:</dt><dd>" + data["build"]["queued_at"] + "</dd>";
-		html += "<dt>Revision:</dt><dd><code><a href='https://github.com/pytorch/pytorch/commit/" + data["build"]["vcs_revision"] + "'>" + data["build"]["vcs_revision"].substring(0, 7) + "</a></code></dd>";
+		html += render_pair("CircleCI page:", logview_items);
+		html += render_pair("Build step:", "<i>" + data["step_name"] + "</i>");
+		html += render_pair("Branch:", data["build"]["branch"]);
+		html += render_pair("Job name:", data["build"]["job_name"]);
+		html += render_pair("Date:", data["build"]["queued_at"]);
+		html += render_pair("Revision:", commit_links);
 		html += "</dl>";
 
 		$.getJSON('https://api.github.com/repos/pytorch/pytorch/commits', {"build_id": build_id}, function (data) {
@@ -120,7 +132,8 @@ function main() {
 	var build_id = urlParams.get('build_id');
 
 	populate_build_info(build_id);
-	gen_builds_table("all-build-matches-table", "/api/build-pattern-matches?build_id=" + build_id);
+	gen_builds_table("all-build-matches-table", "/api/build-pattern-matches?build_id=" + build_id, "300px");
+	gen_builds_table("best-build-matches-table", "/api/best-build-match?build_id=" + build_id, null);
 
 	gen_pattern_test_link(build_id);
 }

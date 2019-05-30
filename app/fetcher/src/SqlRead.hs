@@ -9,6 +9,8 @@ import           Data.Aeson
 import           Data.List                            (sort)
 import           Data.List.Split                      (splitOn)
 import           Data.Scientific                      (Scientific)
+import           Data.Set                             (Set)
+import qualified Data.Set                             as Set
 import           Data.Text                            (Text)
 import qualified Data.Text                            as T
 import           Data.Time                            (UTCTime)
@@ -173,6 +175,14 @@ api_failed_commits_by_day conn_data = do
     sql = "SELECT queued_at::date AS date, COUNT(*) FROM (SELECT vcs_revision, MAX(queued_at) queued_at FROM builds GROUP BY vcs_revision) foo GROUP BY date ORDER BY date ASC;"
 
 
+get_flaky_pattern_ids :: Connection -> IO (Set Int64)
+get_flaky_pattern_ids conn = do
+  xs <- query_ conn sql
+  return $ Set.fromList $ map (\(Only x) -> x) xs
+  where
+    sql = "SELECT id FROM flaky_patterns_augmented;"
+
+
 list_builds :: Query -> DbHelpers.DbConnectionData -> IO [WebApi.BuildBranchRecord]
 list_builds sql conn_data = do
   conn <- DbHelpers.get_connection conn_data
@@ -249,16 +259,16 @@ api_list_branches conn_data = do
 get_revision_builds :: DbHelpers.DbConnectionData -> GitRev.GitSha1 -> IO [CommitBuilds.CommitBuild]
 get_revision_builds conn_data git_revision = do
   conn <- DbHelpers.get_connection conn_data
-  xs <- query conn sql (Only $ GitRev.sha1 git_revision)
+  xs <- query conn sql $ Only $ GitRev.sha1 git_revision
   return $ map f xs
 
   where
-    f (step_name, buildnum, vcs_rev, queuedat, jobname, branch, pattern, line_number, line_count, line_text, span_start, span_end) =
+    f (step_name, buildnum, vcs_rev, queuedat, jobname, branch, pattern, line_number, line_count, line_text, span_start, span_end, specificity) =
       CommitBuilds.NewCommitBuild
         (Builds.NewBuild (Builds.NewBuildNumber buildnum) vcs_rev queuedat jobname branch)
-        (MatchOccurrences.MatchOccurrencesForBuild step_name pattern line_number line_count line_text span_start span_end)
+        (MatchOccurrences.MatchOccurrencesForBuild step_name pattern line_number line_count line_text span_start span_end specificity)
 
-    sql = "SELECT step_name, build, vcs_revision, queued_at, job_name, branch, pattern_id, line_number, line_count, line_text, span_start, span_end FROM best_pattern_match_augmented_builds JOIN patterns_augmented on best_pattern_match_augmented_builds.pattern_id = patterns_augmented.id WHERE vcs_revision = ?;"
+    sql = "SELECT step_name, build, vcs_revision, queued_at, job_name, branch, pattern_id, line_number, line_count, line_text, span_start, span_end, patterns_augmented.specificity FROM best_pattern_match_augmented_builds JOIN patterns_augmented on best_pattern_match_augmented_builds.pattern_id = patterns_augmented.id WHERE vcs_revision = ?;"
 
 
 data CommitInfo = NewCommitInfo {
@@ -404,21 +414,14 @@ get_build_pattern_matches conn_data build_id = do
   return $ map f xs
 
   where
-    f (step_name, pattern, line_number, line_count, line_text, span_start, span_end) =
+    f (step_name, pattern, line_number, line_count, line_text, span_start, span_end, specificity) =
       MatchOccurrences.MatchOccurrencesForBuild
-        step_name pattern line_number line_count line_text span_start span_end
+        step_name pattern line_number line_count line_text span_start span_end specificity
 
-    sql = "SELECT step_name, pattern, line_number, line_count, line_text, span_start, span_end FROM matches_with_log_metadata JOIN build_steps ON matches_with_log_metadata.build_step = build_steps.id JOIN patterns_augmented ON patterns_augmented.id = matches_with_log_metadata.pattern WHERE matches_with_log_metadata.build_num = ? ORDER BY specificity DESC, patterns_augmented.id ASC, line_number ASC;"
+    sql = "SELECT step_name, pattern, line_number, line_count, line_text, span_start, span_end, specificity FROM matches_with_log_metadata JOIN build_steps ON matches_with_log_metadata.build_step = build_steps.id JOIN patterns_augmented ON patterns_augmented.id = matches_with_log_metadata.pattern WHERE matches_with_log_metadata.build_num = ? ORDER BY specificity DESC, patterns_augmented.id ASC, line_number ASC;"
 
 
-get_best_pattern_matches :: DbHelpers.DbConnectionData -> Int -> IO [PatternOccurrences]
-get_best_pattern_matches conn_data pattern_id = do
-
-  conn <- DbHelpers.get_connection conn_data
-
-  xs <- query conn sql $ Only pattern_id
-  return $ map (txform . f) xs
-
+pattern_occurence_txform = txform . f
   where
     -- TODO consolidate this transformation with "get_pattern_matches"
     f (buildnum, stepname, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch) =
@@ -426,7 +429,31 @@ get_best_pattern_matches conn_data pattern_id = do
 
     txform ((Builds.NewBuild (Builds.NewBuildNumber buildnum) vcs_rev queued_at job_name branch), stepname, line_count, ScanPatterns.NewMatchDetails line_text line_number (ScanPatterns.NewMatchSpan start end)) = PatternOccurrences buildnum vcs_rev queued_at job_name branch stepname line_number line_count line_text start end
 
+
+get_best_pattern_matches :: DbHelpers.DbConnectionData -> Int -> IO [PatternOccurrences]
+get_best_pattern_matches conn_data pattern_id = do
+
+  conn <- DbHelpers.get_connection conn_data
+  xs <- query conn sql $ Only pattern_id
+  return $ map pattern_occurence_txform xs
+
+  where
     sql = "SELECT build, step_name, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch FROM best_pattern_match_augmented_builds WHERE pattern_id = ?;"
+
+
+-- | This should produce one or zero results.
+-- We use a list instead of a Maybe so that
+-- the javascript table renderer code can be reused
+-- for multi-item lists.
+get_best_build_match :: DbHelpers.DbConnectionData -> Int -> IO [PatternOccurrences]
+get_best_build_match conn_data build_id = do
+
+  conn <- DbHelpers.get_connection conn_data
+  xs <- query conn sql $ Only build_id
+  return $ map pattern_occurence_txform xs
+
+  where
+    sql = "SELECT build, step_name, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch FROM best_pattern_match_augmented_builds WHERE build = ?;"
 
 
 get_build_info :: DbHelpers.DbConnectionData -> Int -> IO BuildSteps.BuildStep
@@ -468,4 +495,6 @@ get_pattern_occurrence_rows conn_data pattern_id = do
     f (buildnum, stepname, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch) =
       (Builds.NewBuild (Builds.NewBuildNumber buildnum) vcs_revision queued_at job_name branch, stepname, line_count, ScanPatterns.NewMatchDetails line_text line_number $ ScanPatterns.NewMatchSpan span_start span_end)
 
-    sql = "SELECT builds.build_num, step_name, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch FROM (SELECT build_steps.build AS build_num, build_steps.name AS step_name, line_number, COALESCE(line_count, 0) AS line_count, line_text, span_start, span_end FROM (SELECT * FROM matches WHERE pattern = ?) foo JOIN build_steps ON build_steps.id = foo.build_step LEFT JOIN log_metadata ON log_metadata.step = build_steps.id ORDER BY build_num DESC) bar JOIN builds ON builds.build_num = bar.build_num;"
+--    sql = "SELECT builds.build_num, step_name, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch FROM (SELECT build_steps.build AS build_num, build_steps.name AS step_name, line_number, COALESCE(line_count, 0) AS line_count, line_text, span_start, span_end FROM (SELECT * FROM matches WHERE pattern = ?) foo JOIN build_steps ON build_steps.id = foo.build_step LEFT JOIN log_metadata ON log_metadata.step = build_steps.id ORDER BY build_num DESC) bar JOIN builds ON builds.build_num = bar.build_num;"
+    -- simplified:
+    sql = "SELECT builds.build_num, step_name, line_number, line_count, line_text, span_start, span_end, builds.vcs_revision, queued_at, job_name, branch FROM matches_with_log_metadata JOIN builds ON matches_with_log_metadata.build_num = builds.build_num WHERE pattern = ?;"

@@ -249,7 +249,8 @@ CREATE VIEW public.best_pattern_match_augmented_builds WITH (security_barrier='f
     builds.queued_at,
     builds.job_name,
     builds.branch,
-    best_pattern_match_for_builds.pattern_id
+    best_pattern_match_for_builds.pattern_id,
+    best_pattern_match_for_builds.specificity
    FROM ((public.best_pattern_match_for_builds
      JOIN public.matches_with_log_metadata ON (((matches_with_log_metadata.pattern = best_pattern_match_for_builds.pattern_id) AND (matches_with_log_metadata.build_num = best_pattern_match_for_builds.build))))
      JOIN public.builds ON ((builds.build_num = best_pattern_match_for_builds.build)))
