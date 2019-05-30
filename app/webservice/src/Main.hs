@@ -172,19 +172,23 @@ handleFailedStatuses
   let circleci_failed_builds = Maybe.mapMaybe (get_circleci_failure sha1) failed_statuses_list
       scannable_build_numbers = map Builds.build_id circleci_failed_builds
 
-  liftIO $ do
+  builds_with_flaky_pattern_matches <- liftIO $ do
     conn <- DbHelpers.get_connection db_connection_data
     scan_resources <- Scanning.prepare_scan_resources conn
     SqlWrite.store_builds_list conn circleci_failed_builds
     scan_matches <- Scanning.scan_builds scan_resources $ Left $ Set.fromList scannable_build_numbers
 
-    -- TODO
-    _flaky_pattern_ids <- SqlRead.get_flaky_pattern_ids conn
-    return ()
+    -- TODO - we should instead see if the "best matching pattern" is
+    -- flaky, rather than checking if *any* matching pattern is a
+    -- "flaky" pattern.
+    flaky_pattern_ids <- SqlRead.get_flaky_pattern_ids conn
+    let flaky_predicate = any ((`Set.member` flaky_pattern_ids) . DbHelpers.db_id . ScanPatterns.scanned_pattern) . snd
+        builds_with_flaky_pattern_matches = filter flaky_predicate scan_matches
+    return builds_with_flaky_pattern_matches
 
 
   let total_failcount = length failed_statuses_list
-      flaky_count = 0 -- FIXME
+      flaky_count = length builds_with_flaky_pattern_matches
 
   liftIO $ putStrLn $ "KARL: There are " <> show total_failcount <> " failed builds"
 
