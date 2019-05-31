@@ -273,8 +273,18 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
     S.get "/api/unmatched-builds" $
       S.json =<< liftIO (SqlRead.api_unmatched_builds connection_data)
 
+    S.get "/api/unmatched-builds-for-commit" $ do
+      commit_sha1_text <- S.param "sha1"
+      S.json =<< liftIO (SqlRead.api_unmatched_commit_builds connection_data commit_sha1_text)
+
     S.get "/api/idiopathic-failed-builds" $
       S.json =<< liftIO (SqlRead.api_idiopathic_builds connection_data)
+
+    S.get "/api/idiopathic-failed-builds-for-commit" $ do
+      commit_sha1_text <- S.param "sha1"
+      S.json =<< liftIO (SqlRead.api_idiopathic_commit_builds connection_data commit_sha1_text)
+
+
 
     -- | Access-controlled endpoint
     S.get "/api/view-log" $ do

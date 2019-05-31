@@ -285,10 +285,28 @@ api_unmatched_builds = list_builds sql
     sql = "SELECT build, branch FROM unattributed_failed_builds;"
 
 
+api_unmatched_commit_builds :: DbHelpers.DbConnectionData -> Text -> IO [WebApi.UnmatchedBuild]
+api_unmatched_commit_builds conn_data sha1 = do
+  conn <- DbHelpers.get_connection conn_data
+  map f <$> query conn sql (Only sha1)
+  where
+    f (build, step_name, queued_at, job_name, branch) = WebApi.UnmatchedBuild (Builds.NewBuildNumber build) step_name queued_at job_name branch
+    sql = "SELECT build, step_name, queued_at, job_name, unattributed_failed_builds.branch FROM unattributed_failed_builds LEFT JOIN builds_join_steps ON unattributed_failed_builds.build = builds_join_steps.build_num WHERE vcs_revision = ?"
+
+
 api_idiopathic_builds :: DbHelpers.DbConnectionData -> IO [WebApi.BuildBranchRecord]
 api_idiopathic_builds = list_builds sql
   where
     sql = "SELECT build, branch FROM idiopathic_build_failures;"
+
+
+api_idiopathic_commit_builds :: DbHelpers.DbConnectionData -> Text -> IO [WebApi.UnmatchedBuild]
+api_idiopathic_commit_builds conn_data sha1 = do
+  conn <- DbHelpers.get_connection conn_data
+  map f <$> query conn sql (Only sha1)
+  where
+    f (build, step_name, queued_at, job_name, branch) = WebApi.UnmatchedBuild (Builds.NewBuildNumber build) step_name queued_at job_name branch
+    sql = "SELECT build, step_name, queued_at, job_name, idiopathic_build_failures.branch FROM idiopathic_build_failures LEFT JOIN builds_join_steps ON idiopathic_build_failures.build = builds_join_steps.build_num WHERE vcs_revision = ?"
 
 
 api_random_scannable_build :: DbHelpers.DbConnectionData -> IO WebApi.BuildNumberRecord

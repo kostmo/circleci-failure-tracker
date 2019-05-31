@@ -6,12 +6,11 @@ module WebApi where
 
 import           Data.Aeson
 import           Data.Text    (Text)
+import           Data.Time    (UTCTime)
 import           GHC.Generics
 
 import qualified Builds
 import qualified JsonUtils
-
-
 
 
 data JsonEither a b = JsonEither {
@@ -43,6 +42,18 @@ data BuildNumberRecord = BuildNumberRecord {
   } deriving Generic
 
 instance ToJSON BuildNumberRecord where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+data UnmatchedBuild = UnmatchedBuild {
+    _build     :: Builds.BuildNumber
+  , _step_name :: Text
+  , _queued_at :: UTCTime
+  , _job_name  :: Text
+  , _branch    :: Text
+  } deriving Generic
+
+instance ToJSON UnmatchedBuild where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 

@@ -50,6 +50,24 @@ function gen_builds_table(element_id, data_url) {
 }
 
 
+function gen_unmatched_build_list(api_endpoint, div_id) {
+
+	var table = new Tabulator("#" + div_id, {
+	    height:"200px",
+	    layout:"fitColumns",
+	    placeholder:"No Data Set",
+	    columns:[
+		{title:"Build number", field:"build", formatter: "link", width: 75, formatterParams: {urlPrefix: "/build-details.html?build_id="}},
+		{title:"Step", field:"step_name", formatter: "string"},
+		{title:"Job", field:"job_name", formatter: "string"},
+		{title:"Time", field:"queued_at", formatter: "string"},
+		{title:"Branch", field:"branch", formatter: "string"},
+	    ],
+            ajaxURL: api_endpoint,
+	});
+}
+
+
 function main() {
 
 	var urlParams = new URLSearchParams(window.location.search);
@@ -57,4 +75,7 @@ function main() {
 
 	populate_commit_info(commit_sha1);
 	gen_builds_table("builds-table", "/api/commit-builds?sha1=" + commit_sha1);
+
+	gen_unmatched_build_list("/api/unmatched-builds-for-commit?sha1=" + commit_sha1, "container-unattributed-failures");
+	gen_unmatched_build_list("/api/idiopathic-failed-builds-for-commit?sha1=" + commit_sha1, "container-idiopathic-failures");
 }

@@ -122,14 +122,15 @@ handleFailedStatuses
   let total_failcount = length circleci_failed_builds
       flaky_count = length builds_with_flaky_pattern_matches
 
-  post_result <- ExceptT $ ApiPost.postCommitStatus
-    access_token
-    owned_repo
-    sha1
-    (gen_flakiness_status (LT.fromStrict sha1) flaky_count total_failcount)
+  when (total_failcount > 0) $ do
+    post_result <- ExceptT $ ApiPost.postCommitStatus
+      access_token
+      owned_repo
+      sha1
+      (gen_flakiness_status (LT.fromStrict sha1) flaky_count total_failcount)
 
-  liftIO $ SqlWrite.insert_posted_github_status db_connection_data sha1 owned_repo post_result
-  return ()
+    liftIO $ SqlWrite.insert_posted_github_status db_connection_data sha1 owned_repo post_result
+    return ()
 
   where
     is_not_my_own_context = (/= myAppStatusContext) . LT.toStrict . StatusEventQuery._context
