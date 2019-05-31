@@ -2,6 +2,7 @@
 
 module ScanUtils where
 
+import           Data.Array                ((!))
 import           Data.Maybe                (Maybe)
 import qualified Data.Text                 as T
 import           Data.Text.Encoding        (encodeUtf8)
@@ -39,6 +40,15 @@ apply_single_pattern (line_number, line) db_pattern =
         line
         line_number
         x
+
+
+--get_match_groups :: T.Text -> T.Text -> [(MatchOffset, MatchLength)]
+get_first_match_group :: T.Text -> T.Text -> Maybe String
+get_first_match_group extracted_chunk regex_text = do
+  (_before, match_array, _after) <- maybe_match
+  return $ fst $ match_array ! 1
+  where
+    maybe_match = ((T.unpack extracted_chunk =~~ encodeUtf8 regex_text) :: Maybe (String, MatchText String, String))
 
 
 gen_log_path :: FilePath -> Builds.BuildNumber -> FilePath

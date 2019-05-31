@@ -40,7 +40,6 @@ import qualified AuthStages
 import qualified DbHelpers
 import qualified Github
 import           Session
-import qualified StatusEvent
 import qualified StatusEventQuery
 import           Types
 import           Utils
@@ -176,6 +175,13 @@ tryFetchUser github_config code session_insert = do
     Left e   -> return $ Left $ TL.pack $ "tryFetchUser: cannot fetch asses token. error detail: " ++ show e
 
 
+getFailedStatusesRecurse :: (Show t, Num t) =>
+     Manager
+  -> T.Text
+  -> String
+  -> t
+  -> [StatusEventQuery.GitHubStatusEventGetter]
+  -> IO (Either TL.Text [StatusEventQuery.GitHubStatusEventGetter])
 getFailedStatusesRecurse
     mgr
     token

@@ -108,7 +108,8 @@ Redeploy webapp via `Dockerrun.aws.json`
 Deployment
 -------------
 
-* Use an integrated Elastic Beanstalk database, rather than a separate RDS database.
+* Uses a Postgres Amazon RDS database.
+* Uses Amazon Elastic Beanstalk with Docker for hosting the webapp
 
 
 Optimizations
@@ -119,7 +120,6 @@ Optimizations
 
 
 ## Usage
-
 
 ### Running
 

@@ -37,7 +37,8 @@ library:
     - transformers
     - scientific
     - text
-   
+    - array
+
 executables:
   run-scanner:
     main: Main.hs

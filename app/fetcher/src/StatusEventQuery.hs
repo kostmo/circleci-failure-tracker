@@ -12,6 +12,7 @@ import           GHC.Generics
 
 import qualified JsonUtils
 
+
 -- | This is just like Webhooks.GitHubStatusEvent
 -- except without the @sha@ and @name@ fields.
 data GitHubStatusEventGetter = GitHubStatusEventGetter {

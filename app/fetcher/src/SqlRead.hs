@@ -8,6 +8,7 @@ import           Control.Monad                        (forM)
 import           Data.Aeson
 import           Data.List                            (sort)
 import           Data.List.Split                      (splitOn)
+import qualified Data.Maybe                           as Maybe
 import           Data.Scientific                      (Scientific)
 import           Data.Set                             (Set)
 import qualified Data.Set                             as Set
@@ -33,6 +34,7 @@ import qualified JsonUtils
 import qualified MatchOccurrences
 import qualified ScanPatterns
 import qualified ScanRecords
+import qualified ScanUtils
 import qualified WebApi
 
 
@@ -138,7 +140,54 @@ api_posted_statuses conn_data = do
   map f <$> query_ conn sql
   where
     f (sha1, description, created_at) = PostedStatus sha1 description created_at
-    sql = "SELECT sha1, description, created_at FROM created_github_statuses LIMIT 50;"
+    sql = "SELECT sha1, description, created_at FROM created_github_statuses ORDER BY created_at DESC LIMIT 40;"
+
+
+data TestFailure = TestFailure {
+    _sha1       :: Text
+  , _test_name  :: Text
+  , _build_date :: UTCTime
+  } deriving Generic
+
+instance ToJSON TestFailure where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+testFailurePatternId :: Int
+testFailurePatternId = 302
+
+
+-- | This uses capture groups of a specifically-crafted regex
+-- to identify the name of the failing test
+api_test_failures :: DbHelpers.DbConnectionData -> IO (Either Text [TestFailure])
+api_test_failures conn_data = do
+  patterns_singleton <- api_single_pattern conn_data testFailurePatternId
+
+  case Safe.headMay patterns_singleton of
+    Nothing -> return $ Left "Could not find Test Failure pattern"
+    Just test_failure_pattern -> do
+--      conn <- DbHelpers.get_connection conn_data
+
+      pattern_occurrences <- get_best_pattern_matches conn_data testFailurePatternId
+      return $ Right $ Maybe.mapMaybe (repackage test_failure_pattern) pattern_occurrences
+
+  where
+
+    -- TODO
+    repackage test_failure_pattern pattern_occurrence = do
+      maybe_first_match <- maybe_first_match_group
+      return $ TestFailure
+          (_vcs_revision pattern_occurrence)
+          (T.pack maybe_first_match)
+          (_queued_at pattern_occurrence)
+      where
+        start_idx = _span_start pattern_occurrence
+        end_idx = _span_end pattern_occurrence
+        span_length = end_idx - start_idx
+        extracted_chunk = T.take span_length $ T.drop start_idx $ _line_text pattern_occurrence
+
+        pattern_text = _pattern test_failure_pattern
+        maybe_first_match_group = ScanUtils.get_first_match_group extracted_chunk pattern_text
 
 
 -- XXX NOT USED
@@ -161,6 +210,16 @@ api_line_count_histogram conn_data = do
   where
     f = fmap $ \size -> T.pack $ show (size :: Int)
     sql = "select count(*) as qty, pow(10, floor(ln(line_count) / ln(10)))::numeric::integer as bin from log_metadata WHERE line_count > 0 group by bin ORDER BY bin ASC;"
+
+
+api_byte_count_histogram :: DbHelpers.DbConnectionData -> IO [(Text, Int)]
+api_byte_count_histogram conn_data = do
+  conn <- DbHelpers.get_connection conn_data
+  xs <- query_ conn sql
+  return $ map (swap . f) xs
+  where
+    f = fmap $ \size -> T.pack $ show (size :: Int)
+    sql = "select count(*) as qty, pow(10, floor(ln(byte_count) / ln(10)))::numeric::integer as bin from log_metadata WHERE byte_count > 0 group by bin ORDER BY bin ASC;"
 
 
 api_jobs :: DbHelpers.DbConnectionData -> IO (WebApi.ApiResponse WebApi.JobApiRecord)
@@ -359,6 +418,7 @@ make_pattern_records =
     PatternRecord a b c d e f g (split_agg_text h) (split_agg_text i) j k
 
 
+-- | Returns zero or one pattern.
 api_single_pattern :: DbHelpers.DbConnectionData -> Int ->  IO [PatternRecord]
 api_single_pattern conn_data pattern_id = do
   conn <- DbHelpers.get_connection conn_data
@@ -409,7 +469,7 @@ api_patterns_branch_filtered conn_data branches = do
 
 data PatternOccurrences = PatternOccurrences {
     _build_number :: Int64
-  , _vsc_revision :: Text
+  , _vcs_revision :: Text
   , _queued_at    :: UTCTime
   , _job_name     :: Text
   , _branch       :: Text
@@ -438,6 +498,25 @@ get_build_pattern_matches conn_data build_id = do
         step_name pattern line_number line_count line_text span_start span_end specificity
 
     sql = "SELECT step_name, pattern, line_number, line_count, line_text, span_start, span_end, specificity FROM matches_with_log_metadata JOIN build_steps ON matches_with_log_metadata.build_step = build_steps.id JOIN patterns_augmented ON patterns_augmented.id = matches_with_log_metadata.pattern WHERE matches_with_log_metadata.build_num = ? ORDER BY specificity DESC, patterns_augmented.id ASC, line_number ASC;"
+
+
+data StorageStats = StorageStats {
+    _total_lines :: Integer
+  , _total_bytes :: Integer
+  , _log_count   :: Integer
+  } deriving Generic
+
+instance ToJSON StorageStats where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+api_storage_stats :: DbHelpers.DbConnectionData -> IO StorageStats
+api_storage_stats conn_data = do
+  conn <- DbHelpers.get_connection conn_data
+  [(a, b, c)] <- query_ conn sql
+  return $ StorageStats a b c
+  where
+    sql = "SELECT SUM(line_count) AS total_lines, SUM(byte_count) AS total_bytes, COUNT(*) log_count FROM log_metadata"
 
 
 pattern_occurence_txform = txform . f

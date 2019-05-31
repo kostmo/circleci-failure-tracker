@@ -75,11 +75,6 @@ function get_log_text(build_id) {
 }
 
 
-function render_pair(term, definition) {
-	return "<dt>" + term + "</dt><dd>" + definition + "</dd>";
-}
-
-
 function populate_build_info(build_id) {
 
 	$.getJSON('/api/single-build-info', {"build_id": build_id}, function (data) {

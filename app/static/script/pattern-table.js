@@ -31,15 +31,15 @@ function gen_patterns_table(pattern_id, filtered_branches) {
 	    columns:[
 		{title:"Tags", field:"tags", sorter:"string"},
 		{title:"Steps", field:"steps", sorter:"string"},
-		{title:"Regex", field:"is_regex", align:"center", formatter:"tickCross", sorter:"boolean", formatterParams: {crossElement: false}, width: 75},
+		{title:"Regex?", field:"is_regex", align:"center", formatter:"tickCross", sorter:"boolean", formatterParams: {crossElement: false}, width: 75},
 		{title:"Pattern", field:"pattern", sorter:"string", widthGrow: 3, formatter: function(cell, formatterParams, onRendered) {
 			return "<code>" + cell.getValue() + "</code>";
-		  },
+		    },
                 },
 		{title:"Description", field:"description", sorter:"string", formatter: "link", formatterParams: {urlPrefix: "/pattern-details.html?pattern_id=", urlField: "id"}, widthGrow: 2},
-		{title:"Frequency", field:"frequency", sorter:"number", align:"center", width: 75},
+		{title:"Count", field:"frequency", sorter:"number", align:"center", width: 75},
 		{title:"Last Occurrence", field:"last", sorter:"datetime", align:"center"},
-		{title:"Specificity", field:"specificity", sorter:"number", align:"center"},
+		{title:"Specificity", field:"specificity", sorter:"number", align:"center", width: 100},
 		{title:"Scanned percent", field:"percent_scanned", align:"center", sorter:"number"},
 	    ],
             ajaxURL: api_endpoint_url,
