@@ -253,6 +253,15 @@ api_failed_commits_by_day conn_data = do
     sql = "SELECT queued_at::date AS date, COUNT(*) FROM (SELECT vcs_revision, MAX(queued_at) queued_at FROM builds GROUP BY vcs_revision) foo GROUP BY date ORDER BY date ASC;"
 
 
+-- | Note that Highcharts expects the dates to be in ascending order
+api_status_postings_by_day :: DbHelpers.DbConnectionData -> IO (WebApi.ApiResponse (Day, Int))
+api_status_postings_by_day conn_data = do
+  conn <- DbHelpers.get_connection conn_data
+  WebApi.ApiResponse <$> query_ conn sql
+  where
+    sql = "SELECT created_at::date AS date, COUNT(*) FROM created_github_statuses GROUP BY date ORDER BY date ASC;"
+
+
 get_flaky_pattern_ids :: Connection -> IO (Set Int64)
 get_flaky_pattern_ids conn = do
   xs <- query_ conn sql
