@@ -27,7 +27,7 @@ function gen_builds_table(element_id, data_url) {
 		  }},
 		{title: "Job", width: 300, field: "build.job_name"},
 		{title: "Step", width: 250, field: "match.build_step"},
-		{title: "Build", field: "build.build_id", formatter: "link", formatterParams: {urlPrefix: "/build-details.html?build_id="}},
+		{title: "Build", field: "build.build_id", formatter: "link", formatterParams: {urlPrefix: "/build-details.html?build_id="}, width: 75},
 		{title: "Line text", field: "match.line_text", sorter: "string", widthGrow: 8, formatter: function(cell, formatterParams, onRendered) {
 			var row_data = cell.getRow().getData();
 
@@ -41,6 +41,7 @@ function gen_builds_table(element_id, data_url) {
 			    $("#error-display").html(gen_error_cell_html(cell));
 		    },
 	        },
+		{title: "Pattern", field: "match.pattern_id", formatter: "link", formatterParams: {urlPrefix: "/pattern-details.html?pattern_id="}, width: 75},
 	    ],
             ajaxURL: data_url,
 	    ajaxResponse:function(url, params, response) {
@@ -58,10 +59,10 @@ function gen_unmatched_build_list(api_endpoint, div_id) {
 	    placeholder:"No Data Set",
 	    columns:[
 		{title:"Build number", field:"build", formatter: "link", width: 75, formatterParams: {urlPrefix: "/build-details.html?build_id="}},
-		{title:"Step", field:"step_name", formatter: "string"},
-		{title:"Job", field:"job_name", formatter: "string"},
-		{title:"Time", field:"queued_at", formatter: "string"},
-		{title:"Branch", field:"branch", formatter: "string"},
+		{title:"Step", field:"step_name", width: 200},
+		{title:"Job", field:"job_name", width: 200},
+		{title:"Time", field:"queued_at", width: 150},
+		{title:"Branch", field:"branch", width: 150},
 	    ],
             ajaxURL: api_endpoint,
 	});
@@ -71,7 +72,14 @@ function gen_unmatched_build_list(api_endpoint, div_id) {
 function main() {
 
 	var urlParams = new URLSearchParams(window.location.search);
+
+	// XXX hack around HUD URL-generation logic which appends "/console"
 	var commit_sha1 = urlParams.get('sha1');
+	var found_slash_index = commit_sha1.indexOf("/");
+	if (found_slash_index >= 0) {
+		commit_sha1 = commit_sha1.substring(0, found_slash_index);
+		console.log("Fixed up sha1 parameter!");
+	}
 
 	populate_commit_info(commit_sha1);
 	gen_builds_table("builds-table", "/api/commit-builds?sha1=" + commit_sha1);

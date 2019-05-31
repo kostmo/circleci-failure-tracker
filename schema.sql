@@ -580,6 +580,54 @@ ALTER SEQUENCE public.match_id_seq OWNED BY public.matches.id;
 
 
 --
+-- Name: match_positions; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.match_positions AS
+ SELECT foo.pattern,
+    build_steps.build,
+    log_metadata.step AS step_id,
+    build_steps.name AS step_name,
+    foo.first_line,
+    foo.last_line,
+    log_metadata.line_count,
+    foo.matched_line_count,
+    ((foo.first_line)::double precision / (log_metadata.line_count)::double precision) AS first_position_fraction,
+    ((foo.last_line)::double precision / (log_metadata.line_count)::double precision) AS last_position_fraction
+   FROM ((( SELECT matches.pattern,
+            matches.build_step,
+            min(matches.line_number) AS first_line,
+            max(matches.line_number) AS last_line,
+            count(matches.line_number) AS matched_line_count
+           FROM public.matches
+          GROUP BY matches.pattern, matches.build_step) foo
+     JOIN public.log_metadata ON ((log_metadata.step = foo.build_step)))
+     JOIN public.build_steps ON ((build_steps.id = log_metadata.step)))
+  ORDER BY foo.matched_line_count DESC, foo.pattern, build_steps.build;
+
+
+ALTER TABLE public.match_positions OWNER TO postgres;
+
+--
+-- Name: match_position_stats; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.match_position_stats AS
+ SELECT match_positions.pattern,
+    count(match_positions.build) AS build_count,
+    round(avg(match_positions.matched_line_count)) AS average_match_count,
+    round(avg(match_positions.line_count)) AS average_line_count,
+    avg(match_positions.first_position_fraction) AS average_first_position_fraction,
+    avg(match_positions.last_position_fraction) AS average_last_position_fraction,
+    min(match_positions.first_line) AS earliest_position,
+    max(match_positions.last_line) AS latest_position
+   FROM public.match_positions
+  GROUP BY match_positions.pattern;
+
+
+ALTER TABLE public.match_position_stats OWNER TO postgres;
+
+--
 -- Name: ordered_master_commits; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -1308,6 +1356,20 @@ GRANT ALL ON TABLE public.job_failure_frequencies TO logan;
 --
 
 GRANT ALL ON SEQUENCE public.match_id_seq TO logan;
+
+
+--
+-- Name: TABLE match_positions; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.match_positions TO logan;
+
+
+--
+-- Name: TABLE match_position_stats; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.match_position_stats TO logan;
 
 
 --

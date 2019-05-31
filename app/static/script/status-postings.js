@@ -60,14 +60,15 @@ function gen_time_plot(container_id, api_path) {
 function gen_builds_table(element_id, data_url) {
 
 	var table = new Tabulator("#" + element_id, {
+	    height:"400px",
 	    layout:"fitColumns",
 	    placeholder:"No Data Set",
 	    columns:[
 		{title: "Revision", field: "sha1", width: 100, formatter: function(cell, formatterParams, onRendered) {
 			return '<code><a href="/commit-details.html?sha1=' + cell.getValue() + '">' + cell.getValue().substring(0, 7) + '</a></code>';
 		  }},
-		{title: "Message", field: "description", sorter: "string", width: 200},
-		{title: "Time", field: "created_at", width: 200},
+		{title: "Message", field: "description", sorter: "string"},
+		{title: "Time", field: "created_at"},
 	    ],
             ajaxURL: data_url,
 	});

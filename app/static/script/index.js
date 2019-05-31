@@ -30,7 +30,6 @@ function requery_patterns() {
 
 	var branch_name = $( "#branch-name-input" ).val();
 
-	console.log("Autocomplete box value: " + branch_name);
 	var branches_list = document.getElementById('branch-filter-checkbox').checked ? [branch_name] : [];
 
 	gen_patterns_table(null, branches_list);

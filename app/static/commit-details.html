@@ -18,6 +18,18 @@
 <script src="/script/commit-details.js"></script>
 
 
+<style type="text/css">
+#unattributed-failures-layout-table {
+   margin: auto;
+   border-collapse: collapse;
+   border: none;
+}
+
+#unattributed-failures-layout-table > tr, td, th {
+   border: none;
+}
+</style>
+
 </head>
 
 <body onload="main();">
@@ -47,11 +59,11 @@
 <div id="builds-table"></div>
 
 <h2>Unattributed failures</h2>
-<table style="margin: auto;"><tr><th>No match</th><th>No log</th></tr>
+<table id="unattributed-failures-layout-table"><tr><th>No match</th><th>No log</th></tr>
 <tr><td>
-<div id="container-unattributed-failures" style="min-width: 500px; height: 400px; max-width: 600; margin: 0 auto"></div>
+<div id="container-unattributed-failures" style="min-width: 500px; height: 400px; margin: 0 auto"></div>
 </td><td>
-<div id="container-idiopathic-failures" style="min-width: 500px; height: 400px; max-width: 600; margin: 0 auto"></div>
+<div id="container-idiopathic-failures" style="min-width: 500px; height: 400px; margin: 0 auto"></div>
 </td></tr>
 </table>
 
