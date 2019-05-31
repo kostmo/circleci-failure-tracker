@@ -248,21 +248,21 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       liftIO $ putStrLn $ "Testing pattern..."
       buildnum <- S.param "build_num"
       new_pattern <- pattern_from_parms
-      S.json =<< (liftIO $ do
+      S.json =<< liftIO (do
         foo <- SqlWrite.api_new_pattern_test connection_data (Builds.NewBuildNumber buildnum) new_pattern
         return $ WebApi.toJsonEither foo)
 
     S.get "/api/tag-suggest" $ do
       term <- S.param "term"
-      S.json =<< (liftIO $ SqlRead.api_autocomplete_tags connection_data term)
+      S.json =<< liftIO (SqlRead.api_autocomplete_tags connection_data term)
 
     S.get "/api/step-suggest" $ do
       term <- S.param "term"
-      S.json =<< (liftIO $ SqlRead.api_autocomplete_steps connection_data term)
+      S.json =<< liftIO (SqlRead.api_autocomplete_steps connection_data term)
 
     S.get "/api/branch-suggest" $ do
       term <- S.param "term"
-      S.json =<< (liftIO $ SqlRead.api_autocomplete_branches connection_data term)
+      S.json =<< liftIO (SqlRead.api_autocomplete_branches connection_data term)
 
     S.get "/api/random-scannable-build" $
       S.json =<< liftIO (SqlRead.api_random_scannable_build connection_data)
@@ -292,7 +292,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     S.get "/api/pattern" $ do
       pattern_id <- S.param "pattern_id"
-      S.json =<< (liftIO $ SqlRead.api_single_pattern connection_data pattern_id)
+      S.json =<< liftIO (SqlRead.api_single_pattern connection_data pattern_id)
 
     S.get "/api/patterns-dump" $ do
       S.json =<< liftIO (SqlRead.dump_patterns connection_data)
@@ -316,23 +316,23 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     S.get "/api/single-build-info" $ do
       build_id <- S.param "build_id"
-      S.json =<< (liftIO $ SqlRead.get_build_info connection_data build_id)
+      S.json =<< liftIO (SqlRead.get_build_info connection_data build_id)
 
     S.get "/api/best-build-match" $ do
       build_id <- S.param "build_id"
-      S.json =<< (liftIO $ SqlRead.get_best_build_match connection_data build_id)
+      S.json =<< liftIO (SqlRead.get_best_build_match connection_data build_id)
 
     S.get "/api/build-pattern-matches" $ do
       build_id <- S.param "build_id"
-      S.json =<< (liftIO $ SqlRead.get_build_pattern_matches connection_data build_id)
+      S.json =<< liftIO (SqlRead.get_build_pattern_matches connection_data build_id)
 
     S.get "/api/best-pattern-matches" $ do
       pattern_id <- S.param "pattern_id"
-      S.json =<< (liftIO $ SqlRead.get_best_pattern_matches connection_data pattern_id)
+      S.json =<< liftIO (SqlRead.get_best_pattern_matches connection_data pattern_id)
 
     S.get "/api/pattern-matches" $ do
       pattern_id <- S.param "pattern_id"
-      S.json =<< (liftIO $ SqlRead.get_pattern_matches connection_data pattern_id)
+      S.json =<< liftIO (SqlRead.get_pattern_matches connection_data pattern_id)
 
     S.get "/favicon.ico" $ do
       S.setHeader "Content-Type" "image/x-icon"

@@ -47,7 +47,7 @@ circleciDomain :: String
 circleciDomain = "circleci.com"
 
 
--- | Name is "Dr. CI" -- where doctor refers to "diagnostician".
+-- | Name is "Dr. CI" -- where doctor alludes to "diagnostician".
 -- It is prefixed with an undescore so it appears first in the lexicographical
 -- ordering in the faild builds list.
 myAppStatusContext :: Text
@@ -99,10 +99,10 @@ handleFailedStatuses
   current_time <- liftIO $ Clock.getCurrentTime
   liftIO $ putStrLn $ "Processing at " ++ show current_time
 
-  raw_failed_statuses_list <- ExceptT $ Auth.getFailedStatuses access_token owned_repo sha1
+  failed_statuses_list_any_source <- ExceptT $ Auth.getFailedStatuses access_token owned_repo sha1
 
-  let failed_statuses_list = filter is_not_my_own_context raw_failed_statuses_list
-      circleci_failed_builds = Maybe.mapMaybe (get_circleci_failure sha1) failed_statuses_list
+  let failed_statuses_list_not_mine = filter is_not_my_own_context failed_statuses_list_any_source
+      circleci_failed_builds = Maybe.mapMaybe (get_circleci_failure sha1) failed_statuses_list_not_mine
       scannable_build_numbers = map Builds.build_id circleci_failed_builds
 
   builds_with_flaky_pattern_matches <- liftIO $ do
@@ -119,11 +119,8 @@ handleFailedStatuses
         builds_with_flaky_pattern_matches = filter flaky_predicate scan_matches
     return builds_with_flaky_pattern_matches
 
-
-  let total_failcount = length failed_statuses_list
+  let total_failcount = length circleci_failed_builds
       flaky_count = length builds_with_flaky_pattern_matches
-
-  liftIO $ putStrLn $ "KARL: There are " <> show total_failcount <> " failed builds"
 
   post_result <- ExceptT $ ApiPost.postCommitStatus
     access_token

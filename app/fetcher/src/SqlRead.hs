@@ -28,6 +28,7 @@ import qualified Breakages
 import qualified Builds
 import qualified BuildSteps
 import qualified CommitBuilds
+import qualified Constants
 import qualified DbHelpers
 import qualified GitRev
 import qualified JsonUtils
@@ -36,6 +37,10 @@ import qualified ScanPatterns
 import qualified ScanRecords
 import qualified ScanUtils
 import qualified WebApi
+
+
+testFailurePatternId :: Int
+testFailurePatternId = 302
 
 
 split_agg_text :: String -> [String]
@@ -153,8 +158,6 @@ instance ToJSON TestFailure where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
-testFailurePatternId :: Int
-testFailurePatternId = 302
 
 
 -- | This uses capture groups of a specifically-crafted regex
@@ -166,14 +169,12 @@ api_test_failures conn_data = do
   case Safe.headMay patterns_singleton of
     Nothing -> return $ Left "Could not find Test Failure pattern"
     Just test_failure_pattern -> do
---      conn <- DbHelpers.get_connection conn_data
 
-      pattern_occurrences <- get_best_pattern_matches conn_data testFailurePatternId
+      pattern_occurrences <- get_best_pattern_matches_whitelisted_branches conn_data Constants.presumedGoodBranches testFailurePatternId
       return $ Right $ Maybe.mapMaybe (repackage test_failure_pattern) pattern_occurrences
 
   where
 
-    -- TODO
     repackage test_failure_pattern pattern_occurrence = do
       maybe_first_match <- maybe_first_match_group
       return $ TestFailure
@@ -546,6 +547,19 @@ get_best_pattern_matches conn_data pattern_id = do
 
   where
     sql = "SELECT build, step_name, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch FROM best_pattern_match_augmented_builds WHERE pattern_id = ?;"
+
+
+get_best_pattern_matches_whitelisted_branches :: DbHelpers.DbConnectionData -> [Text] -> Int -> IO [PatternOccurrences]
+get_best_pattern_matches_whitelisted_branches conn_data branches_whitelist pattern_id = do
+
+  conn <- DbHelpers.get_connection conn_data
+
+  xs <- query conn sql (pattern_id, In branches_whitelist)
+  return $ map pattern_occurence_txform xs
+
+  where
+    sql = "SELECT build, step_name, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch FROM best_pattern_match_augmented_builds WHERE pattern_id = ? AND branch IN ?;"
+
 
 
 -- | This should produce one or zero results.

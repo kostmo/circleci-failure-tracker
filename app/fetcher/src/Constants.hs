@@ -4,6 +4,19 @@ module Constants where
 
 import           Data.ByteString (ByteString)
 import           Data.List       (intercalate)
+import           Data.Text       (Text)
+
+
+presumedGoodBranches :: [Text]
+presumedGoodBranches = [
+    "master"
+  , "pull/18339"
+  , "pull/18340"
+  , "pull/18341"
+  , "pull/18342"
+  , "pull/18343"
+  , "pull/18907"
+  ]
 
 
 app_name :: FilePath
