@@ -260,10 +260,10 @@ CREATE VIEW public.best_pattern_match_augmented_builds WITH (security_barrier='f
 ALTER TABLE public.best_pattern_match_augmented_builds OWNER TO postgres;
 
 --
--- Name: broken_revisions; Type: TABLE; Schema: public; Owner: postgres
+-- Name: broken_build_reports; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE TABLE public.broken_revisions (
+CREATE TABLE public.broken_build_reports (
     id integer NOT NULL,
     revision character(40) NOT NULL,
     reporter text,
@@ -274,7 +274,7 @@ CREATE TABLE public.broken_revisions (
 );
 
 
-ALTER TABLE public.broken_revisions OWNER TO postgres;
+ALTER TABLE public.broken_build_reports OWNER TO postgres;
 
 --
 -- Name: broken_revisions_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
@@ -295,7 +295,7 @@ ALTER TABLE public.broken_revisions_id_seq OWNER TO postgres;
 -- Name: broken_revisions_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
 --
 
-ALTER SEQUENCE public.broken_revisions_id_seq OWNED BY public.broken_revisions.id;
+ALTER SEQUENCE public.broken_revisions_id_seq OWNED BY public.broken_build_reports.id;
 
 
 --
@@ -344,15 +344,15 @@ ALTER TABLE public.builds_join_steps OWNER TO postgres;
 --
 
 CREATE VIEW public.latest_broken_revision_reports AS
- SELECT DISTINCT ON (broken_revisions.revision) broken_revisions.id,
-    broken_revisions.revision,
-    broken_revisions.reporter,
-    broken_revisions."timestamp",
-    broken_revisions.is_broken,
-    broken_revisions.notes,
-    broken_revisions.implicated_revision
-   FROM public.broken_revisions
-  ORDER BY broken_revisions.revision, broken_revisions.id DESC;
+ SELECT DISTINCT ON (broken_build_reports.revision) broken_build_reports.id,
+    broken_build_reports.revision,
+    broken_build_reports.reporter,
+    broken_build_reports."timestamp",
+    broken_build_reports.is_broken,
+    broken_build_reports.notes,
+    broken_build_reports.implicated_revision
+   FROM public.broken_build_reports
+  ORDER BY broken_build_reports.revision, broken_build_reports.id DESC;
 
 
 ALTER TABLE public.latest_broken_revision_reports OWNER TO postgres;
@@ -760,6 +760,17 @@ ALTER SEQUENCE public.pattern_step_applicability_id_seq OWNED BY public.pattern_
 
 
 --
+-- Name: presumed_stable_branches; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.presumed_stable_branches (
+    branch text NOT NULL
+);
+
+
+ALTER TABLE public.presumed_stable_branches OWNER TO postgres;
+
+--
 -- Name: scannable_build_steps; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -858,10 +869,10 @@ CREATE VIEW public.unvisited_builds AS
 ALTER TABLE public.unvisited_builds OWNER TO postgres;
 
 --
--- Name: broken_revisions id; Type: DEFAULT; Schema: public; Owner: postgres
+-- Name: broken_build_reports id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY public.broken_revisions ALTER COLUMN id SET DEFAULT nextval('public.broken_revisions_id_seq'::regclass);
+ALTER TABLE ONLY public.broken_build_reports ALTER COLUMN id SET DEFAULT nextval('public.broken_revisions_id_seq'::regclass);
 
 
 --
@@ -907,10 +918,10 @@ ALTER TABLE ONLY public.scans ALTER COLUMN id SET DEFAULT nextval('public.scans_
 
 
 --
--- Name: broken_revisions broken_revisions_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: broken_build_reports broken_revisions_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY public.broken_revisions
+ALTER TABLE ONLY public.broken_build_reports
     ADD CONSTRAINT broken_revisions_pkey PRIMARY KEY (id);
 
 
@@ -1016,6 +1027,14 @@ ALTER TABLE ONLY public.pattern_step_applicability
 
 ALTER TABLE ONLY public.pattern_tags
     ADD CONSTRAINT pattern_tags_pkey PRIMARY KEY (pattern, tag);
+
+
+--
+-- Name: presumed_stable_branches presumed_stable_branches_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.presumed_stable_branches
+    ADD CONSTRAINT presumed_stable_branches_pkey PRIMARY KEY (branch);
 
 
 --
@@ -1271,10 +1290,10 @@ GRANT ALL ON TABLE public.best_pattern_match_augmented_builds TO logan;
 
 
 --
--- Name: TABLE broken_revisions; Type: ACL; Schema: public; Owner: postgres
+-- Name: TABLE broken_build_reports; Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON TABLE public.broken_revisions TO logan;
+GRANT ALL ON TABLE public.broken_build_reports TO logan;
 
 
 --
@@ -1436,6 +1455,13 @@ GRANT ALL ON SEQUENCE public.pattern_id_seq TO logan;
 --
 
 GRANT ALL ON SEQUENCE public.pattern_step_applicability_id_seq TO logan;
+
+
+--
+-- Name: TABLE presumed_stable_branches; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.presumed_stable_branches TO logan;
 
 
 --
