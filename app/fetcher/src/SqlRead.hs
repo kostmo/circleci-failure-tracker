@@ -419,6 +419,37 @@ count_revision_builds conn_data git_revision = do
     reported_broken_count_sql = "SELECT COUNT(*) FROM builds_with_reports WHERE vcs_revision = ? AND is_broken;"
 
 
+data ScanTestResponse = ScanTestResponse {
+    _total_line_count :: Int
+  , _matches          :: [ScanPatterns.ScanMatch]
+  } deriving Generic
+
+instance ToJSON ScanTestResponse where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+
+api_new_pattern_test ::
+     DbHelpers.DbConnectionData
+  -> Builds.BuildNumber
+  -> ScanPatterns.Pattern
+  -> IO (Either String ScanTestResponse)
+api_new_pattern_test conn_data build_number@(Builds.NewBuildNumber buildnum) new_pattern = do
+
+  conn <- DbHelpers.get_connection conn_data
+
+  -- TODO consolidate with Scanning.scan_log
+  maybe_console_log <- SqlRead.read_log conn build_number
+
+  return $ case maybe_console_log of
+            Just console_log -> Right $ ScanTestResponse (length $ T.lines console_log) $
+              Maybe.mapMaybe apply_pattern $ zip [0::Int ..] $ map T.stripEnd $ T.lines console_log
+            Nothing -> Left $ "No log found for build number " ++ show buildnum
+  where
+    apply_pattern :: (Int, Text) -> Maybe ScanPatterns.ScanMatch
+    apply_pattern line_tuple = ScanUtils.apply_single_pattern line_tuple $ DbHelpers.WithId 0 new_pattern
+
+
 -- | NOTE: Some of these values can be derived from the others.
 -- We query for them all as a sanity check.
 data SummaryStats = SummaryStats {

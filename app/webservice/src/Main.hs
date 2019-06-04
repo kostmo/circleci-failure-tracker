@@ -46,21 +46,22 @@ import qualified Types
 import qualified WebApi
 
 
+checkbox_is_true :: Text -> Bool
+checkbox_is_true = (== ("true" :: Text))
+
+
 pattern_from_parms :: ScottyTypes.ActionT LT.Text IO ScanPatterns.Pattern
 pattern_from_parms = do
 
   expression <- S.param "pattern"
-  is_regex_str <- S.param "is_regex"
-  is_nondeterministic_str <- S.param "is_nondeterministic"
+  is_regex <- checkbox_is_true <$> S.param "is_regex"
+  is_nondeterministic <- checkbox_is_true <$> S.param "is_nondeterministic"
+  use_lines_from_end <- checkbox_is_true <$> S.param "use_lines_from_end"
   description <- S.param "description"
   tags <- S.param "tags"
   applicable_steps <- S.param "applicable_steps"
-  use_lines_from_end_str <- S.param "use_lines_from_end"
 
-  let is_regex = is_regex_str == ("true" :: Text)
-      use_lines_from_end = use_lines_from_end_str == ("true" :: Text)
-      is_nondeterministic = is_nondeterministic_str == ("true" :: Text)
-      match_expression = if is_regex
+  let match_expression = if is_regex
         then ScanPatterns.RegularExpression expression is_nondeterministic
         else ScanPatterns.LiteralExpression expression
 
@@ -77,7 +78,7 @@ pattern_from_parms = do
     False
     lines_from_end
   where
-    clean_list = filter (not . T.null) . map (T.strip . T.pack)
+    clean_list = filter (not . T.null) . map (T.strip . T.pack) . splitOn ";"
 
 
 data SetupData = SetupData {
@@ -238,13 +239,12 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
       S.json $ WebApi.toJsonEither json_result
 
-
     S.get "/api/new-pattern-test" $ do
       liftIO $ putStrLn $ "Testing pattern..."
       buildnum <- S.param "build_num"
       new_pattern <- pattern_from_parms
       S.json =<< liftIO (do
-        foo <- SqlWrite.api_new_pattern_test connection_data (Builds.NewBuildNumber buildnum) new_pattern
+        foo <- SqlRead.api_new_pattern_test connection_data (Builds.NewBuildNumber buildnum) new_pattern
         return $ WebApi.toJsonEither foo)
 
     S.get "/api/tag-suggest" $ do

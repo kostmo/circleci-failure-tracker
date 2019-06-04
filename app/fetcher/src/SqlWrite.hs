@@ -7,7 +7,6 @@ import           Builds
 import           Control.Exception                 (throwIO)
 import qualified Data.ByteString.Char8             as BS
 import           Data.Foldable                     (for_)
-import qualified Data.Maybe                        as Maybe
 import           Data.Text                         (Text)
 import qualified Data.Text                         as T
 import           Data.Time.Format                  (defaultTimeLocale,
@@ -24,8 +23,6 @@ import qualified Breakages
 import qualified DbHelpers
 import qualified ScanPatterns
 import qualified ScanRecords
-import qualified ScanUtils
-import qualified SqlRead
 
 
 defaultPatternAuthor :: AuthStages.Username
@@ -204,27 +201,6 @@ insert_scan_id conn (ScanRecords.NewPatternId pattern_id)  = do
   return pattern_id
   where
     sql = "INSERT INTO scans(latest_pattern_id) VALUES(?) RETURNING id;"
-
-
-api_new_pattern_test ::
-     DbHelpers.DbConnectionData
-  -> Builds.BuildNumber
-  -> ScanPatterns.Pattern
-  -> IO (Either String [ScanPatterns.ScanMatch])
-api_new_pattern_test conn_data build_number@(Builds.NewBuildNumber buildnum) new_pattern = do
-
-  conn <- DbHelpers.get_connection conn_data
-
-  -- TODO consolidate with Scanning.scan_log
-  maybe_console_log <- SqlRead.read_log conn build_number
-  return $ case maybe_console_log of
-    Just console_log -> Right $
-      Maybe.mapMaybe apply_pattern $ zip [0::Int ..] $ map T.stripEnd $ T.lines console_log
-    Nothing -> Left $ "No log found for build number " ++ show buildnum
-
-  where
-    apply_pattern :: (Int, Text) -> Maybe ScanPatterns.ScanMatch
-    apply_pattern line_tuple = ScanUtils.apply_single_pattern line_tuple $ DbHelpers.WithId 0 new_pattern
 
 
 api_new_breakage_report ::

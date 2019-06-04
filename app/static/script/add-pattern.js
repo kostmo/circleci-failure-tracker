@@ -126,9 +126,8 @@ function gather_pattern_data() {
 		is_nondeterministic: $('#is-nondeterministic-checkbox').is(":checked"),
 		pattern: $('#input-pattern-text').val(),
 		description: $('#input-pattern-description').val(),
-		tags: tags_list,
-		applicable_steps: steps_list,
-
+		tags: tags_list.join(";"),
+		applicable_steps: steps_list.join(";"),
 		use_lines_from_end: $('#is-using-lines-from-end-checkbox').is(":checked"),
 		lines_from_end: $('#input-lines-from-end').val(),
 	};
@@ -149,16 +148,21 @@ function test_pattern() {
 
 		var inner_html = "";
 
-		var payload = data.payload;
-		if (payload.length > 0) {
+		var matches_list = data.payload.matches;
+		if (matches_list.length > 0) {
 
 			var table_rows = [];
-			for (var i=0; i<payload.length; i++) {
-				var match_details = payload[i]["match_details"];
-				table_rows.push(["Line " + match_details["line_number"] + ":", match_details["line_text"]]);
+			for (var i=0; i<matches_list.length; i++) {
+				var match_details = matches_list[i]["match_details"];
+				var one_based_line_number = match_details["line_number"] + 1;
+				table_rows.push(["Line " + one_based_line_number + ":", match_details["line_text"]]);
 			}
 
 			inner_html += render_table(table_rows);
+
+			var lines_from_end = data.payload.total_line_count - one_based_line_number;
+			$('#input-lines-from-end').val( lines_from_end );
+
 		} else {
 			inner_html += "<span style='color: red;'>No matches</span>";
 		}

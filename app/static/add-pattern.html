@@ -20,7 +20,26 @@
 <h2>Add pattern</h2>
 <form onsubmit="return false;">
 
-<label>Pattern (this is immutable after submitting): <input id="input-pattern-text" type="text" value="does not actually allow to resize" size="60"/></label>
+<h3>Mutable properties</h3>
+<p>These can be edited later.</p>
+
+<br/>
+<label>
+Description:
+<input id="input-pattern-description" type="textarea" value="blah" size="60"/>
+</label>
+
+<br/>
+<label>
+Tags:
+<input id="pattern-tag-input" type="text" value=""/></label> <button onclick="add_tag();">Add</button>
+
+<div id="tag-list-container" style="padding: .3em;"></div>
+
+<h3>Immutable properties</h3>
+<p>This data cannot be changed after submitting; instead, a new pattern must be created while "retiring" the old one.</p>
+
+<label>Pattern: <input id="input-pattern-text" type="text" value="does not actually allow to resize" size="60"/></label>
 <br/>
 <label><input id="is-regex-checkbox" type="checkbox" checked="checked"/> is a regular expression</label>
 <br/>
@@ -28,21 +47,8 @@
 
 <br/>
 <label>
-Description (this can be edited later):
-<input id="input-pattern-description" type="textarea" value="blah" size="60"/>
-</label>
-
-<br/>
-<label>
-Tags:
-<input id="pattern-tag-input" type="text" value=""/></label> <button onclick="add_tag()">Add</button>
-
-<div id="tag-list-container" style="padding: .3em;"></div>
-
-<br/>
-<label>
 Applicable build steps (none means applicable to all steps):
-<input id="build-step-applicability-input" type="text" value=""/></label> <button onclick="add_build_step()">Add</button>
+<input id="build-step-applicability-input" type="text" value=""/></label> <button onclick="add_build_step();">Add</button>
 <div id="step-list-container" style="padding: .3em;"></div>
 
 
