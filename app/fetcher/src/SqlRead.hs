@@ -66,12 +66,13 @@ wrap_pattern ::
   -> [Text]
   -> Int
   -> Bool
+  -> Maybe Int
   -> ScanPatterns.DbPattern
-wrap_pattern pattern_id is_regex pattern_text is_nondeterministic description tags_list steps_list specificity is_retired =
+wrap_pattern pattern_id is_regex pattern_text is_nondeterministic description tags_list steps_list specificity is_retired maybe_lines_from_end =
   DbHelpers.WithId pattern_id inner_pattern
   where
     expression_obj = construct_expression is_regex pattern_text is_nondeterministic
-    inner_pattern = ScanPatterns.NewPattern expression_obj description tags_list steps_list specificity is_retired
+    inner_pattern = ScanPatterns.NewPattern expression_obj description tags_list steps_list specificity is_retired maybe_lines_from_end
 
 
 get_patterns :: Connection -> IO [ScanPatterns.DbPattern]
@@ -79,17 +80,17 @@ get_patterns conn = do
 
   patterns_rows <- query_ conn patterns_sql
 
-  forM patterns_rows $ \(pattern_id, is_regex, pattern_text, has_nondeterministic_values, description, specificity, is_retired) -> do
-    tags_rows <- query conn tags_sql (Only pattern_id)
+  forM patterns_rows $ \(pattern_id, is_regex, pattern_text, has_nondeterministic_values, description, specificity, is_retired, lines_from_end) -> do
+    tags_rows <- query conn tags_sql $ Only pattern_id
     tags_list <- forM tags_rows $ \(Only tag_text) -> return tag_text
 
-    steps_rows <- query conn applicable_steps_sql (Only pattern_id)
+    steps_rows <- query conn applicable_steps_sql $ Only pattern_id
     steps_list <- forM steps_rows $ \(Only step_text) -> return step_text
 
-    return $ wrap_pattern pattern_id is_regex pattern_text has_nondeterministic_values description tags_list steps_list specificity is_retired
+    return $ wrap_pattern pattern_id is_regex pattern_text has_nondeterministic_values description tags_list steps_list specificity is_retired lines_from_end
 
   where
-    patterns_sql = "SELECT id, regex, expression, has_nondeterministic_values, description, specificity, is_retired FROM patterns ORDER BY description;"
+    patterns_sql = "SELECT id, regex, expression, has_nondeterministic_values, description, specificity, is_retired, lines_from_end FROM patterns ORDER BY description;"
 
     tags_sql = "SELECT tag FROM pattern_tags WHERE pattern = ?;"
     applicable_steps_sql = "SELECT step_name FROM pattern_step_applicability WHERE pattern = ?;"
@@ -504,14 +505,15 @@ dump_patterns conn_data = do
   return $ map f xs
 
   where
-    f (author, created, pattern_id, is_regex, expression, has_nondeterministic_values, description, tags, steps, specificity, is_retired) =
+    f (author, created, pattern_id, is_regex, expression, has_nondeterministic_values, description, tags, steps, specificity, is_retired, lines_from_end) =
       DbHelpers.WithAuthorship author created $ wrap_pattern pattern_id is_regex expression has_nondeterministic_values description
         (sort $ map T.pack $ split_agg_text tags)
         (sort $ map T.pack $ split_agg_text steps)
         specificity
         is_retired
+        lines_from_end
 
-    sql = "SELECT author, created, id, regex, expression, has_nondeterministic_values, description, tags, steps, specificity, is_retired FROM patterns_augmented ORDER BY id;"
+    sql = "SELECT author, created, id, regex, expression, has_nondeterministic_values, description, tags, steps, specificity, is_retired, lines_from_end FROM patterns_augmented ORDER BY id;"
 
 
 -- | Note that this SQL is from decomposing the "pattern_frequency_summary" and "aggregated_build_matches" view

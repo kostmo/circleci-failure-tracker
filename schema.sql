@@ -136,7 +136,8 @@ CREATE TABLE public.patterns (
     regex boolean,
     has_nondeterministic_values boolean,
     is_retired boolean DEFAULT false NOT NULL,
-    specificity integer DEFAULT 1 NOT NULL
+    specificity integer DEFAULT 1 NOT NULL,
+    lines_from_end integer
 );
 
 
@@ -563,7 +564,8 @@ CREATE VIEW public.patterns_augmented WITH (security_barrier='false') AS
     ( SELECT sum(pattern_scan_counts.count) AS sum
            FROM public.pattern_scan_counts) AS total_scanned_builds,
     match_last_position_frequencies.usually_last_line,
-    match_last_position_frequencies.position_likelihood
+    match_last_position_frequencies.position_likelihood,
+    patterns.lines_from_end
    FROM ((((public.patterns
      LEFT JOIN ( SELECT pattern_tags.pattern,
             string_agg((pattern_tags.tag)::text, ';'::text) AS tags

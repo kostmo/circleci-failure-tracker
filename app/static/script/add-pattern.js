@@ -25,12 +25,12 @@ function submit_pattern() {
 
 function get_random_build(destination_field_id) {
 
-        $.get( {
-          url: "/api/random-scannable-build",
-          success: function( data ) {
-		$("#" + destination_field_id).val(data["build_number"]);
-          }
-        } );
+	$.get( {
+		url: "/api/random-scannable-build",
+		success: function( data ) {
+			$("#" + destination_field_id).val(data["build_number"]);
+		}
+	});
 }
 
 
@@ -56,7 +56,7 @@ function setup_autocomplete() {
     } );
 
 
-    $( "#pattern-tag-input" ).autocomplete({
+    $("#pattern-tag-input").autocomplete({
       source: function( request, response ) {
         $.ajax( {
           url: "/api/tag-suggest",
@@ -73,12 +73,13 @@ function setup_autocomplete() {
       select: function( event, ui ) {
         console.log( "Selected: " + ui.item.value + " aka " + ui.item.id );
       }
-    } );
+    });
 }
 
 
 
 function gather_pattern_data() {
+
 	return {
 		is_regex: $('#is-regex-checkbox').is(":checked"),
 		is_nondeterministic: $('#is-nondeterministic-checkbox').is(":checked"),
@@ -86,6 +87,9 @@ function gather_pattern_data() {
 		description: $('#input-pattern-description').val(),
 		tags: $('#pattern-tag-input').val(),
 		applicable_steps: $('#build-step-applicability-input').val(),
+
+		use_lines_from_end: $('#is-using-lines-from-end-checkbox').is(":checked"),
+		lines_from_end: $('#input-lines-from-end').val(),
 	};
 }
 

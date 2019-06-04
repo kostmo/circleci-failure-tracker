@@ -96,8 +96,8 @@ insert_single_pattern ::
 insert_single_pattern conn either_pattern = do
 
   [Only pattern_id] <- case maybe_id of
-    Nothing -> query conn pattern_insertion_sql (is_regex, pattern_text, description, is_retired, has_nondeterminisic_values, specificity)
-    Just record_id -> query conn pattern_insertion_with_id_sql (record_id, is_regex, pattern_text, description, is_retired, has_nondeterminisic_values, specificity)
+    Nothing -> query conn pattern_insertion_sql (is_regex, pattern_text, description, is_retired, has_nondeterminisic_values, specificity, lines_from_end)
+    Just record_id -> query conn pattern_insertion_with_id_sql (record_id, is_regex, pattern_text, description, is_retired, has_nondeterminisic_values, specificity, lines_from_end)
 
   case maybe_timestamp of
     Just timestamp -> execute conn authorship_insertion_with_timestamp_sql (pattern_id, author, timestamp)
@@ -115,7 +115,7 @@ insert_single_pattern conn either_pattern = do
     pattern_text = ScanPatterns.pattern_text expression_obj
     is_regex = ScanPatterns.is_regex expression_obj
 
-    (ScanPatterns.NewPattern expression_obj description tags applicable_steps specificity is_retired) = pattern_obj
+    (ScanPatterns.NewPattern expression_obj description tags applicable_steps specificity is_retired lines_from_end) = pattern_obj
 
     (pattern_obj, AuthStages.Username author, maybe_timestamp, maybe_id) = case either_pattern of
       Left (patt_obj, username) -> (patt_obj, username, Nothing, Nothing)
@@ -125,14 +125,14 @@ insert_single_pattern conn either_pattern = do
       ScanPatterns.RegularExpression _ has_nondeterministic -> has_nondeterministic
       ScanPatterns.LiteralExpression _                       -> False
 
-    pattern_insertion_sql = "INSERT INTO patterns(regex, expression, description, is_retired, has_nondeterministic_values, specificity) VALUES(?,?,?,?,?,?) RETURNING id;"
-    pattern_insertion_with_id_sql = "INSERT INTO patterns(id, regex, expression, description, is_retired, has_nondeterministic_values, specificity) VALUES(?,?,?,?,?,?,?) RETURNING id;"
+    pattern_insertion_sql = "INSERT INTO patterns(regex, expression, description, is_retired, has_nondeterministic_values, specificity, lines_from_end) VALUES(?,?,?,?,?,?,?) RETURNING id;"
+
+    pattern_insertion_with_id_sql = "INSERT INTO patterns(id, regex, expression, description, is_retired, has_nondeterministic_values, specificity, lines_from_end) VALUES(?,?,?,?,?,?,?,?) RETURNING id;"
 
     tag_insertion_sql = "INSERT INTO pattern_tags(tag, pattern) VALUES(?,?);"
 
     authorship_insertion_with_timestamp_sql = "INSERT INTO pattern_authorship(pattern, author, created) VALUES(?,?,?);"
     authorship_insertion_sql = "INSERT INTO pattern_authorship(pattern, author) VALUES(?,?);"
-
 
     applicable_step_insertion_sql = "INSERT INTO pattern_step_applicability(step_name, pattern) VALUES(?,?);"
 

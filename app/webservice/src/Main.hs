@@ -53,12 +53,19 @@ pattern_from_parms = do
   description <- S.param "description"
   tags <- S.param "tags"
   applicable_steps <- S.param "applicable_steps"
+  use_lines_from_end_str <- S.param "use_lines_from_end"
 
   let is_regex = is_regex_str == ("true" :: Text)
+      use_lines_from_end = use_lines_from_end_str == ("true" :: Text)
       is_nondeterministic = is_nondeterministic_str == ("true" :: Text)
       match_expression = if is_regex
         then ScanPatterns.RegularExpression expression is_nondeterministic
         else ScanPatterns.LiteralExpression expression
+
+  lines_from_end <- if use_lines_from_end
+    then Just <$> S.param "lines_from_end"
+    else return Nothing
+
 
   return $ ScanPatterns.NewPattern
     match_expression
@@ -67,6 +74,7 @@ pattern_from_parms = do
     (listify applicable_steps)
     1
     False
+    lines_from_end
   where
     -- TODO use semicolon as delimiter to be consistent with the database
     listify = filter (not . T.null) . map (T.strip . T.pack) . splitOn ","

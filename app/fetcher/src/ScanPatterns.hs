@@ -42,6 +42,7 @@ data Pattern = NewPattern {
   , applicable_steps :: [Text]
   , specificity      :: Int
   , is_retired       :: Bool
+  , lines_from_end   :: Maybe Int
   } deriving (Generic, Show)
 
 instance ToJSON Pattern

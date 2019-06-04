@@ -1,8 +1,14 @@
 var TAG_CLASSES = new Set(["flaky"]);
 
 
-function gen_patterns_table(pattern_id, filtered_branches) {
+function remove_pattern_tag(pattern_id, tag) {
+	if (confirm("Remove tag \"" + tag + "\" from pattern " + pattern_id + "?")) {
+		alert("Not implemented");
+	}
+}
 
+
+function gen_patterns_table(pattern_id, filtered_branches) {
 
 	// Note the plural ("s")
 	var api_endpoint_url = "/api/patterns";
@@ -33,15 +39,31 @@ function gen_patterns_table(pattern_id, filtered_branches) {
 	    placeholder:"No Data Set",
 	    columns:[
 		{title:"Tags", field: "tags", sorter: "string", formatter: function(cell, formatterParams, onRendered) {
-                        var tag_list = cell.getValue();
-			return tag_list.map(function(val) {
-				var class_list = ["tag"];
-				if (TAG_CLASSES.has(val)) {
-					class_list.push("tag-class-" + val);
-				}
+		                var tag_list = cell.getValue();
+				var pattern_id = cell.getRow().getData()["id"];
 
-				return "<span class='" + class_list.join(" ") + "'>" + val + "</span>";}).join(" ");
-		    }
+				var tag_elements = tag_list.map(function(val) {
+					var class_list = ["tag"];
+					if (TAG_CLASSES.has(val)) {
+						class_list.push("tag-class-" + val);
+					}
+
+					return "<span onclick='remove_pattern_tag(" + pattern_id + ",\"" + val + "\");' class='" + class_list.join(" ") + "'>" + val + "</span>";
+				});
+
+				tag_elements.push("<button class='tag-add-button' style='display: none;' id='tag-add-button-" + pattern_id + "' onclick='alert(\"hi: " + pattern_id + "\");'>+</button>");
+				return tag_elements.join(" ");
+
+			},
+			cellMouseEnter: function(e, cell) {
+				var pattern_id = cell.getRow().getData()["id"];
+				$("#tag-add-button-" + pattern_id).show();
+
+			},
+			cellMouseLeave: function(e, cell) {
+				var pattern_id = cell.getRow().getData()["id"];
+				$("#tag-add-button-" + pattern_id).hide();
+			},
 		},
 		{title:"Steps", field:"steps", sorter:"string"},
 		{title:"Regex?", field:"is_regex", align:"center", formatter:"tickCross", sorter:"boolean", formatterParams: {crossElement: false}, width: 75},
@@ -49,7 +71,15 @@ function gen_patterns_table(pattern_id, filtered_branches) {
 			return "<code>" + cell.getValue() + "</code>";
 		    },
                 },
-		{title:"Description", field:"description", sorter:"string", formatter: "link", formatterParams: {urlPrefix: "/pattern-details.html?pattern_id=", urlField: "id"}, widthGrow: 2},
+		{title:"Description", field:"description", sorter:"string", formatter: "link", formatterParams: {
+				urlPrefix: "/pattern-details.html?pattern_id=", urlField: "id"
+			}, widthGrow: 2,
+			editor: "input",
+			cellEdited: function(cell) {
+				var pattern_id = cell.getRow().getData()["id"];
+				console.log("hello pattern " + pattern_id + ": " + cell.getValue());
+			},
+		},
 		{title:"Count", field:"frequency", sorter:"number", align:"center", width: 75},
 		{title:"Last Occurrence", field:"last", sorter:"datetime", align:"center", formatter: function(cell, formatterParams, onRendered) {
 			var val = cell.getValue();
