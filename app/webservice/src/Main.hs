@@ -2,6 +2,8 @@
 
 import           Control.Monad                     (unless, when)
 import           Control.Monad.IO.Class            (liftIO)
+import           Control.Monad.Trans.Except        (ExceptT (ExceptT), except,
+                                                    runExceptT)
 import qualified Data.ByteString.Lazy.Char8        as LBSC
 import           Data.Default                      (def)
 import           Data.Either.Utils                 (maybeToEither)
@@ -66,18 +68,16 @@ pattern_from_parms = do
     then Just <$> S.param "lines_from_end"
     else return Nothing
 
-
   return $ ScanPatterns.NewPattern
     match_expression
     description
-    (listify tags)
-    (listify applicable_steps)
+    (clean_list tags)
+    (clean_list applicable_steps)
     1
     False
     lines_from_end
   where
-    -- TODO use semicolon as delimiter to be consistent with the database
-    listify = filter (not . T.null) . map (T.strip . T.pack) . splitOn ","
+    clean_list = filter (not . T.null) . map (T.strip . T.pack)
 
 
 data SetupData = SetupData {
@@ -131,7 +131,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     S.middleware $ withSession store (fromString "SESSION") def session
 
-    S.middleware $ staticPolicy (noDots >-> addBase static_base)
+    S.middleware $ staticPolicy $ noDots >-> addBase static_base
 
     unless (AuthConfig.is_local github_config) $
       S.middleware $ forceSSL
@@ -224,25 +224,20 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     S.get "/api/commit-info" $ do
       commit_sha1_text <- S.param "sha1"
-      let either_validated_sha1 = GitRev.validateSha1 commit_sha1_text
-      json_result <- case either_validated_sha1 of
-        Left err_text -> return $ WebApi.toJsonEither $ Left err_text
-        Right sha1 -> liftIO $ do
-          result <- SqlRead.count_revision_builds connection_data sha1
-          return $ WebApi.toJsonEither $ Right result
+      json_result <- runExceptT $ do
+        sha1 <- except $ GitRev.validateSha1 commit_sha1_text
+        liftIO $ SqlRead.count_revision_builds connection_data sha1
 
-      S.json json_result
+      S.json $ WebApi.toJsonEither json_result
 
     S.get "/api/commit-builds" $ do
       commit_sha1_text <- S.param "sha1"
-      let either_validated_sha1 = GitRev.validateSha1 commit_sha1_text
-      json_result <- case either_validated_sha1 of
-        Left err_text -> return $ WebApi.toJsonEither $ Left err_text
-        Right sha1 -> liftIO $ do
-          result <- SqlRead.get_revision_builds connection_data sha1
-          return $ WebApi.toJsonEither $ Right result
+      json_result <- runExceptT $ do
+        sha1 <- except $ GitRev.validateSha1 commit_sha1_text
+        liftIO $ SqlRead.get_revision_builds connection_data sha1
 
-      S.json json_result
+      S.json $ WebApi.toJsonEither json_result
+
 
     S.get "/api/new-pattern-test" $ do
       liftIO $ putStrLn $ "Testing pattern..."

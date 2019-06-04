@@ -395,6 +395,7 @@ get_revision_builds conn_data git_revision = do
 
 data CommitInfo = NewCommitInfo {
     _failed_build_count  :: Int
+  , _matched_build_count :: Int
   , _code_breakage_count :: Int
   } deriving Generic
 
@@ -405,14 +406,16 @@ instance ToJSON CommitInfo where
 count_revision_builds :: DbHelpers.DbConnectionData -> GitRev.GitSha1 -> IO CommitInfo
 count_revision_builds conn_data git_revision = do
   conn <- DbHelpers.get_connection conn_data
-  [Only x] <- query conn failed_count_sql only_commit
-  [Only y] <- query conn reported_broken_count_sql only_commit
+  [Only failed_count] <- query conn failed_count_sql only_commit
+  [Only matched_count] <- query conn matched_count_sql only_commit
+  [Only reported_count] <- query conn reported_broken_count_sql only_commit
 
-  return $ NewCommitInfo x y
+  return $ NewCommitInfo failed_count matched_count reported_count
   where
     only_commit = Only $ GitRev.sha1 git_revision
 
-    failed_count_sql = "SELECT COUNT(*) FROM best_pattern_match_augmented_builds WHERE vcs_revision = ?;"
+    failed_count_sql = "SELECT COUNT(*) FROM builds WHERE vcs_revision = ?;"
+    matched_count_sql = "SELECT COUNT(*) FROM best_pattern_match_augmented_builds WHERE vcs_revision = ?;"
     reported_broken_count_sql = "SELECT COUNT(*) FROM builds_with_reports WHERE vcs_revision = ? AND is_broken;"
 
 

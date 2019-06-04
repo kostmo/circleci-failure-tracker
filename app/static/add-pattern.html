@@ -10,6 +10,8 @@
 <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
 <script src="https://code.jquery.com/ui/1.12.1/jquery-ui.js"></script>
 
+<script src="/script/html-utils.js"></script>
+<script src="/script/tag-helpers.js"></script>
 <script src="/script/add-pattern.js"></script>
 </head>
 
@@ -33,14 +35,16 @@ Description (this can be edited later):
 <br/>
 <label>
 Tags:
-<input id="pattern-tag-input" type="text" value=""/>
-</label>
+<input id="pattern-tag-input" type="text" value=""/></label> <button onclick="add_tag()">Add</button>
+
+<div id="tag-list-container" style="padding: .3em;"></div>
 
 <br/>
 <label>
 Applicable build steps (none means applicable to all steps):
-<input id="build-step-applicability-input" type="text" value=""/> <button>Add</button>
-</label>
+<input id="build-step-applicability-input" type="text" value=""/></label> <button onclick="add_build_step()">Add</button>
+<div id="step-list-container" style="padding: .3em;"></div>
+
 
 <br/>
 <label>Position from end: <input id="input-lines-from-end" type="text" value="" size="5"/> lines</label> <label><input id="is-using-lines-from-end-checkbox" type="checkbox"/> use position</label>

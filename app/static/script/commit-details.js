@@ -4,13 +4,15 @@ function populate_commit_info(commit_sha1) {
 	$.getJSON('/api/commit-info', {"sha1": commit_sha1}, function (data) {
 
 		var github_link = "<a href='https://github.com/pytorch/pytorch/commits/" + commit_sha1 + "'>View on GitHub</a>"
-		var html = "<dl>"
-		html += render_pair("Commit ancestry:", github_link);
-		html += render_pair("Failed build count:", data["payload"]["failed_build_count"]);
-		html += render_pair("Code breakage count:", data["payload"]["code_breakage_count"]);
-		html += "</dl>";
 
-	        $("#commit-info-box").html(html);
+		var items = [
+			render_pair("Commit ancestry:", github_link),
+			render_pair("Failed build count:", data["payload"]["failed_build_count"]),
+			render_pair("Matched build count:", data["payload"]["matched_build_count"]),
+			render_pair("Code breakage count:", data["payload"]["code_breakage_count"]),
+		];
+
+	        $("#commit-info-box").html( render_tag("dl", items.join("")) );
 	});
 }
 
@@ -72,7 +74,11 @@ function gen_unmatched_build_list(api_endpoint, div_id) {
 		{title:"Build number", field:"build", formatter: "link", width: 75, formatterParams: {urlPrefix: "/build-details.html?build_id="}},
 		{title:"Step", field:"step_name", width: 200},
 		{title:"Job", field:"job_name", width: 200},
-		{title:"Time", field:"queued_at", width: 150},
+		{title:"Time", field:"queued_at", width: 150, formatter: function(cell, formatterParams, onRendered) {
+			var val = cell.getValue();
+			return moment(val).fromNow();
+		    }
+                },
 		{title:"Branch", field:"branch", width: 150},
 		{title:"Broken?", field:"is_broken", formatter:"tickCross", sorter:"boolean", formatterParams: {
 			allowEmpty: true,

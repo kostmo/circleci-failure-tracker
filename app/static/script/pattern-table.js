@@ -1,12 +1,17 @@
-var TAG_CLASSES = new Set(["flaky"]);
-
-
 function remove_pattern_tag(pattern_id, tag) {
 	if (confirm("Remove tag \"" + tag + "\" from pattern " + pattern_id + "?")) {
 		alert("Not implemented");
 	}
 }
 
+
+function add_tag(pattern_id) {
+
+	var prompt_val = prompt("Enter tag name (lowercase, no spaces):");
+	if (prompt_val) {
+		alert("Add tag \"" + prompt_val + "\" is not implemented.");
+	}
+}
 
 function gen_patterns_table(pattern_id, filtered_branches) {
 
@@ -51,7 +56,7 @@ function gen_patterns_table(pattern_id, filtered_branches) {
 					return "<span onclick='remove_pattern_tag(" + pattern_id + ",\"" + val + "\");' class='" + class_list.join(" ") + "'>" + val + "</span>";
 				});
 
-				tag_elements.push("<button class='tag-add-button' style='display: none;' id='tag-add-button-" + pattern_id + "' onclick='alert(\"hi: " + pattern_id + "\");'>+</button>");
+				tag_elements.push("<button class='tag-add-button' style='display: none;' id='tag-add-button-" + pattern_id + "' onclick='add_tag(" + pattern_id + ");'>+</button>");
 				return tag_elements.join(" ");
 
 			},

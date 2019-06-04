@@ -1,3 +1,45 @@
+var tags_list = [];
+var steps_list = [];
+
+
+function add_tag() {
+
+	var tag_val = $('#pattern-tag-input').val();
+	tags_list.push(tag_val);
+
+	render_lists();
+}
+
+function add_build_step() {
+
+	var step_val = $('#build-step-applicability-input').val();
+	steps_list.push(step_val);
+
+	render_lists();
+}
+
+
+function render_list_html(tag_list) {
+
+	var tag_elements = tag_list.map(function(val) {
+		var class_list = ["tag"];
+		if (TAG_CLASSES.has(val)) {
+			class_list.push("tag-class-" + val);
+		}
+
+		return "<span class='" + class_list.join(" ") + "'>" + val + "</span>";
+	});
+
+	return tag_elements.join(" ");
+}
+
+
+function render_lists() {
+	$('#tag-list-container').html(render_list_html(tags_list));
+	$('#step-list-container').html(render_list_html(steps_list));
+}
+
+
 function submit_pattern() {
 
 	var pattern_data = gather_pattern_data();
@@ -77,7 +119,6 @@ function setup_autocomplete() {
 }
 
 
-
 function gather_pattern_data() {
 
 	return {
@@ -85,14 +126,13 @@ function gather_pattern_data() {
 		is_nondeterministic: $('#is-nondeterministic-checkbox').is(":checked"),
 		pattern: $('#input-pattern-text').val(),
 		description: $('#input-pattern-description').val(),
-		tags: $('#pattern-tag-input').val(),
-		applicable_steps: $('#build-step-applicability-input').val(),
+		tags: tags_list,
+		applicable_steps: steps_list,
 
 		use_lines_from_end: $('#is-using-lines-from-end-checkbox').is(":checked"),
 		lines_from_end: $('#input-lines-from-end').val(),
 	};
 }
-
 
 
 function test_pattern() {
@@ -111,18 +151,19 @@ function test_pattern() {
 
 		var payload = data.payload;
 		if (payload.length > 0) {
-			inner_html += "<table><tbody>";
+
+			var table_rows = [];
 			for (var i=0; i<payload.length; i++) {
 				var match_details = payload[i]["match_details"];
-				inner_html += "<tr><td>Line " + match_details["line_number"] + ":</td><td>" + match_details["line_text"] + "</td></tr>";
+				table_rows.push(["Line " + match_details["line_number"] + ":", match_details["line_text"]]);
 			}
 
-			inner_html += "</tbody></table>";
+			inner_html += render_table(table_rows);
 		} else {
 			inner_html += "<span style='color: red;'>No matches</span>";
 		}
 
-		$("#test-match-results-container").html( inner_html );
+		$("#test-match-results-container").html(inner_html);
           }
         });
 }
@@ -143,6 +184,7 @@ function shipOff(event) {
             'error': showUploadFailure,
 	});
 }
+
 
 function showUploadFailure(data) {
 	alert("FAILED: " + data);
