@@ -195,6 +195,85 @@ CREATE VIEW public.aggregated_build_matches WITH (security_barrier='false') AS
 ALTER TABLE public.aggregated_build_matches OWNER TO postgres;
 
 --
+-- Name: broken_build_reports; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.broken_build_reports (
+    id integer NOT NULL,
+    reporter text NOT NULL,
+    reported_at timestamp with time zone DEFAULT now() NOT NULL,
+    build_step integer NOT NULL,
+    is_broken boolean NOT NULL,
+    implicated_revision character(40),
+    notes text
+);
+
+
+ALTER TABLE public.broken_build_reports OWNER TO postgres;
+
+--
+-- Name: builds_join_steps; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.builds_join_steps AS
+ SELECT build_steps.id AS step_id,
+    build_steps.name AS step_name,
+    builds.build_num,
+    builds.vcs_revision,
+    builds.queued_at,
+    builds.job_name,
+    builds.branch
+   FROM (public.build_steps
+     LEFT JOIN public.builds ON ((builds.build_num = build_steps.build)))
+  ORDER BY builds.vcs_revision, builds.build_num DESC;
+
+
+ALTER TABLE public.builds_join_steps OWNER TO postgres;
+
+--
+-- Name: latest_broken_build_reports; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.latest_broken_build_reports AS
+ SELECT DISTINCT ON (broken_build_reports.build_step) broken_build_reports.id,
+    broken_build_reports.build_step,
+    broken_build_reports.reporter,
+    broken_build_reports.reported_at,
+    broken_build_reports.is_broken,
+    broken_build_reports.notes,
+    broken_build_reports.implicated_revision
+   FROM public.broken_build_reports
+  ORDER BY broken_build_reports.build_step, broken_build_reports.id DESC;
+
+
+ALTER TABLE public.latest_broken_build_reports OWNER TO postgres;
+
+--
+-- Name: builds_with_reports; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.builds_with_reports AS
+ SELECT builds_join_steps.step_id,
+    builds_join_steps.step_name,
+    builds_join_steps.build_num,
+    builds_join_steps.vcs_revision,
+    builds_join_steps.queued_at,
+    builds_join_steps.job_name,
+    builds_join_steps.branch,
+    latest_broken_build_reports.reporter,
+    latest_broken_build_reports.is_broken,
+    latest_broken_build_reports.reported_at AS report_timestamp,
+    latest_broken_build_reports.notes AS breakage_notes,
+    latest_broken_build_reports.implicated_revision,
+    latest_broken_build_reports.id AS report_id
+   FROM (public.builds_join_steps
+     LEFT JOIN public.latest_broken_build_reports ON ((latest_broken_build_reports.build_step = builds_join_steps.step_id)))
+  ORDER BY COALESCE(latest_broken_build_reports.is_broken, false) DESC, builds_join_steps.build_num DESC;
+
+
+ALTER TABLE public.builds_with_reports OWNER TO postgres;
+
+--
 -- Name: log_metadata; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -245,36 +324,44 @@ CREATE VIEW public.best_pattern_match_augmented_builds WITH (security_barrier='f
     matches_with_log_metadata.line_text,
     matches_with_log_metadata.span_start,
     matches_with_log_metadata.span_end,
-    builds.vcs_revision,
-    builds.queued_at,
-    builds.job_name,
-    builds.branch,
+    builds_with_reports.vcs_revision,
+    builds_with_reports.queued_at,
+    builds_with_reports.job_name,
+    builds_with_reports.branch,
     best_pattern_match_for_builds.pattern_id,
-    best_pattern_match_for_builds.specificity
+    best_pattern_match_for_builds.specificity,
+    builds_with_reports.is_broken,
+    builds_with_reports.reporter,
+    builds_with_reports.report_timestamp
    FROM ((public.best_pattern_match_for_builds
      JOIN public.matches_with_log_metadata ON (((matches_with_log_metadata.pattern = best_pattern_match_for_builds.pattern_id) AND (matches_with_log_metadata.build_num = best_pattern_match_for_builds.build))))
-     JOIN public.builds ON ((builds.build_num = best_pattern_match_for_builds.build)))
+     JOIN public.builds_with_reports ON ((builds_with_reports.build_num = best_pattern_match_for_builds.build)))
   ORDER BY best_pattern_match_for_builds.build DESC, matches_with_log_metadata.line_number;
 
 
 ALTER TABLE public.best_pattern_match_augmented_builds OWNER TO postgres;
 
 --
--- Name: broken_build_reports; Type: TABLE; Schema: public; Owner: postgres
+-- Name: broken_build_reports_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
 --
 
-CREATE TABLE public.broken_build_reports (
-    id integer NOT NULL,
-    revision character(40) NOT NULL,
-    reporter text,
-    "timestamp" timestamp with time zone DEFAULT now(),
-    is_broken boolean NOT NULL,
-    notes text,
-    implicated_revision character(40)
-);
+CREATE SEQUENCE public.broken_build_reports_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
 
 
-ALTER TABLE public.broken_build_reports OWNER TO postgres;
+ALTER TABLE public.broken_build_reports_id_seq OWNER TO postgres;
+
+--
+-- Name: broken_build_reports_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.broken_build_reports_id_seq OWNED BY public.broken_build_reports.id;
+
 
 --
 -- Name: broken_revisions_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
@@ -290,13 +377,6 @@ CREATE SEQUENCE public.broken_revisions_id_seq
 
 
 ALTER TABLE public.broken_revisions_id_seq OWNER TO postgres;
-
---
--- Name: broken_revisions_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
---
-
-ALTER SEQUENCE public.broken_revisions_id_seq OWNED BY public.broken_build_reports.id;
-
 
 --
 -- Name: build_steps_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
@@ -319,68 +399,6 @@ ALTER TABLE public.build_steps_id_seq OWNER TO postgres;
 
 ALTER SEQUENCE public.build_steps_id_seq OWNED BY public.build_steps.id;
 
-
---
--- Name: builds_join_steps; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.builds_join_steps AS
- SELECT build_steps.id AS step_id,
-    build_steps.name AS step_name,
-    builds.build_num,
-    builds.vcs_revision,
-    builds.queued_at,
-    builds.job_name,
-    builds.branch
-   FROM (public.build_steps
-     LEFT JOIN public.builds ON ((builds.build_num = build_steps.build)))
-  ORDER BY builds.vcs_revision, builds.build_num DESC;
-
-
-ALTER TABLE public.builds_join_steps OWNER TO postgres;
-
---
--- Name: latest_broken_revision_reports; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.latest_broken_revision_reports AS
- SELECT DISTINCT ON (broken_build_reports.revision) broken_build_reports.id,
-    broken_build_reports.revision,
-    broken_build_reports.reporter,
-    broken_build_reports."timestamp",
-    broken_build_reports.is_broken,
-    broken_build_reports.notes,
-    broken_build_reports.implicated_revision
-   FROM public.broken_build_reports
-  ORDER BY broken_build_reports.revision, broken_build_reports.id DESC;
-
-
-ALTER TABLE public.latest_broken_revision_reports OWNER TO postgres;
-
---
--- Name: builds_with_reports; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.builds_with_reports WITH (security_barrier='false') AS
- SELECT builds_join_steps.step_id,
-    builds_join_steps.step_name,
-    builds_join_steps.build_num,
-    builds_join_steps.vcs_revision,
-    builds_join_steps.queued_at,
-    builds_join_steps.job_name,
-    builds_join_steps.branch,
-    latest_broken_revision_reports.reporter,
-    latest_broken_revision_reports.is_broken,
-    latest_broken_revision_reports."timestamp" AS report_timestamp,
-    latest_broken_revision_reports.notes AS breakage_notes,
-    latest_broken_revision_reports.implicated_revision,
-    latest_broken_revision_reports.id AS report_id
-   FROM (public.builds_join_steps
-     LEFT JOIN public.latest_broken_revision_reports ON ((latest_broken_revision_reports.revision = builds_join_steps.vcs_revision)))
-  ORDER BY COALESCE(latest_broken_revision_reports.is_broken, false) DESC, builds_join_steps.build_num DESC;
-
-
-ALTER TABLE public.builds_with_reports OWNER TO postgres;
 
 --
 -- Name: created_github_statuses; Type: TABLE; Schema: public; Owner: postgres
@@ -872,7 +890,7 @@ ALTER TABLE public.unvisited_builds OWNER TO postgres;
 -- Name: broken_build_reports id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY public.broken_build_reports ALTER COLUMN id SET DEFAULT nextval('public.broken_revisions_id_seq'::regclass);
+ALTER TABLE ONLY public.broken_build_reports ALTER COLUMN id SET DEFAULT nextval('public.broken_build_reports_id_seq'::regclass);
 
 
 --
@@ -918,11 +936,11 @@ ALTER TABLE ONLY public.scans ALTER COLUMN id SET DEFAULT nextval('public.scans_
 
 
 --
--- Name: broken_build_reports broken_revisions_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: broken_build_reports broken_build_reports_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.broken_build_reports
-    ADD CONSTRAINT broken_revisions_pkey PRIMARY KEY (id);
+    ADD CONSTRAINT broken_build_reports_pkey PRIMARY KEY (id);
 
 
 --
@@ -1082,6 +1100,13 @@ CREATE INDEX fk_patternid ON public.scans USING btree (latest_pattern_id);
 
 
 --
+-- Name: fk_report_build_step; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX fk_report_build_step ON public.broken_build_reports USING btree (build_step);
+
+
+--
 -- Name: fk_scan_id; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -1114,6 +1139,14 @@ CREATE INDEX fki_fk_pattern ON public.scanned_patterns USING btree (newest_patte
 --
 
 CREATE INDEX fki_fk_scan ON public.scanned_patterns USING btree (scan);
+
+
+--
+-- Name: broken_build_reports broken_build_reports_build_step_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.broken_build_reports
+    ADD CONSTRAINT broken_build_reports_build_step_fkey FOREIGN KEY (build_step) REFERENCES public.build_steps(id);
 
 
 --
@@ -1269,6 +1302,34 @@ GRANT ALL ON TABLE public.aggregated_build_matches TO logan;
 
 
 --
+-- Name: TABLE broken_build_reports; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.broken_build_reports TO logan;
+
+
+--
+-- Name: TABLE builds_join_steps; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.builds_join_steps TO logan;
+
+
+--
+-- Name: TABLE latest_broken_build_reports; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.latest_broken_build_reports TO logan;
+
+
+--
+-- Name: TABLE builds_with_reports; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.builds_with_reports TO logan;
+
+
+--
 -- Name: TABLE log_metadata; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -1290,10 +1351,10 @@ GRANT ALL ON TABLE public.best_pattern_match_augmented_builds TO logan;
 
 
 --
--- Name: TABLE broken_build_reports; Type: ACL; Schema: public; Owner: postgres
+-- Name: SEQUENCE broken_build_reports_id_seq; Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON TABLE public.broken_build_reports TO logan;
+GRANT ALL ON SEQUENCE public.broken_build_reports_id_seq TO logan;
 
 
 --
@@ -1308,27 +1369,6 @@ GRANT ALL ON SEQUENCE public.broken_revisions_id_seq TO logan;
 --
 
 GRANT ALL ON SEQUENCE public.build_steps_id_seq TO logan;
-
-
---
--- Name: TABLE builds_join_steps; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.builds_join_steps TO logan;
-
-
---
--- Name: TABLE latest_broken_revision_reports; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.latest_broken_revision_reports TO logan;
-
-
---
--- Name: TABLE builds_with_reports; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.builds_with_reports TO logan;
 
 
 --
@@ -1434,6 +1474,13 @@ GRANT ALL ON TABLE public.match_position_stats TO logan;
 --
 
 GRANT ALL ON TABLE public.ordered_master_commits TO logan;
+
+
+--
+-- Name: SEQUENCE ordered_master_commits_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE public.ordered_master_commits_id_seq TO logan;
 
 
 --

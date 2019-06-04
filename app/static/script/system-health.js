@@ -1,13 +1,12 @@
 
-
 function gen_log_size_histogram() {
-
 
 	$.getJSON('/api/log-storage-stats', function (data) {
 		var html = "<dl>";
 		$.each(data, function( key, value ) {
 
-			html += render_pair(key, value);
+			var value_content = key == "total_bytes" ? Humanize.fileSize(value, 1) + " (uncompressed)" : Humanize.compactInteger(value, 1)
+			html += render_pair(key, value_content);
 		});
 		html += "</dl>";
 

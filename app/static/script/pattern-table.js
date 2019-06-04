@@ -1,3 +1,6 @@
+var TAG_CLASSES = new Set(["flaky"]);
+
+
 function gen_patterns_table(pattern_id, filtered_branches) {
 
 
@@ -29,7 +32,17 @@ function gen_patterns_table(pattern_id, filtered_branches) {
 	    layout:"fitColumns",
 	    placeholder:"No Data Set",
 	    columns:[
-		{title:"Tags", field:"tags", sorter:"string"},
+		{title:"Tags", field: "tags", sorter: "string", formatter: function(cell, formatterParams, onRendered) {
+                        var tag_list = cell.getValue();
+			return tag_list.map(function(val) {
+				var class_list = ["tag"];
+				if (TAG_CLASSES.has(val)) {
+					class_list.push("tag-class-" + val);
+				}
+
+				return "<span class='" + class_list.join(" ") + "'>" + val + "</span>";}).join(" ");
+		    }
+		},
 		{title:"Steps", field:"steps", sorter:"string"},
 		{title:"Regex?", field:"is_regex", align:"center", formatter:"tickCross", sorter:"boolean", formatterParams: {crossElement: false}, width: 75},
 		{title:"Pattern", field:"pattern", sorter:"string", widthGrow: 3, formatter: function(cell, formatterParams, onRendered) {
@@ -38,7 +51,11 @@ function gen_patterns_table(pattern_id, filtered_branches) {
                 },
 		{title:"Description", field:"description", sorter:"string", formatter: "link", formatterParams: {urlPrefix: "/pattern-details.html?pattern_id=", urlField: "id"}, widthGrow: 2},
 		{title:"Count", field:"frequency", sorter:"number", align:"center", width: 75},
-		{title:"Last Occurrence", field:"last", sorter:"datetime", align:"center"},
+		{title:"Last Occurrence", field:"last", sorter:"datetime", align:"center", formatter: function(cell, formatterParams, onRendered) {
+			var val = cell.getValue();
+			return val != null ? moment(val).fromNow() : "never";
+		    }
+		},
 		{title:"Specificity", field:"specificity", sorter:"number", align:"center", width: 100},
 		{title:"Scanned percent", field:"percent_scanned", align:"center", sorter:"number"},
 	    ],

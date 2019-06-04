@@ -1,21 +1,21 @@
 
-function gather_revision_data(full_sha1) {
+function gather_revision_data(step_id) {
 	return {
-            revision: full_sha1,
-            implicated_revision: $('#input-implicated-revision').val(),
-            is_broken: $('#is-broken-checkbox').is(":checked"),
-            notes: $('#input-notes').val(),
-          };
+		step_id: step_id,
+		implicated_revision: $('#input-implicated-revision').val(),
+		is_broken: $('#is-broken-checkbox').is(":checked"),
+		notes: $('#input-notes').val(),
+	};
 }
 
 
-function submit_breakage_report(button, full_sha1) {
+function submit_breakage_report(button, build_step_id) {
 
 	$(button).prop("disabled", true);
 
-	console.log("Submitting report for revision: " + full_sha1);
+	console.log("Submitting breakage report...");
 
-	var revision_data = gather_revision_data(full_sha1);
+	var revision_data = gather_revision_data(build_step_id);
 
         $.post( {
           url: "/api/report-breakage",
@@ -95,7 +95,7 @@ function populate_build_info(build_id) {
 		html += render_pair("Build step:", "<i>" + data["step_name"] + "</i>");
 		html += render_pair("Branch:", data["build"]["branch"]);
 		html += render_pair("Job name:", data["build"]["job_name"]);
-		html += render_pair("Date:", data["build"]["queued_at"]);
+		html += render_pair("Date:", moment(data["build"]["queued_at"]).fromNow());
 		html += render_pair("Revision:", commit_links);
 		html += "</dl>";
 
@@ -109,8 +109,7 @@ function populate_build_info(build_id) {
 
 	        $("#build-info-box").html(html);
 
-		populate_breakage_form("submission_button_placeholder", data["build"]["vcs_revision"], data);
-
+		populate_breakage_form("submission_button_placeholder", data["step_id"], data);
 	});
 }
 

@@ -7,16 +7,19 @@ import           Control.Monad              (when)
 import           Data.Foldable              (for_)
 import           Database.PostgreSQL.Simple
 
+import qualified Constants
 import qualified DbHelpers
 import qualified PatternsFetch
+import qualified SqlWrite
 
 
 buildDataTruncations :: [Query]
 buildDataTruncations = [
     "TRUNCATE log_metadata CASCADE;"
+  , "TRUNCATE broken_build_reports CASCADE;"
   , "TRUNCATE build_steps CASCADE;"
   , "TRUNCATE created_github_statuses CASCADE;"
-  , "TRUNCATE broken_revisions CASCADE;"
+  , "TRUNCATE presumed_stable_branches CASCADE;"
   , "TRUNCATE builds CASCADE;"
   , "TRUNCATE ordered_master_commits CASCADE;"
   ]
@@ -48,6 +51,7 @@ prepare_database conn_data wipe = do
   when wipe $ do
     scrub_tables conn
     PatternsFetch.populate_patterns conn_data
+    SqlWrite.populate_presumed_stable_branches conn Constants.presumedGoodBranches
     return ()
   return conn
 

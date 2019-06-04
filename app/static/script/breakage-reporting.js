@@ -1,7 +1,7 @@
 
-function populate_breakage_form(submission_button_container_id, git_sha1, data) {
+function populate_breakage_form(submission_button_container_id, build_step_id, data) {
 
-	var submission_button_html = "<button onclick='submit_breakage_report(this, \"" + git_sha1 + "\");'>Update broken status</button>";
+	var submission_button_html = "<button onclick='submit_breakage_report(this, \"" + build_step_id + "\");'>Update broken status</button>";
         $("#" + submission_button_container_id).html(submission_button_html);
 
 

@@ -13,6 +13,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/lodash@4.17.11/lodash.min.js"></script>
 
+<script src="/script/html-utils.js"></script>
 <script src="/script/breakage-reporting.js"></script>
 <script src="/script/table-helpers.js"></script>
 <script src="/script/commit-details.js"></script>
@@ -41,22 +42,13 @@
 
 <div id="commit-info-box"></div>
 
-
-<form onsubmit="return false;" style="border: 1px solid gray; padding: 0.3em;">
-
-<label><input id="is-broken-checkbox" type="checkbox" checked="checked"/> is broken?</label>
-<br/>
-<label>Implicated revision: <input id="input-implicated-revision" type="text" value=""/></label>
-<br/>
-<label>Notes: <input id="input-notes" type="text" value=""/></label>
-<br/>
-
-<div id="submission_button_placeholder"></div>
-</form>
-
 <h2>Pattern matches</h2>
 <p>This shows only the best-match pattern for each build.</p>
 <div id="builds-table"></div>
+
+<h2>Breakage reports</h2>
+
+<div id="breakage-reports-box"></div>
 
 <h2>Unattributed failures</h2>
 <table id="unattributed-failures-layout-table"><tr><th>No match</th><th>No log</th></tr>
@@ -66,6 +58,7 @@
 <div id="container-idiopathic-failures" style="min-width: 500px; height: 400px; margin: 0 auto"></div>
 </td></tr>
 </table>
+
 
 <hr/>
 

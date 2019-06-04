@@ -1,26 +1,18 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-import           Control.Concurrent                (forkIO)
-import           Control.Monad                     (guard, unless, when)
+import           Control.Monad                     (unless, when)
 import           Control.Monad.IO.Class            (liftIO)
-import           Control.Monad.Trans.Except        (ExceptT (ExceptT), except,
-                                                    runExceptT)
-import qualified Data.ByteString.Lazy              as LBS
 import qualified Data.ByteString.Lazy.Char8        as LBSC
 import           Data.Default                      (def)
 import           Data.Either.Utils                 (maybeToEither)
-import           Data.List                         (filter, intercalate)
+import           Data.List                         (filter)
 import           Data.List.Split                   (splitOn)
 import qualified Data.Maybe                        as Maybe
-import qualified Data.Set                          as Set
 import           Data.String                       (fromString)
 import           Data.Text                         (Text)
 import qualified Data.Text                         as T
 import qualified Data.Text.Lazy                    as LT
-import qualified Data.Time.Clock                   as Clock
 import qualified Data.Vault.Lazy                   as Vault
-import qualified GitHub.Data.Webhooks.Validate     as GHValidate
-import qualified Network.URI                       as URI
 import           Network.Wai
 import           Network.Wai.Middleware.ForceSSL   (forceSSL)
 import           Network.Wai.Middleware.Static
@@ -100,13 +92,13 @@ breakage_report_from_parms = do
   notes <- S.param "notes"
   is_broken <- S.param "is_broken"
   implicated_revision <- S.param "implicated_revision"
-  revision <- S.param "revision"
+  step_id <- S.param "step_id"
 
   let maybe_implicated_revision = if T.null implicated_revision then Nothing else Just implicated_revision
 
   -- TODO - structural validation on both Git hashes
   return $ Breakages.NewBreakageReport
-    revision
+    (Builds.NewBuildStepId step_id)
     maybe_implicated_revision
     is_broken
     notes
@@ -285,7 +277,6 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       S.json =<< liftIO (SqlRead.api_idiopathic_commit_builds connection_data commit_sha1_text)
 
 
-
     -- | Access-controlled endpoint
     S.get "/api/view-log" $ do
       build_id <- S.param "build_id"
@@ -307,6 +298,9 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
     S.get "/api/patterns-dump" $ do
       S.json =<< liftIO (SqlRead.dump_patterns connection_data)
 
+    S.get "/api/presumed-stable-branches-dump" $ do
+      S.json =<< liftIO (SqlRead.dump_presumed_stable_branches connection_data)
+
     S.post "/api/patterns-restore" $ do
       body_json <- S.jsonData
 
@@ -315,6 +309,10 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       rq <- S.request
       insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
       S.json $ WebApi.toJsonEither insertion_result
+
+    S.get "/api/commit-breakage-reports" $ do
+      commit_sha1_text <- S.param "sha1"
+      S.json =<< liftIO (SqlRead.api_commit_breakage_reports connection_data commit_sha1_text)
 
     S.get "/api/patterns" $ do
       S.json =<< liftIO (SqlRead.api_patterns connection_data)

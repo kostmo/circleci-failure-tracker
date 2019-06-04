@@ -51,6 +51,7 @@ data UnmatchedBuild = UnmatchedBuild {
   , _queued_at :: UTCTime
   , _job_name  :: Text
   , _branch    :: Text
+  , _is_broken :: Maybe Bool
   } deriving Generic
 
 instance ToJSON UnmatchedBuild where

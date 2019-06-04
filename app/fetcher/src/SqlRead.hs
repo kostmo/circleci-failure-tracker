@@ -28,7 +28,6 @@ import qualified Breakages
 import qualified Builds
 import qualified BuildSteps
 import qualified CommitBuilds
-import qualified Constants
 import qualified DbHelpers
 import qualified GitRev
 import qualified JsonUtils
@@ -36,6 +35,7 @@ import qualified MatchOccurrences
 import qualified ScanPatterns
 import qualified ScanRecords
 import qualified ScanUtils
+import qualified StoredBreakageReports
 import qualified WebApi
 
 
@@ -169,8 +169,7 @@ api_test_failures conn_data = do
   case Safe.headMay patterns_singleton of
     Nothing -> return $ Left "Could not find Test Failure pattern"
     Just test_failure_pattern -> do
-
-      pattern_occurrences <- get_best_pattern_matches_whitelisted_branches conn_data Constants.presumedGoodBranches testFailurePatternId
+      pattern_occurrences <- get_best_pattern_matches_whitelisted_branches conn_data testFailurePatternId
       return $ Right $ Maybe.mapMaybe (repackage test_failure_pattern) pattern_occurrences
 
   where
@@ -285,13 +284,22 @@ api_unmatched_builds = list_builds sql
     sql = "SELECT build, branch FROM unattributed_failed_builds;"
 
 
+api_commit_breakage_reports :: DbHelpers.DbConnectionData -> Text -> IO [StoredBreakageReports.BreakageReport]
+api_commit_breakage_reports conn_data sha1 = do
+  conn <- DbHelpers.get_connection conn_data
+  map f <$> query conn sql (Only sha1)
+  where
+    f (build_num, step_name, job_name, is_broken, reporter, report_timestamp, breakage_notes, implicated_revision) = StoredBreakageReports.BreakageReport (Builds.NewBuildNumber build_num) step_name job_name is_broken (AuthStages.Username reporter) report_timestamp breakage_notes implicated_revision
+    sql = "SELECT build_num, step_name, job_name, is_broken, reporter, report_timestamp, breakage_notes, implicated_revision FROM builds_with_reports WHERE vcs_revision = ? AND is_broken IS NOT NULL"
+
+
 api_unmatched_commit_builds :: DbHelpers.DbConnectionData -> Text -> IO [WebApi.UnmatchedBuild]
 api_unmatched_commit_builds conn_data sha1 = do
   conn <- DbHelpers.get_connection conn_data
   map f <$> query conn sql (Only sha1)
   where
-    f (build, step_name, queued_at, job_name, branch) = WebApi.UnmatchedBuild (Builds.NewBuildNumber build) step_name queued_at job_name branch
-    sql = "SELECT build, step_name, queued_at, job_name, unattributed_failed_builds.branch FROM unattributed_failed_builds LEFT JOIN builds_join_steps ON unattributed_failed_builds.build = builds_join_steps.build_num WHERE vcs_revision = ?"
+    f (build, step_name, queued_at, job_name, branch, is_broken) = WebApi.UnmatchedBuild (Builds.NewBuildNumber build) step_name queued_at job_name branch is_broken
+    sql = "SELECT build, step_name, queued_at, job_name, unattributed_failed_builds.branch, is_broken FROM unattributed_failed_builds LEFT JOIN builds_with_reports ON unattributed_failed_builds.build = builds_with_reports.build_num WHERE vcs_revision = ?"
 
 
 api_idiopathic_builds :: DbHelpers.DbConnectionData -> IO [WebApi.BuildBranchRecord]
@@ -305,8 +313,8 @@ api_idiopathic_commit_builds conn_data sha1 = do
   conn <- DbHelpers.get_connection conn_data
   map f <$> query conn sql (Only sha1)
   where
-    f (build, step_name, queued_at, job_name, branch) = WebApi.UnmatchedBuild (Builds.NewBuildNumber build) step_name queued_at job_name branch
-    sql = "SELECT build, step_name, queued_at, job_name, idiopathic_build_failures.branch FROM idiopathic_build_failures LEFT JOIN builds_join_steps ON idiopathic_build_failures.build = builds_join_steps.build_num WHERE vcs_revision = ?"
+    f (build, step_name, queued_at, job_name, branch, is_broken) = WebApi.UnmatchedBuild (Builds.NewBuildNumber build) step_name queued_at job_name branch is_broken
+    sql = "SELECT build, step_name, queued_at, job_name, idiopathic_build_failures.branch, is_broken FROM idiopathic_build_failures LEFT JOIN builds_with_reports ON idiopathic_build_failures.build = builds_with_reports.build_num WHERE vcs_revision = ?"
 
 
 api_random_scannable_build :: DbHelpers.DbConnectionData -> IO WebApi.BuildNumberRecord
@@ -369,16 +377,24 @@ get_revision_builds conn_data git_revision = do
   return $ map f xs
 
   where
-    f (step_name, buildnum, vcs_rev, queuedat, jobname, branch, pattern, line_number, line_count, line_text, span_start, span_end, specificity) =
+    f (step_name, buildnum, vcs_rev, queuedat, jobname, branch, pattern, line_number, line_count, line_text, span_start, span_end, specificity, maybe_is_broken, maybe_reporter, maybe_report_timestamp) =
       CommitBuilds.NewCommitBuild
-        (Builds.NewBuild (Builds.NewBuildNumber buildnum) vcs_rev queuedat jobname branch)
-        (MatchOccurrences.MatchOccurrencesForBuild step_name pattern line_number line_count line_text span_start span_end specificity)
+        build_obj
+        match_obj
+        (maybe_breakage_report maybe_is_broken  maybe_reporter maybe_report_timestamp)
+      where
+        build_obj = Builds.NewBuild (Builds.NewBuildNumber buildnum) vcs_rev queuedat jobname branch
+        match_obj = MatchOccurrences.MatchOccurrencesForBuild step_name pattern line_number line_count line_text span_start span_end specificity
 
-    sql = "SELECT step_name, build, vcs_revision, queued_at, job_name, branch, pattern_id, line_number, line_count, line_text, span_start, span_end, patterns_augmented.specificity FROM best_pattern_match_augmented_builds JOIN patterns_augmented on best_pattern_match_augmented_builds.pattern_id = patterns_augmented.id WHERE vcs_revision = ?;"
+        maybe_breakage_report :: Maybe Bool -> Maybe Text -> Maybe UTCTime -> Maybe CommitBuilds.StoredBreakageReport
+        maybe_breakage_report x y z = CommitBuilds.StoredBreakageReport <$> x <*> (AuthStages.Username <$> y) <*> z
+
+    sql = "SELECT step_name, build, vcs_revision, queued_at, job_name, branch, pattern_id, line_number, line_count, line_text, span_start, span_end, specificity, is_broken, reporter, report_timestamp FROM best_pattern_match_augmented_builds WHERE vcs_revision = ?;"
 
 
 data CommitInfo = NewCommitInfo {
-    _failed_build_count :: Int
+    _failed_build_count  :: Int
+  , _code_breakage_count :: Int
   } deriving Generic
 
 instance ToJSON CommitInfo where
@@ -388,10 +404,15 @@ instance ToJSON CommitInfo where
 count_revision_builds :: DbHelpers.DbConnectionData -> GitRev.GitSha1 -> IO CommitInfo
 count_revision_builds conn_data git_revision = do
   conn <- DbHelpers.get_connection conn_data
-  [Only x] <- query conn sql (Only $ GitRev.sha1 git_revision)
-  return $ NewCommitInfo x
+  [Only x] <- query conn failed_count_sql only_commit
+  [Only y] <- query conn reported_broken_count_sql only_commit
+
+  return $ NewCommitInfo x y
   where
-    sql = "SELECT COUNT(*) FROM best_pattern_match_augmented_builds WHERE vcs_revision = ?;"
+    only_commit = Only $ GitRev.sha1 git_revision
+
+    failed_count_sql = "SELECT COUNT(*) FROM best_pattern_match_augmented_builds WHERE vcs_revision = ?;"
+    reported_broken_count_sql = "SELECT COUNT(*) FROM builds_with_reports WHERE vcs_revision = ? AND is_broken;"
 
 
 -- | NOTE: Some of these values can be derived from the others.
@@ -462,7 +483,17 @@ api_patterns conn_data = do
   xs <- query_ conn sql
   return $ make_pattern_records xs
   where
-    sql = "SELECT id, regex, expression, description, matching_build_count, most_recent, earliest, tags, steps, specificity, CAST((scanned_count * 100 / total_scanned_builds) AS DECIMAL(6, 1)) AS percent_scanned FROM pattern_frequency_summary ORDER BY matching_build_count DESC;"
+    sql = "SELECT id, regex, expression, description, matching_build_count, most_recent, earliest, tags, steps, specificity, CAST((scanned_count * 100 / total_scanned_builds) AS DECIMAL(6, 1)) AS percent_scanned FROM pattern_frequency_summary ORDER BY most_recent DESC NULLS LAST;"
+
+
+-- | For the purpose of database upgrades
+dump_presumed_stable_branches :: DbHelpers.DbConnectionData -> IO [Text]
+dump_presumed_stable_branches conn_data = do
+  conn <- DbHelpers.get_connection conn_data
+  xs <- query_ conn sql
+  return $ map (\(Only x) -> x) xs
+  where
+    sql = "SELECT branch FROM presumed_stable_branches ORDER BY branch;"
 
 
 -- | For the purpose of database upgrades
@@ -567,16 +598,16 @@ get_best_pattern_matches conn_data pattern_id = do
     sql = "SELECT build, step_name, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch FROM best_pattern_match_augmented_builds WHERE pattern_id = ?;"
 
 
-get_best_pattern_matches_whitelisted_branches :: DbHelpers.DbConnectionData -> [Text] -> Int -> IO [PatternOccurrences]
-get_best_pattern_matches_whitelisted_branches conn_data branches_whitelist pattern_id = do
+get_best_pattern_matches_whitelisted_branches :: DbHelpers.DbConnectionData -> Int -> IO [PatternOccurrences]
+get_best_pattern_matches_whitelisted_branches conn_data pattern_id = do
 
   conn <- DbHelpers.get_connection conn_data
 
-  xs <- query conn sql (pattern_id, In branches_whitelist)
+  xs <- query conn sql $ Only pattern_id
   return $ map pattern_occurence_txform xs
 
   where
-    sql = "SELECT build, step_name, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch FROM best_pattern_match_augmented_builds WHERE pattern_id = ? AND branch IN ?;"
+    sql = "SELECT build, step_name, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch FROM best_pattern_match_augmented_builds WHERE pattern_id = ? AND branch IN (SELECT branch from presumed_stable_branches);"
 
 
 
@@ -606,7 +637,7 @@ get_build_info conn_data build_id = do
         is_broken <- maybe_is_broken
         notes <- maybe_notes
         reporter <- maybe_reporter
-        return $ Breakages.NewBreakageReport vcs_revision maybe_implicated_revision is_broken notes $ AuthStages.Username reporter
+        return $ Breakages.NewBreakageReport (Builds.NewBuildStepId step_id) maybe_implicated_revision is_broken notes $ AuthStages.Username reporter
 
   return $ BuildSteps.NewBuildStep step_name (Builds.NewBuildStepId step_id) build_obj maybe_breakage_obj
   where

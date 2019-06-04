@@ -28,7 +28,6 @@ instance (JsonUtils.WithErrorDetails a) => JsonUtils.WithErrorDetails (BackendFa
     DbFailure z   -> JsonUtils.getDetails z
 
 
-
 data LoginUrl = LoginUrl {
     login_url :: Text
   } deriving Generic

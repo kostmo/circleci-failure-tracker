@@ -157,6 +157,16 @@ step_failure_to_tuple (NewBuildNumber buildnum, visitation_result) = case visita
     in (buildnum, Just stepname, is_timeout)
 
 
+populate_presumed_stable_branches :: Connection -> [Text] -> IO Int64
+populate_presumed_stable_branches conn branch_names = do
+
+  executeMany conn sql $ map Only branch_names
+
+  where
+    sql = "INSERT INTO presumed_stable_branches(branch) VALUES(?);"
+
+
+
 store_log_info :: ScanRecords.ScanCatchupResources -> BuildStepId -> ScanRecords.LogInfo -> IO Int64
 store_log_info scan_resources (NewBuildStepId step_id) (ScanRecords.LogInfo byte_count line_count log_content) = do
 
@@ -223,16 +233,16 @@ api_new_breakage_report ::
   -> IO (Either Text Int64)
 api_new_breakage_report
     conn_data
-    (Breakages.NewBreakageReport rev implicated_rev is_broken notes (AuthStages.Username author_username)) = do
+    (Breakages.NewBreakageReport (Builds.NewBuildStepId build_step_id) implicated_rev is_broken notes (AuthStages.Username author_username)) = do
 
   conn <- DbHelpers.get_connection conn_data
   catchViolation catcher $ do
 
-    [Only report_id] <- query conn insertion_sql (rev, implicated_rev, author_username, notes, is_broken)
+    [Only report_id] <- query conn insertion_sql (build_step_id, author_username, is_broken, notes, implicated_rev)
     return $ Right report_id
 
   where
-    insertion_sql = "INSERT INTO broken_revisions(revision, implicated_revision, reporter, notes, is_broken) VALUES(?,?,?,?,?) RETURNING id;"
+    insertion_sql = "INSERT INTO broken_build_reports(build_step, reporter, is_broken, implicated_revision, notes) VALUES(?,?,?,?,?) RETURNING id;"
 
     catcher _ (UniqueViolation some_error) = return $ Left $ "Insertion error: " <> T.pack (BS.unpack some_error)
     catcher e _                                  = throwIO e

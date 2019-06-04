@@ -1,6 +1,9 @@
 #!/bin/bash -xe
 
 SERVER_BASE_URL=http://localhost:3001
-LOCAL_FILEPATH=data/patterns-dump.json
+LOCAL_PATTERNS_FILEPATH=data/patterns-dump.json
 
-curl -s $SERVER_BASE_URL/api/patterns-dump | jq . --sort-keys > $LOCAL_FILEPATH
+curl -s $SERVER_BASE_URL/api/patterns-dump | jq . --sort-keys > $LOCAL_PATTERNS_FILEPATH
+
+curl -s $SERVER_BASE_URL/api/presumed-stable-branches-dump | jq . --sort-keys > data/presumed-stable-branches.json
+

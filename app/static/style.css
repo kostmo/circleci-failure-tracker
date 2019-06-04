@@ -8,5 +8,27 @@ td, th {padding: 0.3em;}
 .highlight {background-color: #800; color: white;}
 .is_regex {background-color: #fdd;}
 
+.brokenness-icon {
+	height:16px;
+	margin: 0 auto;
+}
 
-.tag {font-size: smaller; background-color: #ffd; font-family: sans-serif}
+.tag {
+	font-size: smaller;
+	background-color: #ffd;
+	font-family: sans-serif;
+	border: 1px solid black;
+	padding: 2px;
+	border-radius: 4px;
+}
+
+.tag-class-flaky {
+	background-color: #fdf;
+}
+
+/*
+.tag:before {
+    content:'🏷️';
+}
+*/
+
