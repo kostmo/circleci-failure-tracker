@@ -25,10 +25,6 @@ import qualified ScanPatterns
 import qualified ScanRecords
 
 
-defaultPatternAuthor :: AuthStages.Username
-defaultPatternAuthor = AuthStages.Username "kostmo"
-
-
 build_to_tuple :: Build -> (Int64, Text, Text, Text, Text)
 build_to_tuple (NewBuild (NewBuildNumber build_num) vcs_rev queuedat jobname branch) =
   (build_num, vcs_rev, queued_at_string, jobname, branch)
@@ -195,12 +191,13 @@ insert_build_visitation scan_resources visitation = do
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
 
 
-insert_scan_id :: Connection -> ScanRecords.PatternId -> IO Int64
-insert_scan_id conn (ScanRecords.NewPatternId pattern_id)  = do
-  [Only pattern_id] <- query conn sql $ Only pattern_id
+insert_scan_id :: Connection -> Maybe AuthStages.Username -> ScanRecords.PatternId -> IO Int64
+insert_scan_id conn maybe_initiator (ScanRecords.NewPatternId pattern_id)  = do
+  [Only pattern_id] <- query conn sql (pattern_id, inititator)
   return pattern_id
   where
-    sql = "INSERT INTO scans(latest_pattern_id) VALUES(?) RETURNING id;"
+    inititator = fmap (\(AuthStages.Username x) -> x) maybe_initiator
+    sql = "INSERT INTO scans(latest_pattern_id, initiator) VALUES(?,?) RETURNING id;"
 
 
 api_new_breakage_report ::
@@ -214,7 +211,7 @@ api_new_breakage_report
   conn <- DbHelpers.get_connection conn_data
   catchViolation catcher $ do
 
-    [Only report_id] <- query conn insertion_sql (build_step_id, author_username, is_broken, notes, implicated_rev)
+    [Only report_id] <- query conn insertion_sql (build_step_id, author_username, is_broken, implicated_rev, notes)
     return $ Right report_id
 
   where

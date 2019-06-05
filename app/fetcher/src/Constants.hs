@@ -6,6 +6,11 @@ import           Data.ByteString (ByteString)
 import           Data.List       (intercalate)
 import           Data.Text       (Text)
 
+import qualified AuthStages
+
+defaultPatternAuthor :: AuthStages.Username
+defaultPatternAuthor = AuthStages.Username "kostmo"
+
 
 presumedGoodBranches :: [Text]
 presumedGoodBranches = [

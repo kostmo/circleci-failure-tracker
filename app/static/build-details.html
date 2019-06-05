@@ -30,12 +30,13 @@
 <h2>Breakage report</h2>
 
 <br/>
-<label>Implicated revision: <input id="input-implicated-revision" type="text" value=""/></label>
-<br/>
-<label>Notes: <input id="input-notes" type="text" value=""/></label>
+<label>Implicated revision: <input id="input-implicated-revision" type="text" maxlength="40" size="40" value=""/></label>
 <br/>
 
-<div id="submission_button_placeholder"></div> <label><input id="is-broken-checkbox" type="checkbox" checked="checked"/> is broken?</label>
+<label>Notes:<br/><textarea id="input-notes" rows="2" cols="30"></textarea></label>
+<br/>
+
+<label><input id="is-broken-checkbox" type="checkbox" checked="checked"/> is broken?</label> <span id="submission_button_placeholder"></span>
 </form>
 
 <div id="build-info-box"></div>

@@ -91,8 +91,6 @@ function gen_unmatched_build_list(api_endpoint, div_id) {
 }
 
 
-
-
 function gen_breakage_reports_list(api_endpoint, div_id) {
 
 	var table = new Tabulator("#" + div_id, {
@@ -117,18 +115,45 @@ function gen_breakage_reports_list(api_endpoint, div_id) {
 	});
 }
 
+function rescan_commit(button) {
 
-function main() {
+	var commit_sha1 = get_scrubbed_sha1();
+	$(button).prop("disabled", true);
+
+        $.post({
+		url: "/api/rescan-commit",
+		data: {"sha1": commit_sha1},
+		success: function( data ) {
+
+			$(button).prop("disabled", false);
+
+			if (data.success) {
+				alert("Authentication success: " + data.payload);
+			} else {
+				alert("Error: " + data.error.message);
+			}
+		}
+        });
+}
+
+
+// XXX hack around HUD URL-generation logic which appends "/console"
+function get_scrubbed_sha1() {
 
 	var urlParams = new URLSearchParams(window.location.search);
-
-	// XXX hack around HUD URL-generation logic which appends "/console"
 	var commit_sha1 = urlParams.get('sha1');
 	var found_slash_index = commit_sha1.indexOf("/");
 	if (found_slash_index >= 0) {
 		commit_sha1 = commit_sha1.substring(0, found_slash_index);
-		console.log("Fixed up sha1 parameter!");
 	}
+
+	return commit_sha1;
+}
+
+
+function main() {
+
+	var commit_sha1 = get_scrubbed_sha1();
 
 	populate_commit_info(commit_sha1);
 	gen_builds_table("builds-table", "/api/commit-builds?sha1=" + commit_sha1);

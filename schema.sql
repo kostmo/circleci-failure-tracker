@@ -812,7 +812,8 @@ ALTER TABLE public.scannable_build_steps OWNER TO postgres;
 CREATE TABLE public.scans (
     id integer NOT NULL,
     "timestamp" timestamp with time zone DEFAULT now(),
-    latest_pattern_id integer NOT NULL
+    latest_pattern_id integer NOT NULL,
+    initiator text
 );
 
 

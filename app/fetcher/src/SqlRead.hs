@@ -428,7 +428,6 @@ instance ToJSON ScanTestResponse where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
-
 api_new_pattern_test ::
      DbHelpers.DbConnectionData
   -> Builds.BuildNumber

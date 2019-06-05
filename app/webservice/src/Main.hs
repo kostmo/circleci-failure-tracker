@@ -1,9 +1,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+import           Control.Concurrent                (forkIO)
 import           Control.Monad                     (unless, when)
 import           Control.Monad.IO.Class            (liftIO)
 import           Control.Monad.Trans.Except        (ExceptT (ExceptT), except,
                                                     runExceptT)
+import           Data.Bifunctor                    (first)
 import qualified Data.ByteString.Lazy.Char8        as LBSC
 import           Data.Default                      (def)
 import           Data.Either.Utils                 (maybeToEither)
@@ -34,6 +36,7 @@ import qualified AuthConfig
 import qualified AuthStages
 import qualified Breakages
 import qualified Builds
+import qualified Constants
 import qualified DbHelpers
 import qualified DbInsertion
 import qualified GitRev
@@ -95,22 +98,15 @@ data PersistenceData = PersistenceData {
   }
 
 
-breakage_report_from_parms :: ScottyTypes.ActionT LT.Text IO (AuthStages.Username -> Breakages.BreakageReport)
-breakage_report_from_parms = do
 
-  notes <- S.param "notes"
-  is_broken <- S.param "is_broken"
-  implicated_revision <- S.param "implicated_revision"
-  step_id <- S.param "step_id"
-
-  let maybe_implicated_revision = if T.null implicated_revision then Nothing else Just implicated_revision
-
-  -- TODO - structural validation on both Git hashes
-  return $ Breakages.NewBreakageReport
-    (Builds.NewBuildStepId step_id)
-    maybe_implicated_revision
-    is_broken
-    notes
+validate_maybe_revision :: LT.Text -> ScottyTypes.ActionT LT.Text IO (Either Text (Maybe GitRev.GitSha1))
+validate_maybe_revision key = do
+  implicated_revision <- S.param key
+  return $ if T.null implicated_revision
+    then Right Nothing
+    else do
+      validated_revision <- GitRev.validateSha1 implicated_revision
+      return $ Just validated_revision
 
 
 echo_endpoint :: S.ScottyM ()
@@ -146,16 +142,55 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     S.post "/api/report-breakage" $ do
 
-      breakage_report_partial <- breakage_report_from_parms
-      let callback_func user_alias = SqlWrite.api_new_breakage_report connection_data breakage_report
-            where
-              breakage_report = breakage_report_partial user_alias
+      either_maybe_implicated_revision <- validate_maybe_revision "implicated_revision"
+      notes <- S.param "notes"
+      is_broken <- S.param "is_broken"
+      step_id <- S.param "step_id"
+
+      rq <- S.request
+      insertion_result <- liftIO $ runExceptT $ do
+        maybe_implicated_revision <- except $ first AuthStages.DbFailure either_maybe_implicated_revision
+
+        let callback_func user_alias = SqlWrite.api_new_breakage_report connection_data breakage_report
+              where
+                breakage_report = Breakages.NewBreakageReport
+                  (Builds.NewBuildStepId step_id)
+                  (GitRev.sha1 <$> maybe_implicated_revision)
+                  is_broken
+                  notes
+                  user_alias
+
+        ExceptT $ Auth.getAuthenticatedUser rq session github_config callback_func
+      S.json $ WebApi.toJsonEither insertion_result
+
+
+    S.post "/api/rescan-commit" $ do
+
+      commit_sha1_text <- S.param "sha1"
+
+      let callback_func :: AuthStages.Username -> IO (Either (AuthStages.BackendFailure Text) Text)
+          callback_func user_alias = do
+
+            let computation = do
+                  runExceptT $
+                    StatusUpdate.handleFailedStatuses
+                      connection_data
+                      (AuthConfig.personal_access_token github_config)
+                      (Just user_alias)
+                      (DbHelpers.OwnerAndRepo Constants.project_name Constants.repo_name)
+                      commit_sha1_text
+                  return ()
+
+            _thread_id <- liftIO $ forkIO computation
+
+            return $ Right "Scanning..."
 
       rq <- S.request
       insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
       S.json $ WebApi.toJsonEither insertion_result
 
 
+    -- TODO
     S.post "/api/fetch-master-commits" $ do
       S.json $ ("TODO" :: String)
 

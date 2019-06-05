@@ -23,7 +23,6 @@
 <h3>Mutable properties</h3>
 <p>These can be edited later.</p>
 
-<br/>
 <label>
 Description:
 <input id="input-pattern-description" type="textarea" value="blah" size="60"/>
@@ -55,11 +54,12 @@ Applicable build steps (none means applicable to all steps):
 <br/>
 <label>Position from end: <input id="input-lines-from-end" type="text" value="" size="5"/> lines</label> <label><input id="is-using-lines-from-end-checkbox" type="checkbox"/> use position</label>
 
-<br/>
+<h3>Testing</h3>
 <button onclick="test_pattern();">Test on build ID</button> <label>#<input id="test-build-id" type="text" value="1040566"/></label> <button onclick="get_random_build('test-build-id');">Random</button>
 
 <div id="test-match-results-container"></div>
 
+<h3>Submission</h3>
 <button onclick="submit_pattern();">Submit</button>
 </form>
 

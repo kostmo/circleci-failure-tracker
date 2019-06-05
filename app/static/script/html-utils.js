@@ -6,6 +6,20 @@ function render_pair(term, definition) {
 	return render_tag("dt", term) + render_tag("dd", definition);
 }
 
+
+
+
+function render_list(items) {
+
+	var content = "";
+	for (var item of items) {
+		content += render_tag("li", item);
+	}
+
+	return render_tag("ul", content);
+}
+
+
 function render_table(rows) {
 
 	var content = "";

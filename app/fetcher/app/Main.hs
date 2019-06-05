@@ -3,6 +3,7 @@ import           Options.Applicative
 import           System.IO
 
 import qualified BuildRetrieval
+import qualified Constants
 import qualified DbHelpers
 import qualified DbPreparation
 import qualified Scanning
@@ -48,7 +49,7 @@ mainAppCode args = do
 
   BuildRetrieval.updateBuildsList conn (branchName args) fetch_count age_days
 
-  scan_resources <- Scanning.prepare_scan_resources conn
+  scan_resources <- Scanning.prepare_scan_resources conn $ Just Constants.defaultPatternAuthor
   build_matches <- Scanning.scan_builds scan_resources $ Right fetch_count
   putStrLn $ "Scanned " ++ show (length build_matches) ++ " builds."
 

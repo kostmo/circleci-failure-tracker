@@ -23,6 +23,7 @@ import           Network.Wreq               as NW
 import qualified Network.Wreq.Session       as Sess
 import qualified Safe
 
+import qualified AuthStages
 import qualified Builds
 import qualified Constants
 import qualified DbHelpers
@@ -83,8 +84,8 @@ get_step_failure step_val =
       | otherwise = pure ()
 
 
-prepare_scan_resources :: Connection -> IO ScanRecords.ScanCatchupResources
-prepare_scan_resources conn = do
+prepare_scan_resources :: Connection -> Maybe AuthStages.Username -> IO ScanRecords.ScanCatchupResources
+prepare_scan_resources conn maybe_initiator = do
 
   aws_sess <- Sess.newSession
   circle_sess <- Sess.newSession
@@ -93,7 +94,7 @@ prepare_scan_resources conn = do
   let patterns_by_id = DbHelpers.to_dict pattern_records
 
   latest_pattern_id <- SqlRead.get_latest_pattern_id conn
-  scan_id <- SqlWrite.insert_scan_id conn latest_pattern_id
+  scan_id <- SqlWrite.insert_scan_id conn maybe_initiator latest_pattern_id
 
   return $ ScanRecords.ScanCatchupResources
     scan_id

@@ -17,20 +17,20 @@ function submit_breakage_report(button, build_step_id) {
 
 	var revision_data = gather_revision_data(build_step_id);
 
-        $.post( {
-          url: "/api/report-breakage",
-          data: revision_data,
-          success: function( data ) {
+        $.post({
+		url: "/api/report-breakage",
+		data: revision_data,
+		success: function( data ) {
 
-		$(button).prop("disabled", false);
+			$(button).prop("disabled", false);
 
-		if (data.success) {
-			alert("submitted report with ID: " + data.payload);
-		} else {
-			alert("Error: " + data.error.message);
+			if (data.success) {
+				alert("submitted report with ID: " + data.payload);
+			} else {
+				alert("Error: " + data.error.message);
+			}
 		}
-          }
-        } );
+        });
 }
 
 
@@ -81,24 +81,25 @@ function populate_build_info(build_id) {
 
 		var local_logview_item = "<button onclick='get_log_text(" + build_id + ");'>View log</button>";
 //		var local_logview_item = "<a href='/api/view-log?build_id=" + build_id + "'>Download log</a>";
-		var logview_items = "<ul><li>View log <a href='https://circleci.com/gh/pytorch/pytorch/" + build_id + "'>on CircleCI</a></li><li>" + local_logview_item + "</li></ul>";
+		var logview_items = render_list(["View log <a href='https://circleci.com/gh/pytorch/pytorch/" + build_id + "'>on CircleCI</a>", local_logview_item]);
 
 		var full_commit = data["build"]["vcs_revision"];
 		var short_commit = full_commit.substring(0, 7);
 
+		var local_link = "<a href='/commit-details.html?sha1=" + full_commit + "'>View <code>" + short_commit + "</code> details</a>";
 		var github_link = "<a href='https://github.com/pytorch/pytorch/commit/" + full_commit + "'>View <code>" + short_commit + "</code> on GitHub</a>";
-		var local_link = "<a href='/commit-details.html?sha1=" + full_commit + "'>View <code>" + short_commit + "</code> builds</a>";
-		var commit_links = "<ul><li>" + github_link + "</li><li>" + local_link + "</li><ul>"
+		var commit_links = render_list([local_link, github_link]);
 
 		var html = "<dl>"
 		html += render_pair("CircleCI page:", logview_items);
+		html += render_pair("Revision:", commit_links);
 		html += render_pair("Build step:", "<i>" + data["step_name"] + "</i>");
 		html += render_pair("Branch:", data["build"]["branch"]);
 		html += render_pair("Job name:", data["build"]["job_name"]);
 		html += render_pair("Date:", moment(data["build"]["queued_at"]).fromNow());
-		html += render_pair("Revision:", commit_links);
 		html += "</dl>";
 
+		// TODO Use this for something
 		$.getJSON('https://api.github.com/repos/pytorch/pytorch/commits', {"build_id": build_id}, function (data) {
 			var commit_list = [];
 			$.each(data, function( index, value ) {

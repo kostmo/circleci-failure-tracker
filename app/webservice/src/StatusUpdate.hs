@@ -2,6 +2,7 @@
 
 module StatusUpdate (
     github_event_endpoint
+  , handleFailedStatuses
   ) where
 
 import           Control.Concurrent            (forkIO)
@@ -28,6 +29,7 @@ import           Web.Scotty.Internal.Types     (ActionT)
 import qualified ApiPost
 import qualified Auth
 import qualified AuthConfig
+import qualified AuthStages
 import qualified Builds
 import qualified DbHelpers
 import qualified Scanning
@@ -87,12 +89,14 @@ get_circleci_failure sha1 event_setter = do
 handleFailedStatuses ::
      DbHelpers.DbConnectionData
   -> Text -- ^ access token
+  -> Maybe AuthStages.Username -- ^ scan initiator
   -> DbHelpers.OwnerAndRepo
   -> Text
   -> ExceptT LT.Text IO ()
 handleFailedStatuses
     db_connection_data
     access_token
+    maybe_initiator
     owned_repo
     sha1 = do
 
@@ -107,7 +111,7 @@ handleFailedStatuses
 
   builds_with_flaky_pattern_matches <- liftIO $ do
     conn <- DbHelpers.get_connection db_connection_data
-    scan_resources <- Scanning.prepare_scan_resources conn
+    scan_resources <- Scanning.prepare_scan_resources conn maybe_initiator
     SqlWrite.store_builds_list conn circleci_failed_builds
     scan_matches <- Scanning.scan_builds scan_resources $ Left $ Set.fromList scannable_build_numbers
 
@@ -139,9 +143,10 @@ handleFailedStatuses
 handleStatusWebhook ::
      DbHelpers.DbConnectionData
   -> Text -- ^ access token
+  -> Maybe AuthStages.Username
   -> Webhooks.GitHubStatusEvent
   -> IO (Either LT.Text ())
-handleStatusWebhook db_connection_data access_token status_event = do
+handleStatusWebhook db_connection_data access_token maybe_initiator status_event = do
 
   -- Do not act on receipt of statuses from the context I have created, or else
   -- we may get stuck in an infinite notification loop
@@ -167,6 +172,7 @@ handleStatusWebhook db_connection_data access_token status_event = do
             handleFailedStatuses
               db_connection_data
               access_token
+              maybe_initiator
               owned_repo
               sha1
           return ()
@@ -228,5 +234,5 @@ github_event_endpoint connection_data github_config = do
             S.json =<< return ["hello" :: String] -- XXX Do I even need to send a response?
           else do
             body_json <- S.jsonData
-            liftIO $ handleStatusWebhook connection_data (AuthConfig.personal_access_token github_config) body_json
+            liftIO $ handleStatusWebhook connection_data (AuthConfig.personal_access_token github_config) Nothing body_json
             S.json =<< return ["hello" :: String]
