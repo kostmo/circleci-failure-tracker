@@ -19,7 +19,6 @@ buildDataTruncations = [
   , "TRUNCATE broken_build_reports CASCADE;"
   , "TRUNCATE build_steps CASCADE;"
   , "TRUNCATE created_github_statuses CASCADE;"
-  , "TRUNCATE presumed_stable_branches CASCADE;"
   , "TRUNCATE builds CASCADE;"
   , "TRUNCATE ordered_master_commits CASCADE;"
   ]
@@ -34,6 +33,7 @@ scanTruncations = [
   , "TRUNCATE pattern_tags CASCADE;"
   , "TRUNCATE pattern_authorship CASCADE;"
   , "TRUNCATE patterns CASCADE;"
+  , "TRUNCATE presumed_stable_branches CASCADE;"
   ]
 
 

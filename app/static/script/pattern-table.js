@@ -86,9 +86,15 @@ function gen_patterns_table(pattern_id, filtered_branches) {
 			},
 		},
 		{title:"Count", field:"frequency", sorter:"number", align:"center", width: 75},
-		{title:"Last Occurrence", field:"last", sorter:"datetime", align:"center", formatter: function(cell, formatterParams, onRendered) {
-			var val = cell.getValue();
-			return val != null ? moment(val).fromNow() : "never";
+		{title:"Since", field:"last", sorter:"datetime", align:"center", formatter: function(cell, formatterParams, onRendered) {
+			var first_val = cell.getRow().getData()["earliest"];
+			return first_val!= null ? moment(first_val).fromNow() : "never";
+		    }
+		},
+		{title:"Until", field:"last", sorter:"datetime", align:"center", formatter: function(cell, formatterParams, onRendered) {
+			var last_val = cell.getValue();
+
+			return last_val!= null ? moment(last_val).fromNow() : "never";
 		    }
 		},
 		{title:"Specificity", field:"specificity", sorter:"number", align:"center", width: 100},

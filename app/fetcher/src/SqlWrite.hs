@@ -90,7 +90,7 @@ insert_single_pattern conn either_pattern = do
 
   [Only pattern_id] <- case maybe_id of
     Nothing -> query conn pattern_insertion_sql (is_regex, pattern_text, description, is_retired, has_nondeterminisic_values, specificity, lines_from_end)
-    Just record_id -> query conn pattern_insertion_with_id_sql (record_id, is_regex, pattern_text, description, is_retired, has_nondeterminisic_values, specificity, lines_from_end)
+    Just record_id -> query conn pattern_insertion_with_id_sql (record_id :: Int64, is_regex, pattern_text, description, is_retired, has_nondeterminisic_values, specificity, lines_from_end)
 
   case maybe_timestamp of
     Just timestamp -> execute conn authorship_insertion_with_timestamp_sql (pattern_id, author, timestamp)
@@ -112,7 +112,8 @@ insert_single_pattern conn either_pattern = do
 
     (pattern_obj, AuthStages.Username author, maybe_timestamp, maybe_id) = case either_pattern of
       Left (patt_obj, username) -> (patt_obj, username, Nothing, Nothing)
-      Right (DbHelpers.WithAuthorship auth created_time (DbHelpers.WithId record_id patt_obj)) -> (patt_obj, AuthStages.Username auth, Just created_time, Just record_id)
+--      Right (DbHelpers.WithAuthorship auth created_time (DbHelpers.WithId record_id patt_obj)) -> (patt_obj, AuthStages.Username auth, Just created_time, Just record_id)
+      Right (DbHelpers.WithAuthorship auth created_time (DbHelpers.WithId _record_id patt_obj)) -> (patt_obj, AuthStages.Username auth, Just created_time, Nothing)
 
     has_nondeterminisic_values = case expression_obj of
       ScanPatterns.RegularExpression _ has_nondeterministic -> has_nondeterministic

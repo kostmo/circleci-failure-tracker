@@ -36,6 +36,7 @@ import qualified SqlRead
 import qualified SqlWrite
 
 
+-- | Stores scan results to database and returns them.
 scan_builds :: ScanRecords.ScanCatchupResources -> Either (Set Builds.BuildNumber) Int -> IO [(Builds.BuildNumber, [ScanPatterns.ScanMatch])]
 scan_builds scan_resources whitelisted_builds_or_fetch_count = do
 
@@ -59,6 +60,21 @@ scan_builds scan_resources whitelisted_builds_or_fetch_count = do
           filter $ (\(_, _, buildnum, _) -> buildnum `Set.member` whitelisted_builds)
         , filter (`Set.member` whitelisted_builds)
         )
+
+
+rescan_single_build ::
+     DbHelpers.DbConnectionData
+  -> AuthStages.Username
+  -> Builds.BuildNumber
+  -> IO ()
+rescan_single_build db_connection_data initiator build_to_scan = do
+  putStrLn $ "Rescanning build: " ++ show build_to_scan
+  conn <- DbHelpers.get_connection db_connection_data
+  scan_resources <- prepare_scan_resources conn $ Just initiator
+  scan_matches <- scan_builds scan_resources $ Left $ Set.singleton build_to_scan
+  putStrLn $ "Found " ++ show (length scan_matches) ++ " matches."
+
+  return ()
 
 
 get_single_build_url :: Builds.BuildNumber -> String

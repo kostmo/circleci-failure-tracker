@@ -16,24 +16,10 @@
 </head>
 
 <body onload="main();">
+<span style="float: right;">[<a href="/">home</a>]</span>
 
 <h2>Add pattern</h2>
 <form onsubmit="return false;">
-
-<h3>Mutable properties</h3>
-<p>These can be edited later.</p>
-
-<label>
-Description:
-<input id="input-pattern-description" type="textarea" value="blah" size="60"/>
-</label>
-
-<br/>
-<label>
-Tags:
-<input id="pattern-tag-input" type="text" value=""/></label> <button onclick="add_tag();">Add</button>
-
-<div id="tag-list-container" style="padding: .3em;"></div>
 
 <h3>Immutable properties</h3>
 <p>This data cannot be changed after submitting; instead, a new pattern must be created while "retiring" the old one.</p>
@@ -41,8 +27,6 @@ Tags:
 <label>Pattern: <input id="input-pattern-text" type="text" value="does not actually allow to resize" size="60"/></label>
 <br/>
 <label><input id="is-regex-checkbox" type="checkbox" checked="checked"/> is a regular expression</label>
-<br/>
-<label><input id="is-nondeterministic-checkbox" type="checkbox"/> regex produces nondeterministic values</label>
 
 <br/>
 <label>
@@ -50,9 +34,32 @@ Applicable build steps (none means applicable to all steps):
 <input id="build-step-applicability-input" type="text" value=""/></label> <button onclick="add_build_step();">Add</button>
 <div id="step-list-container" style="padding: .3em;"></div>
 
-
 <br/>
 <label>Position from end: <input id="input-lines-from-end" type="text" value="" size="5"/> lines</label> <label><input id="is-using-lines-from-end-checkbox" type="checkbox"/> use position</label>
+
+
+<h3>Mutable properties</h3>
+<p>These can be edited later.</p>
+
+<label>
+Description:
+<input id="input-pattern-description" type="textarea" value="" size="60"/>
+</label>
+
+<br/>
+<label>
+Specificity:
+<input id="specificity-input" type="number" value="1" min="1" max="100">
+</label>
+<br/>
+<label><input id="is-nondeterministic-checkbox" type="checkbox"/> regex produces nondeterministic values</label>
+<br/>
+<label>
+Tags:
+<input id="pattern-tag-input" type="text" value=""/></label> <button onclick="add_tag();">Add</button>
+
+<div id="tag-list-container" style="padding: .3em;"></div>
+
 
 <h3>Testing</h3>
 <button onclick="test_pattern();">Test on build ID</button> <label>#<input id="test-build-id" type="text" value="1040566"/></label> <button onclick="get_random_build('test-build-id');">Random</button>
@@ -81,6 +88,11 @@ Applicable build steps (none means applicable to all steps):
 <input type="submit" value="Upload"/>
 </form>
 
+
+<hr/>
+
+<i>by <a href="https://github.com/kostmo" rel="author">kostmo</a></i>
+<span style="float: right">See <a href="https://github.com/kostmo/circleci-failure-tracker/blob/master/README.md">project README</a> for details.</span>
 
 </body>
 </head>

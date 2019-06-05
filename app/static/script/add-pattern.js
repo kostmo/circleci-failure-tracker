@@ -5,9 +5,12 @@ var steps_list = [];
 function add_tag() {
 
 	var tag_val = $('#pattern-tag-input').val();
-	tags_list.push(tag_val);
+	var trimmed_val = tag_val.trim();
+	if (trimmed_val) {
+		tags_list.push(trimmed_val);
 
-	render_lists();
+		render_lists();
+	}
 }
 
 function add_build_step() {

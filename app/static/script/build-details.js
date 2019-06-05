@@ -121,10 +121,40 @@ function gen_pattern_test_link(build_id) {
 }
 
 
-function main() {
+
+function rescan_build(button) {
+
+	var build_id = get_build_number();
+
+	$(button).prop("disabled", true);
+
+        $.post({
+		url: "/api/rescan-build",
+		data: {"build": build_id},
+		success: function( data ) {
+
+			$(button).prop("disabled", false);
+
+			if (data.success) {
+				alert("Authentication success: " + data.payload);
+			} else {
+				alert("Error: " + data.error.message);
+			}
+		}
+        });
+}
+
+
+function get_build_number() {
 
 	var urlParams = new URLSearchParams(window.location.search);
-	var build_id = urlParams.get('build_id');
+	return urlParams.get('build_id');
+}
+
+
+function main() {
+
+	var build_id = get_build_number();
 
 	populate_build_info(build_id);
 	gen_builds_table("all-build-matches-table", "/api/build-pattern-matches?build_id=" + build_id, "300px");

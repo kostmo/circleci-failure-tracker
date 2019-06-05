@@ -40,6 +40,7 @@ import qualified Constants
 import qualified DbHelpers
 import qualified DbInsertion
 import qualified GitRev
+import qualified Scanning
 import qualified ScanPatterns
 import qualified Session
 import qualified SqlRead
@@ -164,6 +165,27 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       S.json $ WebApi.toJsonEither insertion_result
 
 
+    S.post "/api/rescan-build" $ do
+
+      build_number <- S.param "build"
+
+      let callback_func :: AuthStages.Username -> IO (Either (AuthStages.BackendFailure Text) Text)
+          callback_func user_alias = do
+
+            let computation = Scanning.rescan_single_build
+                  connection_data
+                  user_alias
+                  (Builds.NewBuildNumber build_number)
+
+            thread_id <- liftIO $ forkIO computation
+
+            return $ Right $ "Scanning in thread " <> T.pack (show thread_id)
+
+      rq <- S.request
+      insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
+      S.json $ WebApi.toJsonEither insertion_result
+
+
     S.post "/api/rescan-commit" $ do
 
       commit_sha1_text <- S.param "sha1"
@@ -181,9 +203,9 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
                       commit_sha1_text
                   return ()
 
-            _thread_id <- liftIO $ forkIO computation
+            thread_id <- liftIO $ forkIO computation
 
-            return $ Right "Scanning..."
+            return $ Right $ "Scanning in thread " <> T.pack (show thread_id)
 
       rq <- S.request
       insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
@@ -351,6 +373,9 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
     S.get "/api/commit-breakage-reports" $ do
       commit_sha1_text <- S.param "sha1"
       S.json =<< liftIO (SqlRead.api_commit_breakage_reports connection_data commit_sha1_text)
+
+    S.get "/api/patterns-timeline" $ do
+      S.json =<< liftIO (SqlRead.api_pattern_occurrence_timeline connection_data)
 
     S.get "/api/patterns" $ do
       S.json =<< liftIO (SqlRead.api_patterns connection_data)

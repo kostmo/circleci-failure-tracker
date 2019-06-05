@@ -6,7 +6,7 @@ module SqlRead where
 
 import           Control.Monad                        (forM)
 import           Data.Aeson
-import           Data.List                            (sort)
+import           Data.List                            (sort, sortOn)
 import           Data.List.Split                      (splitOn)
 import qualified Data.Maybe                           as Maybe
 import           Data.Scientific                      (Scientific)
@@ -149,6 +149,37 @@ api_posted_statuses conn_data = do
     sql = "SELECT sha1, description, created_at FROM created_github_statuses ORDER BY created_at DESC LIMIT 40;"
 
 
+data PatternsTimelinePoint = PatternsTimelinePoint {
+    _pattern_id :: Int64
+  , _count      :: Int
+  , _week       :: UTCTime
+  } deriving Generic
+
+instance ToJSON PatternsTimelinePoint where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+data PatternsTimeline = PatternsTimeline {
+    _patterns :: [PatternRecord]
+  , _points   :: [PatternsTimelinePoint]
+  } deriving Generic
+
+instance ToJSON PatternsTimeline where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+api_pattern_occurrence_timeline conn_data = do
+  conn <- DbHelpers.get_connection conn_data
+  points <- map f <$> query_ conn timeline_sql
+  patterns <- api_patterns conn_data
+  let filtered_patterns = sortOn (negate . _frequency) $ filter ((> 0) . _frequency) patterns
+  return $ PatternsTimeline filtered_patterns points
+  where
+    f (pattern_id, week, count) = PatternsTimelinePoint pattern_id count week
+
+    timeline_sql = "SELECT pattern_id, date_trunc('week', queued_at) AS week, COUNT(*) AS occurrences FROM best_pattern_match_augmented_builds GROUP BY pattern_id, week"
+
+
 data TestFailure = TestFailure {
     _sha1       :: Text
   , _test_name  :: Text
@@ -157,8 +188,6 @@ data TestFailure = TestFailure {
 
 instance ToJSON TestFailure where
   toJSON = genericToJSON JsonUtils.dropUnderscore
-
-
 
 
 -- | This uses capture groups of a specifically-crafted regex
