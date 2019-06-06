@@ -8,6 +8,24 @@ function gen_error_cell_html(cell) {
 }
 
 
+function gen_line_number_cell_with_count(cell, line_count) {
+
+	var distance_from_start = cell.getValue() + 1;
+	var distance_from_end = line_count - distance_from_start;
+	if (distance_from_end == 0) {
+		return "last";
+	} else {
+		return distance_from_start + " / " + line_count + " (-" + distance_from_end + ")";
+	}
+}
+
+
+function gen_line_number_cell(cell) {
+	var line_count = cell.getRow().getData()["line_count"];
+	return gen_line_number_cell_with_count(cell, line_count);
+}
+
+
 function gen_error_cell_html_parameterized(cell, start_idx, end_idx) {
 	var line_text = cell.getValue();
 

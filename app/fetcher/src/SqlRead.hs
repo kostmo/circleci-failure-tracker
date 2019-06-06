@@ -690,16 +690,31 @@ get_best_build_match conn_data build_id = do
     sql = "SELECT build, step_name, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch FROM best_pattern_match_augmented_builds WHERE build = ?;"
 
 
-get_build_info :: DbHelpers.DbConnectionData -> Int -> IO (Maybe BuildSteps.BuildStep)
+
+data SingleBuildInfo = SingleBuildInfo {
+    _multi_match_count :: Int
+  , _build_info        :: BuildSteps.BuildStep
+  } deriving Generic
+
+instance ToJSON SingleBuildInfo where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+
+get_build_info :: DbHelpers.DbConnectionData -> Int -> IO (Maybe SingleBuildInfo)
 get_build_info conn_data build_id = do
 
   conn <- DbHelpers.get_connection conn_data
   xs <- query conn sql $ Only build_id
 
-  return $ f <$> Safe.headMay xs
+  -- TODO Replace this with SQL COUNT()
+  matches <- get_build_pattern_matches conn_data build_id
+
+  return $ f (length matches) <$> Safe.headMay xs
   where
-    f (step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch, maybe_implicated_revision, maybe_is_broken, maybe_notes, maybe_reporter) = BuildSteps.NewBuildStep step_name (Builds.NewBuildStepId step_id) build_obj maybe_breakage_obj
+    f multi_match_count (step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch, maybe_implicated_revision, maybe_is_broken, maybe_notes, maybe_reporter) = SingleBuildInfo multi_match_count step_container
       where
+        step_container = BuildSteps.NewBuildStep step_name (Builds.NewBuildStepId step_id) build_obj maybe_breakage_obj
         build_obj = Builds.NewBuild (Builds.NewBuildNumber build_num) vcs_revision queued_at job_name branch
         maybe_breakage_obj = do
           is_broken <- maybe_is_broken

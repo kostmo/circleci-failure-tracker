@@ -35,7 +35,7 @@ function gen_time_plot(container_id, api_path) {
             },
             tooltip: {
                 headerFormat: '<b>{series.name}</b><br>',
-                pointFormat: '{point.x:%e. %b}: {point.y:.2f} m'
+                pointFormat: '{point.x:%e. %b}: {point.y:.1f}'
             },
 
             plotOptions: {

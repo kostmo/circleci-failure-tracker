@@ -1,9 +1,30 @@
 [
   {
     "author": "kostmo",
+    "created": "2019-06-05T17:53:42.966201Z",
+    "payload": {
+      "db_id": 1,
+      "record": {
+        "applicable_steps": [],
+        "description": "Python syntax error",
+        "expression": {
+          "contents": "SyntaxError: invalid syntax",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "lines_from_end": 2,
+        "specificity": 1,
+        "tags": [
+          "python"
+        ]
+      }
+    }
+  },
+  {
+    "author": "kostmo",
     "created": "2019-05-29T00:09:28.071078Z",
     "payload": {
-      "db_id": 1001,
+      "db_id": 271,
       "record": {
         "applicable_steps": [
           "Test"
@@ -29,7 +50,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:09:28.085924Z",
     "payload": {
-      "db_id": 1002,
+      "db_id": 272,
       "record": {
         "applicable_steps": [
           "Test"
@@ -55,7 +76,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:09:28.088219Z",
     "payload": {
-      "db_id": 1003,
+      "db_id": 273,
       "record": {
         "applicable_steps": [
           "Doc Build and Push"
@@ -79,7 +100,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:09:28.090421Z",
     "payload": {
-      "db_id": 1004,
+      "db_id": 274,
       "record": {
         "applicable_steps": [
           "Test"
@@ -103,7 +124,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:09:28.092616Z",
     "payload": {
-      "db_id": 1005,
+      "db_id": 275,
       "record": {
         "applicable_steps": [
           "Test"
@@ -126,7 +147,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:09:28.094355Z",
     "payload": {
-      "db_id": 1006,
+      "db_id": 276,
       "record": {
         "applicable_steps": [
           "Build"
@@ -150,7 +171,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:09:28.095816Z",
     "payload": {
-      "db_id": 1007,
+      "db_id": 277,
       "record": {
         "applicable_steps": [
           "Test"
@@ -177,7 +198,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:09:28.098026Z",
     "payload": {
-      "db_id": 1008,
+      "db_id": 278,
       "record": {
         "applicable_steps": [
           "Test"
@@ -204,7 +225,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:09:28.100171Z",
     "payload": {
-      "db_id": 1009,
+      "db_id": 279,
       "record": {
         "applicable_steps": [
           "Test"
@@ -231,7 +252,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:09:28.102137Z",
     "payload": {
-      "db_id": 1010,
+      "db_id": 280,
       "record": {
         "applicable_steps": [
           "Test"
@@ -252,7 +273,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:09:28.10327Z",
     "payload": {
-      "db_id": 1011,
+      "db_id": 281,
       "record": {
         "applicable_steps": [
           "Set Up CI Environment After Checkout",
@@ -276,7 +297,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:09:28.104906Z",
     "payload": {
-      "db_id": 1012,
+      "db_id": 282,
       "record": {
         "applicable_steps": [
           "Spin up Environment"
@@ -301,7 +322,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:09:28.107372Z",
     "payload": {
-      "db_id": 1013,
+      "db_id": 283,
       "record": {
         "applicable_steps": [
           "Doc Build and Push"
@@ -326,7 +347,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:09:28.10962Z",
     "payload": {
-      "db_id": 1014,
+      "db_id": 284,
       "record": {
         "applicable_steps": [
           "Build",
@@ -355,7 +376,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:09:28.111961Z",
     "payload": {
-      "db_id": 1015,
+      "db_id": 285,
       "record": {
         "applicable_steps": [
           "Checkout",
@@ -380,7 +401,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:09:28.114034Z",
     "payload": {
-      "db_id": 1016,
+      "db_id": 286,
       "record": {
         "applicable_steps": [
           "Set Up System Environment"
@@ -401,7 +422,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:09:28.115074Z",
     "payload": {
-      "db_id": 1017,
+      "db_id": 287,
       "record": {
         "applicable_steps": [
           "Set Up CI Environment After Checkout",
@@ -423,7 +444,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:09:28.116051Z",
     "payload": {
-      "db_id": 1018,
+      "db_id": 288,
       "record": {
         "applicable_steps": [],
         "description": "test_proper_exit",
@@ -444,7 +465,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:09:28.117004Z",
     "payload": {
-      "db_id": 1019,
+      "db_id": 289,
       "record": {
         "applicable_steps": [],
         "description": "env problem",
@@ -465,7 +486,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:09:28.117988Z",
     "payload": {
-      "db_id": 1020,
+      "db_id": 290,
       "record": {
         "applicable_steps": [],
         "description": "Compilation error",
@@ -489,7 +510,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:09:28.118933Z",
     "payload": {
-      "db_id": 1021,
+      "db_id": 291,
       "record": {
         "applicable_steps": [],
         "description": "Docker problem",
@@ -510,7 +531,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:09:28.120051Z",
     "payload": {
-      "db_id": 1022,
+      "db_id": 292,
       "record": {
         "applicable_steps": [],
         "description": "Docker problem",
@@ -531,7 +552,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:09:28.121Z",
     "payload": {
-      "db_id": 1023,
+      "db_id": 293,
       "record": {
         "applicable_steps": [],
         "description": "CircleCI failure",
@@ -553,7 +574,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:09:28.122201Z",
     "payload": {
-      "db_id": 1024,
+      "db_id": 294,
       "record": {
         "applicable_steps": [],
         "description": "apt package incompatibility",
@@ -575,7 +596,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:09:28.123511Z",
     "payload": {
-      "db_id": 1025,
+      "db_id": 295,
       "record": {
         "applicable_steps": [],
         "description": "A generic code error",
@@ -594,7 +615,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:09:28.124095Z",
     "payload": {
-      "db_id": 1026,
+      "db_id": 296,
       "record": {
         "applicable_steps": [],
         "description": "CircleCI apt lock failure",
@@ -616,7 +637,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:09:28.12527Z",
     "payload": {
-      "db_id": 1027,
+      "db_id": 297,
       "record": {
         "applicable_steps": [],
         "description": "Unit test failure",
@@ -640,7 +661,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:09:28.126084Z",
     "payload": {
-      "db_id": 1028,
+      "db_id": 298,
       "record": {
         "applicable_steps": [],
         "description": "apt failure",
@@ -662,7 +683,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:09:28.127146Z",
     "payload": {
-      "db_id": 1029,
+      "db_id": 299,
       "record": {
         "applicable_steps": [],
         "description": "Graphs differ",
@@ -683,7 +704,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:09:28.128019Z",
     "payload": {
-      "db_id": 1030,
+      "db_id": 300,
       "record": {
         "applicable_steps": [],
         "description": "Git fetch failed",
@@ -708,7 +729,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:09:28.129269Z",
     "payload": {
-      "db_id": 1031,
+      "db_id": 301,
       "record": {
         "applicable_steps": [],
         "description": "Ninja build failed",
@@ -727,7 +748,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:09:28.130073Z",
     "payload": {
-      "db_id": 1032,
+      "db_id": 302,
       "record": {
         "applicable_steps": [],
         "description": "Test failure",
@@ -749,7 +770,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:09:28.130736Z",
     "payload": {
-      "db_id": 1033,
+      "db_id": 303,
       "record": {
         "applicable_steps": [],
         "description": "A script could not be executed",
@@ -768,7 +789,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:09:28.131335Z",
     "payload": {
-      "db_id": 1034,
+      "db_id": 304,
       "record": {
         "applicable_steps": [],
         "description": "Conda error",
@@ -787,7 +808,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:09:28.131891Z",
     "payload": {
-      "db_id": 1035,
+      "db_id": 305,
       "record": {
         "applicable_steps": [],
         "description": "Missing file",
@@ -806,7 +827,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:09:28.132463Z",
     "payload": {
-      "db_id": 1036,
+      "db_id": 306,
       "record": {
         "applicable_steps": [],
         "description": "Python version error for mypy",
@@ -830,7 +851,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:09:28.133285Z",
     "payload": {
-      "db_id": 1037,
+      "db_id": 307,
       "record": {
         "applicable_steps": [],
         "description": "Segfault",
@@ -851,7 +872,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:09:28.134123Z",
     "payload": {
-      "db_id": 1038,
+      "db_id": 308,
       "record": {
         "applicable_steps": [],
         "description": "Unzip failed",
@@ -870,7 +891,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:09:28.134727Z",
     "payload": {
-      "db_id": 1039,
+      "db_id": 309,
       "record": {
         "applicable_steps": [],
         "description": "core dump",
@@ -889,7 +910,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:18:44.819701Z",
     "payload": {
-      "db_id": 1040,
+      "db_id": 310,
       "record": {
         "applicable_steps": [
           "Build"
@@ -912,7 +933,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:30:43.245171Z",
     "payload": {
-      "db_id": 1041,
+      "db_id": 312,
       "record": {
         "applicable_steps": [],
         "description": "can't find python module",
@@ -936,7 +957,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:31:50.40071Z",
     "payload": {
-      "db_id": 1042,
+      "db_id": 313,
       "record": {
         "applicable_steps": [],
         "description": "network issue in file retrieval",
@@ -955,7 +976,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:34:45.98919Z",
     "payload": {
-      "db_id": 1043,
+      "db_id": 314,
       "record": {
         "applicable_steps": [],
         "description": "network issue",
@@ -976,7 +997,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:35:20.261273Z",
     "payload": {
-      "db_id": 1044,
+      "db_id": 315,
       "record": {
         "applicable_steps": [],
         "description": "PGP issue",
@@ -997,7 +1018,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:36:41.339753Z",
     "payload": {
-      "db_id": 1045,
+      "db_id": 316,
       "record": {
         "applicable_steps": [],
         "description": "shell script error",
@@ -1019,7 +1040,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:42:28.041868Z",
     "payload": {
-      "db_id": 1046,
+      "db_id": 317,
       "record": {
         "applicable_steps": [],
         "description": "git failure",
@@ -1040,7 +1061,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:45:45.143938Z",
     "payload": {
-      "db_id": 1047,
+      "db_id": 318,
       "record": {
         "applicable_steps": [],
         "description": "system clock is out of sync",
@@ -1059,7 +1080,7 @@
     "author": "kostmo",
     "created": "2019-05-29T00:47:13.734232Z",
     "payload": {
-      "db_id": 1048,
+      "db_id": 319,
       "record": {
         "applicable_steps": [],
         "description": "download issue",
@@ -1080,7 +1101,7 @@
     "author": "kostmo",
     "created": "2019-05-29T06:17:50.926971Z",
     "payload": {
-      "db_id": 1049,
+      "db_id": 321,
       "record": {
         "applicable_steps": [],
         "description": "blah",
@@ -1101,7 +1122,7 @@
     "author": "kostmo",
     "created": "2019-05-29T06:18:12.391329Z",
     "payload": {
-      "db_id": 1050,
+      "db_id": 322,
       "record": {
         "applicable_steps": [],
         "description": "blah",
@@ -1122,7 +1143,7 @@
     "author": "kostmo",
     "created": "2019-05-29T06:20:35.057611Z",
     "payload": {
-      "db_id": 1051,
+      "db_id": 323,
       "record": {
         "applicable_steps": [],
         "description": "pip network error",
@@ -1143,7 +1164,7 @@
     "author": "kostmo",
     "created": "2019-05-29T06:42:29.904621Z",
     "payload": {
-      "db_id": 1052,
+      "db_id": 324,
       "record": {
         "applicable_steps": [],
         "description": "test session collection broken",
@@ -1165,7 +1186,7 @@
     "author": "kostmo",
     "created": "2019-05-29T06:44:48.511321Z",
     "payload": {
-      "db_id": 1053,
+      "db_id": 325,
       "record": {
         "applicable_steps": [],
         "description": "blah",

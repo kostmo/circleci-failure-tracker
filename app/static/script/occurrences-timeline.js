@@ -20,7 +20,7 @@ function main() {
 	for (var pattern_obj of data.patterns.slice(0, 8)) {
 		var pointlist = series_points[pattern_obj["id"]]
 		series_list.push({
-		    name: pattern_obj["description"],
+		    name: pattern_obj["id"] + ": " + pattern_obj["description"],
 		    data: pointlist,
 		    });
 	}
@@ -51,8 +51,19 @@ function main() {
                 min: 0
             },
             tooltip: {
-                headerFormat: '<b>{series.name}</b><br>',
-                pointFormat: '{point.x:%e. %b}: {point.y:.2f} m'
+		useHTML: true,
+		style: {
+			pointerEvents: 'auto'
+		},
+		pointFormatter: function() {
+			var pattern_id = parseInt(this.series.name.slice(0, this.series.name.indexOf(":")));
+	                var headerFormat = '<a href="/pattern-details.html?pattern_id=' + pattern_id + '">' + this.series.name + '</a></b><br/>';
+	                var pointFormat = this.y;
+
+			return headerFormat + pointFormat;
+		},
+//                headerFormat: '<b><a href="/pattern-details.html?pattern_id={series.pattern_id}">{series.name}</a></b><br/>',
+//                pointFormat: '{point.x:%e. %b}: {point.y}'
             },
 
             plotOptions: {

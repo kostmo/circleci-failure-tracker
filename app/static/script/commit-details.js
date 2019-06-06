@@ -6,13 +6,13 @@ function populate_commit_info(commit_sha1) {
 		var github_link = "<a href='https://github.com/pytorch/pytorch/commits/" + commit_sha1 + "'>View on GitHub</a>"
 
 		var items = [
-			render_pair("Commit ancestry:", github_link),
-			render_pair("Failed build count:", data["payload"]["failed_build_count"]),
-			render_pair("Matched build count:", data["payload"]["matched_build_count"]),
-			render_pair("Code breakage count:", data["payload"]["code_breakage_count"]),
+			["Commit ancestry:", github_link],
+			["Failed build count:", data["payload"]["failed_build_count"]],
+			["Matched build count:", data["payload"]["matched_build_count"]],
+			["Code breakage count:", data["payload"]["code_breakage_count"]],
 		];
 
-	        $("#commit-info-box").html( render_tag("dl", items.join("")) );
+	        $("#commit-info-box").html( render_table(items) );
 	});
 }
 
@@ -25,7 +25,7 @@ function gen_builds_table(element_id, data_url) {
 	    placeholder:"No Data Set",
 	    columns:[
 		{title: "Line", field: "match.line_number", width: 100, formatter: function(cell, formatterParams, onRendered) {
-			return (cell.getValue() + 1) + " / " + cell.getRow().getData()["match"]["line_count"];
+			return gen_line_number_cell_with_count(cell, cell.getRow().getData()["match"]["line_count"]);
 		  }
 		},
 		{title: "Job", width: 300, field: "build.job_name"},

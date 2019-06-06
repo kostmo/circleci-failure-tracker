@@ -1,65 +1,12 @@
-function remove_pattern_tag(pattern_id, tag) {
-	if (confirm("Remove tag \"" + tag + "\" from pattern " + pattern_id + "?")) {
 
-		$.post( {
-			url: "/api/pattern-tag-remove",
-			data: {"pattern_id": pattern_id, "tag": tag},
-			success: function( data ) {
-				if (data.success) {
-					console.log("Removed: " + data.payload);
-					location.reload();
-				} else {
-					if (data.error.details.authentication_failed) {
-						alert("Not logged in: " + data.error.message);
-						window.location.href = data.error.details.login_url;
-					} else if (data.error.details.database_failed) {
-						alert("Database error: " + data.error.message);
-					} else {
-						alert("Unknown error: " + data.error.message);
-					}
-				}
-			}
-		});
-	}
-}
-
-
-function add_tag(pattern_id) {
-
-	var prompt_val = prompt("Enter tag name (lowercase, no spaces):");
-	if (prompt_val) {
-
-		$.post( {
-			url: "/api/pattern-tag-add",
-			data: {"pattern_id": pattern_id, "tag": prompt_val},
-			success: function( data ) {
-				if (data.success) {
-					console.log("Added: " + data.payload);
-					location.reload();
-				} else {
-					if (data.error.details.authentication_failed) {
-						alert("Not logged in: " + data.error.message);
-						window.location.href = data.error.details.login_url;
-					} else if (data.error.details.database_failed) {
-						alert("Database error: " + data.error.message);
-					} else {
-						alert("Unknown error: " + data.error.message);
-					}
-				}
-			}
-		});
-	}
-}
-
-
-function update_description(pattern_id, new_description) {
+function post_modification(api_endpoint, data_dict) {
 
 	$.post( {
-		url: "/api/pattern-description-update",
-		data: {"pattern_id": pattern_id, "description": new_description},
+		url: api_endpoint,
+		data: data_dict,
 		success: function( data ) {
 			if (data.success) {
-				console.log("Added: " + data.payload);
+				console.log("Result: " + data.payload);
 				location.reload();
 			} else {
 				if (data.error.details.authentication_failed) {
@@ -75,9 +22,36 @@ function update_description(pattern_id, new_description) {
 	});
 }
 
+function remove_pattern_tag(pattern_id, tag) {
+
+	if (confirm("Remove tag \"" + tag + "\" from pattern " + pattern_id + "?")) {
+		var data_dict = {"pattern_id": pattern_id, "tag": tag};
+		post_modification("/api/pattern-tag-remove", data_dict);
+	}
+}
 
 
+function add_tag(pattern_id) {
 
+	var prompt_val = prompt("Enter tag name (lowercase, no spaces):");
+	if (prompt_val) {
+		var data_dict = {"pattern_id": pattern_id, "tag": prompt_val};
+		post_modification("/api/pattern-tag-add", data_dict);
+	}
+}
+
+
+function update_description(pattern_id, new_description) {
+
+	var data_dict = {"pattern_id": pattern_id, "description": new_description};
+	post_modification("/api/pattern-description-update", data_dict);
+}
+
+
+function render_relative_time(cell) {
+	var val = cell.getValue();
+	return val!= null ? moment(val).fromNow() : "never";
+}
 
 
 function gen_patterns_table(pattern_id, filtered_branches) {
@@ -125,7 +99,6 @@ function gen_patterns_table(pattern_id, filtered_branches) {
 
 				tag_elements.push("<button class='tag-add-button' style='display: none;' id='tag-add-button-" + pattern_id + "' onclick='add_tag(" + pattern_id + ");'>+</button>");
 				return tag_elements.join(" ");
-
 			},
 			cellMouseEnter: function(e, cell) {
 				var pattern_id = cell.getRow().getData()["id"];
@@ -140,32 +113,28 @@ function gen_patterns_table(pattern_id, filtered_branches) {
 		{title:"Steps", field:"steps", sorter:"string"},
 		{title:"Regex?", field:"is_regex", align:"center", formatter:"tickCross", sorter:"boolean", formatterParams: {crossElement: false}, width: 75},
 		{title:"Pattern", field:"pattern", sorter:"string", widthGrow: 3, formatter: function(cell, formatterParams, onRendered) {
-			return "<code>" + cell.getValue() + "</code>";
-		    },
+				return "<code>" + cell.getValue() + "</code>";
+			},
                 },
 		{title:"Description", field:"description", sorter:"string", formatter: "link", formatterParams: {
-				urlPrefix: "/pattern-details.html?pattern_id=", urlField: "id"
-			}, widthGrow: 2,
+				urlPrefix: "/pattern-details.html?pattern_id=",
+				urlField: "id",
+			},
+			widthGrow: 2,
 			editor: "input",
 			cellEdited: function(cell) {
 				var pattern_id = cell.getRow().getData()["id"];
-
 				var new_description = cell.getValue();
-				console.log("new description for pattern " + pattern_id + ": " + new_description);
-
 				update_description(pattern_id, new_description);
 			},
 		},
 		{title:"Count", field:"frequency", sorter:"number", align:"center", width: 75},
 		{title:"Since", field:"earliest", sorter:"datetime", align:"center", formatter: function(cell, formatterParams, onRendered) {
-			var first_val = cell.getValue();
-			return first_val!= null ? moment(first_val).fromNow() : "never";
+			return render_relative_time(cell)
 		    }
 		},
 		{title:"Until", field:"last", sorter:"datetime", align:"center", formatter: function(cell, formatterParams, onRendered) {
-			var last_val = cell.getValue();
-
-			return last_val!= null ? moment(last_val).fromNow() : "never";
+			return render_relative_time(cell);
 		    }
 		},
 		{title:"Specificity", field:"specificity", sorter:"number", align:"center", width: 100},
