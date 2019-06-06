@@ -10,7 +10,7 @@ function main() {
         var series_titles = {};
         var series_points = {};
 
-
+	// TODO These lists should be combined on the server side.
 	for (var point of data.points) {
 		var pointlist = setDefault(series_points, point["pattern_id"], []);
 		pointlist.push([Date.parse(point["week"]), point["count"]])

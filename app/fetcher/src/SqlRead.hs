@@ -177,7 +177,7 @@ api_pattern_occurrence_timeline conn_data = do
   where
     f (pattern_id, week, count) = PatternsTimelinePoint pattern_id count week
 
-    timeline_sql = "SELECT pattern_id, date_trunc('week', queued_at) AS week, COUNT(*) AS occurrences FROM best_pattern_match_augmented_builds GROUP BY pattern_id, week"
+    timeline_sql = "SELECT pattern_id, date_trunc('week', queued_at) AS week, COUNT(*) AS occurrences FROM best_pattern_match_augmented_builds WHERE branch IN (SELECT branch FROM presumed_stable_branches) GROUP BY pattern_id, week"
 
 
 data TestFailure = TestFailure {
