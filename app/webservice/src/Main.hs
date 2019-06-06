@@ -361,6 +361,26 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
     S.get "/api/presumed-stable-branches-dump" $ do
       S.json =<< liftIO (SqlRead.dump_presumed_stable_branches connection_data)
 
+    S.post "/api/pattern-tag-add" $ do
+      pattern_id <- S.param "pattern_id"
+      tag <- S.param "tag"
+      let callback_func _user_alias = SqlWrite.add_pattern_tag connection_data pattern_id tag
+
+      rq <- S.request
+      insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
+      S.json $ WebApi.toJsonEither insertion_result
+
+    S.post "/api/pattern-tag-remove" $ do
+      pattern_id <- S.param "pattern_id"
+      tag <- S.param "tag"
+      let callback_func _user_alias = SqlWrite.remove_pattern_tag connection_data pattern_id tag
+
+      rq <- S.request
+      insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
+      S.json $ WebApi.toJsonEither insertion_result
+
+
+
     S.post "/api/patterns-restore" $ do
       body_json <- S.jsonData
 

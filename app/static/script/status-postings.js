@@ -68,7 +68,10 @@ function gen_builds_table(element_id, data_url) {
 			return '<code><a href="/commit-details.html?sha1=' + cell.getValue() + '">' + cell.getValue().substring(0, 7) + '</a></code>';
 		  }},
 		{title: "Message", field: "description", sorter: "string"},
-		{title: "Time", field: "created_at"},
+		{title: "Time", field: "created_at", formatter: function(cell, formatterParams, onRendered) {
+			return moment(cell.getValue()).fromNow();
+		    }
+		},
 	    ],
             ajaxURL: data_url,
 	});

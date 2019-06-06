@@ -1,6 +1,25 @@
 function remove_pattern_tag(pattern_id, tag) {
 	if (confirm("Remove tag \"" + tag + "\" from pattern " + pattern_id + "?")) {
-		alert("Not implemented");
+
+		$.post( {
+			url: "/api/pattern-tag-remove",
+			data: {"pattern_id": pattern_id, "tag": tag},
+			success: function( data ) {
+				if (data.success) {
+					console.log("Removed: " + data.payload);
+					location.reload();
+				} else {
+					if (data.error.details.authentication_failed) {
+						alert("Not logged in: " + data.error.message);
+						window.location.href = data.error.details.login_url;
+					} else if (data.error.details.database_failed) {
+						alert("Database error: " + data.error.message);
+					} else {
+						alert("Unknown error: " + data.error.message);
+					}
+				}
+			}
+		});
 	}
 }
 
@@ -9,7 +28,26 @@ function add_tag(pattern_id) {
 
 	var prompt_val = prompt("Enter tag name (lowercase, no spaces):");
 	if (prompt_val) {
-		alert("Add tag \"" + prompt_val + "\" is not implemented.");
+
+		$.post( {
+			url: "/api/pattern-tag-add",
+			data: {"pattern_id": pattern_id, "tag": prompt_val},
+			success: function( data ) {
+				if (data.success) {
+					console.log("Added: " + data.payload);
+					location.reload();
+				} else {
+					if (data.error.details.authentication_failed) {
+						alert("Not logged in: " + data.error.message);
+						window.location.href = data.error.details.login_url;
+					} else if (data.error.details.database_failed) {
+						alert("Database error: " + data.error.message);
+					} else {
+						alert("Unknown error: " + data.error.message);
+					}
+				}
+			}
+		});
 	}
 }
 
@@ -86,8 +124,8 @@ function gen_patterns_table(pattern_id, filtered_branches) {
 			},
 		},
 		{title:"Count", field:"frequency", sorter:"number", align:"center", width: 75},
-		{title:"Since", field:"last", sorter:"datetime", align:"center", formatter: function(cell, formatterParams, onRendered) {
-			var first_val = cell.getRow().getData()["earliest"];
+		{title:"Since", field:"earliest", sorter:"datetime", align:"center", formatter: function(cell, formatterParams, onRendered) {
+			var first_val = cell.getValue();
 			return first_val!= null ? moment(first_val).fromNow() : "never";
 		    }
 		},

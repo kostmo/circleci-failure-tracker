@@ -82,6 +82,30 @@ insert_posted_github_status conn_data git_sha1 (DbHelpers.OwnerAndRepo owner rep
     sql = "INSERT INTO created_github_statuses(id, sha1, project, repo, url, state, description, target_url, context, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?) RETURNING id;"
 
 
+add_pattern_tag ::
+     DbHelpers.DbConnectionData
+  -> Int
+  -> Text
+  -> IO (Either Text Int64)
+add_pattern_tag conn_data pattern_id tag = do
+  conn <- DbHelpers.get_connection conn_data
+  Right <$> execute conn sql (pattern_id, tag)
+  where
+    sql = "INSERT INTO pattern_tags(pattern, tag) VALUES(?,?);"
+
+
+remove_pattern_tag ::
+     DbHelpers.DbConnectionData
+  -> Int
+  -> Text
+  -> IO (Either Text Int64)
+remove_pattern_tag conn_data pattern_id tag = do
+  conn <- DbHelpers.get_connection conn_data
+  Right <$> execute conn sql (pattern_id, tag)
+  where
+    sql = "DELETE FROM pattern_tags WHERE pattern = ? AND tag = ?;"
+
+
 insert_single_pattern ::
      Connection
   -> Either (ScanPatterns.Pattern, AuthStages.Username) (DbHelpers.WithAuthorship ScanPatterns.DbPattern)
