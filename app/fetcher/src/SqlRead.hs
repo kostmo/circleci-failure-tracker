@@ -690,21 +690,23 @@ get_best_build_match conn_data build_id = do
     sql = "SELECT build, step_name, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch FROM best_pattern_match_augmented_builds WHERE build = ?;"
 
 
-get_build_info :: DbHelpers.DbConnectionData -> Int -> IO BuildSteps.BuildStep
+get_build_info :: DbHelpers.DbConnectionData -> Int -> IO (Maybe BuildSteps.BuildStep)
 get_build_info conn_data build_id = do
 
   conn <- DbHelpers.get_connection conn_data
-  [(step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch, maybe_implicated_revision, maybe_is_broken, maybe_notes, maybe_reporter)] <- query conn sql $ Only build_id
+  xs <- query conn sql $ Only build_id
 
-  let build_obj = Builds.NewBuild (Builds.NewBuildNumber build_num) vcs_revision queued_at job_name branch
-      maybe_breakage_obj = do
-        is_broken <- maybe_is_broken
-        notes <- maybe_notes
-        reporter <- maybe_reporter
-        return $ Breakages.NewBreakageReport (Builds.NewBuildStepId step_id) maybe_implicated_revision is_broken notes $ AuthStages.Username reporter
-
-  return $ BuildSteps.NewBuildStep step_name (Builds.NewBuildStepId step_id) build_obj maybe_breakage_obj
+  return $ f <$> Safe.headMay xs
   where
+    f (step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch, maybe_implicated_revision, maybe_is_broken, maybe_notes, maybe_reporter) = BuildSteps.NewBuildStep step_name (Builds.NewBuildStepId step_id) build_obj maybe_breakage_obj
+      where
+        build_obj = Builds.NewBuild (Builds.NewBuildNumber build_num) vcs_revision queued_at job_name branch
+        maybe_breakage_obj = do
+          is_broken <- maybe_is_broken
+          notes <- maybe_notes
+          reporter <- maybe_reporter
+          return $ Breakages.NewBreakageReport (Builds.NewBuildStepId step_id) maybe_implicated_revision is_broken notes $ AuthStages.Username reporter
+
     sql = "SELECT step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch, implicated_revision, is_broken, breakage_notes, reporter FROM builds_with_reports where build_num = ?;"
 
 

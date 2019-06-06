@@ -204,9 +204,13 @@ gen_flakiness_status sha1 flaky_count total_failcount =
     (LT.fromStrict myAppStatusContext)
 
   where
-    description = LT.pack $ intercalate ", " [
+    metrics = intercalate ", " [
         show flaky_count <> "/" <> show total_failcount <> " flaky"
 --      , show 0 <> "/" <> show 0 <> " KPs"
+      ]
+    description = LT.pack $ intercalate " " [
+        "(experimental)"
+      , metrics
       ]
     status_string = if flaky_count == total_failcount
       then "success"
