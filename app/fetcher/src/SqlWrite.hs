@@ -106,6 +106,18 @@ remove_pattern_tag conn_data pattern_id tag = do
     sql = "DELETE FROM pattern_tags WHERE pattern = ? AND tag = ?;"
 
 
+update_pattern_description ::
+     DbHelpers.DbConnectionData
+  -> Int
+  -> Text
+  -> IO (Either Text Int64)
+update_pattern_description conn_data pattern_id description = do
+  conn <- DbHelpers.get_connection conn_data
+  Right <$> execute conn sql (description, pattern_id)
+  where
+    sql = "UPDATE patterns SET description = ? WHERE id = ?;"
+
+
 insert_single_pattern ::
      Connection
   -> Either (ScanPatterns.Pattern, AuthStages.Username) (DbHelpers.WithAuthorship ScanPatterns.DbPattern)

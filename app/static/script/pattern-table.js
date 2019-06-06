@@ -51,6 +51,35 @@ function add_tag(pattern_id) {
 	}
 }
 
+
+function update_description(pattern_id, new_description) {
+
+	$.post( {
+		url: "/api/pattern-description-update",
+		data: {"pattern_id": pattern_id, "description": new_description},
+		success: function( data ) {
+			if (data.success) {
+				console.log("Added: " + data.payload);
+				location.reload();
+			} else {
+				if (data.error.details.authentication_failed) {
+					alert("Not logged in: " + data.error.message);
+					window.location.href = data.error.details.login_url;
+				} else if (data.error.details.database_failed) {
+					alert("Database error: " + data.error.message);
+				} else {
+					alert("Unknown error: " + data.error.message);
+				}
+			}
+		}
+	});
+}
+
+
+
+
+
+
 function gen_patterns_table(pattern_id, filtered_branches) {
 
 	// Note the plural ("s")
@@ -120,7 +149,11 @@ function gen_patterns_table(pattern_id, filtered_branches) {
 			editor: "input",
 			cellEdited: function(cell) {
 				var pattern_id = cell.getRow().getData()["id"];
-				console.log("hello pattern " + pattern_id + ": " + cell.getValue());
+
+				var new_description = cell.getValue();
+				console.log("new description for pattern " + pattern_id + ": " + new_description);
+
+				update_description(pattern_id, new_description);
 			},
 		},
 		{title:"Count", field:"frequency", sorter:"number", align:"center", width: 75},
