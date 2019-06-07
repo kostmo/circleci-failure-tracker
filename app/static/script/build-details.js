@@ -65,12 +65,14 @@ function gen_builds_table(element_id, data_url, height_string) {
 
 function populate_build_info(build_id) {
 
+	var context_line_count = 5;
+
 	$.getJSON('/api/single-build-info', {"build_id": build_id}, function (parent_data) {
 
 		var data = parent_data["build_info"];
 
 		var local_logview_item_full = "<a href='/api/view-log-full?build_id=" + build_id + "'>View full log</a>";
-		var local_logview_item = "<button onclick='get_log_text(" + build_id + ", 5);'>View error in context</button>";
+		var local_logview_item = "<button onclick='get_log_text(" + build_id + ", " + context_line_count + ");'>View error in context</button>";
 		var logview_items = render_list([
 			"View log <a href='https://circleci.com/gh/pytorch/pytorch/" + build_id + "'>on CircleCI</a>",
 			local_logview_item_full,
@@ -103,7 +105,7 @@ function populate_build_info(build_id) {
 			console.log("Commit list: " + commit_list);
 		});
 
-	        $("#build-info-box").html(render_table(items));
+	        $("#build-info-box").html(render_table_vertical_headers(items));
 
 		populate_breakage_form("submission_button_placeholder", data["step_id"], data);
 

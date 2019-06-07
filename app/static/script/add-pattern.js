@@ -53,6 +53,7 @@ function submit_pattern() {
 		success: function( data ) {
 			if (data.success) {
 				alert("submitted pattern with ID: " + data.payload);
+					window.location.href = "/";
 			} else {
 				if (data.error.details.authentication_failed) {
 					alert("Not logged in: " + data.error.message);

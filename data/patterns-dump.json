@@ -1223,5 +1223,28 @@
         ]
       }
     }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-06-07T23:38:35.594499Z",
+    "payload": {
+      "db_id": 56,
+      "record": {
+        "applicable_steps": [
+          "Test"
+        ],
+        "description": "",
+        "expression": {
+          "contents": "error pulling image configuration:",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "lines_from_end": 0,
+        "specificity": 1,
+        "tags": [
+          "docker"
+        ]
+      }
+    }
   }
 ]

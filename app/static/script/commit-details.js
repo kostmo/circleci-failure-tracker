@@ -12,7 +12,7 @@ function populate_commit_info(commit_sha1) {
 			["Code breakage count:", data["payload"]["code_breakage_count"]],
 		];
 
-	        $("#commit-info-box").html( render_table(items) );
+	        $("#commit-info-box").html( render_table_vertical_headers(items) );
 	});
 }
 
@@ -20,48 +20,50 @@ function populate_commit_info(commit_sha1) {
 function gen_builds_table(element_id, data_url) {
 
 	var table = new Tabulator("#" + element_id, {
-	    height:"300px",
-	    layout:"fitColumns",
-	    placeholder:"No Data Set",
-	    columns:[
-		{title: "Line", field: "match.line_number", width: 100, formatter: function(cell, formatterParams, onRendered) {
-			return gen_line_number_cell_with_count(cell, cell.getRow().getData()["match"]["line_count"]);
-		  }
-		},
-		{title: "Job", width: 300, field: "build.job_name"},
-		{title: "Step", width: 250, field: "match.build_step"},
-		{title: "Build", field: "build.build_id", formatter: "link", formatterParams: {urlPrefix: "/build-details.html?build_id="}, width: 75},
-		{title: "Line text", field: "match.line_text", sorter: "string", widthGrow: 8, formatter: function(cell, formatterParams, onRendered) {
-			var row_data = cell.getRow().getData();
+		height:"300px",
+		layout:"fitColumns",
+		placeholder:"No Data Set",
+		columns:[
+			{title: "Line", field: "match.line_number", width: 100,
+				formatter: function(cell, formatterParams, onRendered) {
+					return gen_line_number_cell_with_count(cell, cell.getRow().getData()["match"]["line_count"]);
+				}
+			},
+			{title: "Job", width: 300, field: "build.job_name"},
+			{title: "Step", width: 250, field: "match.build_step"},
+			{title: "Build", field: "build.build_id", formatter: "link", formatterParams: {urlPrefix: "/build-details.html?build_id="}, width: 75},
+			{title: "Line text", field: "match.line_text", sorter: "string", widthGrow: 8,
+				formatter: function(cell, formatterParams, onRendered) {
+					var row_data = cell.getRow().getData();
 
-			var start_idx = row_data["match"]["span_start"];
-			var end_idx = row_data["match"]["span_end"];
-					
-			return gen_error_cell_html_parameterized(cell, start_idx, end_idx);
-
-		  },
-			cellClick: function(e, cell){
-				var row_data = cell.getRow().getData();
-				var build_id = row_data["build"]["build_id"];
-				get_log_text(build_id, 5);
-		    },
-	        },
-		{title: "Broken?", field: "breakage", width: 90, formatter: function(cell, formatterParams, onRendered) {
-			var breakage_obj = cell.getValue();
-			if (breakage_obj != null) {
-				var img_name = breakage_obj["is_broken"] ? "broken-lightbulb.svg" : "bandaid.svg";
-				return "<img src='/images/" + img_name + "' class='brokenness-icon'/>";
-			} else {
-				return "";
-			}
-		  }
+					var start_idx = row_data["match"]["span_start"];
+					var end_idx = row_data["match"]["span_end"];
+							
+					return gen_error_cell_html_parameterized(cell, start_idx, end_idx);
+				},
+				cellClick: function(e, cell){
+					var row_data = cell.getRow().getData();
+					var build_id = row_data["build"]["build_id"];
+					get_log_text(build_id, 5);
+				},
+			},
+			{title: "Broken?", field: "breakage", width: 90,
+				formatter: function(cell, formatterParams, onRendered) {
+					var breakage_obj = cell.getValue();
+					if (breakage_obj != null) {
+						var img_name = breakage_obj["is_broken"] ? "broken-lightbulb.svg" : "bandaid.svg";
+						return "<img src='/images/" + img_name + "' class='brokenness-icon'/>";
+					} else {
+						return "";
+					}
+				}
+			},
+			{title: "Pattern", field: "match.pattern_id", formatter: "link", formatterParams: {urlPrefix: "/pattern-details.html?pattern_id="}, width: 75},
+		],
+		ajaxURL: data_url,
+		ajaxResponse:function(url, params, response) {
+			return response.payload;
 		},
-		{title: "Pattern", field: "match.pattern_id", formatter: "link", formatterParams: {urlPrefix: "/pattern-details.html?pattern_id="}, width: 75},
-	    ],
-            ajaxURL: data_url,
-	    ajaxResponse:function(url, params, response) {
-		return response.payload;
-	    },
 	});
 }
 
@@ -69,26 +71,27 @@ function gen_builds_table(element_id, data_url) {
 function gen_unmatched_build_list(api_endpoint, div_id) {
 
 	var table = new Tabulator("#" + div_id, {
-	    height:"200px",
-	    layout:"fitColumns",
-	    placeholder:"No Data Set",
-	    columns:[
-		{title:"Build number", field:"build", formatter: "link", width: 75, formatterParams: {urlPrefix: "/build-details.html?build_id="}},
-		{title:"Step", field:"step_name", width: 200},
-		{title:"Job", field:"job_name", width: 200},
-		{title:"Time", field:"queued_at", width: 150, formatter: function(cell, formatterParams, onRendered) {
-			var val = cell.getValue();
-			return moment(val).fromNow();
-		    }
-                },
-		{title:"Branch", field:"branch", width: 150},
-		{title:"Broken?", field:"is_broken", formatter:"tickCross", sorter:"boolean", formatterParams: {
-			allowEmpty: true,
-			tickElement:"<img src='/images/broken-lightbulb.svg' class='brokenness-icon'/>",
-			crossElement: "<img src='/images/bandaid.svg' class='brokenness-icon'/>",
-		}, width: 90},
-	    ],
-            ajaxURL: api_endpoint,
+		height:"200px",
+		layout:"fitColumns",
+		placeholder:"No Data Set",
+		columns:[
+			{title:"Build number", field:"build", formatter: "link", width: 75, formatterParams: {urlPrefix: "/build-details.html?build_id="}},
+			{title:"Step", field:"step_name", width: 200},
+			{title:"Job", field:"job_name", width: 200},
+			{title:"Time", field:"queued_at", width: 150,
+				formatter: function(cell, formatterParams, onRendered) {
+					var val = cell.getValue();
+					return moment(val).fromNow();
+				}
+			},
+			{title:"Branch", field:"branch", width: 150},
+			{title:"Broken?", field:"is_broken", formatter:"tickCross", sorter:"boolean", formatterParams: {
+				allowEmpty: true,
+				tickElement:"<img src='/images/broken-lightbulb.svg' class='brokenness-icon'/>",
+				crossElement: "<img src='/images/bandaid.svg' class='brokenness-icon'/>",
+			}, width: 90},
+		],
+		ajaxURL: api_endpoint,
 	});
 }
 

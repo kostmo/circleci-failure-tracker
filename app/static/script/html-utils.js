@@ -26,6 +26,25 @@ function render_list(items) {
 }
 
 
+function render_table_vertical_headers(rows, attrs) {
+
+	var content = "";
+	for (var row of rows) {
+		var row_content = "";
+
+		for (var i=0; i<row.length; i++) {
+			var item = row[i];
+			var cell = i ? render_tag("td", item) : render_tag("th", item, {"style": "text-align: right;"});
+			row_content += cell;
+		}
+
+		content += render_tag("tr", row_content);
+	}
+
+	return render_tag("table", render_tag("tbody", content), attrs);
+}
+
+
 function render_table(rows, attrs) {
 
 	var content = "";
