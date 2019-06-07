@@ -30,7 +30,7 @@ function get_log_text(build_id, context_linecount) {
 				table_items.push(row);
 			}
 
-			$("#myDialog").html( render_table(table_items, {"class": "code-lines"}) );
+			$("#myDialog").html( render_tag("div", "<a href='javascript: document.getElementById(\"myDialog\").close();'>Press <code>Esc</code> to close</a>", {"style": "color: gray; text-align: right;"}) + render_table(table_items, {"class": "code-lines"}) );
 
 			document.getElementById("myDialog").showModal(); 
 

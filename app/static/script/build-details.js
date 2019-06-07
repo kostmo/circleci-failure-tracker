@@ -48,7 +48,12 @@ function gen_builds_table(element_id, data_url, height_string) {
 				return gen_error_cell_html(cell);
 			},
 			cellClick: function(e, cell){
-				$("#error-display").html(gen_error_cell_html(cell));
+
+				if (height_string == null) {
+					var row_data = cell.getRow().getData();
+					var build_id = row_data["build_number"];
+					get_log_text(build_id, 5);
+				}
 			},
 		},
 		],
@@ -105,7 +110,6 @@ function populate_build_info(build_id) {
 			$("#all-matches-section").show();
 			gen_builds_table("all-build-matches-table", "/api/build-pattern-matches?build_id=" + build_id, "300px");
 		}
-
 	});
 }
 

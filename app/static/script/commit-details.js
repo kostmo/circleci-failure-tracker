@@ -41,7 +41,6 @@ function gen_builds_table(element_id, data_url) {
 
 		  },
 			cellClick: function(e, cell){
-
 				var row_data = cell.getRow().getData();
 				var build_id = row_data["build"]["build_id"];
 				get_log_text(build_id, 5);
