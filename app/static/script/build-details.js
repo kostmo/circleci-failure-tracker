@@ -57,14 +57,32 @@ function gen_builds_table(element_id, data_url, height_string) {
 }
 
 
-function get_log_text(build_id) {
-	$.getJSON('/api/view-log', {"build_id": build_id}, function (data) {
+function get_log_text(build_id, context_linecount) {
+	$.getJSON('/api/view-log-context', {"build_id": build_id, "context_linecount": context_linecount}, function (data) {
 		console.log(data);
 
 		if (data.success) {
-			var w = window.open('', '', 'resizeable,scrollbars');
-			w.document.write("<html><head><title>Log output</title></head><body><code style='white-space: pre'>" + data.payload + "</code></body></html>");
-			w.document.close();
+//			alert(data.payload)
+
+			var table_items = [];
+
+			for (var tuple of data.payload.log_lines) {
+
+				var zero_based_line_number = tuple[0];
+				var line_text = tuple[1];
+
+				var one_based_line_number = zero_based_line_number + 1;
+				if (zero_based_line_number == data.payload.match_info.line_number) {
+					table_items.push([one_based_line_number, render_highlighted_line_text(line_text, data.payload.match_info.span_start, data.payload.match_info.span_end)]);
+				} else {
+					table_items.push([one_based_line_number, line_text]);
+				}
+			}
+
+			$("#myDialog").html( render_table(table_items) );
+
+			document.getElementById("myDialog").showModal(); 
+
 		} else {
 			var proceed = confirm("Need to login first...");
 			if (proceed) {
@@ -81,10 +99,11 @@ function populate_build_info(build_id) {
 
 		var data = parent_data["build_info"];
 
-		var local_logview_item = "<button onclick='get_log_text(" + build_id + ");'>View log</button>";
-//		var local_logview_item = "<a href='/api/view-log?build_id=" + build_id + "'>Download log</a>";
+		var local_logview_item_full = "<a href='/api/view-log-full?build_id=" + build_id + "'>Download log</a>";
+		var local_logview_item = "<button onclick='get_log_text(" + build_id + ", 5);'>View error in context</button>";
 		var logview_items = render_list([
 			"View log <a href='https://circleci.com/gh/pytorch/pytorch/" + build_id + "'>on CircleCI</a>",
+			local_logview_item_full,
 			local_logview_item,
 		]);
 
@@ -126,10 +145,10 @@ function populate_build_info(build_id) {
 	});
 }
 
+
 function gen_pattern_test_link(build_id) {
         $("#pattern-add-link-container").html("<a href='add-pattern.html?build_id=" + build_id + "'>Add pattern</a>");
 }
-
 
 
 function rescan_build(button) {

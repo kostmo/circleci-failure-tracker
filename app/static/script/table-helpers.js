@@ -28,8 +28,11 @@ function gen_line_number_cell(cell) {
 
 function gen_error_cell_html_parameterized(cell, start_idx, end_idx) {
 	var line_text = cell.getValue();
-
-	var cell_html = "<span style='font-family: monospace;'>" + line_text.substring(0, start_idx) + "<span style='background-color: pink;'>" + line_text.substring(start_idx, end_idx) + "</span>" + line_text.substring(end_idx) + "</span>";
-
+	var cell_html = "<span style='font-family: monospace;'>" + render_highlighted_line_text(line_text, start_idx, end_idx) + "</span>";
 	return cell_html;
+}
+
+
+function render_highlighted_line_text(line_text, start_idx, end_idx) {
+	return line_text.substring(0, start_idx) + "<span style='background-color: pink;'>" + line_text.substring(start_idx, end_idx) + "</span>" + line_text.substring(end_idx);
 }

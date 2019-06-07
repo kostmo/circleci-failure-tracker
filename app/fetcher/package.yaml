@@ -38,6 +38,7 @@ library:
     - scientific
     - text
     - array
+    - MissingH 
 
 executables:
   run-scanner:

@@ -6,6 +6,7 @@ module SqlRead where
 
 import           Control.Monad                        (forM)
 import           Data.Aeson
+import           Data.Either.Utils                    (maybeToEither)
 import           Data.List                            (sort, sortOn)
 import           Data.List.Split                      (splitOn)
 import qualified Data.Maybe                           as Maybe
@@ -679,8 +680,8 @@ get_best_pattern_matches_whitelisted_branches conn_data pattern_id = do
 -- We use a list instead of a Maybe so that
 -- the javascript table renderer code can be reused
 -- for multi-item lists.
-get_best_build_match :: DbHelpers.DbConnectionData -> Int -> IO [PatternOccurrences]
-get_best_build_match conn_data build_id = do
+get_best_build_match :: DbHelpers.DbConnectionData -> Builds.BuildNumber -> IO [PatternOccurrences]
+get_best_build_match conn_data (Builds.NewBuildNumber build_id) = do
 
   conn <- DbHelpers.get_connection conn_data
   xs <- query conn sql $ Only build_id
@@ -689,6 +690,33 @@ get_best_build_match conn_data build_id = do
   where
     sql = "SELECT build, step_name, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch FROM best_pattern_match_augmented_builds WHERE build = ?;"
 
+
+
+data LogContext = LogContext {
+    _match_info :: PatternOccurrences
+  , _log_lines  :: [(Int, Text)]
+  } deriving Generic
+
+instance ToJSON LogContext where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+log_context_func connection_data build_id context_linecount = do
+  conn <- DbHelpers.get_connection connection_data
+  maybe_log <- SqlRead.read_log conn build_id
+  maybe_best_build_match <- Safe.headMay <$> SqlRead.get_best_build_match connection_data build_id
+
+  let maybe_result = do
+        console_log <- maybe_log
+        let log_lines = T.lines console_log
+        best_build_match <- maybe_best_build_match
+        let match_line = SqlRead._line_number best_build_match
+            first_context_line = max 0 $ match_line - context_linecount
+
+            tuples = zip [first_context_line..] $ take (2*context_linecount) $ drop first_context_line log_lines
+        return $ LogContext best_build_match tuples
+
+  return $ maybeToEither "log not in database" maybe_result
 
 
 data SingleBuildInfo = SingleBuildInfo {

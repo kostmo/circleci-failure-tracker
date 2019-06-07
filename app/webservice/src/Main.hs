@@ -24,6 +24,7 @@ import           Network.Wai.Session               (SessionStore)
 import           Network.Wai.Session               (Session, withSession)
 import           Network.Wai.Session.ClientSession (clientsessionStore)
 import           Options.Applicative
+import qualified Safe
 import           System.Environment                (lookupEnv)
 import           System.FilePath
 import           Text.Read                         (readMaybe)
@@ -40,6 +41,7 @@ import qualified Constants
 import qualified DbHelpers
 import qualified DbInsertion
 import qualified GitRev
+import qualified JsonUtils
 import qualified Scanning
 import qualified ScanPatterns
 import qualified Session
@@ -122,6 +124,21 @@ echo_endpoint = S.post "/api/echo" $ do
     putStrLn "====== BODY ======"
     putStrLn $ LBSC.unpack body
     putStrLn "==== END BODY ===="
+
+
+
+
+
+retrieve_log_context session github_config connection_data = do
+  build_id <- S.param "build_id"
+  context_linecount <- S.param "context_linecount"
+
+  let callback_func :: AuthStages.Username -> IO (Either Text SqlRead.LogContext)
+      callback_func _user_alias = SqlRead.log_context_func connection_data (Builds.NewBuildNumber build_id) context_linecount
+
+  rq <- S.request
+  either_log_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
+  S.json $ WebApi.toJsonEither either_log_result
 
 
 scottyApp :: PersistenceData -> SetupData -> ScottyTypes.ScottyT LT.Text IO ()
@@ -338,7 +355,10 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
 
     -- | Access-controlled endpoint
-    S.get "/api/view-log" $ do
+    S.get "/api/view-log-context" $ retrieve_log_context session github_config connection_data
+
+
+    S.get "/api/view-log-full" $ do
       build_id <- S.param "build_id"
 
       let callback_func :: AuthStages.Username -> IO (Either Text Text)
@@ -349,7 +369,10 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
       rq <- S.request
       either_log_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
-      S.json $ WebApi.toJsonEither either_log_result
+      case either_log_result of
+        Right logs  -> S.text $ LT.fromStrict logs
+        Left errors -> S.html $ LT.fromStrict $ JsonUtils._message $ JsonUtils.getDetails errors
+
 
     S.get "/api/pattern" $ do
       pattern_id <- S.param "pattern_id"
@@ -421,7 +444,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     S.get "/api/best-build-match" $ do
       build_id <- S.param "build_id"
-      S.json =<< liftIO (SqlRead.get_best_build_match connection_data build_id)
+      S.json =<< liftIO (SqlRead.get_best_build_match connection_data $ Builds.NewBuildNumber build_id)
 
     S.get "/api/build-pattern-matches" $ do
       build_id <- S.param "build_id"
