@@ -212,7 +212,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
             let computation = do
                   maybe_previously_posted_status <- liftIO $ SqlRead.get_posted_github_status connection_data owned_repo commit_sha1_text
 
-                  runExceptT $
+                  run_result <- runExceptT $
                     StatusUpdate.handleFailedStatuses
                       connection_data
                       (AuthConfig.personal_access_token github_config)
@@ -220,6 +220,8 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
                       owned_repo
                       commit_sha1_text
                       maybe_previously_posted_status
+
+                  putStrLn $ "Run result: " ++ show run_result
                   return ()
 
             thread_id <- liftIO $ forkIO computation
@@ -385,6 +387,15 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     S.get "/api/presumed-stable-branches-dump" $ do
       S.json =<< liftIO (SqlRead.dump_presumed_stable_branches connection_data)
+
+    S.post "/api/pattern-specificity-update" $ do
+      pattern_id <- S.param "pattern_id"
+      specificity <- S.param "specificity"
+      let callback_func _user_alias = SqlWrite.update_pattern_specificity connection_data pattern_id specificity
+
+      rq <- S.request
+      insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
+      S.json $ WebApi.toJsonEither insertion_result
 
     S.post "/api/pattern-description-update" $ do
       pattern_id <- S.param "pattern_id"

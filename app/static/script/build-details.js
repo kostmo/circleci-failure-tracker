@@ -41,21 +41,22 @@ function gen_builds_table(element_id, data_url, height_string) {
 		layout:"fitColumns",
 		placeholder:"No Data Set",
 		columns:[
-		{title:"Line", field: "line_number", width: 100, formatter: function(cell, formatterParams, onRendered) {
-			return gen_line_number_cell(cell);
-		}},
-		{title:"Line text", field: "line_text", sorter: "string", widthGrow: 8, formatter: function(cell, formatterParams, onRendered) {
-				return gen_error_cell_html(cell);
-			},
-			cellClick: function(e, cell){
+			{title:"Line", field: "line_number", width: 100, formatter: function(cell, formatterParams, onRendered) {
+				return gen_line_number_cell(cell);
+			}},
+			{title:"Line text", field: "line_text", sorter: "string", widthGrow: 8, formatter: function(cell, formatterParams, onRendered) {
+					return gen_error_cell_html(cell);
+				},
+				cellClick: function(e, cell){
 
-				if (height_string == null) {
-					var row_data = cell.getRow().getData();
-					var build_id = row_data["build_number"];
-					get_log_text(build_id, 5);
-				}
+					if (height_string == null) {
+						var row_data = cell.getRow().getData();
+						var build_id = row_data["build_number"];
+						get_log_text(build_id, 5);
+					}
+				},
 			},
-		},
+			{title: "Pattern", field: "pattern_id", formatter: "link", formatterParams: {urlPrefix: "/pattern-details.html?pattern_id="}, width: 75},
 		],
 		ajaxURL: data_url,
 	});

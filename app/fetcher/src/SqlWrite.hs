@@ -118,6 +118,18 @@ update_pattern_description conn_data pattern_id description = do
     sql = "UPDATE patterns SET description = ? WHERE id = ?;"
 
 
+update_pattern_specificity ::
+     DbHelpers.DbConnectionData
+  -> Int
+  -> Int
+  -> IO (Either Text Int64)
+update_pattern_specificity conn_data pattern_id specificity = do
+  conn <- DbHelpers.get_connection conn_data
+  Right <$> execute conn sql (specificity, pattern_id)
+  where
+    sql = "UPDATE patterns SET specificity = ? WHERE id = ?;"
+
+
 insert_single_pattern ::
      Connection
   -> Either (ScanPatterns.Pattern, AuthStages.Username) (DbHelpers.WithAuthorship ScanPatterns.DbPattern)

@@ -11,6 +11,7 @@
 <link href="https://unpkg.com/tabulator-tables@4.2.5/dist/css/tabulator.min.css" rel="stylesheet">
 <script type="text/javascript" src="https://unpkg.com/tabulator-tables@4.2.5/dist/js/tabulator.min.js"></script>
 
+<script src="/script/html-utils.js"></script>
 <script src="/script/table-helpers.js"></script>
 <script src="/script/tag-helpers.js"></script>
 <script src="/script/pattern-table.js"></script>
@@ -24,9 +25,6 @@
 
 <div id="patterns-table"></div>
 
-<br/>
-<code id="error-display"></code>
-
 <h2>Best matches</h2>
 <p>
 This shows only the "highest-specificity" pattern match for a build.  If there are multiple lines matching for that pattern, the first is shown.
@@ -38,6 +36,8 @@ This shows only the "highest-specificity" pattern match for a build.  If there a
 This shows <strong>all</strong> pattern matches for a build, including multiple lines matched by the same pattern.
 </p>
 <div id="all-pattern-matches-table"></div>
+
+<dialog id="myDialog">This is a dialog window</dialog>
 
 <hr/>
 

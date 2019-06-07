@@ -102,10 +102,14 @@ handleFailedStatuses
     sha1
     maybe_previously_posted_status = do
 
-  current_time <- liftIO $ Clock.getCurrentTime
-  liftIO $ putStrLn $ "Processing at " ++ show current_time
+
+  liftIO $ do
+    current_time <- Clock.getCurrentTime
+    putStrLn $ "Processing at " ++ show current_time
 
   build_statuses_list_any_source <- ExceptT $ Auth.getBuildStatuses access_token owned_repo sha1
+
+  liftIO $ putStrLn $ "Build statuses count: " ++ show (length build_statuses_list_any_source)
 
   let statuses_list_not_mine = filter is_not_my_own_context build_statuses_list_any_source
 
@@ -114,6 +118,11 @@ handleFailedStatuses
 
       circleci_failed_builds = Maybe.mapMaybe (get_circleci_failure sha1) failed_statuses_list_not_mine
       scannable_build_numbers = map Builds.build_id circleci_failed_builds
+
+      circleci_failcount = length circleci_failed_builds
+
+  liftIO $ putStrLn $ "Failed CircleCI build count: " ++ show circleci_failcount
+
 
   builds_with_flaky_pattern_matches <- liftIO $ do
     conn <- DbHelpers.get_connection db_connection_data
@@ -129,9 +138,8 @@ handleFailedStatuses
         builds_with_flaky_pattern_matches = filter flaky_predicate scan_matches
     return builds_with_flaky_pattern_matches
 
-  let total_failcount = length circleci_failed_builds
-      flaky_count = length builds_with_flaky_pattern_matches
-      status_setter_data = gen_flakiness_status (LT.fromStrict sha1) flaky_count total_failcount
+  let flaky_count = length builds_with_flaky_pattern_matches
+      status_setter_data = gen_flakiness_status (LT.fromStrict sha1) flaky_count circleci_failcount
       new_state_description_tuple = (LT.toStrict $ StatusEvent._state status_setter_data, LT.toStrict $ StatusEvent._description status_setter_data)
 
   -- We're examining statuses on both failed and successful build notifications, which can add
@@ -150,7 +158,7 @@ handleFailedStatuses
         return ()
 
   case maybe_previously_posted_status of
-    Nothing -> when (total_failcount > 0) post_and_store
+    Nothing -> when (circleci_failcount > 0) post_and_store
     Just previous_state_description_tuple -> if previous_state_description_tuple /= new_state_description_tuple
       then post_and_store
       else return ()

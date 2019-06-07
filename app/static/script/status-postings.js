@@ -35,7 +35,7 @@ function gen_time_plot(container_id, api_path) {
             },
             tooltip: {
                 headerFormat: '<b>{series.name}</b><br>',
-                pointFormat: '{point.x:%e. %b}: {point.y:.1f}'
+                pointFormat: '{point.x:%e. %b}: {point.y}'
             },
 
             plotOptions: {
@@ -68,6 +68,7 @@ function gen_builds_table(element_id, data_url) {
 			return '<code><a href="/commit-details.html?sha1=' + cell.getValue() + '">' + cell.getValue().substring(0, 7) + '</a></code>';
 		  }},
 		{title: "Message", field: "description", sorter: "string"},
+		{title: "Status", field: "state", sorter: "string"},
 		{title: "Time", field: "created_at", formatter: function(cell, formatterParams, onRendered) {
 			return moment(cell.getValue()).fromNow();
 		    }

@@ -10,7 +10,6 @@ function gen_error_cell_html(cell) {
 
 function get_log_text(build_id, context_linecount) {
 	$.getJSON('/api/view-log-context', {"build_id": build_id, "context_linecount": context_linecount}, function (data) {
-		console.log(data);
 
 		if (data.success) {
 
@@ -64,11 +63,11 @@ function gen_line_number_cell(cell) {
 
 function gen_error_cell_html_parameterized(cell, start_idx, end_idx) {
 	var line_text = cell.getValue();
-	var cell_html = "<span style='font-family: monospace;'>" + render_highlighted_line_text(line_text, start_idx, end_idx) + "</span>";
+	var cell_html = render_tag("span", render_highlighted_line_text(line_text, start_idx, end_idx), {"style": "font-family: monospace;"});
 	return cell_html;
 }
 
 
 function render_highlighted_line_text(line_text, start_idx, end_idx) {
-	return line_text.substring(0, start_idx) + "<span style='background-color: pink;'>" + line_text.substring(start_idx, end_idx) + "</span>" + line_text.substring(end_idx);
+	return line_text.substring(0, start_idx) + render_tag("span", line_text.substring(start_idx, end_idx), {"class": "pattern-match-highlight"}) + line_text.substring(end_idx);
 }

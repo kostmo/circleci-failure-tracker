@@ -2,6 +2,13 @@ body {
 	font-family: sans-serif;
 }
 
+
+
+.pattern-match-highlight {
+	background-color: #fcc;
+}
+
+
 table {border-collapse: collapse;}
 td, th {padding: 0.3em;}
 
