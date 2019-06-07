@@ -675,6 +675,18 @@ get_best_pattern_matches_whitelisted_branches conn_data pattern_id = do
     sql = "SELECT build, step_name, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch FROM best_pattern_match_augmented_builds WHERE pattern_id = ? AND branch IN (SELECT branch from presumed_stable_branches);"
 
 
+get_posted_github_status :: DbHelpers.DbConnectionData -> DbHelpers.OwnerAndRepo -> Text -> IO (Maybe (Text, Text))
+get_posted_github_status conn_data (DbHelpers.OwnerAndRepo project repo) sha1 = do
+
+  conn <- DbHelpers.get_connection conn_data
+
+  xs <- query conn sql (sha1, project, repo)
+  return $ Safe.headMay xs
+
+  where
+    sql = "SELECT state, description FROM created_github_statuses WHERE sha1 = ? AND project = ? AND repo = ? ORDER BY id DESC LIMIT 1;"
+
+
 
 -- | This should produce one or zero results.
 -- We use a list instead of a Maybe so that

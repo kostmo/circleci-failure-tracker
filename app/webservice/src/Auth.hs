@@ -7,7 +7,7 @@
 
 module Auth (
     getAuthenticatedUser
-  , getFailedStatuses
+  , getBuildStatuses
   , logoutH
   , callbackH
   , githubAuthTokenSessionKey
@@ -175,14 +175,14 @@ tryFetchUser github_config code session_insert = do
     Left e   -> return $ Left $ TL.pack $ "tryFetchUser: cannot fetch asses token. error detail: " ++ show e
 
 
-getFailedStatusesRecurse :: (Show t, Num t) =>
+getBuildStatusesRecurse ::
      Manager
   -> T.Text
   -> String
-  -> t
+  -> Int
   -> [StatusEventQuery.GitHubStatusEventGetter]
   -> IO (Either TL.Text [StatusEventQuery.GitHubStatusEventGetter])
-getFailedStatusesRecurse
+getBuildStatusesRecurse
     mgr
     token
     uri_prefix
@@ -201,7 +201,7 @@ getFailedStatusesRecurse
         combined_list = old_retrieved_items ++ newly_retrieved_items
 
     if length combined_list < expected_count
-      then ExceptT $ getFailedStatusesRecurse
+      then ExceptT $ getBuildStatusesRecurse
         mgr
         token
         uri_prefix
@@ -211,33 +211,30 @@ getFailedStatusesRecurse
 
   where
     either_uri = parseURI strictURIParserOptions $ BSU.pack uri_string
-
     uri_string = uri_prefix <> "?per_page=" <> show perPageCount <> "&page=" <> show page_offset
 
 
-getFailedStatuses ::
+getBuildStatuses ::
      T.Text
   -> DbHelpers.OwnerAndRepo
   -> T.Text
   -> IO (Either TL.Text [StatusEventQuery.GitHubStatusEventGetter])
-getFailedStatuses
+getBuildStatuses
     token
     (DbHelpers.OwnerAndRepo repo_owner repo_name)
     target_sha1 = do
 
   mgr <- newManager tlsManagerSettings
 
-  either_items <- getFailedStatusesRecurse
+  either_items <- getBuildStatusesRecurse
     mgr
     token
     uri_prefix
     1
     []
 
-  return $ fmap filter_failed either_items
+  return either_items
   where
-    filter_failed = filter $ (== "failure") . StatusEventQuery._state
-
     uri_prefix = intercalate "/" [
         "https://api.github.com/repos"
       , repo_owner

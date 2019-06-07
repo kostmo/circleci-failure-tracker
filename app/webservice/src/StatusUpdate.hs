@@ -92,20 +92,26 @@ handleFailedStatuses ::
   -> Maybe AuthStages.Username -- ^ scan initiator
   -> DbHelpers.OwnerAndRepo
   -> Text
+  -> Maybe (Text, Text)
   -> ExceptT LT.Text IO ()
 handleFailedStatuses
     db_connection_data
     access_token
     maybe_initiator
     owned_repo
-    sha1 = do
+    sha1
+    maybe_previously_posted_status = do
 
   current_time <- liftIO $ Clock.getCurrentTime
   liftIO $ putStrLn $ "Processing at " ++ show current_time
 
-  failed_statuses_list_any_source <- ExceptT $ Auth.getFailedStatuses access_token owned_repo sha1
+  build_statuses_list_any_source <- ExceptT $ Auth.getBuildStatuses access_token owned_repo sha1
 
-  let failed_statuses_list_not_mine = filter is_not_my_own_context failed_statuses_list_any_source
+  let statuses_list_not_mine = filter is_not_my_own_context build_statuses_list_any_source
+
+      filter_failed = filter $ (== "failure") . StatusEventQuery._state
+      failed_statuses_list_not_mine = filter_failed statuses_list_not_mine
+
       circleci_failed_builds = Maybe.mapMaybe (get_circleci_failure sha1) failed_statuses_list_not_mine
       scannable_build_numbers = map Builds.build_id circleci_failed_builds
 
@@ -125,16 +131,29 @@ handleFailedStatuses
 
   let total_failcount = length circleci_failed_builds
       flaky_count = length builds_with_flaky_pattern_matches
+      status_setter_data = gen_flakiness_status (LT.fromStrict sha1) flaky_count total_failcount
+      new_state_description_tuple = (LT.toStrict $ StatusEvent._state status_setter_data, LT.toStrict $ StatusEvent._description status_setter_data)
 
-  when (total_failcount > 0) $ do
-    post_result <- ExceptT $ ApiPost.postCommitStatus
-      access_token
-      owned_repo
-      sha1
-      (gen_flakiness_status (LT.fromStrict sha1) flaky_count total_failcount)
+  -- We're examining statuses on both failed and successful build notifications, which can add
+  -- up to a lot of activity.
+  -- We only should re-post our summary status if it will change what was already posted,
+  -- since we don't want GitHub to throttle our requests.
 
-    liftIO $ SqlWrite.insert_posted_github_status db_connection_data sha1 owned_repo post_result
-    return ()
+  let post_and_store = do
+        post_result <- ExceptT $ ApiPost.postCommitStatus
+          access_token
+          owned_repo
+          sha1
+          status_setter_data
+
+        liftIO $ SqlWrite.insert_posted_github_status db_connection_data sha1 owned_repo post_result
+        return ()
+
+  case maybe_previously_posted_status of
+    Nothing -> when (total_failcount > 0) post_and_store
+    Just previous_state_description_tuple -> if previous_state_description_tuple /= new_state_description_tuple
+      then post_and_store
+      else return ()
 
   where
     is_not_my_own_context = (/= myAppStatusContext) . LT.toStrict . StatusEventQuery._context
@@ -148,9 +167,7 @@ handleStatusWebhook ::
   -> IO (Either LT.Text ())
 handleStatusWebhook db_connection_data access_token maybe_initiator status_event = do
 
-  -- Do not act on receipt of statuses from the context I have created, or else
-  -- we may get stuck in an infinite notification loop
-  runExceptT $ when (is_not_my_own_context && is_failure_notification) $ do
+  runExceptT $ do
 
     liftIO $ putStrLn $ "Notified status context was: " ++ notified_status_context_string
 
@@ -167,6 +184,8 @@ handleStatusWebhook db_connection_data access_token maybe_initiator status_event
       (org:repo:[]) -> Right $ DbHelpers.OwnerAndRepo org repo
       _ -> Left $ "un-parseable owner/repo text: " <> owner_repo_text
 
+    maybe_previously_posted_status <- liftIO $ SqlRead.get_posted_github_status db_connection_data owned_repo sha1
+
     let computation = do
           runExceptT $
             handleFailedStatuses
@@ -175,18 +194,27 @@ handleStatusWebhook db_connection_data access_token maybe_initiator status_event
               maybe_initiator
               owned_repo
               sha1
+              maybe_previously_posted_status
           return ()
 
-    _thread_id <- liftIO $ forkIO computation
+    -- Do not act on receipt of statuses from the context I have created, or else
+    -- we may get stuck in an infinite notification loop
+    --
+    -- Also, if we haven't posted a summary status before, do not act unless the notification
+    -- was for a failed build.
+    when (is_not_my_own_context && (is_failure_notification || not (null maybe_previously_posted_status))) $ do
+      _thread_id <- liftIO $ forkIO computation
+      return ()
 
     return ()
 
   where
-    notified_status_state_string = LT.unpack (Webhooks.state status_event)
+    notified_status_state_string = LT.unpack $ Webhooks.state status_event
     is_failure_notification = notified_status_state_string == "failure"
 
-    notified_status_context_string = LT.unpack $ Webhooks.context status_event
-    notified_status_context_text = LT.toStrict $ Webhooks.context status_event
+    context_text = Webhooks.context status_event
+    notified_status_context_string = LT.unpack context_text
+    notified_status_context_text = LT.toStrict context_text
     is_not_my_own_context = notified_status_context_text /= myAppStatusContext
     sha1 = LT.toStrict $ Webhooks.sha status_event
 

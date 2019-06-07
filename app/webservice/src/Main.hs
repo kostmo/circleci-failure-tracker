@@ -204,17 +204,22 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
       commit_sha1_text <- S.param "sha1"
 
-      let callback_func :: AuthStages.Username -> IO (Either (AuthStages.BackendFailure Text) Text)
+      let owned_repo = DbHelpers.OwnerAndRepo Constants.project_name Constants.repo_name
+
+          callback_func :: AuthStages.Username -> IO (Either (AuthStages.BackendFailure Text) Text)
           callback_func user_alias = do
 
             let computation = do
+                  maybe_previously_posted_status <- liftIO $ SqlRead.get_posted_github_status connection_data owned_repo commit_sha1_text
+
                   runExceptT $
                     StatusUpdate.handleFailedStatuses
                       connection_data
                       (AuthConfig.personal_access_token github_config)
                       (Just user_alias)
-                      (DbHelpers.OwnerAndRepo Constants.project_name Constants.repo_name)
+                      owned_repo
                       commit_sha1_text
+                      maybe_previously_posted_status
                   return ()
 
             thread_id <- liftIO $ forkIO computation

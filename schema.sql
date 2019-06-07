@@ -677,6 +677,43 @@ CREATE VIEW public.match_position_stats AS
 ALTER TABLE public.match_position_stats OWNER TO postgres;
 
 --
+-- Name: mitigations; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.mitigations (
+    id integer NOT NULL,
+    pattern integer NOT NULL,
+    sha1 text,
+    attributor text,
+    attributed_at timestamp with time zone
+);
+
+
+ALTER TABLE public.mitigations OWNER TO postgres;
+
+--
+-- Name: mitigations_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.mitigations_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.mitigations_id_seq OWNER TO postgres;
+
+--
+-- Name: mitigations_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.mitigations_id_seq OWNED BY public.mitigations.id;
+
+
+--
 -- Name: ordered_master_commits; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -911,6 +948,13 @@ ALTER TABLE ONLY public.matches ALTER COLUMN id SET DEFAULT nextval('public.matc
 
 
 --
+-- Name: mitigations id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.mitigations ALTER COLUMN id SET DEFAULT nextval('public.mitigations_id_seq'::regclass);
+
+
+--
 -- Name: ordered_master_commits id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
@@ -992,6 +1036,14 @@ ALTER TABLE ONLY public.log_metadata
 
 ALTER TABLE ONLY public.matches
     ADD CONSTRAINT match_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: mitigations mitigations_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.mitigations
+    ADD CONSTRAINT mitigations_pkey PRIMARY KEY (id);
 
 
 --
@@ -1086,6 +1138,13 @@ CREATE INDEX fk_build_step_build ON public.build_steps USING btree (build);
 --
 
 CREATE INDEX fk_build_step_id ON public.matches USING btree (build_step);
+
+
+--
+-- Name: fk_mitiigation_pattern; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX fk_mitiigation_pattern ON public.mitigations USING btree (pattern);
 
 
 --
@@ -1206,6 +1265,14 @@ ALTER TABLE ONLY public.matches
 
 ALTER TABLE ONLY public.matches
     ADD CONSTRAINT matches_scan_id_fkey FOREIGN KEY (scan_id) REFERENCES public.scans(id);
+
+
+--
+-- Name: mitigations mitigations_pattern_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.mitigations
+    ADD CONSTRAINT mitigations_pattern_fkey FOREIGN KEY (pattern) REFERENCES public.patterns(id);
 
 
 --
@@ -1470,6 +1537,13 @@ GRANT ALL ON SEQUENCE public.match_id_seq TO logan;
 --
 
 GRANT ALL ON TABLE public.match_position_stats TO logan;
+
+
+--
+-- Name: TABLE mitigations; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.mitigations TO logan;
 
 
 --

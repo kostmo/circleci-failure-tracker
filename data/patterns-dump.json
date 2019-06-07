@@ -22,6 +22,27 @@
   },
   {
     "author": "kostmo",
+    "created": "2019-06-07T16:43:33.491636Z",
+    "payload": {
+      "db_id": 2,
+      "record": {
+        "applicable_steps": [],
+        "description": "Undefined symbol",
+        "expression": {
+          "contents": "undefined symbol: ",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "lines_from_end": null,
+        "specificity": 1,
+        "tags": [
+          "linker"
+        ]
+      }
+    }
+  },
+  {
+    "author": "kostmo",
     "created": "2019-05-29T00:09:28.071078Z",
     "payload": {
       "db_id": 271,
