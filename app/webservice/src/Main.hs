@@ -126,9 +126,6 @@ echo_endpoint = S.post "/api/echo" $ do
     putStrLn "==== END BODY ===="
 
 
-
-
-
 retrieve_log_context session github_config connection_data = do
   build_id <- S.param "build_id"
   context_linecount <- S.param "context_linecount"

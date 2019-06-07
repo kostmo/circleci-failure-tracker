@@ -713,7 +713,7 @@ log_context_func connection_data build_id context_linecount = do
         let match_line = SqlRead._line_number best_build_match
             first_context_line = max 0 $ match_line - context_linecount
 
-            tuples = zip [first_context_line..] $ take (2*context_linecount) $ drop first_context_line log_lines
+            tuples = zip [first_context_line..] $ take (2*context_linecount + 1) $ drop first_context_line log_lines
         return $ LogContext best_build_match tuples
 
   return $ maybeToEither "log not in database" maybe_result

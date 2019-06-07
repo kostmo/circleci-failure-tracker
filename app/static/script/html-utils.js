@@ -1,12 +1,18 @@
-function render_tag(tag, content) {
-	return "<" + tag + ">" + content + "</" + tag + ">";
+function render_tag(tag, content, attributes) {
+
+	var attributes = attributes || {};
+	var kv_pairs = [tag];
+
+	$.each(attributes, function(key, value) {
+		kv_pairs.push(key + '="' + value + '"')
+	});
+
+	return "<" + kv_pairs.join(" ") + ">" + content + "</" + tag + ">";
 }
 
 function render_pair(term, definition) {
 	return render_tag("dt", term) + render_tag("dd", definition);
 }
-
-
 
 
 function render_list(items) {
@@ -20,7 +26,7 @@ function render_list(items) {
 }
 
 
-function render_table(rows) {
+function render_table(rows, attrs) {
 
 	var content = "";
 	for (var row of rows) {
@@ -31,5 +37,5 @@ function render_table(rows) {
 		content += render_tag("tr", row_content);
 	}
 
-	return render_tag("table", render_tag("tbody", content));
+	return render_tag("table", render_tag("tbody", content), attrs);
 }

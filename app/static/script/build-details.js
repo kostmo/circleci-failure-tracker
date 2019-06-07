@@ -37,22 +37,22 @@ function submit_breakage_report(button, build_step_id) {
 function gen_builds_table(element_id, data_url, height_string) {
 
 	var table = new Tabulator("#" + element_id, {
-	    height: height_string,
-	    layout:"fitColumns",
-	    placeholder:"No Data Set",
-	    columns:[
+		height: height_string,
+		layout:"fitColumns",
+		placeholder:"No Data Set",
+		columns:[
 		{title:"Line", field: "line_number", width: 100, formatter: function(cell, formatterParams, onRendered) {
 			return gen_line_number_cell(cell);
-		  }},
+		}},
 		{title:"Line text", field: "line_text", sorter: "string", widthGrow: 8, formatter: function(cell, formatterParams, onRendered) {
-			return gen_error_cell_html(cell);
-		  },
+				return gen_error_cell_html(cell);
+			},
 			cellClick: function(e, cell){
-			    $("#error-display").html(gen_error_cell_html(cell));
-		    },
-	        },
-	    ],
-            ajaxURL: data_url,
+				$("#error-display").html(gen_error_cell_html(cell));
+			},
+		},
+		],
+		ajaxURL: data_url,
 	});
 }
 
@@ -62,24 +62,24 @@ function get_log_text(build_id, context_linecount) {
 		console.log(data);
 
 		if (data.success) {
-//			alert(data.payload)
 
 			var table_items = [];
-
 			for (var tuple of data.payload.log_lines) {
 
 				var zero_based_line_number = tuple[0];
 				var line_text = tuple[1];
 
 				var one_based_line_number = zero_based_line_number + 1;
+
 				if (zero_based_line_number == data.payload.match_info.line_number) {
-					table_items.push([one_based_line_number, render_highlighted_line_text(line_text, data.payload.match_info.span_start, data.payload.match_info.span_end)]);
-				} else {
-					table_items.push([one_based_line_number, line_text]);
+					line_text = render_highlighted_line_text(line_text, data.payload.match_info.span_start, data.payload.match_info.span_end);
 				}
+
+				var row = [render_tag("div", one_based_line_number, {"class": "line-number"}), render_tag("code", line_text)]
+				table_items.push(row);
 			}
 
-			$("#myDialog").html( render_table(table_items) );
+			$("#myDialog").html( render_table(table_items, {"class": "code-lines"}) );
 
 			document.getElementById("myDialog").showModal(); 
 
@@ -99,7 +99,7 @@ function populate_build_info(build_id) {
 
 		var data = parent_data["build_info"];
 
-		var local_logview_item_full = "<a href='/api/view-log-full?build_id=" + build_id + "'>Download log</a>";
+		var local_logview_item_full = "<a href='/api/view-log-full?build_id=" + build_id + "'>View full log</a>";
 		var local_logview_item = "<button onclick='get_log_text(" + build_id + ", 5);'>View error in context</button>";
 		var logview_items = render_list([
 			"View log <a href='https://circleci.com/gh/pytorch/pytorch/" + build_id + "'>on CircleCI</a>",
@@ -116,7 +116,7 @@ function populate_build_info(build_id) {
 
 
 		var items = [
-			["CircleCI page:", logview_items],
+			["Logs:", logview_items],
 			["Revision:", commit_links],
 			["Build step:", render_tag("i", data["step_name"])],
 			["Branch:", data["build"]["branch"]],

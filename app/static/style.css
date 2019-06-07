@@ -3,9 +3,10 @@ body {
 }
 
 table {border-collapse: collapse;}
-table, th, td {border: 1px solid black;}
 td, th {padding: 0.3em;}
 
+table.codelines th, td {padding: 0.1em;}
+.line-number {background-color: #eef}
 
 .noborder {border: none;}
 
