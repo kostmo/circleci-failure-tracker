@@ -34,7 +34,7 @@
         },
         "is_retired": false,
         "lines_from_end": null,
-        "specificity": 1,
+        "specificity": 3,
         "tags": [
           "linker"
         ]

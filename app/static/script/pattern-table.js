@@ -41,11 +41,16 @@ function add_tag(pattern_id) {
 }
 
 
-function update_description(pattern_id, new_description) {
-
-	var data_dict = {"pattern_id": pattern_id, "description": new_description};
+function update_description(pattern_id, new_value) {
+	var data_dict = {"pattern_id": pattern_id, "description": new_value};
 	post_modification("/api/pattern-description-update", data_dict);
 }
+
+function update_specificity(pattern_id, new_value) {
+	var data_dict = {"pattern_id": pattern_id, "specificity": new_value};
+	post_modification("/api/pattern-specificity-update", data_dict);
+}
+
 
 
 function render_relative_time(cell) {
@@ -137,7 +142,18 @@ function gen_patterns_table(pattern_id, filtered_branches) {
 			return render_relative_time(cell);
 		    }
 		},
-		{title:"Specificity", field:"specificity", sorter:"number", align:"center", width: 100},
+		{title:"Specificity", field:"specificity", sorter:"number", align:"center", width: 100,
+			editor:"number",
+			editorParams:{
+			    "min": 1,
+			    "max": 100,
+			},
+			cellEdited: function(cell) {
+				var pattern_id = cell.getRow().getData()["id"];
+				var new_specificity = cell.getValue();
+				update_specificity(pattern_id, new_specificity);
+			},
+		},
 		{title:"Scanned percent", field:"percent_scanned", align:"center", sorter:"number"},
 	    ],
             ajaxURL: api_endpoint_url,
