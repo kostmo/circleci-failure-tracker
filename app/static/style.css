@@ -5,7 +5,7 @@ body {
 table {border-collapse: collapse;}
 td, th {padding: 0.3em;}
 
-table.codelines th, td {padding: 0.1em;}
+table.codelines th, td {padding: 0.1em; vertical-align: top;}
 .line-number {background-color: #eef}
 
 .noborder {border: none;}

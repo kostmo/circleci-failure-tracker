@@ -8,6 +8,42 @@ function gen_error_cell_html(cell) {
 }
 
 
+function get_log_text(build_id, context_linecount) {
+	$.getJSON('/api/view-log-context', {"build_id": build_id, "context_linecount": context_linecount}, function (data) {
+		console.log(data);
+
+		if (data.success) {
+
+			var table_items = [];
+			for (var tuple of data.payload.log_lines) {
+
+				var zero_based_line_number = tuple[0];
+				var line_text = tuple[1];
+
+				var one_based_line_number = zero_based_line_number + 1;
+
+				if (zero_based_line_number == data.payload.match_info.line_number) {
+					line_text = render_highlighted_line_text(line_text, data.payload.match_info.span_start, data.payload.match_info.span_end);
+				}
+
+				var row = [render_tag("div", one_based_line_number, {"class": "line-number"}), render_tag("code", line_text)]
+				table_items.push(row);
+			}
+
+			$("#myDialog").html( render_table(table_items, {"class": "code-lines"}) );
+
+			document.getElementById("myDialog").showModal(); 
+
+		} else {
+			var proceed = confirm("Need to login first...");
+			if (proceed) {
+				window.location.href = data.error.details.login_url;
+			}
+		}
+	});
+}
+
+
 function gen_line_number_cell_with_count(cell, line_count) {
 
 	var distance_from_start = cell.getValue() + 1;
