@@ -240,8 +240,8 @@ insert_build_visitation scan_resources visitation = do
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
 
 
-insert_scan_id :: Connection -> Maybe AuthStages.Username -> ScanRecords.PatternId -> IO Int64
-insert_scan_id conn maybe_initiator (ScanRecords.NewPatternId pattern_id)  = do
+insert_scan_id :: Connection -> Maybe AuthStages.Username -> ScanPatterns.PatternId -> IO Int64
+insert_scan_id conn maybe_initiator (ScanPatterns.PatternId pattern_id)  = do
   [Only pattern_id] <- query conn sql (pattern_id, inititator)
   return pattern_id
   where

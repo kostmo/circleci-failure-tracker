@@ -34,22 +34,13 @@ import qualified GitRev
 import qualified JsonUtils
 import qualified MatchOccurrences
 import qualified ScanPatterns
-import qualified ScanRecords
 import qualified ScanUtils
 import qualified StoredBreakageReports
 import qualified WebApi
 
 
-newtype PatternId = PatternId Int64
-  deriving (Show, Generic)
-
-instance ToJSON PatternId
-instance FromJSON PatternId
-
-
-
-testFailurePatternId :: PatternId
-testFailurePatternId = PatternId 302
+testFailurePatternId :: ScanPatterns.PatternId
+testFailurePatternId = ScanPatterns.PatternId 302
 
 
 split_agg_text :: String -> [String]
@@ -131,10 +122,10 @@ get_revisitable_builds conn = do
     sql = "SELECT string_agg((patterns.id)::text, ';'), MAX(step_id) AS step_id, MAX(name) AS step_name, build_num FROM (SELECT COALESCE(scanned_patterns.newest_pattern, -1) AS latest_pattern, build_steps.build AS build_num, build_steps.name, build_steps.id AS step_id FROM build_steps LEFT JOIN scanned_patterns ON scanned_patterns.build = build_steps.build WHERE build_steps.name IS NOT NULL AND NOT build_steps.is_timeout) foo, patterns WHERE patterns.id > latest_pattern GROUP BY build_num;"
 
 
-get_latest_pattern_id :: Connection -> IO ScanRecords.PatternId
+get_latest_pattern_id :: Connection -> IO ScanPatterns.PatternId
 get_latest_pattern_id conn = do
   [Only pattern_id] <- query_ conn sql
-  return $ ScanRecords.NewPatternId pattern_id
+  return $ ScanPatterns.PatternId pattern_id
   where
     sql = "SELECT id FROM patterns ORDER BY id DESC LIMIT 1;"
 
@@ -424,7 +415,7 @@ get_revision_builds conn_data git_revision = do
         (maybe_breakage_report maybe_is_broken  maybe_reporter maybe_report_timestamp)
       where
         build_obj = Builds.NewBuild (Builds.NewBuildNumber buildnum) vcs_rev queuedat jobname branch
-        match_obj = MatchOccurrences.MatchOccurrencesForBuild step_name pattern line_number line_count line_text span_start span_end specificity
+        match_obj = MatchOccurrences.MatchOccurrencesForBuild step_name (ScanPatterns.PatternId pattern) line_number line_count line_text span_start span_end specificity
 
         maybe_breakage_report :: Maybe Bool -> Maybe Text -> Maybe UTCTime -> Maybe CommitBuilds.StoredBreakageReport
         maybe_breakage_report x y z = CommitBuilds.StoredBreakageReport <$> x <*> (AuthStages.Username <$> y) <*> z
@@ -541,8 +532,8 @@ make_pattern_records =
 
 
 -- | Returns zero or one pattern.
-api_single_pattern :: DbHelpers.DbConnectionData -> PatternId ->  IO [PatternRecord]
-api_single_pattern conn_data (PatternId pattern_id) = do
+api_single_pattern :: DbHelpers.DbConnectionData -> ScanPatterns.PatternId ->  IO [PatternRecord]
+api_single_pattern conn_data (ScanPatterns.PatternId pattern_id) = do
   conn <- DbHelpers.get_connection conn_data
   xs <- query conn sql $ Only pattern_id
   return $ make_pattern_records xs
@@ -602,7 +593,7 @@ api_patterns_branch_filtered conn_data branches = do
 
 data PatternOccurrence = PatternOccurrence {
     _build_number :: Builds.BuildNumber
-  , _pattern_id   :: PatternId
+  , _pattern_id   :: ScanPatterns.PatternId
   , _vcs_revision :: Text
   , _queued_at    :: UTCTime
   , _job_name     :: Text
@@ -619,8 +610,8 @@ instance ToJSON PatternOccurrence where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
-get_build_pattern_matches :: DbHelpers.DbConnectionData -> Int -> IO [MatchOccurrences.MatchOccurrencesForBuild]
-get_build_pattern_matches conn_data build_id = do
+get_build_pattern_matches :: DbHelpers.DbConnectionData -> Builds.BuildNumber -> IO [MatchOccurrences.MatchOccurrencesForBuild]
+get_build_pattern_matches conn_data (Builds.NewBuildNumber build_id) = do
 
   conn <- DbHelpers.get_connection conn_data
   xs <- query conn sql $ Only build_id
@@ -629,7 +620,7 @@ get_build_pattern_matches conn_data build_id = do
   where
     f (step_name, pattern, line_number, line_count, line_text, span_start, span_end, specificity) =
       MatchOccurrences.MatchOccurrencesForBuild
-        step_name pattern line_number line_count line_text span_start span_end specificity
+        step_name (ScanPatterns.PatternId pattern) line_number line_count line_text span_start span_end specificity
 
     sql = "SELECT step_name, pattern, line_number, line_count, line_text, span_start, span_end, specificity FROM matches_with_log_metadata JOIN build_steps ON matches_with_log_metadata.build_step = build_steps.id JOIN patterns_augmented ON patterns_augmented.id = matches_with_log_metadata.pattern WHERE matches_with_log_metadata.build_num = ? ORDER BY specificity DESC, patterns_augmented.id ASC, line_number ASC;"
 
@@ -662,8 +653,8 @@ pattern_occurence_txform pattern_id = txform . f
     txform ((Builds.NewBuild buildnum vcs_rev queued_at job_name branch), stepname, line_count, ScanPatterns.NewMatchDetails line_text line_number (ScanPatterns.NewMatchSpan start end)) = PatternOccurrence buildnum pattern_id vcs_rev queued_at job_name branch stepname line_number line_count line_text start end
 
 
-get_best_pattern_matches :: DbHelpers.DbConnectionData -> PatternId -> IO [PatternOccurrence]
-get_best_pattern_matches conn_data pat@(PatternId pattern_id) = do
+get_best_pattern_matches :: DbHelpers.DbConnectionData -> ScanPatterns.PatternId -> IO [PatternOccurrence]
+get_best_pattern_matches conn_data pat@(ScanPatterns.PatternId pattern_id) = do
 
   conn <- DbHelpers.get_connection conn_data
   xs <- query conn sql $ Only pattern_id
@@ -673,8 +664,8 @@ get_best_pattern_matches conn_data pat@(PatternId pattern_id) = do
     sql = "SELECT build, step_name, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch FROM best_pattern_match_augmented_builds WHERE pattern_id = ?;"
 
 
-get_best_pattern_matches_whitelisted_branches :: DbHelpers.DbConnectionData -> PatternId -> IO [PatternOccurrence]
-get_best_pattern_matches_whitelisted_branches conn_data pat@(PatternId pattern_id) = do
+get_best_pattern_matches_whitelisted_branches :: DbHelpers.DbConnectionData -> ScanPatterns.PatternId -> IO [PatternOccurrence]
+get_best_pattern_matches_whitelisted_branches conn_data pat@(ScanPatterns.PatternId pattern_id) = do
 
   conn <- DbHelpers.get_connection conn_data
 
@@ -709,7 +700,7 @@ get_best_build_match conn_data (Builds.NewBuildNumber build_id) = do
   return $ map f xs
 
   where
-    f (pattern_id, build, step_name, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch) = pattern_occurence_txform (PatternId pattern_id) (build, step_name, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch)
+    f (pattern_id, build, step_name, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch) = pattern_occurence_txform (ScanPatterns.PatternId pattern_id) (build, step_name, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch)
 
     sql = "SELECT pattern_id, build, step_name, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch FROM best_pattern_match_augmented_builds WHERE build = ?;"
 
@@ -750,14 +741,14 @@ instance ToJSON SingleBuildInfo where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
-get_build_info :: DbHelpers.DbConnectionData -> Int -> IO (Maybe SingleBuildInfo)
-get_build_info conn_data build_id = do
+get_build_info :: DbHelpers.DbConnectionData -> Builds.BuildNumber -> IO (Maybe SingleBuildInfo)
+get_build_info conn_data build@(Builds.NewBuildNumber build_id) = do
 
   conn <- DbHelpers.get_connection conn_data
   xs <- query conn sql $ Only build_id
 
   -- TODO Replace this with SQL COUNT()
-  matches <- get_build_pattern_matches conn_data build_id
+  matches <- get_build_pattern_matches conn_data build
 
   return $ f (length matches) <$> Safe.headMay xs
   where
@@ -774,7 +765,7 @@ get_build_info conn_data build_id = do
     sql = "SELECT step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch, implicated_revision, is_broken, breakage_notes, reporter FROM builds_with_reports where build_num = ?;"
 
 
-get_pattern_matches :: DbHelpers.DbConnectionData -> PatternId -> IO [PatternOccurrence]
+get_pattern_matches :: DbHelpers.DbConnectionData -> ScanPatterns.PatternId -> IO [PatternOccurrence]
 get_pattern_matches conn_data pattern_id = do
   rows <- get_pattern_occurrence_rows conn_data pattern_id
   return $ map f rows
@@ -784,8 +775,8 @@ get_pattern_matches conn_data pattern_id = do
       PatternOccurrence buildnum pattern_id vcs_rev queued_at job_name branch stepname line_number line_count line_text start end
 
 
-get_pattern_occurrence_rows :: DbHelpers.DbConnectionData -> PatternId -> IO [(Builds.Build, Text, Int, ScanPatterns.MatchDetails)]
-get_pattern_occurrence_rows conn_data (PatternId pattern_id) = do
+get_pattern_occurrence_rows :: DbHelpers.DbConnectionData -> ScanPatterns.PatternId -> IO [(Builds.Build, Text, Int, ScanPatterns.MatchDetails)]
+get_pattern_occurrence_rows conn_data (ScanPatterns.PatternId pattern_id) = do
 
   conn <- DbHelpers.get_connection conn_data
   xs <- query conn sql $ Only pattern_id

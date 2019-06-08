@@ -8,8 +8,16 @@ module ScanPatterns where
 import           Data.Aeson
 import           Data.Text    (Text)
 import           GHC.Generics
+import           GHC.Int      (Int64)
 
 import qualified DbHelpers
+
+
+newtype PatternId = PatternId Int64
+  deriving (Show, Generic)
+
+instance ToJSON PatternId
+instance FromJSON PatternId
 
 
 data MatchExpression =

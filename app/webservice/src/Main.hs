@@ -380,7 +380,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     S.get "/api/pattern" $ do
       pattern_id <- S.param "pattern_id"
-      S.json =<< liftIO (SqlRead.api_single_pattern connection_data $ SqlRead.PatternId pattern_id)
+      S.json =<< liftIO (SqlRead.api_single_pattern connection_data $ ScanPatterns.PatternId pattern_id)
 
     S.get "/api/patterns-dump" $ do
       S.json =<< liftIO (SqlRead.dump_patterns connection_data)
@@ -426,7 +426,6 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       S.json $ WebApi.toJsonEither insertion_result
 
 
-
     S.post "/api/patterns-restore" $ do
       body_json <- S.jsonData
 
@@ -453,7 +452,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     S.get "/api/single-build-info" $ do
       build_id <- S.param "build_id"
-      S.json =<< liftIO (SqlRead.get_build_info connection_data build_id)
+      S.json =<< liftIO (SqlRead.get_build_info connection_data $ Builds.NewBuildNumber build_id)
 
     S.get "/api/best-build-match" $ do
       build_id <- S.param "build_id"
@@ -461,15 +460,15 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     S.get "/api/build-pattern-matches" $ do
       build_id <- S.param "build_id"
-      S.json =<< liftIO (SqlRead.get_build_pattern_matches connection_data build_id)
+      S.json =<< liftIO (SqlRead.get_build_pattern_matches connection_data $ Builds.NewBuildNumber build_id)
 
     S.get "/api/best-pattern-matches" $ do
       pattern_id <- S.param "pattern_id"
-      S.json =<< liftIO (SqlRead.get_best_pattern_matches connection_data $ SqlRead.PatternId pattern_id)
+      S.json =<< liftIO (SqlRead.get_best_pattern_matches connection_data $ ScanPatterns.PatternId pattern_id)
 
     S.get "/api/pattern-matches" $ do
       pattern_id <- S.param "pattern_id"
-      S.json =<< liftIO (SqlRead.get_pattern_matches connection_data $ SqlRead.PatternId pattern_id)
+      S.json =<< liftIO (SqlRead.get_pattern_matches connection_data $ ScanPatterns.PatternId pattern_id)
 
     S.get "/favicon.ico" $ do
       S.setHeader "Content-Type" "image/x-icon"

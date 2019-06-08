@@ -11,9 +11,6 @@ import qualified DbHelpers
 import qualified ScanPatterns
 
 
-data PatternId = NewPatternId Int64
-
-
 data UnidentifiedBuildFailure = NetworkProblem String | NoFailedSteps
 
 
@@ -33,7 +30,7 @@ data FetchingResources = FetchingResources {
 
 data ScanCatchupResources = ScanCatchupResources {
     scan_id           :: Int64
-  , newest_pattern_id :: PatternId
+  , newest_pattern_id :: ScanPatterns.PatternId
   , patterns_by_id    :: HashMap Int64 ScanPatterns.Pattern
   , fetching          :: FetchingResources
   }
