@@ -40,8 +40,16 @@ import qualified StoredBreakageReports
 import qualified WebApi
 
 
-testFailurePatternId :: Int64
-testFailurePatternId = 302
+newtype PatternId = PatternId Int64
+  deriving (Show, Generic)
+
+instance ToJSON PatternId
+instance FromJSON PatternId
+
+
+
+testFailurePatternId :: PatternId
+testFailurePatternId = PatternId 302
 
 
 split_agg_text :: String -> [String]
@@ -533,8 +541,8 @@ make_pattern_records =
 
 
 -- | Returns zero or one pattern.
-api_single_pattern :: DbHelpers.DbConnectionData -> Int64 ->  IO [PatternRecord]
-api_single_pattern conn_data pattern_id = do
+api_single_pattern :: DbHelpers.DbConnectionData -> PatternId ->  IO [PatternRecord]
+api_single_pattern conn_data (PatternId pattern_id) = do
   conn <- DbHelpers.get_connection conn_data
   xs <- query conn sql $ Only pattern_id
   return $ make_pattern_records xs
@@ -594,7 +602,7 @@ api_patterns_branch_filtered conn_data branches = do
 
 data PatternOccurrence = PatternOccurrence {
     _build_number :: Builds.BuildNumber
-  , _pattern_id   :: Int64
+  , _pattern_id   :: PatternId
   , _vcs_revision :: Text
   , _queued_at    :: UTCTime
   , _job_name     :: Text
@@ -654,24 +662,24 @@ pattern_occurence_txform pattern_id = txform . f
     txform ((Builds.NewBuild buildnum vcs_rev queued_at job_name branch), stepname, line_count, ScanPatterns.NewMatchDetails line_text line_number (ScanPatterns.NewMatchSpan start end)) = PatternOccurrence buildnum pattern_id vcs_rev queued_at job_name branch stepname line_number line_count line_text start end
 
 
-get_best_pattern_matches :: DbHelpers.DbConnectionData -> Int64 -> IO [PatternOccurrence]
-get_best_pattern_matches conn_data pattern_id = do
+get_best_pattern_matches :: DbHelpers.DbConnectionData -> PatternId -> IO [PatternOccurrence]
+get_best_pattern_matches conn_data pat@(PatternId pattern_id) = do
 
   conn <- DbHelpers.get_connection conn_data
   xs <- query conn sql $ Only pattern_id
-  return $ map (pattern_occurence_txform pattern_id) xs
+  return $ map (pattern_occurence_txform pat) xs
 
   where
     sql = "SELECT build, step_name, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch FROM best_pattern_match_augmented_builds WHERE pattern_id = ?;"
 
 
-get_best_pattern_matches_whitelisted_branches :: DbHelpers.DbConnectionData -> Int64 -> IO [PatternOccurrence]
-get_best_pattern_matches_whitelisted_branches conn_data pattern_id = do
+get_best_pattern_matches_whitelisted_branches :: DbHelpers.DbConnectionData -> PatternId -> IO [PatternOccurrence]
+get_best_pattern_matches_whitelisted_branches conn_data pat@(PatternId pattern_id) = do
 
   conn <- DbHelpers.get_connection conn_data
 
   xs <- query conn sql $ Only pattern_id
-  return $ map (pattern_occurence_txform pattern_id) xs
+  return $ map (pattern_occurence_txform pat) xs
 
   where
     sql = "SELECT build, step_name, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch FROM best_pattern_match_augmented_builds WHERE pattern_id = ? AND branch IN (SELECT branch from presumed_stable_branches);"
@@ -701,7 +709,7 @@ get_best_build_match conn_data (Builds.NewBuildNumber build_id) = do
   return $ map f xs
 
   where
-    f (pattern_id, build, step_name, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch) = pattern_occurence_txform pattern_id (build, step_name, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch)
+    f (pattern_id, build, step_name, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch) = pattern_occurence_txform (PatternId pattern_id) (build, step_name, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch)
 
     sql = "SELECT pattern_id, build, step_name, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch FROM best_pattern_match_augmented_builds WHERE build = ?;"
 
@@ -766,7 +774,7 @@ get_build_info conn_data build_id = do
     sql = "SELECT step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch, implicated_revision, is_broken, breakage_notes, reporter FROM builds_with_reports where build_num = ?;"
 
 
-get_pattern_matches :: DbHelpers.DbConnectionData -> Int64 -> IO [PatternOccurrence]
+get_pattern_matches :: DbHelpers.DbConnectionData -> PatternId -> IO [PatternOccurrence]
 get_pattern_matches conn_data pattern_id = do
   rows <- get_pattern_occurrence_rows conn_data pattern_id
   return $ map f rows
@@ -776,8 +784,8 @@ get_pattern_matches conn_data pattern_id = do
       PatternOccurrence buildnum pattern_id vcs_rev queued_at job_name branch stepname line_number line_count line_text start end
 
 
-get_pattern_occurrence_rows :: DbHelpers.DbConnectionData -> Int64 -> IO [(Builds.Build, Text, Int, ScanPatterns.MatchDetails)]
-get_pattern_occurrence_rows conn_data pattern_id = do
+get_pattern_occurrence_rows :: DbHelpers.DbConnectionData -> PatternId -> IO [(Builds.Build, Text, Int, ScanPatterns.MatchDetails)]
+get_pattern_occurrence_rows conn_data (PatternId pattern_id) = do
 
   conn <- DbHelpers.get_connection conn_data
   xs <- query conn sql $ Only pattern_id

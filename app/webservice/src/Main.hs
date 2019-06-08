@@ -380,7 +380,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     S.get "/api/pattern" $ do
       pattern_id <- S.param "pattern_id"
-      S.json =<< liftIO (SqlRead.api_single_pattern connection_data pattern_id)
+      S.json =<< liftIO (SqlRead.api_single_pattern connection_data $ SqlRead.PatternId pattern_id)
 
     S.get "/api/patterns-dump" $ do
       S.json =<< liftIO (SqlRead.dump_patterns connection_data)
@@ -465,11 +465,11 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     S.get "/api/best-pattern-matches" $ do
       pattern_id <- S.param "pattern_id"
-      S.json =<< liftIO (SqlRead.get_best_pattern_matches connection_data pattern_id)
+      S.json =<< liftIO (SqlRead.get_best_pattern_matches connection_data $ SqlRead.PatternId pattern_id)
 
     S.get "/api/pattern-matches" $ do
       pattern_id <- S.param "pattern_id"
-      S.json =<< liftIO (SqlRead.get_pattern_matches connection_data pattern_id)
+      S.json =<< liftIO (SqlRead.get_pattern_matches connection_data $ SqlRead.PatternId pattern_id)
 
     S.get "/favicon.ico" $ do
       S.setHeader "Content-Type" "image/x-icon"
