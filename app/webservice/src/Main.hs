@@ -42,6 +42,7 @@ import qualified DbHelpers
 import qualified DbInsertion
 import qualified GitRev
 import qualified JsonUtils
+import qualified MatchOccurrences
 import qualified Scanning
 import qualified ScanPatterns
 import qualified Session
@@ -127,11 +128,11 @@ echo_endpoint = S.post "/api/echo" $ do
 
 
 retrieve_log_context session github_config connection_data = do
-  build_id <- S.param "build_id"
+  match_id <- S.param "match_id"
   context_linecount <- S.param "context_linecount"
 
   let callback_func :: AuthStages.Username -> IO (Either Text SqlRead.LogContext)
-      callback_func _user_alias = SqlRead.log_context_func connection_data (Builds.NewBuildNumber build_id) context_linecount
+      callback_func _user_alias = SqlRead.log_context_func connection_data (MatchOccurrences.MatchId match_id) context_linecount
 
   rq <- S.request
   either_log_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func

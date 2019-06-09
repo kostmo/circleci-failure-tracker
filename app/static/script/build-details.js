@@ -49,11 +49,9 @@ function gen_builds_table(element_id, data_url, height_string) {
 				},
 				cellClick: function(e, cell){
 
-					if (height_string == null) {
-						var row_data = cell.getRow().getData();
-						var build_id = row_data["build_number"];
-						get_log_text(build_id, 5);
-					}
+					var row_data = cell.getRow().getData();
+					var match_id = row_data["match_id"];
+					get_log_text(match_id, 5);
 				},
 			},
 			{title: "Pattern", field: "pattern_id", formatter: "link", formatterParams: {urlPrefix: "/pattern-details.html?pattern_id="}, width: 75},
@@ -72,11 +70,9 @@ function populate_build_info(build_id) {
 		var data = parent_data["build_info"];
 
 		var local_logview_item_full = "<a href='/api/view-log-full?build_id=" + build_id + "'>View full log</a>";
-		var local_logview_item = "<button onclick='get_log_text(" + build_id + ", " + context_line_count + ");'>View error in context</button>";
 		var logview_items = render_list([
 			"View log <a href='https://circleci.com/gh/pytorch/pytorch/" + build_id + "'>on CircleCI</a>",
 			local_logview_item_full,
-			local_logview_item,
 		]);
 
 		var full_commit = data["build"]["vcs_revision"];

@@ -333,7 +333,8 @@ CREATE VIEW public.best_pattern_match_augmented_builds WITH (security_barrier='f
     best_pattern_match_for_builds.specificity,
     builds_with_reports.is_broken,
     builds_with_reports.reporter,
-    builds_with_reports.report_timestamp
+    builds_with_reports.report_timestamp,
+    matches_with_log_metadata.id AS match_id
    FROM ((public.best_pattern_match_for_builds
      JOIN public.matches_with_log_metadata ON (((matches_with_log_metadata.pattern = best_pattern_match_for_builds.pattern_id) AND (matches_with_log_metadata.build_num = best_pattern_match_for_builds.build))))
      JOIN public.builds_with_reports ON ((builds_with_reports.build_num = best_pattern_match_for_builds.build)))

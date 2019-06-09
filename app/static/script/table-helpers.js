@@ -8,8 +8,8 @@ function gen_error_cell_html(cell) {
 }
 
 
-function get_log_text(build_id, context_linecount) {
-	$.getJSON('/api/view-log-context', {"build_id": build_id, "context_linecount": context_linecount}, function (data) {
+function get_log_text(match_id, context_linecount) {
+	$.getJSON('/api/view-log-context', {"match_id": match_id, "context_linecount": context_linecount}, function (data) {
 
 		if (data.success) {
 

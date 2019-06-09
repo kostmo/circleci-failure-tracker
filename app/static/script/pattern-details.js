@@ -21,8 +21,8 @@ function gen_matches_table(element_id, data_url) {
 			cellClick: function(e, cell){
 
 				var row_data = cell.getRow().getData();
-				var build_id = row_data["build_number"];
-				get_log_text(build_id, 5);
+				var match_id = row_data["match_id"];
+				get_log_text(match_id, 5);
 		    },
 	        },
 	    ],
