@@ -36,6 +36,12 @@ instance ToJSON Build
 instance FromJSON Build
 
 
+data BuildWithStepFailure = BuildWithStepFailure {
+    build_object        :: Build
+  , step_failure_object :: BuildStepFailure
+  } deriving Show
+
+
 data BuildStepFailure = NewBuildStepFailure {
     step_name    :: Text
   , failure_mode :: BuildFailureMode

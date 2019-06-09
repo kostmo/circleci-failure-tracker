@@ -754,7 +754,10 @@ instance ToJSON SingleBuildInfo where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
-get_build_info :: DbHelpers.DbConnectionData -> Builds.BuildNumber -> IO (Maybe SingleBuildInfo)
+get_build_info ::
+     DbHelpers.DbConnectionData
+  -> Builds.BuildNumber
+  -> IO (Either Text SingleBuildInfo)
 get_build_info conn_data build@(Builds.NewBuildNumber build_id) = do
 
   conn <- DbHelpers.get_connection conn_data
@@ -763,7 +766,7 @@ get_build_info conn_data build@(Builds.NewBuildNumber build_id) = do
   -- TODO Replace this with SQL COUNT()
   matches <- get_build_pattern_matches conn_data build
 
-  return $ f (length matches) <$> Safe.headMay xs
+  return $ f (length matches) <$> maybeToEither (T.pack $ "Build with ID " ++ show build_id ++ " not found!") (Safe.headMay xs)
   where
     f multi_match_count (step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch, maybe_implicated_revision, maybe_is_broken, maybe_notes, maybe_reporter) = SingleBuildInfo multi_match_count step_container
       where

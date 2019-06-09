@@ -189,10 +189,10 @@ restore_patterns conn_data pattern_list = do
   return $ sequenceA eithers
 
 
-step_failure_to_tuple :: (BuildNumber, Either BuildStepFailure ScanRecords.UnidentifiedBuildFailure) -> (Int64, Maybe Text, Bool)
+step_failure_to_tuple :: (BuildNumber, Either BuildWithStepFailure ScanRecords.UnidentifiedBuildFailure) -> (Int64, Maybe Text, Bool)
 step_failure_to_tuple (NewBuildNumber buildnum, visitation_result) = case visitation_result of
   Right _ -> (buildnum, Nothing, False)
-  Left (NewBuildStepFailure stepname mode) -> let
+  Left (Builds.BuildWithStepFailure _build_obj (NewBuildStepFailure stepname mode)) -> let
     is_timeout = case mode of
       BuildTimeoutFailure              -> True
       ScannableFailure _failure_output -> False
@@ -230,7 +230,7 @@ insert_latest_pattern_build_scan scan_resources (NewBuildNumber build_number) pa
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
 
 
-insert_build_visitation :: ScanRecords.ScanCatchupResources -> (BuildNumber, Either BuildStepFailure ScanRecords.UnidentifiedBuildFailure) -> IO BuildStepId
+insert_build_visitation :: ScanRecords.ScanCatchupResources -> (BuildNumber, Either BuildWithStepFailure ScanRecords.UnidentifiedBuildFailure) -> IO BuildStepId
 insert_build_visitation scan_resources visitation = do
 
   [Only step_id] <- query conn sql $ step_failure_to_tuple visitation

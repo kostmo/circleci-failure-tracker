@@ -73,14 +73,22 @@ populate_builds branch_name max_build_count max_age_days = do
 
   sess <- Sess.newSession
   current_time <- Clock.getCurrentTime
+
   let seconds_per_day = Clock.nominalDiffTimeToSeconds $ Clock.nominalDay
       seconds_offset = seconds_per_day * (MkFixed $ fromIntegral max_age_days)
       time_diff = Clock.secondsToNominalDiffTime seconds_offset
       earliest_requested_time = Clock.addUTCTime time_diff current_time
+
   populate_builds_recurse sess branch_name 0 earliest_requested_time max_build_count
 
 
-populate_builds_recurse :: Sess.Session -> String -> Int -> UTCTime -> Int -> IO [Build]
+populate_builds_recurse ::
+     Sess.Session
+  -> String
+  -> Int
+  -> UTCTime
+  -> Int
+  -> IO [Build]
 populate_builds_recurse sess branch_name offset earliest_requested_time max_build_count = do
 
   if max_build_count > 0
@@ -96,7 +104,6 @@ populate_builds_recurse sess branch_name offset earliest_requested_time max_buil
 
       let fetched_build_count = length builds
           builds_left = max_build_count - fetched_build_count
-
 
       case Safe.minimumMay $ map Builds.queued_at builds of
         Nothing ->

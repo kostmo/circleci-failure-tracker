@@ -10,6 +10,12 @@ function render_tag(tag, content, attributes) {
 	return "<" + kv_pairs.join(" ") + ">" + content + "</" + tag + ">";
 }
 
+
+function link(text, url) {
+	return render_tag("a", text, {"href": url});
+}
+
+
 function render_pair(term, definition) {
 	return render_tag("dt", term) + render_tag("dd", definition);
 }

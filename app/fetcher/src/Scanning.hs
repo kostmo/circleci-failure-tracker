@@ -7,6 +7,7 @@ import           Control.Monad.IO.Class     (liftIO)
 import           Control.Monad.Trans.Except (ExceptT (ExceptT), runExceptT)
 import           Data.Aeson                 (Value)
 import           Data.Aeson.Lens            (key, _Array, _Bool, _String)
+import           Data.Bifunctor             (first)
 import qualified Data.Either                as Either
 import           Data.Either.Combinators    (rightToMaybe)
 import qualified Data.HashMap.Strict        as HashMap
@@ -25,6 +26,7 @@ import qualified Safe
 
 import qualified AuthStages
 import qualified Builds
+import qualified CircleBuild
 import qualified Constants
 import qualified DbHelpers
 import qualified FetchHelpers
@@ -71,10 +73,17 @@ rescan_single_build db_connection_data initiator build_to_scan = do
   putStrLn $ "Rescanning build: " ++ show build_to_scan
   conn <- DbHelpers.get_connection db_connection_data
   scan_resources <- prepare_scan_resources conn $ Just initiator
-  scan_matches <- scan_builds scan_resources $ Left $ Set.singleton build_to_scan
-  putStrLn $ "Found " ++ show (length scan_matches) ++ " matches."
 
-  return ()
+  either_visitation_result <- get_failed_build_info scan_resources build_to_scan
+  case either_visitation_result of
+    Right _ -> return ()
+    Left (Builds.BuildWithStepFailure build_obj _step_failure) -> do
+
+      SqlWrite.store_builds_list conn [build_obj]
+
+      scan_matches <- scan_builds scan_resources $ Left $ Set.singleton build_to_scan
+      putStrLn $ "Found " ++ show (length scan_matches) ++ " matches."
+      return ()
 
 
 get_single_build_url :: Builds.BuildNumber -> String
@@ -191,7 +200,7 @@ process_unvisited_builds scan_resources unvisited_builds_list = do
 
     either_matches <- case visitation_result of
       Right _ -> return $ Right []
-      Left (Builds.NewBuildStepFailure step_name mode) -> case mode of
+      Left (Builds.BuildWithStepFailure _build_obj (Builds.NewBuildStepFailure step_name mode)) -> case mode of
         Builds.BuildTimeoutFailure             -> return $ Right []
         Builds.ScannableFailure failure_output ->
           catchup_scan scan_resources build_step_id step_name (build_num, Just failure_output) $
@@ -213,21 +222,25 @@ process_unvisited_builds scan_resources unvisited_builds_list = do
 get_failed_build_info ::
      ScanRecords.ScanCatchupResources
   -> Builds.BuildNumber
-  -> IO (Either Builds.BuildStepFailure ScanRecords.UnidentifiedBuildFailure)
+  -> IO (Either Builds.BuildWithStepFailure ScanRecords.UnidentifiedBuildFailure)
 get_failed_build_info scan_resources build_number = do
 
   putStrLn $ "Fetching from: " ++ fetch_url
 
-  either_r <- FetchHelpers.safeGetUrl $ Sess.getWith opts sess fetch_url
+  either_r <- runExceptT $ do
+    r <- ExceptT $ FetchHelpers.safeGetUrl $ Sess.getWith opts sess fetch_url
+    jsonified_r <- NW.asJSON r
+    return $ jsonified_r ^. NW.responseBody
 
   return $ case either_r of
     Right r -> do
-      let steps_list = r ^. NW.responseBody . key "steps" . _Array
+
+      let steps_list = CircleBuild.steps r
 
       -- We expect to short circuit here and return a build step failure,
       -- but if we don't, we proceed
       -- to the NoFailedSteps return value.
-      mapM_ get_step_failure steps_list
+      first (Builds.BuildWithStepFailure $ CircleBuild.toBuild build_number r) $ mapM_ get_step_failure steps_list
       return ScanRecords.NoFailedSteps
 
     Left err_message -> do
@@ -259,7 +272,7 @@ get_and_store_log scan_resources build_number build_step_id maybe_failed_build_o
 
           return $ case visitation_result of
             Right _ -> Left "This build didn't have a console log!"
-            Left (Builds.NewBuildStepFailure _step_name mode) -> case mode of
+            Left (Builds.BuildWithStepFailure _build_obj (Builds.NewBuildStepFailure _step_name mode)) -> case mode of
               Builds.BuildTimeoutFailure             -> Left "This build didn't have a console log because it was a timeout!"
               Builds.ScannableFailure failure_output -> Right $ Builds.log_url failure_output
 
