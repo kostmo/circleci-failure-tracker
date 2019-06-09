@@ -85,77 +85,86 @@ function gen_patterns_table(pattern_id, filtered_branches) {
         var height = pattern_id == null ? "400px" : null;
 
 	var table = new Tabulator("#patterns-table", {
-	    height: height,
-	    layout:"fitColumns",
-	    placeholder:"No Data Set",
-	    columns:[
-		{title:"Tags", field: "tags", sorter: "string", formatter: function(cell, formatterParams, onRendered) {
-		                var tag_list = cell.getValue();
-				var pattern_id = cell.getRow().getData()["id"];
+		height: height,
+/*
+		rowClick: function(e, row) {
+			var pattern_id = row.getData()["id"];
+			window.location.href = "/pattern-details.html?pattern_id=" + pattern_id;
 
-				var tag_elements = tag_list.map(function(val) {
-					var class_list = ["tag"];
-					if (TAG_CLASSES.has(val)) {
-						class_list.push("tag-class-" + val);
-					}
+		},
+*/
+		layout:"fitColumns",
+		placeholder:"No Data Set",
+		columns:[
+			{title:"Tags", field: "tags", sorter: "string",
+				formatter: function(cell, formatterParams, onRendered) {
+				        var tag_list = cell.getValue();
+					var pattern_id = cell.getRow().getData()["id"];
 
-					return "<span onclick='remove_pattern_tag(" + pattern_id + ",\"" + val + "\");' class='" + class_list.join(" ") + "'>" + val + "</span>";
-				});
+					var tag_elements = tag_list.map(function(val) {
+						var class_list = ["tag"];
+						if (TAG_CLASSES.has(val)) {
+							class_list.push("tag-class-" + val);
+						}
 
-				tag_elements.push("<button class='tag-add-button' style='display: none;' id='tag-add-button-" + pattern_id + "' onclick='add_tag(" + pattern_id + ");'>+</button>");
-				return tag_elements.join(" ");
-			},
-			cellMouseEnter: function(e, cell) {
-				var pattern_id = cell.getRow().getData()["id"];
-				$("#tag-add-button-" + pattern_id).show();
+						return "<span onclick='remove_pattern_tag(" + pattern_id + ",\"" + val + "\");' class='" + class_list.join(" ") + "'>" + val + "</span>";
+					});
 
+					tag_elements.push("<button class='tag-add-button' style='display: none;' id='tag-add-button-" + pattern_id + "' onclick='add_tag(" + pattern_id + ");'>+</button>");
+					return tag_elements.join(" ");
+				},
+				cellMouseEnter: function(e, cell) {
+					var pattern_id = cell.getRow().getData()["id"];
+					$("#tag-add-button-" + pattern_id).show();
+
+				},
+				cellMouseLeave: function(e, cell) {
+					var pattern_id = cell.getRow().getData()["id"];
+					$("#tag-add-button-" + pattern_id).hide();
+				},
 			},
-			cellMouseLeave: function(e, cell) {
-				var pattern_id = cell.getRow().getData()["id"];
-				$("#tag-add-button-" + pattern_id).hide();
+			{title:"Steps", field:"steps", sorter:"string"},
+			{title:"Regex?", field:"is_regex", align:"center", formatter:"tickCross", sorter:"boolean", formatterParams: {crossElement: false}, width: 75},
+			{title:"Pattern", field:"pattern", sorter:"string", widthGrow: 3,
+				cssClass: "pattern-expression",
+				formatter: "link",
+				formatterParams: {
+					urlPrefix: "/pattern-details.html?pattern_id=",
+					urlField: "id",
+				},
+		        },
+			{title:"Description", field:"description", sorter:"string",
+				widthGrow: 2,
+				editor: "input",
+				cellEdited: function(cell) {
+					var pattern_id = cell.getRow().getData()["id"];
+					var new_description = cell.getValue();
+					update_description(pattern_id, new_description);
+				},
 			},
-		},
-		{title:"Steps", field:"steps", sorter:"string"},
-		{title:"Regex?", field:"is_regex", align:"center", formatter:"tickCross", sorter:"boolean", formatterParams: {crossElement: false}, width: 75},
-		{title:"Pattern", field:"pattern", sorter:"string", widthGrow: 3, formatter: function(cell, formatterParams, onRendered) {
-				return "<code>" + cell.getValue() + "</code>";
+			{title:"Count", field:"frequency", sorter:"number", align:"center", width: 75},
+			{title:"Since", field:"earliest", sorter:"datetime", align:"center", formatter: function(cell, formatterParams, onRendered) {
+				return render_relative_time(cell)
+			    }
 			},
-                },
-		{title:"Description", field:"description", sorter:"string", formatter: "link", formatterParams: {
-				urlPrefix: "/pattern-details.html?pattern_id=",
-				urlField: "id",
+			{title:"Until", field:"last", sorter:"datetime", align:"center", formatter: function(cell, formatterParams, onRendered) {
+				return render_relative_time(cell);
+			    }
 			},
-			widthGrow: 2,
-			editor: "input",
-			cellEdited: function(cell) {
-				var pattern_id = cell.getRow().getData()["id"];
-				var new_description = cell.getValue();
-				update_description(pattern_id, new_description);
+			{title:"Specificity", field:"specificity", sorter:"number", align:"center", width: 100,
+				editor:"number",
+				editorParams:{
+				    "min": 1,
+				    "max": 100,
+				},
+				cellEdited: function(cell) {
+					var pattern_id = cell.getRow().getData()["id"];
+					var new_specificity = cell.getValue();
+					update_specificity(pattern_id, new_specificity);
+				},
 			},
-		},
-		{title:"Count", field:"frequency", sorter:"number", align:"center", width: 75},
-		{title:"Since", field:"earliest", sorter:"datetime", align:"center", formatter: function(cell, formatterParams, onRendered) {
-			return render_relative_time(cell)
-		    }
-		},
-		{title:"Until", field:"last", sorter:"datetime", align:"center", formatter: function(cell, formatterParams, onRendered) {
-			return render_relative_time(cell);
-		    }
-		},
-		{title:"Specificity", field:"specificity", sorter:"number", align:"center", width: 100,
-			editor:"number",
-			editorParams:{
-			    "min": 1,
-			    "max": 100,
-			},
-			cellEdited: function(cell) {
-				var pattern_id = cell.getRow().getData()["id"];
-				var new_specificity = cell.getValue();
-				update_specificity(pattern_id, new_specificity);
-			},
-		},
-		{title:"Scanned percent", field:"percent_scanned", align:"center", sorter:"number"},
-	    ],
-            ajaxURL: api_endpoint_url,
+			{title:"Scanned percent", field:"percent_scanned", align:"center", sorter:"number"},
+		],
+		ajaxURL: api_endpoint_url,
 	});
 }

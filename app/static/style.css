@@ -3,6 +3,19 @@ body {
 }
 
 
+.pattern-expression {
+	font-family: monospace;
+}
+
+.pattern-expression a:link {
+	text-decoration: none;
+}
+
+
+.pattern-expression a:hover {
+	text-decoration: underline;
+}
+
 
 .pattern-match-highlight {
 	background-color: #fcc;
