@@ -21,11 +21,14 @@ function get_log_text(match_id, context_linecount) {
 
 				var one_based_line_number = zero_based_line_number + 1;
 
+				var formatted_line_text;
 				if (zero_based_line_number == data.payload.match_info.line_number) {
-					line_text = render_highlighted_line_text(line_text, data.payload.match_info.span_start, data.payload.match_info.span_end);
+					formatted_line_text = render_highlighted_line_text(line_text, data.payload.match_info.span.start, data.payload.match_info.span.end);
+				} else {
+					formatted_line_text = line_text;
 				}
 
-				var row = [render_tag("div", one_based_line_number, {"class": "line-number"}), render_tag("code", line_text)]
+				var row = [render_tag("div", one_based_line_number, {"class": "line-number"}), render_tag("code", formatted_line_text)]
 				table_items.push(row);
 			}
 

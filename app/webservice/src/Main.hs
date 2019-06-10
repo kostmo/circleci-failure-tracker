@@ -24,7 +24,6 @@ import           Network.Wai.Session               (SessionStore)
 import           Network.Wai.Session               (Session, withSession)
 import           Network.Wai.Session.ClientSession (clientsessionStore)
 import           Options.Applicative
-import qualified Safe
 import           System.Environment                (lookupEnv)
 import           System.FilePath
 import           Text.Read                         (readMaybe)
@@ -57,20 +56,37 @@ checkbox_is_true :: Text -> Bool
 checkbox_is_true = (== ("true" :: Text))
 
 
+data MutablePatternParms = MutablePatternParms {
+    pat_is_nondeterminisitc :: Bool
+  , pat_description         :: Text
+  , pat_tags_raw_text       :: String
+  }
+
+
+get_mutable_pattern_parms :: ScottyTypes.ActionT LT.Text IO MutablePatternParms
+get_mutable_pattern_parms = do
+  is_nondeterministic <- checkbox_is_true <$> S.param "is_nondeterministic"
+  description <- S.param "description"
+  tags <- S.param "tags"
+  return $ MutablePatternParms
+    is_nondeterministic
+    description
+    tags
+
+
 pattern_from_parms :: ScottyTypes.ActionT LT.Text IO ScanPatterns.Pattern
 pattern_from_parms = do
 
+  mutable_pattern_parms <- get_mutable_pattern_parms
+
   expression <- S.param "pattern"
   is_regex <- checkbox_is_true <$> S.param "is_regex"
-  is_nondeterministic <- checkbox_is_true <$> S.param "is_nondeterministic"
+
   use_lines_from_end <- checkbox_is_true <$> S.param "use_lines_from_end"
-  description <- S.param "description"
-  tags <- S.param "tags"
+
   applicable_steps <- S.param "applicable_steps"
 
-  let match_expression = if is_regex
-        then ScanPatterns.RegularExpression expression is_nondeterministic
-        else ScanPatterns.LiteralExpression expression
+  let match_expression = ScanPatterns.toMatchExpression is_regex expression $ pat_is_nondeterminisitc mutable_pattern_parms
 
   lines_from_end <- if use_lines_from_end
     then Just <$> S.param "lines_from_end"
@@ -78,8 +94,8 @@ pattern_from_parms = do
 
   return $ ScanPatterns.NewPattern
     match_expression
-    description
-    (clean_list tags)
+    (pat_description mutable_pattern_parms)
+    (clean_list $ pat_tags_raw_text mutable_pattern_parms)
     (clean_list applicable_steps)
     1
     False
@@ -127,6 +143,11 @@ echo_endpoint = S.post "/api/echo" $ do
     putStrLn "==== END BODY ===="
 
 
+retrieve_log_context ::
+     Vault.Key (Session IO String String)
+  -> AuthConfig.GithubConfig
+  -> DbHelpers.DbConnectionData
+  -> ScottyTypes.ActionT LT.Text IO ()
 retrieve_log_context session github_config connection_data = do
   match_id <- S.param "match_id"
   context_linecount <- S.param "context_linecount"
@@ -239,6 +260,28 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       S.json $ ("TODO" :: String)
 
 
+
+
+
+    -- TODO FINISH ME
+    {-
+    S.post "/api/new-pattern-replace" $ do
+
+      new_pattern <- pattern_from_parms
+      let callback_func user_alias = do
+            conn <- DbHelpers.get_connection connection_data
+            SqlWrite.copy_pattern xxx
+
+      rq <- S.request
+      insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
+      S.json $ DbInsertion.toInsertionResponse github_config insertion_result
+    -}
+
+
+
+
+
+
     S.post "/api/new-pattern-insert" $ do
 
       new_pattern <- pattern_from_parms
@@ -279,9 +322,10 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       S.json =<< liftIO (SqlRead.api_jobs connection_data)
     -}
 
-    S.get "/api/test-failures" $
+    S.get "/api/test-failures" $ do
+      pattern_id <- S.param "pattern_id"
       S.json =<< liftIO (do
-        either_items <- SqlRead.api_test_failures connection_data
+        either_items <- SqlRead.api_test_failures connection_data $ ScanPatterns.PatternId pattern_id
         return $ WebApi.toJsonEither either_items)
 
     S.get "/api/posted-statuses" $
@@ -388,6 +432,15 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     S.get "/api/presumed-stable-branches-dump" $ do
       S.json =<< liftIO (SqlRead.dump_presumed_stable_branches connection_data)
+
+    S.post "/api/pattern-specificity-update" $ do
+      pattern_id <- S.param "pattern_id"
+      specificity <- S.param "specificity"
+      let callback_func _user_alias = SqlWrite.update_pattern_specificity connection_data pattern_id specificity
+
+      rq <- S.request
+      insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
+      S.json $ WebApi.toJsonEither insertion_result
 
     S.post "/api/pattern-specificity-update" $ do
       pattern_id <- S.param "pattern_id"

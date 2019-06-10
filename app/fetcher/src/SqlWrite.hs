@@ -3,10 +3,14 @@
 
 module SqlWrite where
 
-import           Builds
+import           Control.Applicative               ((<|>))
 import           Control.Exception                 (throwIO)
+import           Control.Monad.Trans.Except        (ExceptT (ExceptT), except,
+                                                    runExceptT)
 import qualified Data.ByteString.Char8             as BS
+import           Data.Either.Utils                 (maybeToEither)
 import           Data.Foldable                     (for_)
+import qualified Data.Maybe                        as Maybe
 import           Data.Text                         (Text)
 import qualified Data.Text                         as T
 import           Data.Time.Format                  (defaultTimeLocale,
@@ -16,24 +20,27 @@ import           Data.Traversable                  (for)
 import           Database.PostgreSQL.Simple
 import           Database.PostgreSQL.Simple.Errors
 import           GHC.Int                           (Int64)
+import qualified Safe
 
 import qualified ApiPost
 import qualified AuthStages
 import qualified Breakages
+import qualified Builds
 import qualified DbHelpers
 import qualified ScanPatterns
 import qualified ScanRecords
+import qualified SqlRead
 
 
-build_to_tuple :: Build -> (Int64, Text, Text, Text, Text)
-build_to_tuple (NewBuild (NewBuildNumber build_num) vcs_rev queuedat jobname branch) =
+build_to_tuple :: Builds.Build -> (Int64, Text, Text, Text, Text)
+build_to_tuple (Builds.NewBuild (Builds.NewBuildNumber build_num) vcs_rev queuedat jobname branch) =
   (build_num, vcs_rev, queued_at_string, jobname, branch)
   where
     queued_at_string = T.pack $ formatTime defaultTimeLocale rfc822DateFormat queuedat
 
 
 -- | This is idempotent; builds that are already present will not be overwritten
-store_builds_list :: Connection -> [Build] -> IO Int64
+store_builds_list :: Connection -> [Builds.Build] -> IO Int64
 store_builds_list conn builds_list =
   executeMany conn sql $ map build_to_tuple builds_list
   where
@@ -42,11 +49,11 @@ store_builds_list conn builds_list =
 
 store_matches ::
      ScanRecords.ScanCatchupResources
-  -> BuildStepId
-  -> BuildNumber
+  -> Builds.BuildStepId
+  -> Builds.BuildNumber
   -> [ScanPatterns.ScanMatch]
   -> IO Int64
-store_matches scan_resources (NewBuildStepId build_step_id) _build_num scoped_matches =
+store_matches scan_resources (Builds.NewBuildStepId build_step_id) _build_num scoped_matches =
   executeMany conn insertion_sql $ map to_tuple scoped_matches
 
   where
@@ -189,13 +196,13 @@ restore_patterns conn_data pattern_list = do
   return $ sequenceA eithers
 
 
-step_failure_to_tuple :: (BuildNumber, Either BuildWithStepFailure ScanRecords.UnidentifiedBuildFailure) -> (Int64, Maybe Text, Bool)
-step_failure_to_tuple (NewBuildNumber buildnum, visitation_result) = case visitation_result of
+step_failure_to_tuple :: (Builds.BuildNumber, Either Builds.BuildWithStepFailure ScanRecords.UnidentifiedBuildFailure) -> (Int64, Maybe Text, Bool)
+step_failure_to_tuple (Builds.NewBuildNumber buildnum, visitation_result) = case visitation_result of
   Right _ -> (buildnum, Nothing, False)
-  Left (Builds.BuildWithStepFailure _build_obj (NewBuildStepFailure stepname mode)) -> let
+  Left (Builds.BuildWithStepFailure _build_obj (Builds.NewBuildStepFailure stepname mode)) -> let
     is_timeout = case mode of
-      BuildTimeoutFailure              -> True
-      ScannableFailure _failure_output -> False
+      Builds.BuildTimeoutFailure              -> True
+      Builds.ScannableFailure _failure_output -> False
     in (buildnum, Just stepname, is_timeout)
 
 
@@ -209,8 +216,8 @@ populate_presumed_stable_branches conn branch_names = do
 
 
 
-store_log_info :: ScanRecords.ScanCatchupResources -> BuildStepId -> ScanRecords.LogInfo -> IO Int64
-store_log_info scan_resources (NewBuildStepId step_id) (ScanRecords.LogInfo byte_count line_count log_content) = do
+store_log_info :: ScanRecords.ScanCatchupResources -> Builds.BuildStepId -> ScanRecords.LogInfo -> IO Int64
+store_log_info scan_resources (Builds.NewBuildStepId step_id) (ScanRecords.LogInfo byte_count line_count log_content) = do
 
   execute conn sql (step_id, line_count, byte_count, log_content)
 
@@ -219,8 +226,8 @@ store_log_info scan_resources (NewBuildStepId step_id) (ScanRecords.LogInfo byte
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
 
 
-insert_latest_pattern_build_scan :: ScanRecords.ScanCatchupResources -> BuildNumber -> Int64 -> IO ()
-insert_latest_pattern_build_scan scan_resources (NewBuildNumber build_number) pattern_id = do
+insert_latest_pattern_build_scan :: ScanRecords.ScanCatchupResources -> Builds.BuildNumber -> Int64 -> IO ()
+insert_latest_pattern_build_scan scan_resources (Builds.NewBuildNumber build_number) pattern_id = do
 
   execute conn sql (ScanRecords.scan_id scan_resources, build_number, pattern_id)
   return ()
@@ -230,11 +237,11 @@ insert_latest_pattern_build_scan scan_resources (NewBuildNumber build_number) pa
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
 
 
-insert_build_visitation :: ScanRecords.ScanCatchupResources -> (BuildNumber, Either BuildWithStepFailure ScanRecords.UnidentifiedBuildFailure) -> IO BuildStepId
+insert_build_visitation :: ScanRecords.ScanCatchupResources -> (Builds.BuildNumber, Either Builds.BuildWithStepFailure ScanRecords.UnidentifiedBuildFailure) -> IO Builds.BuildStepId
 insert_build_visitation scan_resources visitation = do
 
   [Only step_id] <- query conn sql $ step_failure_to_tuple visitation
-  return $ NewBuildStepId step_id
+  return $ Builds.NewBuildStepId step_id
   where
     sql = "INSERT INTO build_steps(build, name, is_timeout) VALUES(?,?,?) RETURNING id;"
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
@@ -268,6 +275,62 @@ api_new_breakage_report
 
     catcher _ (UniqueViolation some_error) = return $ Left $ "Insertion error: " <> T.pack (BS.unpack some_error)
     catcher e _                                  = throwIO e
+
+
+retire_pattern ::
+     Connection
+  -> ScanPatterns.PatternId
+  -> IO ()
+retire_pattern conn (ScanPatterns.PatternId pattern_id) = do
+  execute conn sql (True, pattern_id)
+  return ()
+  where
+    sql = "UPDATE patterns SET is_retired = ? WHERE id = ?;"
+
+
+data PatternFieldOverrides = PatternFieldOverrides {
+    pat_expression       :: Maybe Text
+  , pat_is_regex         :: Maybe Bool
+  , pat_applicable_steps :: Maybe [String]
+  , pat_lines_from_end   :: Maybe Int
+  }
+
+
+copy_pattern ::
+     DbHelpers.DbConnectionData
+  -> ScanPatterns.PatternId
+  -> AuthStages.Username
+  -> PatternFieldOverrides
+  -> IO (Either Text Int64)
+copy_pattern conn_data pattern_id@(ScanPatterns.PatternId pat_id) username field_overrides = do
+
+  conn <- DbHelpers.get_connection conn_data
+  pattern_rows <- query conn sql $ Only pat_id
+
+  runExceptT $ do
+
+    p <- except $ maybeToEither (T.pack $ "Pattern with ID " ++ show pat_id ++ " not found.") $ Safe.headMay pattern_rows
+
+    let (p_is_regex, p_has_nondeterministic_values, p_expression_text, p_description, p_tags_concatenated, p_steps_concatenated, p_specificity, p_maybe_lines_from_end) = p
+        expression_text = Maybe.fromMaybe p_expression_text $ pat_expression field_overrides
+        is_regex = Maybe.fromMaybe p_is_regex $ pat_is_regex field_overrides
+
+        new_pattern = ScanPatterns.NewPattern
+          (ScanPatterns.toMatchExpression is_regex expression_text p_has_nondeterministic_values)
+          p_description
+          (map T.pack $ SqlRead.split_agg_text p_tags_concatenated)
+          (map T.pack $ Maybe.fromMaybe (SqlRead.split_agg_text p_steps_concatenated) $ pat_applicable_steps field_overrides)
+          p_specificity
+          False
+          (pat_lines_from_end field_overrides <|> p_maybe_lines_from_end)
+
+    ExceptT $ do
+      new_id <- api_new_pattern conn $ Left (new_pattern, username)
+      retire_pattern conn pattern_id
+      return new_id
+
+  where
+    sql = "SELECT regex, has_nondeterministic_values, expression, description, tags, steps, specificity, lines_from_end FROM patterns_augmented WHERE id = ?;"
 
 
 api_new_pattern ::

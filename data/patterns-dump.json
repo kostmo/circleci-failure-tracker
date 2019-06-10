@@ -1233,7 +1233,7 @@
         "applicable_steps": [
           "Test"
         ],
-        "description": "",
+        "description": "docker failure",
         "expression": {
           "contents": "error pulling image configuration:",
           "tag": "LiteralExpression"
@@ -1243,6 +1243,50 @@
         "specificity": 1,
         "tags": [
           "docker"
+        ]
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-06-09T18:18:23.671098Z",
+    "payload": {
+      "db_id": 57,
+      "record": {
+        "applicable_steps": [],
+        "description": "pip network issue",
+        "expression": {
+          "contents": "pip._vendor.urllib3.exceptions.ProtocolError: ('Connection broken:",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "lines_from_end": null,
+        "specificity": 1,
+        "tags": [
+          "pip"
+        ]
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-06-10T18:09:11.601645Z",
+    "payload": {
+      "db_id": 58,
+      "record": {
+        "applicable_steps": [
+          "Test"
+        ],
+        "description": "flaky test_triangular_solve: Issue #21577",
+        "expression": {
+          "contents": "FAIL: test_triangular_solve",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "lines_from_end": null,
+        "specificity": 6,
+        "tags": [
+          "flaky"
         ]
       }
     }

@@ -144,9 +144,11 @@ catchup_scan scan_resources buildstep_id step_name (buildnum, maybe_console_outp
 
   putStrLn $ "\tThere are " ++ (show $ length scannable_patterns) ++ " scannable patterns"
 
-  let is_pattern_applicable p = null appl_steps || elem step_name appl_steps
+  let is_pattern_applicable p = not pat_is_retired && (null appl_steps || elem step_name appl_steps)
         where
-          appl_steps = ScanPatterns.applicable_steps $ DbHelpers.record p
+          pat_record = DbHelpers.record p
+          pat_is_retired = ScanPatterns.is_retired pat_record
+          appl_steps = ScanPatterns.applicable_steps pat_record
       applicable_patterns = filter is_pattern_applicable scannable_patterns
 
   putStrLn $ "\t\twith " ++ (show $ length applicable_patterns) ++ " applicable to this step"

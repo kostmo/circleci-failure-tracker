@@ -35,14 +35,11 @@ import qualified DbHelpers
 import qualified GitRev
 import qualified JsonUtils
 import qualified MatchOccurrences
+import qualified PostedStatuses
 import qualified ScanPatterns
 import qualified ScanUtils
 import qualified StoredBreakageReports
 import qualified WebApi
-
-
-testFailurePatternId :: ScanPatterns.PatternId
-testFailurePatternId = ScanPatterns.PatternId 302
 
 
 split_agg_text :: String -> [String]
@@ -132,23 +129,12 @@ get_latest_pattern_id conn = do
     sql = "SELECT id FROM patterns ORDER BY id DESC LIMIT 1;"
 
 
-data PostedStatus = PostedStatus {
-    _sha1        :: Text
-  , _description :: Text
-  , _state       :: Text
-  , _created_at  :: UTCTime
-  } deriving Generic
-
-instance ToJSON PostedStatus where
-  toJSON = genericToJSON JsonUtils.dropUnderscore
-
-
-api_posted_statuses :: DbHelpers.DbConnectionData -> IO [PostedStatus]
+api_posted_statuses :: DbHelpers.DbConnectionData -> IO [PostedStatuses.PostedStatus]
 api_posted_statuses conn_data = do
   conn <- DbHelpers.get_connection conn_data
   map f <$> query_ conn sql
   where
-    f (sha1, description, state, created_at) = PostedStatus sha1 description state created_at
+    f (sha1, description, state, created_at) = PostedStatuses.PostedStatus sha1 description state created_at
     sql = "SELECT sha1, description, state, created_at FROM created_github_statuses ORDER BY created_at DESC LIMIT 40;"
 
 
@@ -195,14 +181,14 @@ instance ToJSON TestFailure where
 
 -- | This uses capture groups of a specifically-crafted regex
 -- to identify the name of the failing test
-api_test_failures :: DbHelpers.DbConnectionData -> IO (Either Text [TestFailure])
-api_test_failures conn_data = do
-  patterns_singleton <- api_single_pattern conn_data testFailurePatternId
+api_test_failures :: DbHelpers.DbConnectionData -> ScanPatterns.PatternId -> IO (Either Text [TestFailure])
+api_test_failures conn_data test_failure_pattern_id = do
+  patterns_singleton <- api_single_pattern conn_data test_failure_pattern_id
 
   case Safe.headMay patterns_singleton of
     Nothing -> return $ Left "Could not find Test Failure pattern"
     Just test_failure_pattern -> do
-      pattern_occurrences <- get_best_pattern_matches_whitelisted_branches conn_data testFailurePatternId
+      pattern_occurrences <- get_best_pattern_matches_whitelisted_branches conn_data test_failure_pattern_id
       return $ Right $ Maybe.mapMaybe (repackage test_failure_pattern) pattern_occurrences
 
   where

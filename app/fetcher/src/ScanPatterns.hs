@@ -31,9 +31,21 @@ instance ToJSON MatchExpression
 instance FromJSON MatchExpression
 
 
+toMatchExpression :: Bool -> Text -> Bool -> MatchExpression
+toMatchExpression is_regex expression is_deterministic = if is_regex
+        then ScanPatterns.RegularExpression expression is_deterministic
+        else ScanPatterns.LiteralExpression expression
+
+
 is_regex :: MatchExpression -> Bool
 is_regex = \case
   RegularExpression _ _ -> True
+  LiteralExpression _   -> False
+
+
+is_nondeterministic :: MatchExpression -> Bool
+is_nondeterministic = \case
+  RegularExpression _ x -> x
   LiteralExpression _   -> False
 
 
