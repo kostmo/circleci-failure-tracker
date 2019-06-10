@@ -260,7 +260,7 @@ api_step conn_data = do
   return $ WebApi.ApiResponse inners
 
   where
-    sql = "SELECT name, COUNT(*) AS freq FROM build_steps WHERE name IS NOT NULL GROUP BY name ORDER BY freq DESC;"
+    sql = "SELECT step_name, COUNT(*) AS freq FROM builds_join_steps WHERE step_name IS NOT NULL AND branch IN (SELECT branch FROM presumed_stable_branches) GROUP BY step_name ORDER BY freq DESC;"
 
 
 -- | Note that Highcharts expects the dates to be in ascending order

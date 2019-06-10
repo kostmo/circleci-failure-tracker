@@ -59,6 +59,9 @@ function main() {
         title: {
             text: 'Failures by step name'
         },
+	subtitle: {
+	    text: 'on presumed-stable branches'
+	},
         tooltip: {
             pointFormat: '{series.name}: <b>{point.percentage:.1f}%</b>'
         },

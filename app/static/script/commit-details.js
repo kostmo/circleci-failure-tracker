@@ -32,7 +32,7 @@ function gen_builds_table(element_id, data_url) {
 			{title: "Job", width: 300, field: "build.job_name"},
 			{title: "Step", width: 250, field: "match.build_step"},
 			{title: "Build", field: "build.build_id", formatter: "link", formatterParams: {urlPrefix: "/build-details.html?build_id="}, width: 75},
-			{title: "Line text", field: "match.line_text", sorter: "string", widthGrow: 8,
+			{title: "Match (" + render_tag("span", "click to show log context", {"style": "color: #0d0;"}) + ")", field: "match.line_text", sorter: "string", widthGrow: 8,
 				formatter: function(cell, formatterParams, onRendered) {
 					var row_data = cell.getRow().getData();
 
