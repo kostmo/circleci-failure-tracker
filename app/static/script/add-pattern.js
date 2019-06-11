@@ -130,6 +130,7 @@ function gather_pattern_data() {
 		is_nondeterministic: $('#is-nondeterministic-checkbox').is(":checked"),
 		pattern: $('#input-pattern-text').val(),
 		description: $('#input-pattern-description').val(),
+		specificity: $('#specificity-input').val(),
 		tags: tags_list.join(";"),
 		applicable_steps: steps_list.join(";"),
 		use_lines_from_end: $('#is-using-lines-from-end-checkbox').is(":checked"),

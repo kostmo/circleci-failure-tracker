@@ -60,6 +60,7 @@ data MutablePatternParms = MutablePatternParms {
     pat_is_nondeterminisitc :: Bool
   , pat_description         :: Text
   , pat_tags_raw_text       :: String
+  , pat_specificity         :: Int
   }
 
 
@@ -67,11 +68,13 @@ get_mutable_pattern_parms :: ScottyTypes.ActionT LT.Text IO MutablePatternParms
 get_mutable_pattern_parms = do
   is_nondeterministic <- checkbox_is_true <$> S.param "is_nondeterministic"
   description <- S.param "description"
+  specificity <- S.param "specificity"
   tags <- S.param "tags"
   return $ MutablePatternParms
     is_nondeterministic
     description
     tags
+    specificity
 
 
 pattern_from_parms :: ScottyTypes.ActionT LT.Text IO ScanPatterns.Pattern
@@ -97,7 +100,7 @@ pattern_from_parms = do
     (pat_description mutable_pattern_parms)
     (clean_list $ pat_tags_raw_text mutable_pattern_parms)
     (clean_list applicable_steps)
-    1
+    (pat_specificity mutable_pattern_parms)
     False
     lines_from_end
   where
