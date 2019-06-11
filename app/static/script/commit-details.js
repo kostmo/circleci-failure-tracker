@@ -16,13 +16,19 @@ function populate_commit_info(commit_sha1) {
 
 		var stats_table = render_table_vertical_headers(items);
 
-		var analysis_section = render_tag("p", "There were " + data["payload"]["flaky_build_count"] + " flaky.");
+		var analysis_text;
+		if (data["payload"]["failed_build_count"] == data["payload"]["flaky_build_count"]) {
+			analysis_text = render_tag("span", "All of the CircleCI build failures were due to intermittent causes. Consider rerunning them.", {"style": "color: green;"});
 
-"build succeeded, but some tests failed with flaky errors"
+		} else if (data["payload"]["failed_build_count"] == data["payload"]["matched_build_count"]) {
+			analysis_text = "All of the CircleCI build failures matched with predefined patterns.";
+		} else {
+			analysis_text = "Some of the build failure causes weren't determined. Please investigate below.";
+		}
 
 		var analysis_summary_items = [
 			render_tag("h3", "Analysis"),
-			analysis_section,
+			render_tag("p", analysis_text),
 		];
 
 		var info_box_items = [
