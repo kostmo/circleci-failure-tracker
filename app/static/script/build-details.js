@@ -36,26 +36,33 @@ function submit_breakage_report(button, build_step_id) {
 
 function gen_builds_table(element_id, data_url, height_string) {
 
+	var column_list = [
+		{title: "Line", field: "line_number", width: 100, formatter: function(cell, formatterParams, onRendered) {
+			return gen_line_number_cell(cell);
+		}},
+		{title: "Match (" + render_tag("span", "click to show log context", {"style": "color: #0d0;"}) + ")", field: "line_text", sorter: "string", widthGrow: 8, formatter: function(cell, formatterParams, onRendered) {
+				return gen_error_cell_html(cell);
+			},
+			cellClick: function(e, cell){
+
+				var row_data = cell.getRow().getData();
+				var match_id = row_data["match_id"];
+				get_log_text(match_id, 5);
+			},
+		},
+		{title: "Pattern", field: "pattern_id", formatter: "link", formatterParams: {urlPrefix: "/pattern-details.html?pattern_id="}, width: 75},
+	];
+
+	// Is not the single-entry "best match" table
+	if (height_string != null) {
+		column_list.push({title: "Specificity", field: "specificity", formatter: "number", width: 100});
+	}
+
 	var table = new Tabulator("#" + element_id, {
 		height: height_string,
-		layout:"fitColumns",
-		placeholder:"No Data Set",
-		columns:[
-			{title: "Line", field: "line_number", width: 100, formatter: function(cell, formatterParams, onRendered) {
-				return gen_line_number_cell(cell);
-			}},
-			{title: "Match (" + render_tag("span", "click to show log context", {"style": "color: #0d0;"}) + ")", field: "line_text", sorter: "string", widthGrow: 8, formatter: function(cell, formatterParams, onRendered) {
-					return gen_error_cell_html(cell);
-				},
-				cellClick: function(e, cell){
-
-					var row_data = cell.getRow().getData();
-					var match_id = row_data["match_id"];
-					get_log_text(match_id, 5);
-				},
-			},
-			{title: "Pattern", field: "pattern_id", formatter: "link", formatterParams: {urlPrefix: "/pattern-details.html?pattern_id="}, width: 75},
-		],
+		layout: "fitColumns",
+		placeholder: "No Data Set",
+		columns: column_list,
 		ajaxURL: data_url,
 	});
 }
