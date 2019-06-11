@@ -91,9 +91,9 @@ function populate_build_info(build_id, parent_data) {
 	// TODO Use this for something
 	$.getJSON('https://api.github.com/repos/pytorch/pytorch/commits', {"build_id": build_id}, function (data) {
 		var commit_list = [];
-		$.each(data, function( index, value ) {
+		for (var value of data) {
 			commit_list.push([value["sha1"], value["commit"]["author"]["name"], value["commit"]["message"]]);
-		});
+		}
 		console.log("Commit list: " + commit_list);
 	});
 
@@ -113,7 +113,6 @@ function get_build_info(build_id) {
 		if (data.success) {
 			populate_build_info(build_id, data.payload);
 		} else {
-
 		        $("#build-info-box").html(render_tag("span", "Error: " + data.error.message, {"style": "color: red;"}));
 		}
 	});
@@ -149,7 +148,6 @@ function rescan_build(button) {
 
 
 function get_build_number() {
-
 	var urlParams = new URLSearchParams(window.location.search);
 	return urlParams.get('build_id');
 }

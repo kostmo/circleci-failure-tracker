@@ -3,7 +3,7 @@ function populate_commit_info(commit_sha1) {
 
 	$.getJSON('/api/commit-info', {"sha1": commit_sha1}, function (data) {
 
-		var github_link = "<a href='https://github.com/pytorch/pytorch/commits/" + commit_sha1 + "'>View on GitHub</a>"
+		var github_link = link("View on GitHub", "https://github.com/pytorch/pytorch/commits/" + commit_sha1);
 
 		var items = [
 			["Commit ancestry:", github_link],
@@ -27,7 +27,7 @@ function gen_builds_table(element_id, data_url) {
 			{title: "Line", field: "match.line_number", width: 100,
 				formatter: function(cell, formatterParams, onRendered) {
 					return gen_line_number_cell_with_count(cell, cell.getRow().getData()["match"]["line_count"]);
-				}
+				},
 			},
 			{title: "Job", width: 300, field: "build.job_name"},
 			{title: "Step", width: 250, field: "match.build_step"},
@@ -61,7 +61,7 @@ function gen_builds_table(element_id, data_url) {
 			{title: "Pattern", field: "match.pattern_id", formatter: "link", formatterParams: {urlPrefix: "/pattern-details.html?pattern_id="}, width: 75},
 		],
 		ajaxURL: data_url,
-		ajaxResponse:function(url, params, response) {
+		ajaxResponse: function(url, params, response) {
 			return response.payload;
 		},
 	});
@@ -82,14 +82,17 @@ function gen_unmatched_build_list(api_endpoint, div_id) {
 				formatter: function(cell, formatterParams, onRendered) {
 					var val = cell.getValue();
 					return moment(val).fromNow();
-				}
+				},
 			},
 			{title:"Branch", field:"branch", width: 150},
-			{title:"Broken?", field:"is_broken", formatter:"tickCross", sorter:"boolean", formatterParams: {
-				allowEmpty: true,
-				tickElement:"<img src='/images/broken-lightbulb.svg' class='brokenness-icon'/>",
-				crossElement: "<img src='/images/bandaid.svg' class='brokenness-icon'/>",
-			}, width: 90},
+			{title:"Broken?", field:"is_broken", formatter:"tickCross", sorter:"boolean",
+				formatterParams: {
+					allowEmpty: true,
+					tickElement:"<img src='/images/broken-lightbulb.svg' class='brokenness-icon'/>",
+					crossElement: "<img src='/images/bandaid.svg' class='brokenness-icon'/>",
+				},
+				width: 90,
+			},
 		],
 		ajaxURL: api_endpoint,
 	});
@@ -103,11 +106,14 @@ function gen_breakage_reports_list(api_endpoint, div_id) {
 		layout:"fitColumns",
 		placeholder:"No Data Set",
 		columns:[
-			{title:"Broken?", field:"is_broken", formatter:"tickCross", sorter:"boolean", formatterParams: {
-				allowEmpty: true,
-				tickElement: "<img src='/images/broken-lightbulb.svg' class='brokenness-icon'/>",
-				crossElement: "<img src='/images/bandaid.svg' class='brokenness-icon'/>",
-			}, width: 90},
+			{title:"Broken?", field:"is_broken", formatter:"tickCross", sorter:"boolean",
+				formatterParams: {
+					allowEmpty: true,
+					tickElement: "<img src='/images/broken-lightbulb.svg' class='brokenness-icon'/>",
+					crossElement: "<img src='/images/bandaid.svg' class='brokenness-icon'/>",
+				},
+				width: 90,
+			},
 			{title:"Build", field:"build", formatter: "link", width: 75, formatterParams: {urlPrefix: "/build-details.html?build_id="}},
 			{title:"Step", field:"step_name", width: 200},
 			{title:"Job", field:"job_name", width: 200},
@@ -166,5 +172,5 @@ function main() {
 	gen_unmatched_build_list("/api/unmatched-builds-for-commit?sha1=" + commit_sha1, "container-unattributed-failures");
 	gen_unmatched_build_list("/api/idiopathic-failed-builds-for-commit?sha1=" + commit_sha1, "container-idiopathic-failures");
 
-	gen_breakage_reports_list("/api/commit-breakage-reports?sha1=" + commit_sha1, "breakage-reports-box")
+	gen_breakage_reports_list("/api/commit-breakage-reports?sha1=" + commit_sha1, "breakage-reports-box");
 }

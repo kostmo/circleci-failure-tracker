@@ -34,6 +34,17 @@ function get_log_text(match_id, context_linecount) {
 
 			$("#myDialog").html( render_tag("div", "<a href='javascript: document.getElementById(\"myDialog\").close();'>Press <i>Esc</i> to close</a>", {"style": "color: gray; text-align: right;"}) + render_table(table_items, {"class": "code-lines"}) );
 
+			var dialog = document.getElementById("myDialog");
+			dialog.addEventListener('click', function (event) {
+					var rect = dialog.getBoundingClientRect();
+					var isInDialog=(rect.top <= event.clientY && event.clientY <= rect.top + rect.height
+					&& rect.left <= event.clientX && event.clientX <= rect.left + rect.width);
+					if (!isInDialog) {
+					dialog.close();
+				}
+			});
+
+
 			document.getElementById("myDialog").showModal(); 
 
 		} else {
