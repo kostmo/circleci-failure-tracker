@@ -32,7 +32,13 @@ function get_log_text(match_id, context_linecount) {
 				table_items.push(row);
 			}
 
-			$("#myDialog").html( render_tag("div", "<a href='javascript: document.getElementById(\"myDialog\").close();'>Press <i>Esc</i> to close</a>", {"style": "color: gray; text-align: right;"}) + render_table(table_items, {"class": "code-lines"}) );
+			var dialog_content = [
+				render_tag("div", "<a href='javascript: document.getElementById(\"myDialog\").close();'>Press <i>Esc</i> to close</a>", {"style": "color: gray; text-align: right; float: right;"}),
+				render_tag("div", "<a href='/api/view-log-full?build_id=" + data.payload.build_number + "'>View full log</a>"),
+				render_table(table_items, {"class": "code-lines"}),
+			];
+
+			$("#myDialog").html(dialog_content.join(""));
 
 			var dialog = document.getElementById("myDialog");
 			dialog.addEventListener('click', function (event) {

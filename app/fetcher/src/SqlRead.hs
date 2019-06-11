@@ -695,8 +695,9 @@ get_best_build_match conn_data (Builds.NewBuildNumber build_id) = do
 
 
 data LogContext = LogContext {
-    _match_info :: ScanPatterns.MatchDetails
-  , _log_lines  :: [(Int, Text)]
+    _match_info   :: ScanPatterns.MatchDetails
+  , _log_lines    :: [(Int, Text)]
+  , _build_number :: Builds.BuildNumber
   } deriving Generic
 
 instance ToJSON LogContext where
@@ -715,8 +716,9 @@ log_context_func connection_data (MatchOccurrences.MatchId match_id) context_lin
 
     let (build_num, line_number, span_start, span_end, line_text) = first_row
         match_info = ScanPatterns.NewMatchDetails line_text line_number $ ScanPatterns.NewMatchSpan span_start span_end
+        wrapped_build_num = Builds.NewBuildNumber build_num
 
-    maybe_log <- liftIO $ SqlRead.read_log conn $ Builds.NewBuildNumber build_num
+    maybe_log <- liftIO $ SqlRead.read_log conn wrapped_build_num
     console_log <- except $ maybeToEither "log not in database" maybe_log
 
     let log_lines = T.lines console_log
@@ -725,7 +727,7 @@ log_context_func connection_data (MatchOccurrences.MatchId match_id) context_lin
 
         tuples = zip [first_context_line..] $ take (2*context_linecount + 1) $ drop first_context_line log_lines
 
-    return $ LogContext match_info tuples
+    return $ LogContext match_info tuples wrapped_build_num
 
   where
     sql = "SELECT build_num, line_number, span_start, span_end, line_text FROM matches_with_log_metadata WHERE id = ?"
