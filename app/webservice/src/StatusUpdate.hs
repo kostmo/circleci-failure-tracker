@@ -49,6 +49,10 @@ circleciDomain :: String
 circleciDomain = "circleci.com"
 
 
+circleCIContextPrefix :: Text
+circleCIContextPrefix = "ci/circleci: "
+
+
 -- | Name is "Dr. CI" -- where doctor alludes to "diagnostician".
 -- It is prefixed with an undescore so it appears first in the lexicographical
 -- ordering in the faild builds list.
@@ -60,7 +64,7 @@ myAppStatusContext = "_dr.ci"
 -- source; the queued_at time is inaccurate and the branch name is empty.
 get_circleci_failure :: Text -> StatusEventQuery.GitHubStatusEventGetter -> Maybe Builds.Build
 get_circleci_failure sha1 event_setter = do
-  guard $ circleci_context_prefix `T.isPrefixOf` context_text
+  guard $ circleCIContextPrefix `T.isPrefixOf` context_text
   parsed_uri <- URI.parseURI $ LT.unpack url_text
 
   uri_authority <- URI.uriAuthority parsed_uri
@@ -73,8 +77,7 @@ get_circleci_failure sha1 event_setter = do
 
   where
     context_text = LT.toStrict context
-    circleci_context_prefix = "ci/circleci: "
-    build_name = T.drop (T.length circleci_context_prefix) context_text
+    build_name = T.drop (T.length circleCIContextPrefix) context_text
 
     current_time = StatusEventQuery._created_at event_setter
     context = StatusEventQuery._context event_setter
@@ -180,7 +183,7 @@ handleStatusWebhook db_connection_data access_token maybe_initiator status_event
     liftIO $ putStrLn $ "Notified status context was: " ++ notified_status_context_string
 
     let notified_status_url_string = LT.unpack $ Webhooks.target_url status_event
-    when ("ci/circleci" `T.isPrefixOf` notified_status_context_text) $ do
+    when (circleCIContextPrefix `T.isPrefixOf` notified_status_context_text) $ do
 
       liftIO $ putStrLn $ "CircleCI URL was: " ++ notified_status_url_string
 

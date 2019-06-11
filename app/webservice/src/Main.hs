@@ -405,6 +405,9 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       commit_sha1_text <- S.param "sha1"
       S.json =<< liftIO (SqlRead.api_idiopathic_commit_builds connection_data commit_sha1_text)
 
+    S.get "/api/timed-out-builds-for-commit" $ do
+      commit_sha1_text <- S.param "sha1"
+      S.json =<< liftIO (SqlRead.api_timeout_commit_builds connection_data commit_sha1_text)
 
     -- | Access-controlled endpoint
     S.get "/api/view-log-context" $ retrieve_log_context session github_config connection_data

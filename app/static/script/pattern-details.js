@@ -5,7 +5,9 @@ function gen_matches_table(element_id, data_url) {
 		layout:"fitColumns",
 		placeholder:"No Data Set",
 		columns:[
-			{title:"Build number", field:"build_number", formatter: "link", width: 75, formatterParams: {urlPrefix: "/build-details.html?build_id="}},
+			{title:"Build number", field:"build_number", formatter: "link", width: 75,
+				formatterParams: {urlPrefix: "/build-details.html?build_id="},
+			},
 			{title:"Revision", field:"vcs_revision",
 				formatter: function(cell, formatterParams, onRendered) {
 					return render_tag("code", link(cell.getValue().substring(0, 7), "/commit-details.html?sha1=" + cell.getValue()));

@@ -10,9 +10,29 @@ function populate_commit_info(commit_sha1) {
 			["Failed build count:", data["payload"]["failed_build_count"]],
 			["Matched build count:", data["payload"]["matched_build_count"]],
 			["Code breakage count:", data["payload"]["code_breakage_count"]],
+			["Flaky build count:", data["payload"]["flaky_build_count"]],
+			["Timeout count:", data["payload"]["timeout_count"]],
 		];
 
-	        $("#commit-info-box").html( render_table_vertical_headers(items) );
+		var stats_table = render_table_vertical_headers(items);
+
+		var analysis_section = render_tag("p", "There were " + data["payload"]["flaky_build_count"] + " flaky.");
+
+"build succeeded, but some tests failed with flaky errors"
+
+		var analysis_summary_items = [
+			render_tag("h3", "Analysis"),
+			analysis_section,
+		];
+
+		var info_box_items = [
+			stats_table,
+			analysis_summary_items.join(""),
+		];
+
+		var info_box_content = info_box_items.join("");
+
+	        $("#commit-info-box").html(info_box_content);
 	});
 }
 
@@ -31,8 +51,14 @@ function gen_builds_table(element_id, data_url) {
 			},
 			{title: "Job", width: 300, field: "build.job_name"},
 			{title: "Step", width: 250, field: "match.build_step"},
-			{title: "Build", field: "build.build_id", formatter: "link", formatterParams: {urlPrefix: "/build-details.html?build_id="}, width: 75},
-			{title: "Match (" + render_tag("span", "click to show log context", {"style": "color: #0d0;"}) + ")", field: "match.line_text", sorter: "string", widthGrow: 8,
+			{title: "Build", field: "build.build_id", formatter: "link",
+				formatterParams: {urlPrefix: "/build-details.html?build_id="},
+				width: 75,
+			},
+			{title: "Match (" + render_tag("span", "click to show log context", {"style": "color: #0d0;"}) + ")",
+				field: "match.line_text",
+				sorter: "string",
+				widthGrow: 8,
 				formatter: function(cell, formatterParams, onRendered) {
 					var row_data = cell.getRow().getData();
 
@@ -41,7 +67,7 @@ function gen_builds_table(element_id, data_url) {
 							
 					return gen_error_cell_html_parameterized(cell, start_idx, end_idx);
 				},
-				cellClick: function(e, cell){
+				cellClick: function(e, cell) {
 					var row_data = cell.getRow().getData();
 					var build_id = row_data["build"]["build_id"];
 					get_log_text(row_data["match"]["match_id"], 5);
@@ -56,9 +82,12 @@ function gen_builds_table(element_id, data_url) {
 					} else {
 						return "";
 					}
-				}
+				},
 			},
-			{title: "Pattern", field: "match.pattern_id", formatter: "link", formatterParams: {urlPrefix: "/pattern-details.html?pattern_id="}, width: 75},
+			{title: "Pattern", field: "match.pattern_id", formatter: "link",
+				formatterParams: {urlPrefix: "/pattern-details.html?pattern_id="},
+				width: 75,
+			},
 		],
 		ajaxURL: data_url,
 		ajaxResponse: function(url, params, response) {
@@ -171,6 +200,7 @@ function main() {
 
 	gen_unmatched_build_list("/api/unmatched-builds-for-commit?sha1=" + commit_sha1, "container-unattributed-failures");
 	gen_unmatched_build_list("/api/idiopathic-failed-builds-for-commit?sha1=" + commit_sha1, "container-idiopathic-failures");
+	gen_unmatched_build_list("/api/timed-out-builds-for-commit?sha1=" + commit_sha1, "container-timeout-failures");
 
 	gen_breakage_reports_list("/api/commit-breakage-reports?sha1=" + commit_sha1, "breakage-reports-box");
 }

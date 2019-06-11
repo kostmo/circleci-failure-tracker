@@ -336,6 +336,16 @@ api_idiopathic_commit_builds conn_data sha1 = do
     sql = "SELECT build, step_name, queued_at, job_name, idiopathic_build_failures.branch, is_broken FROM idiopathic_build_failures LEFT JOIN builds_with_reports ON idiopathic_build_failures.build = builds_with_reports.build_num WHERE vcs_revision = ?"
 
 
+-- | TODO Don't hardcode is_broken to null; join tables instead
+api_timeout_commit_builds :: DbHelpers.DbConnectionData -> Text -> IO [WebApi.UnmatchedBuild]
+api_timeout_commit_builds conn_data sha1 = do
+  conn <- DbHelpers.get_connection conn_data
+  map f <$> query conn sql (Only sha1)
+  where
+    f (build, step_name, queued_at, job_name, branch, is_broken) = WebApi.UnmatchedBuild (Builds.NewBuildNumber build) step_name queued_at job_name branch is_broken
+    sql = "SELECT build_num, step_name, queued_at, job_name, branch, NULL FROM builds_join_steps WHERE vcs_revision = ? AND is_timeout;"
+
+
 api_random_scannable_build :: DbHelpers.DbConnectionData -> IO WebApi.BuildNumberRecord
 api_random_scannable_build conn_data = do
   conn <- DbHelpers.get_connection conn_data
@@ -413,8 +423,10 @@ get_revision_builds conn_data git_revision = do
 
 data CommitInfo = NewCommitInfo {
     _failed_build_count  :: Int
+  , _timeout_count       :: Int
   , _matched_build_count :: Int
   , _code_breakage_count :: Int
+  , _flaky_build_count   :: Int
   } deriving Generic
 
 instance ToJSON CommitInfo where
@@ -426,12 +438,23 @@ count_revision_builds conn_data git_revision = do
   conn <- DbHelpers.get_connection conn_data
   [Only failed_count] <- query conn failed_count_sql only_commit
   [Only matched_count] <- query conn matched_count_sql only_commit
+  [Only timeout_count] <- query conn timeout_count_sql only_commit
   [Only reported_count] <- query conn reported_broken_count_sql only_commit
 
-  return $ NewCommitInfo failed_count matched_count reported_count
-  where
-    only_commit = Only $ GitRev.sha1 git_revision
 
+  revision_builds <- get_revision_builds conn_data git_revision
+  flaky_pattern_ids <- get_flaky_pattern_ids conn
+
+  let is_flaky = (`Set.member` flaky_pattern_ids) . (\(ScanPatterns.PatternId x) -> x) . MatchOccurrences._pattern_id . CommitBuilds._match
+      flaky_builds = filter is_flaky revision_builds
+      flaky_build_count = length flaky_builds
+
+  return $ NewCommitInfo failed_count timeout_count matched_count reported_count flaky_build_count
+  where
+    sha1 = GitRev.sha1 git_revision
+    only_commit = Only sha1
+
+    timeout_count_sql = "SELECT COUNT(*) FROM builds_join_steps WHERE vcs_revision = ? AND is_timeout;"
     failed_count_sql = "SELECT COUNT(*) FROM builds WHERE vcs_revision = ?;"
     matched_count_sql = "SELECT COUNT(*) FROM best_pattern_match_augmented_builds WHERE vcs_revision = ?;"
     reported_broken_count_sql = "SELECT COUNT(*) FROM builds_with_reports WHERE vcs_revision = ? AND is_broken;"
