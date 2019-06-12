@@ -64,6 +64,7 @@ scan_builds scan_resources whitelisted_builds_or_fetch_count = do
         )
 
 
+-- | Note that the Left/Right convention is backwards!
 rescan_single_build ::
      DbHelpers.DbConnectionData
   -> AuthStages.Username

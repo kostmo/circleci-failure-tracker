@@ -136,6 +136,7 @@ function rescan_build(button) {
 	var build_id = get_build_number();
 
 	$(button).prop("disabled", true);
+	$("#scan-throbber").show();
 
         $.post({
 		url: "/api/rescan-build",
@@ -143,13 +144,18 @@ function rescan_build(button) {
 		success: function( data ) {
 
 			$(button).prop("disabled", false);
+			$("#scan-throbber").hide();
 
 			if (data.success) {
-				alert("Authentication success: " + data.payload);
+				alert("Success: " + data.payload);
+				location.reload();
 			} else {
 				alert("Error: " + data.error.message);
 			}
-		}
+		},
+		error: function( data ) {
+			$("#scan-throbber").hide();
+		},
         });
 }
 

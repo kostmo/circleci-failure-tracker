@@ -165,6 +165,7 @@ function rescan_commit(button) {
 
 	var commit_sha1 = get_scrubbed_sha1();
 	$(button).prop("disabled", true);
+	$("#scan-throbber").show();
 
         $.post({
 		url: "/api/rescan-commit",
@@ -172,13 +173,19 @@ function rescan_commit(button) {
 		success: function( data ) {
 
 			$(button).prop("disabled", false);
+			$("#scan-throbber").hide();
 
 			if (data.success) {
-				alert("Authentication success: " + data.payload);
+				alert("Success: " + data.payload);
+				location.reload();
 			} else {
 				alert("Error: " + data.error.message);
 			}
-		}
+		},
+		error: function( data ) {
+			$("#scan-throbber").hide();
+			
+		},
         });
 }
 

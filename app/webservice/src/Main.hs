@@ -9,6 +9,7 @@ import           Data.Bifunctor                    (first)
 import qualified Data.ByteString.Lazy.Char8        as LBSC
 import           Data.Default                      (def)
 import           Data.Either.Utils                 (maybeToEither)
+import           Data.Functor                      (($>))
 import           Data.List                         (filter)
 import           Data.List.Split                   (splitOn)
 import qualified Data.Maybe                        as Maybe
@@ -210,15 +211,11 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
       let callback_func :: AuthStages.Username -> IO (Either (AuthStages.BackendFailure Text) Text)
           callback_func user_alias = do
-
-            let computation = Scanning.rescan_single_build
-                  connection_data
-                  user_alias
-                  (Builds.NewBuildNumber build_number)
-
-            thread_id <- liftIO $ forkIO computation
-
-            return $ Right $ "Scanning in thread " <> T.pack (show thread_id)
+            Scanning.rescan_single_build
+              connection_data
+              user_alias
+              (Builds.NewBuildNumber build_number)
+            return $ Right "Scan complete."
 
       rq <- S.request
       insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
@@ -233,25 +230,19 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
           callback_func :: AuthStages.Username -> IO (Either (AuthStages.BackendFailure Text) Text)
           callback_func user_alias = do
+            maybe_previously_posted_status <- liftIO $ SqlRead.get_posted_github_status connection_data owned_repo commit_sha1_text
 
-            let computation = do
-                  maybe_previously_posted_status <- liftIO $ SqlRead.get_posted_github_status connection_data owned_repo commit_sha1_text
+            run_result <- runExceptT $
+              StatusUpdate.handleFailedStatuses
+                connection_data
+                (AuthConfig.personal_access_token github_config)
+                (Just user_alias)
+                owned_repo
+                commit_sha1_text
+                maybe_previously_posted_status
 
-                  run_result <- runExceptT $
-                    StatusUpdate.handleFailedStatuses
-                      connection_data
-                      (AuthConfig.personal_access_token github_config)
-                      (Just user_alias)
-                      owned_repo
-                      commit_sha1_text
-                      maybe_previously_posted_status
-
-                  putStrLn $ "Run result: " ++ show run_result
-                  return ()
-
-            thread_id <- liftIO $ forkIO computation
-
-            return $ Right $ "Scanning in thread " <> T.pack (show thread_id)
+            putStrLn $ "Run result: " ++ show run_result
+            return $ first (AuthStages.DbFailure . LT.toStrict) $ run_result $> "Finished scan"
 
       rq <- S.request
       insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
