@@ -18,7 +18,6 @@ function add_build_step() {
 	var step_val = $('#build-step-applicability-input').val();
 	steps_list.push(step_val);
 
-
 	var select = document.getElementById("build-step-applicability-input");
 
 	for (var i=0; i<select.options.length; i++) {
@@ -49,7 +48,24 @@ function render_list_html(tag_list) {
 
 function render_lists() {
 	$('#tag-list-container').html(render_list_html(tags_list));
+	$('#tag-list-container').children().click(function(e) {
+
+		var val = e.target.innerText;
+		tags_list = tags_list.filter(item => item !== val);
+		render_lists();
+	});
+
 	$('#step-list-container').html(render_list_html(steps_list));
+	$('#step-list-container').children().click(function(e) {
+
+		var val = e.target.innerText;
+		steps_list = steps_list.filter(item => item !== val);
+
+		var select = document.getElementById("build-step-applicability-input");
+		select.options[select.options.length] = new Option(val, val);
+
+		render_lists();
+	});
 }
 
 
@@ -92,28 +108,6 @@ function get_random_build(destination_field_id) {
 
 function setup_autocomplete() {
 
-	/*
-    $( "#build-step-applicability-input" ).autocomplete({
-      source: function( request, response ) {
-        $.ajax( {
-          url: "/api/step-suggest",
-          dataType: "json",
-          data: {
-            term: request.term
-          },
-          success: function( data ) {
-            response( data );
-          }
-        } );
-      },
-      minLength: 1,
-      select: function( event, ui ) {
-        console.log( "Selected: " + ui.item.value + " aka " + ui.item.id );
-      }
-    } );
-	*/
-
-
 	var select = document.getElementById("build-step-applicability-input");
 	$.getJSON('/api/step-list', function (mydata) {
 		for (var val of mydata) {
@@ -122,25 +116,24 @@ function setup_autocomplete() {
 	});
 
 
-
-    $("#pattern-tag-input").autocomplete({
-      source: function( request, response ) {
-        $.ajax( {
-          url: "/api/tag-suggest",
-          dataType: "json",
-          data: {
-            term: request.term
-          },
-          success: function( data ) {
-            response( data );
-          }
-        } );
-      },
-      minLength: 1,
-      select: function( event, ui ) {
-        console.log( "Selected: " + ui.item.value + " aka " + ui.item.id );
-      }
-    });
+	$("#pattern-tag-input").autocomplete({
+		source: function( request, response ) {
+			$.ajax({
+				url: "/api/tag-suggest",
+				dataType: "json",
+				data: {
+					term: request.term
+				},
+				success: function( data ) {
+					response( data );
+				}
+			});
+		},
+		minLength: 1,
+		select: function( event, ui ) {
+			console.log( "Selected: " + ui.item.value + " aka " + ui.item.id );
+		}
+	});
 }
 
 
