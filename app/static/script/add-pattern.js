@@ -34,7 +34,7 @@ function add_build_step() {
 function render_list_html(tag_list) {
 
 	var tag_elements = tag_list.map(function(val) {
-		var class_list = ["tag"];
+		var class_list = ["tag", "deletable"];
 		if (TAG_CLASSES.has(val)) {
 			class_list.push("tag-class-" + val);
 		}
@@ -66,6 +66,8 @@ function render_lists() {
 
 		render_lists();
 	});
+
+	$('#all-steps-applicable-indicator').css('visibility', steps_list.length > 0 ? 'hidden' : 'visible');
 }
 
 

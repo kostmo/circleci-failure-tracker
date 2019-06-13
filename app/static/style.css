@@ -2,6 +2,11 @@ body {
 	font-family: sans-serif;
 }
 
+.deletable {
+	cursor: url(images/trash-cursor.png), pointer;
+}
+
+
 
 .pattern-expression {
 	font-family: monospace;
