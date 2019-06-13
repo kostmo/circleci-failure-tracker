@@ -372,6 +372,9 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       term <- S.param "term"
       S.json =<< liftIO (SqlRead.api_autocomplete_steps connection_data term)
 
+    S.get "/api/step-list" $
+      S.json =<< liftIO (SqlRead.api_list_steps connection_data)
+
     S.get "/api/branch-suggest" $ do
       term <- S.param "term"
       S.json =<< liftIO (SqlRead.api_autocomplete_branches connection_data term)

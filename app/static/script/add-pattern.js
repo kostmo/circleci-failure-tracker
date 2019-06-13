@@ -18,6 +18,16 @@ function add_build_step() {
 	var step_val = $('#build-step-applicability-input').val();
 	steps_list.push(step_val);
 
+
+	var select = document.getElementById("build-step-applicability-input");
+
+	for (var i=0; i<select.options.length; i++) {
+		if (select.options[i].text == step_val) {
+			select.options.remove(i);
+			break;
+		}
+	}
+
 	render_lists();
 }
 
@@ -82,6 +92,7 @@ function get_random_build(destination_field_id) {
 
 function setup_autocomplete() {
 
+	/*
     $( "#build-step-applicability-input" ).autocomplete({
       source: function( request, response ) {
         $.ajax( {
@@ -100,6 +111,16 @@ function setup_autocomplete() {
         console.log( "Selected: " + ui.item.value + " aka " + ui.item.id );
       }
     } );
+	*/
+
+
+	var select = document.getElementById("build-step-applicability-input");
+	$.getJSON('/api/step-list', function (mydata) {
+		for (var val of mydata) {
+		    select.options[select.options.length] = new Option(val, val);
+		}
+	});
+
 
 
     $("#pattern-tag-input").autocomplete({

@@ -383,6 +383,15 @@ api_autocomplete_steps = list_flat sql
     sql = "SELECT name FROM (SELECT name, COUNT(*) AS freq FROM build_steps where name IS NOT NULL GROUP BY name ORDER BY freq DESC, name ASC) foo WHERE name ILIKE CONCAT(?,'%');"
 
 
+api_list_steps :: DbHelpers.DbConnectionData -> IO [Text]
+api_list_steps conn_data = do
+  conn <- DbHelpers.get_connection conn_data
+  inners <- query_ conn sql
+  return $ map (\(Only x) -> x) inners
+  where
+    sql = "SELECT name FROM build_steps WHERE name IS NOT NULL GROUP BY name ORDER BY COUNT(*) DESC, name ASC;"
+
+
 api_autocomplete_branches :: DbHelpers.DbConnectionData -> Text -> IO [Text]
 api_autocomplete_branches = list_flat sql
   where
