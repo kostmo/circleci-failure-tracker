@@ -430,6 +430,9 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
     S.get "/api/patterns-dump" $ do
       S.json =<< liftIO (SqlRead.dump_patterns connection_data)
 
+    S.get "/api/breakages-dump" $ do
+      S.json =<< liftIO (SqlRead.dump_breakages connection_data)
+
     S.get "/api/presumed-stable-branches-dump" $ do
       S.json =<< liftIO (SqlRead.dump_presumed_stable_branches connection_data)
 

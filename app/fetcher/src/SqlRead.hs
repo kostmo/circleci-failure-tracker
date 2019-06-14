@@ -599,6 +599,20 @@ dump_patterns conn_data = do
     sql = "SELECT author, created, id, regex, expression, has_nondeterministic_values, description, tags, steps, specificity, is_retired, lines_from_end FROM patterns_augmented ORDER BY id;"
 
 
+-- | For the purpose of database upgrades
+dump_breakages :: DbHelpers.DbConnectionData -> IO [Text]
+dump_breakages conn_data = do
+
+  xxxx
+
+  conn <- DbHelpers.get_connection conn_data
+  xs <- query_ conn sql
+  return $ map (\(Only x) -> x) xs
+  where
+    sql = "SELECT branch FROM presumed_stable_branches ORDER BY branch;"
+
+
+
 -- | Note that this SQL is from decomposing the "pattern_frequency_summary" and "aggregated_build_matches" view
 -- to parameterize the latter by branch.
 api_patterns_branch_filtered :: DbHelpers.DbConnectionData -> [Text] -> IO [PatternRecord]

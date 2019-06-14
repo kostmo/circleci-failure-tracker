@@ -95,6 +95,11 @@ function populate_build_info(build_id, parent_data) {
 		["Date:", moment(data["build"]["queued_at"]).fromNow()],
 	];
 
+ 	$("#implicate-self-button").click(function (e) {
+		$("#input-implicated-revision").val(full_commit);
+	});
+	$("#implicate-self-button").prop("disabled", false);
+
 	// TODO Use this for something
 	$.getJSON('https://api.github.com/repos/pytorch/pytorch/commits', {"build_id": build_id}, function (data) {
 		var commit_list = [];
