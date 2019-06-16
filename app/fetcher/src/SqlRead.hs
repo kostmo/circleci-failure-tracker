@@ -27,6 +27,7 @@ import           GHC.Int                              (Int64)
 import qualified Safe
 
 import qualified AuthStages
+import qualified BreakageReportsBackup
 import qualified Breakages
 import qualified Builds
 import qualified BuildSteps
@@ -600,17 +601,14 @@ dump_patterns conn_data = do
 
 
 -- | For the purpose of database upgrades
-dump_breakages :: DbHelpers.DbConnectionData -> IO [Text]
+dump_breakages :: DbHelpers.DbConnectionData -> IO [DbHelpers.WithId BreakageReportsBackup.DbBreakageReport]
 dump_breakages conn_data = do
-
-  xxxx
-
   conn <- DbHelpers.get_connection conn_data
   xs <- query_ conn sql
-  return $ map (\(Only x) -> x) xs
+  return $ map f xs
   where
-    sql = "SELECT branch FROM presumed_stable_branches ORDER BY branch;"
-
+    f (id, reporter, reported_at, build_step, is_broken, implicated_revision, notes) = DbHelpers.WithId id $ BreakageReportsBackup.DbBreakageReport (AuthStages.Username reporter) reported_at (Builds.NewBuildStepId build_step) is_broken implicated_revision notes
+    sql = "SELECT id, reporter, reported_at, build_step, is_broken, implicated_revision, notes FROM broken_build_reports ORDER BY id;"
 
 
 -- | Note that this SQL is from decomposing the "pattern_frequency_summary" and "aggregated_build_matches" view

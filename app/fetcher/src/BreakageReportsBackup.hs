@@ -1,7 +1,7 @@
 {-# LANGUAGE DeriveGeneric     #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module StoredBreakageReports where
+module BreakageReportsBackup where
 
 import           Data.Aeson
 import           Data.Text    (Text)
@@ -14,13 +14,13 @@ import qualified JsonUtils
 
 
 data DbBreakageReport = DbBreakageReport {
-    _build               :: Builds.BuildNumber
+    _reporter            :: AuthStages.Username
+  , _reported_at         :: UTCTime
   , _step_id             :: Builds.BuildStepId
   , _is_broken           :: Bool
-  , _reporter            :: AuthStages.Username
-  , _reported_at         :: UTCTime
-  , _notes               :: Maybe Text
   , _implicated_revision :: Maybe Text
+  , _notes               :: Maybe Text
+
   } deriving Generic
 
 instance ToJSON DbBreakageReport where
