@@ -20,7 +20,6 @@ data DbBreakageReport = DbBreakageReport {
   , _is_broken           :: Bool
   , _implicated_revision :: Maybe Text
   , _notes               :: Maybe Text
-
   } deriving Generic
 
 instance ToJSON DbBreakageReport where

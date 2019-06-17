@@ -39,6 +39,8 @@ executables:
     - containers
     - MissingH
     - vault
+    - lens
+    - lens-aeson
     - http-client-tls
     - http-client
     - time

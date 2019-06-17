@@ -1290,5 +1290,26 @@
         ]
       }
     }
+  },
+  {
+    "author": "ezyang",
+    "created": "2019-06-11T18:29:24.114643Z",
+    "payload": {
+      "db_id": 59,
+      "record": {
+        "applicable_steps": [],
+        "description": "Known flaky test",
+        "expression": {
+          "contents": "FAIL: test_proper_exit (__main__.TestDataLoader)",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "lines_from_end": null,
+        "specificity": 6,
+        "tags": [
+          "flaky"
+        ]
+      }
+    }
   }
 ]

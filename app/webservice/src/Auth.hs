@@ -13,14 +13,19 @@ module Auth (
   , githubAuthTokenSessionKey
   ) where
 
+
+import           Control.Lens               hiding ((<.>))
 import           Control.Monad
 import           Control.Monad.Error.Class
 import           Control.Monad.IO.Class     (liftIO)
 import           Control.Monad.Trans.Except (ExceptT (ExceptT), except,
                                              runExceptT)
+import           Data.Aeson.Lens            (key, _Integer, _Value)
+import           Data.Aeson.Types           (parseEither, parseJSON)
 import           Data.Bifunctor
 import qualified Data.ByteString.Char8      as BSU
 import qualified Data.ByteString.Lazy       as LBS
+import qualified Data.Either                as Either
 import           Data.List                  (intercalate)
 import           Data.Maybe
 import qualified Data.Text                  as T
@@ -196,8 +201,9 @@ getBuildStatusesRecurse
     uri <- except $ first (const $ "Bad URL: " <> TL.pack uri_string) either_uri
     r <- ExceptT $ fmap (first displayOAuth2Error) $ OAuth2.authGetJSON mgr (OAuth2.AccessToken token) uri
 
-    let newly_retrieved_items = Webhooks._statuses r
-        expected_count = Webhooks._total_count r
+    newly_retrieved_items <- except $ first TL.pack $ parseEither parseJSON $ Webhooks._statuses r
+
+    let expected_count = Webhooks._total_count r
         combined_list = old_retrieved_items ++ newly_retrieved_items
 
     if length combined_list < expected_count

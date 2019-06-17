@@ -2,7 +2,7 @@
 
 # This requires a ~/.pgpass file to be set up!
 
-DB_HOSTNAME=circleci-failure-tracker.cmivczl9ccia.us-east-2.rds.amazonaws.com
+DB_HOSTNAME=$1
 
 # This workaround (suggested here: https://stackoverflow.com/a/17461681/105137) doesn't really work
 #echo "REVOKE CONNECT ON DATABASE loganci FROM public;" | psql --no-password -U postgres -h $DB_HOSTNAME

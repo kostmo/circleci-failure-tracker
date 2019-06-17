@@ -30,7 +30,8 @@ instance FromJSON GitHubStatusEvent
 
 data GitHubCombinedStatuses = GitHubCombinedStatuses {
 --    _state    :: Text -- ^ collides with GitHubStatusEventSetter
-    _statuses    :: [StatusEventQuery.GitHubStatusEventGetter]
+--    _statuses    :: [StatusEventQuery.GitHubStatusEventGetter]
+    _statuses    :: Value
   , _total_count :: Int
   } deriving (Generic, Show)
 
