@@ -7,6 +7,7 @@
 
 module Auth (
     getAuthenticatedUser
+  , getAuthenticatedUserByToken
   , getBuildStatuses
   , logoutH
   , callbackH
@@ -20,8 +21,10 @@ import           Control.Monad.Error.Class
 import           Control.Monad.IO.Class     (liftIO)
 import           Control.Monad.Trans.Except (ExceptT (ExceptT), except,
                                              runExceptT)
-import           Data.Aeson.Lens            (key, _Integer, _Value)
-import           Data.Aeson.Types           (parseEither, parseJSON)
+import           Data.Aeson.Lens            (key, _Array, _Integer, _Integral,
+                                             _Value)
+import           Data.Aeson.Types           (FromJSON, Value, parseEither,
+                                             parseJSON)
 import           Data.Bifunctor
 import qualified Data.ByteString.Char8      as BSU
 import qualified Data.ByteString.Lazy       as LBS
@@ -31,6 +34,7 @@ import           Data.Maybe
 import qualified Data.Text                  as T
 import qualified Data.Text.Lazy             as TL
 import qualified Data.Vault.Lazy            as Vault
+import qualified Data.Vector                as V
 import           Network.HTTP.Conduit       hiding (Request)
 import qualified Network.OAuth.OAuth2       as OAuth2
 import           Network.Wai                (Request, vault)
@@ -45,6 +49,7 @@ import qualified AuthStages
 import qualified DbHelpers
 import qualified Github
 import           Session
+import           SillyMonoids               ()
 import qualified StatusEventQuery
 import           Types
 import           Utils
@@ -63,6 +68,40 @@ githubAuthTokenSessionKey :: String
 githubAuthTokenSessionKey = "github_api_token"
 
 
+wrap_login_err login_url = AuthStages.AuthFailure . AuthStages.AuthenticationFailure (Just $ AuthStages.LoginUrl login_url)
+
+
+getAuthenticatedUserByToken ::
+     String -- ^ token
+  -> AuthConfig.GithubConfig
+  -> (AuthStages.Username -> IO (Either a b))
+  -> IO (Either (AuthStages.BackendFailure a) b)
+getAuthenticatedUserByToken api_token github_config callback = do
+
+  mgr <- newManager tlsManagerSettings
+  let wrapped_token = OAuth2.AccessToken $ T.pack api_token
+      api_support_data = GitHubApiSupport mgr wrapped_token
+
+  runExceptT $ do
+    Types.LoginUser _login_name login_alias <- ExceptT $
+      (first $ const (wrap_login_err login_url AuthStages.FailUsernameDetermination)) <$> Auth.fetchUser api_support_data
+
+    let username_text = TL.toStrict login_alias
+    is_org_member <- ExceptT $ do
+      either_membership <- isOrgMember (AuthConfig.personal_access_token github_config) username_text
+      return $ first (wrap_login_err login_url) either_membership
+
+    unless is_org_member $ except $
+      Left $ AuthStages.AuthFailure $ AuthStages.AuthenticationFailure (Just $ AuthStages.LoginUrl login_url)
+        $ AuthStages.FailOrgMembership (AuthStages.Username username_text) Auth.targetOrganization
+
+    ExceptT $ fmap (first AuthStages.DbFailure) $
+      callback $ AuthStages.Username username_text
+
+  where
+    login_url = AuthConfig.getLoginUrl github_config
+
+
 getAuthenticatedUser ::
      Request
   -> Vault.Key (Session IO String String)
@@ -72,35 +111,13 @@ getAuthenticatedUser ::
 getAuthenticatedUser rq session github_config callback = do
 
   u <- sessionLookup githubAuthTokenSessionKey
-
   case u of
-    Nothing -> return $ Left $ wrap_err AuthStages.FailLoginRequired
-    Just api_token -> do
-
-      mgr <- newManager tlsManagerSettings
-      let wrapped_token = OAuth2.AccessToken $ T.pack api_token
-          api_support_data = GitHubApiSupport mgr wrapped_token
-
-      runExceptT $ do
-        (Types.LoginUser _login_name login_alias) <- ExceptT $
-          (first $ const (wrap_err AuthStages.FailUsernameDetermination)) <$> Auth.fetchUser api_support_data
-
-        let username_text = TL.toStrict login_alias
-        is_org_member <- ExceptT $ do
-          either_membership <- isOrgMember (AuthConfig.personal_access_token github_config) username_text
-          return $ first wrap_err either_membership
-
-        unless is_org_member $ except $
-          Left $ AuthStages.AuthFailure $ AuthStages.AuthenticationFailure (Just $ AuthStages.LoginUrl login_url)
-            $ AuthStages.FailOrgMembership (AuthStages.Username username_text) Auth.targetOrganization
-
-        ExceptT $ fmap (first AuthStages.DbFailure) $
-          callback $ AuthStages.Username username_text
+    Nothing -> return $ Left $ wrap_login_err login_url AuthStages.FailLoginRequired
+    Just api_token -> getAuthenticatedUserByToken api_token github_config callback
 
   where
     Just (sessionLookup, _sessionInsert) = Vault.lookup session $ vault rq
     login_url = AuthConfig.getLoginUrl github_config
-    wrap_err = AuthStages.AuthFailure . AuthStages.AuthenticationFailure (Just $ AuthStages.LoginUrl login_url)
 
 
 redirectToHomeM :: ActionM ()
@@ -180,17 +197,19 @@ tryFetchUser github_config code session_insert = do
     Left e   -> return $ Left $ TL.pack $ "tryFetchUser: cannot fetch asses token. error detail: " ++ show e
 
 
-getBuildStatusesRecurse ::
+recursePaginated :: FromJSON a =>
      Manager
   -> T.Text
   -> String
+  -> T.Text
   -> Int
-  -> [StatusEventQuery.GitHubStatusEventGetter]
-  -> IO (Either TL.Text [StatusEventQuery.GitHubStatusEventGetter])
-getBuildStatusesRecurse
+  -> [a]
+  -> IO (Either TL.Text [a])
+recursePaginated
     mgr
     token
     uri_prefix
+    field_accessor
     page_offset
     old_retrieved_items = do
 
@@ -199,18 +218,22 @@ getBuildStatusesRecurse
   runExceptT $ do
 
     uri <- except $ first (const $ "Bad URL: " <> TL.pack uri_string) either_uri
-    r <- ExceptT $ fmap (first displayOAuth2Error) $ OAuth2.authGetJSON mgr (OAuth2.AccessToken token) uri
 
-    newly_retrieved_items <- except $ first TL.pack $ parseEither parseJSON $ Webhooks._statuses r
+    r <- ExceptT ((fmap (first displayOAuth2Error) $ OAuth2.authGetJSON mgr (OAuth2.AccessToken token) uri) :: IO (Either TL.Text Value))
 
-    let expected_count = Webhooks._total_count r
+    let subval = r ^. key field_accessor . _Array
+
+    newly_retrieved_items <- except $ first TL.pack $ mapM (parseEither parseJSON) $ V.toList subval
+
+    let expected_count = r ^. key "total_count" . _Integral
         combined_list = old_retrieved_items ++ newly_retrieved_items
 
     if length combined_list < expected_count
-      then ExceptT $ getBuildStatusesRecurse
+      then ExceptT $ recursePaginated
         mgr
         token
         uri_prefix
+        field_accessor
         (page_offset + 1)
         combined_list
       else return combined_list
@@ -218,6 +241,62 @@ getBuildStatusesRecurse
   where
     either_uri = parseURI strictURIParserOptions $ BSU.pack uri_string
     uri_string = uri_prefix <> "?per_page=" <> show perPageCount <> "&page=" <> show page_offset
+
+
+-- | Recursively calls the GitHub API
+getCommitsRecurse :: FromJSON a =>
+     Manager
+  -> T.Text
+  -> T.Text  -- ^ starting commit
+  -> T.Text  -- ^ last known commit (stopping commit)
+  -> [a]
+  -> IO (Either TL.Text [a])
+getCommitsRecurse
+    mgr
+    token
+    uri_prefix
+    old_retrieved_items = do
+
+xxxx
+  
+  -- TODO
+  return []
+  where
+    either_uri = parseURI strictURIParserOptions $ BSU.pack uri_string
+
+    uri_string = uri_prefix
+      <> "?per_page=" <> show perPageCount
+      <> "&sha=" <> show perPageCount
+
+
+getCommits ::
+     T.Text -- ^ token
+  -> DbHelpers.OwnerAndRepo
+  -> T.Text  -- ^ starting commit
+  -> T.Text  -- ^ last known commit (stopping commit)
+  -> IO (Either TL.Text [StatusEventQuery.GitHubStatusEventGetter])
+getCommits
+    token
+    (DbHelpers.OwnerAndRepo repo_owner repo_name)
+    target_sha1
+    stopping_sha1 = do
+
+  mgr <- newManager tlsManagerSettings
+
+  either_items <- getCommitsRecurse
+    mgr
+    token
+    uri_prefix
+    stopping_sha1
+
+  return either_items
+  where
+    uri_prefix = intercalate "/" [
+        "https://api.github.com/repos"
+      , repo_owner
+      , repo_name
+      , "commits"
+      ]
 
 
 getBuildStatuses ::
@@ -232,10 +311,11 @@ getBuildStatuses
 
   mgr <- newManager tlsManagerSettings
 
-  either_items <- getBuildStatusesRecurse
+  either_items <- recursePaginated
     mgr
     token
     uri_prefix
+    "statuses"
     1
     []
 

@@ -13,14 +13,14 @@ import           Session
 import           Types
 import qualified Utils
 
-data GithubConfig = GithubConfig {
+data GithubConfig = NewGithubConfig {
     is_local              :: Bool
   , client_id             :: Text
   , client_secret         :: Text
   , personal_access_token :: Text
   , webhook_secret        :: Text
+  , admin_password        :: Text
   }
-
 
 
 initIdps :: CacheStore -> GithubConfig -> IO ()

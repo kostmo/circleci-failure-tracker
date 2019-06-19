@@ -91,7 +91,7 @@ function populate_build_info(build_id, parent_data) {
 		["Revision:", commit_links],
 		["Build step:", render_tag("i", data["step_name"])],
 		["Branch:", data["build"]["branch"]],
-		["Job name:", data["build"]["job_name"]],
+		["Job name:", link(data["build"]["job_name"], "/job-details.html?job=" + data["build"]["job_name"])],
 		["Date:", moment(data["build"]["queued_at"]).fromNow()],
 	];
 

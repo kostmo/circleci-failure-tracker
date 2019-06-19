@@ -39,6 +39,22 @@ build_to_tuple (Builds.NewBuild (Builds.NewBuildNumber build_num) vcs_rev queued
     queued_at_string = T.pack $ formatTime defaultTimeLocale rfc822DateFormat queuedat
 
 
+-- | This is idempotent; will not insert if any rows already exist
+store_master_commits :: DbHelpers.DbConnectionData -> [Text] -> IO (Either Text Int64)
+store_master_commits conn_data commit_list = do
+  conn <- DbHelpers.get_connection conn_data
+
+  rows <- query_ conn query_sql
+  case rows of
+    [] -> fmap Right $ executeMany conn insertion_sql $ map Only commit_list
+    Only sha1:_ ->
+      return $ Left $ "Already populated up to sha1: " <> sha1
+
+  where
+    insertion_sql = "INSERT INTO ordered_master_commits(sha1) VALUES(?);"
+    query_sql = "SELECT sha1 FROM ordered_master_commits ORDER BY id DESC LIMIT 1;"
+
+
 -- | This is idempotent; builds that are already present will not be overwritten
 store_builds_list :: Connection -> [Builds.Build] -> IO Int64
 store_builds_list conn builds_list =

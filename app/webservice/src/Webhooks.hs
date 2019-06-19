@@ -6,12 +6,11 @@
 module Webhooks where
 
 import           Data.Aeson
-import           Data.Text.Lazy   (Text)
-import           Data.Time        (UTCTime)
+import           Data.Text.Lazy (Text)
+import           Data.Time      (UTCTime)
 import           GHC.Generics
 
 import qualified JsonUtils
-import qualified StatusEventQuery
 
 
 data GitHubStatusEvent = GitHubStatusEvent {
@@ -28,12 +27,3 @@ data GitHubStatusEvent = GitHubStatusEvent {
 instance FromJSON GitHubStatusEvent
 
 
-data GitHubCombinedStatuses = GitHubCombinedStatuses {
---    _state    :: Text -- ^ collides with GitHubStatusEventSetter
---    _statuses    :: [StatusEventQuery.GitHubStatusEventGetter]
-    _statuses    :: Value
-  , _total_count :: Int
-  } deriving (Generic, Show)
-
-instance FromJSON GitHubCombinedStatuses where
-  parseJSON = genericParseJSON JsonUtils.dropUnderscore

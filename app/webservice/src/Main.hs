@@ -248,11 +248,22 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       S.json $ WebApi.toJsonEither insertion_result
 
 
+    S.post "/api/populate-master-commits" $ do
+      body_json <- S.jsonData
+      maybe_auth_header <- S.header "token"
+
+      insertion_result <- liftIO $ runExceptT $ do
+          auth_token <- except $ maybeToEither (T.pack "Need \"token\" header!") maybe_auth_header
+          when (LT.toStrict auth_token /= AuthConfig.admin_password github_config) $
+            except $ Left $ T.pack "Incorrect admin password"
+          ExceptT $ SqlWrite.store_master_commits connection_data body_json
+
+      S.json $ WebApi.toJsonEither insertion_result
+
+
     -- TODO
-    S.post "/api/fetch-master-commits" $ do
+    S.post "/api/update-master-commits" $ do
       S.json $ ("TODO" :: String)
-
-
 
 
 
@@ -269,9 +280,6 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
       S.json $ DbInsertion.toInsertionResponse github_config insertion_result
     -}
-
-
-
 
 
 
@@ -581,12 +589,13 @@ mainAppCode args = do
     credentials_data = SetupData static_base github_config connection_data
     static_base = staticBase args
 
-    github_config = AuthConfig.GithubConfig
+    github_config = AuthConfig.NewGithubConfig
       (runningLocally args)
       (gitHubClientID args)
       (gitHubClientSecret args)
       (gitHubPersonalAccessToken args)
       (gitHubWebhookSecret args)
+      (adminPassword args)
 
     connection_data = DbHelpers.NewDbConnectionData {
         DbHelpers.dbHostname = dbHostname args
@@ -606,6 +615,7 @@ data CommandLineArgs = NewCommandLineArgs {
   , gitHubPersonalAccessToken :: Text
   , gitHubWebhookSecret       :: Text
   , runningLocally            :: Bool
+  , adminPassword             :: Text
   }
 
 
@@ -630,6 +640,8 @@ myCliParser = NewCommandLineArgs
     <> help "GitHub webhook secret")
   <*> switch      (long "local"
     <> help "Webserver is being run locally, so don't redirect HTTP to HTTPS")
+  <*> strOption   (long "admin-password" <> metavar "ADMIN_PASSWORD"
+    <> help "Admin password")
 
 
 main :: IO ()

@@ -17,7 +17,11 @@ function populate_commit_info(commit_sha1) {
 		var stats_table = render_table_vertical_headers(items);
 
 		var analysis_text;
-		if (data["payload"]["failed_build_count"] == data["payload"]["flaky_build_count"]) {
+
+		if (data["payload"]["failed_build_count"] == 0) {
+			analysis_text = render_tag("span", "No CircleCI builds failed.", {"style": "color: green;"});
+
+		} else if (data["payload"]["failed_build_count"] == data["payload"]["flaky_build_count"]) {
 			analysis_text = render_tag("span", "All of the CircleCI build failures were due to intermittent causes. Consider rerunning them.", {"style": "color: green;"});
 
 		} else if (data["payload"]["failed_build_count"] == data["payload"]["matched_build_count"]) {
