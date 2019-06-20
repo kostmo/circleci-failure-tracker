@@ -39,16 +39,19 @@ import qualified SqlWrite
 
 
 -- | Stores scan results to database and returns them.
-scan_builds :: ScanRecords.ScanCatchupResources -> Either (Set Builds.BuildNumber) Int -> IO [(Builds.BuildNumber, [ScanPatterns.ScanMatch])]
-scan_builds scan_resources whitelisted_builds_or_fetch_count = do
+scanBuilds ::
+     ScanRecords.ScanCatchupResources
+  -> Either (Set Builds.BuildNumber) Int
+  -> IO [(Builds.BuildNumber, [ScanPatterns.ScanMatch])]
+scanBuilds scan_resources whitelisted_builds_or_fetch_count = do
 
   visited_builds_list <- SqlRead.get_revisitable_builds conn
   let whitelisted_visited = visited_filter visited_builds_list
-  rescan_matches <- rescan_visited_builds scan_resources whitelisted_visited
+  rescan_matches <- rescanVisitedBuilds scan_resources whitelisted_visited
 
   unvisited_builds_list <- SqlRead.get_unvisited_build_ids conn maybe_fetch_limit
   let whitelisted_unvisited = unvisited_filter unvisited_builds_list
-  first_scan_matches <- process_unvisited_builds scan_resources whitelisted_unvisited
+  first_scan_matches <- processUnvisitedBuilds scan_resources whitelisted_unvisited
 
   return $ rescan_matches ++ first_scan_matches
 
@@ -59,21 +62,21 @@ scan_builds scan_resources whitelisted_builds_or_fetch_count = do
     (visited_filter, unvisited_filter) = case whitelisted_builds_or_fetch_count of
       Right _ -> (id, id)
       Left whitelisted_builds -> (
-          filter $ (\(_, _, buildnum, _) -> buildnum `Set.member` whitelisted_builds)
+          filter $ \(_, _, buildnum, _) -> buildnum `Set.member` whitelisted_builds
         , filter (`Set.member` whitelisted_builds)
         )
 
 
 -- | Note that the Left/Right convention is backwards!
-rescan_single_build ::
+rescanSingleBuild ::
      DbHelpers.DbConnectionData
   -> AuthStages.Username
   -> Builds.BuildNumber
   -> IO ()
-rescan_single_build db_connection_data initiator build_to_scan = do
+rescanSingleBuild db_connection_data initiator build_to_scan = do
   putStrLn $ "Rescanning build: " ++ show build_to_scan
   conn <- DbHelpers.get_connection db_connection_data
-  scan_resources <- prepare_scan_resources conn $ Just initiator
+  scan_resources <- prepareScanResources conn $ Just initiator
 
   either_visitation_result <- get_failed_build_info scan_resources build_to_scan
   case either_visitation_result of
@@ -82,20 +85,20 @@ rescan_single_build db_connection_data initiator build_to_scan = do
 
       SqlWrite.store_builds_list conn [build_obj]
 
-      scan_matches <- scan_builds scan_resources $ Left $ Set.singleton build_to_scan
+      scan_matches <- scanBuilds scan_resources $ Left $ Set.singleton build_to_scan
       putStrLn $ "Found " ++ show (length scan_matches) ++ " matches."
       return ()
 
 
-get_single_build_url :: Builds.BuildNumber -> String
-get_single_build_url (Builds.NewBuildNumber build_number) = intercalate "/"
+getSingleBuildUrl :: Builds.BuildNumber -> String
+getSingleBuildUrl (Builds.NewBuildNumber build_number) = intercalate "/"
   [ Constants.circleci_api_base
   , show build_number
   ]
 
 
-get_step_failure :: Value -> Either Builds.BuildStepFailure ()
-get_step_failure step_val =
+getStepFailure :: Value -> Either Builds.BuildStepFailure ()
+getStepFailure step_val =
   mapM_ get_failure my_array
   where
     my_array = step_val ^. key "actions" . _Array
@@ -110,8 +113,8 @@ get_step_failure step_val =
       | otherwise = pure ()
 
 
-prepare_scan_resources :: Connection -> Maybe AuthStages.Username -> IO ScanRecords.ScanCatchupResources
-prepare_scan_resources conn maybe_initiator = do
+prepareScanResources :: Connection -> Maybe AuthStages.Username -> IO ScanRecords.ScanCatchupResources
+prepareScanResources conn maybe_initiator = do
 
   aws_sess <- Sess.newSession
   circle_sess <- Sess.newSession
@@ -131,8 +134,8 @@ prepare_scan_resources conn maybe_initiator = do
       circle_sess
 
 
-get_pattern_objects :: ScanRecords.ScanCatchupResources -> [Int64] -> [ScanPatterns.DbPattern]
-get_pattern_objects scan_resources =
+getPatternObjects :: ScanRecords.ScanCatchupResources -> [Int64] -> [ScanPatterns.DbPattern]
+getPatternObjects scan_resources =
   Maybe.mapMaybe (\x -> DbHelpers.WithId x <$> HashMap.lookup x (ScanRecords.patterns_by_id scan_resources))
 
 
@@ -160,8 +163,8 @@ catchup_scan scan_resources buildstep_id step_name (buildnum, maybe_console_outp
     Nothing -> return $ Right []
     Just maximum_pattern_id -> runExceptT $ do
 
-      lines_list <- ExceptT $ get_and_store_log scan_resources buildnum buildstep_id maybe_console_output_url
-      let matches = scan_log_text lines_list applicable_patterns
+      lines_list <- ExceptT $ getAndStoreLog scan_resources buildnum buildstep_id maybe_console_output_url
+      let matches = scanLogText lines_list applicable_patterns
 
       liftIO $ do
         SqlWrite.store_matches scan_resources buildstep_id buildnum matches
@@ -170,18 +173,16 @@ catchup_scan scan_resources buildstep_id step_name (buildnum, maybe_console_outp
       return matches
 
 
-rescan_visited_builds :: ScanRecords.ScanCatchupResources -> [(Builds.BuildStepId, T.Text, Builds.BuildNumber, [Int64])] -> IO [(Builds.BuildNumber, [ScanPatterns.ScanMatch])]
-rescan_visited_builds scan_resources visited_builds_list = do
+rescanVisitedBuilds :: ScanRecords.ScanCatchupResources -> [(Builds.BuildStepId, T.Text, Builds.BuildNumber, [Int64])] -> IO [(Builds.BuildNumber, [ScanPatterns.ScanMatch])]
+rescanVisitedBuilds scan_resources visited_builds_list =
 
-  match_lists <- for (zip [1::Int ..] visited_builds_list) $ \(idx, (build_step_id, step_name, build_num, pattern_ids)) -> do
+  for (zip [1::Int ..] visited_builds_list) $ \(idx, (build_step_id, step_name, build_num, pattern_ids)) -> do
     putStrLn $ "Visiting " ++ show idx ++ "/" ++ show visited_count ++ " previously-visited builds (" ++ show build_num ++ ")..."
 
     either_matches <- catchup_scan scan_resources build_step_id step_name (build_num, Nothing) $
-      get_pattern_objects scan_resources pattern_ids
+      getPatternObjects scan_resources pattern_ids
 
-    return $ (build_num, Either.fromRight [] either_matches)
-
-  return match_lists
+    return (build_num, Either.fromRight [] either_matches)
 
   where
     visited_count = length visited_builds_list
@@ -191,8 +192,8 @@ rescan_visited_builds scan_resources visited_builds_list = do
 -- immediately upon build visitation. We do this instead of waiting
 -- until the end so that we can resume progress if the process is
 -- interrupted.
-process_unvisited_builds :: ScanRecords.ScanCatchupResources -> [Builds.BuildNumber] -> IO [(Builds.BuildNumber, [ScanPatterns.ScanMatch])]
-process_unvisited_builds scan_resources unvisited_builds_list = do
+processUnvisitedBuilds :: ScanRecords.ScanCatchupResources -> [Builds.BuildNumber] -> IO [(Builds.BuildNumber, [ScanPatterns.ScanMatch])]
+processUnvisitedBuilds scan_resources unvisited_builds_list =
 
   for (zip [1::Int ..] unvisited_builds_list) $ \(idx, build_num) -> do
     putStrLn $ "Visiting " ++ show idx ++ "/" ++ show unvisited_count ++ " unvisited builds..."
@@ -209,7 +210,7 @@ process_unvisited_builds scan_resources unvisited_builds_list = do
           catchup_scan scan_resources build_step_id step_name (build_num, Just failure_output) $
             ScanRecords.get_patterns_with_id scan_resources
 
-    return $ (build_num, Either.fromRight [] either_matches)
+    return (build_num, Either.fromRight [] either_matches)
 
   where
     unvisited_count = length unvisited_builds_list
@@ -243,7 +244,7 @@ get_failed_build_info scan_resources build_number = do
       -- We expect to short circuit here and return a build step failure,
       -- but if we don't, we proceed
       -- to the NoFailedSteps return value.
-      first (Builds.BuildWithStepFailure $ CircleBuild.toBuild build_number r) $ mapM_ get_step_failure steps_list
+      first (Builds.BuildWithStepFailure $ CircleBuild.toBuild build_number r) $ mapM_ getStepFailure steps_list
       return ScanRecords.NoFailedSteps
 
     Left err_message -> do
@@ -251,18 +252,18 @@ get_failed_build_info scan_resources build_number = do
       return $ ScanRecords.NetworkProblem fail_string
 
   where
-    fetch_url = get_single_build_url build_number
+    fetch_url = getSingleBuildUrl build_number
     opts = defaults & header "Accept" .~ [Constants.json_mime_type]
     sess = ScanRecords.circle_sess $ ScanRecords.fetching scan_resources
 
 
-get_and_store_log ::
+getAndStoreLog ::
      ScanRecords.ScanCatchupResources
   -> Builds.BuildNumber
   -> Builds.BuildStepId
   -> Maybe Builds.BuildFailureOutput
   -> IO (Either String [T.Text])
-get_and_store_log scan_resources build_number build_step_id maybe_failed_build_output = do
+getAndStoreLog scan_resources build_number build_step_id maybe_failed_build_output = do
 
   maybe_console_log <- SqlRead.read_log conn build_number
   case maybe_console_log of
@@ -303,28 +304,28 @@ get_and_store_log scan_resources build_number build_step_id maybe_failed_build_o
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
 
 
-scan_log_text ::
+scanLogText ::
      [T.Text]
   -> [ScanPatterns.DbPattern]
   -> [ScanPatterns.ScanMatch]
-scan_log_text lines_list patterns =
-  concat $ filter (not . null) $ map apply_patterns $ zip [0..] $ map T.stripEnd lines_list
+scanLogText lines_list patterns =
+  concat $ filter (not . null) $ zipWith (curry apply_patterns) [0 ..] $ map T.stripEnd lines_list
   where
     apply_patterns line_tuple = Maybe.mapMaybe (ScanUtils.apply_single_pattern line_tuple) patterns
 
 
-scan_log ::
+scanLog ::
      ScanRecords.ScanCatchupResources
   -> Builds.BuildNumber
   -> [ScanPatterns.DbPattern]
   -> IO (Either String [ScanPatterns.ScanMatch])
-scan_log scan_resources build_number@(Builds.NewBuildNumber buildnum) patterns = do
+scanLog scan_resources build_number@(Builds.NewBuildNumber buildnum) patterns = do
 
   putStrLn $ "Scanning log for " ++ show (length patterns) ++ " patterns..."
 
   maybe_console_log <- SqlRead.read_log conn build_number
   return $ case maybe_console_log of
-    Just console_log -> Right $ scan_log_text (T.lines console_log) patterns
+    Just console_log -> Right $ scanLogText (T.lines console_log) patterns
     Nothing -> Left $ "No log found for build number " ++ show buildnum
 
   where

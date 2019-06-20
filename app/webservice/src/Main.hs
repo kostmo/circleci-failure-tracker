@@ -133,8 +133,8 @@ validateMaybeRevision key = do
       return $ Just validated_revision
 
 
-echo_endpoint :: S.ScottyM ()
-echo_endpoint = S.post "/api/echo" $ do
+echoEndpoint :: S.ScottyM ()
+echoEndpoint = S.post "/api/echo" $ do
   body <- S.body
   headers <- S.headers
 
@@ -157,7 +157,10 @@ retrieveLogContext session github_config connection_data = do
   context_linecount <- S.param "context_linecount"
 
   let callback_func :: AuthStages.Username -> IO (Either Text SqlRead.LogContext)
-      callback_func _user_alias = SqlRead.log_context_func connection_data (MatchOccurrences.MatchId match_id) context_linecount
+      callback_func _user_alias = SqlRead.log_context_func
+        connection_data
+        (MatchOccurrences.MatchId match_id)
+        context_linecount
 
   rq <- S.request
   either_log_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
@@ -176,7 +179,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
 
     -- For debugging only
-    when (AuthConfig.is_local github_config) echo_endpoint
+    when (AuthConfig.is_local github_config) echoEndpoint
 
 
     S.post "/api/github-event" $ StatusUpdate.github_event_endpoint connection_data github_config
@@ -211,7 +214,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
       let callback_func :: AuthStages.Username -> IO (Either (AuthStages.BackendFailure Text) Text)
           callback_func user_alias = do
-            Scanning.rescan_single_build
+            Scanning.rescanSingleBuild
               connection_data
               user_alias
               (Builds.NewBuildNumber build_number)
@@ -263,8 +266,8 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
 
     -- TODO
-    S.post "/api/update-master-commits" $ do
-      S.json $ ("TODO" :: String)
+    S.post "/api/update-master-commits" $
+      S.json ("TODO" :: String)
 
 
 
@@ -443,15 +446,6 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     S.get "/api/presumed-stable-branches-dump" $
       S.json =<< liftIO (SqlRead.dump_presumed_stable_branches connection_data)
-
-    S.post "/api/pattern-specificity-update" $ do
-      pattern_id <- S.param "pattern_id"
-      specificity <- S.param "specificity"
-      let callback_func _user_alias = SqlWrite.update_pattern_specificity connection_data pattern_id specificity
-
-      rq <- S.request
-      insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
-      S.json $ WebApi.toJsonEither insertion_result
 
     S.post "/api/pattern-specificity-update" $ do
       pattern_id <- S.param "pattern_id"
