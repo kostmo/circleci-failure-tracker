@@ -37,6 +37,7 @@ library:
     - transformers
     - scientific
     - text
+    - hoauth2
     - array
     - MissingH 
 

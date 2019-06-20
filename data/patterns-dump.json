@@ -1311,5 +1311,24 @@
         ]
       }
     }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-06-19T22:55:14.014561Z",
+    "payload": {
+      "db_id": 60,
+      "record": {
+        "applicable_steps": [],
+        "description": "Linker error",
+        "expression": {
+          "contents": ": undefined reference to",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "lines_from_end": null,
+        "specificity": 3,
+        "tags": []
+      }
+    }
   }
 ]

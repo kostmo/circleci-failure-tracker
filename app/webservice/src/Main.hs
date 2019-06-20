@@ -17,6 +17,7 @@ import           Data.Text                         (Text)
 import qualified Data.Text                         as T
 import qualified Data.Text.Lazy                    as LT
 import qualified Data.Vault.Lazy                   as Vault
+import qualified Network.OAuth.OAuth2              as OAuth2
 import           Network.Wai
 import           Network.Wai.Middleware.ForceSSL   (forceSSL)
 import           Network.Wai.Middleware.Static
@@ -39,6 +40,7 @@ import qualified Builds
 import qualified Constants
 import qualified DbHelpers
 import qualified DbInsertion
+import qualified GitHubRecords
 import qualified GitRev
 import qualified JsonUtils
 import qualified MatchOccurrences
@@ -564,6 +566,26 @@ mainAppCode args = do
 
   let persistence_data = PersistenceData cache session store
 
+
+
+  when (AuthConfig.is_local github_config) $ do
+    -- XXX FOR TESTING ONLY
+
+    either_fetched_commits <- Auth.getCommits
+      (AuthConfig.personal_access_token github_config)
+      (DbHelpers.OwnerAndRepo Constants.project_name Constants.repo_name)
+--      "master"
+      "e388f704999bcd83c064caa0f056bbcb36bfb121"
+      "28ecc104f481c6012ab6a5d861e885d29d5d66d1"
+    case either_fetched_commits of
+      Right commits -> do
+        putStrLn $ "Fetched " ++ show (length commits) ++ " commits"
+        mapM_ (putStrLn . show . GitHubRecords._sha) commits
+      Left _ -> putStrLn "failed to fetch commits"
+
+
+
+
   {-
   when (AuthConfig.is_local github_config) $ do
     -- XXX FOR TESTING ONLY
@@ -593,7 +615,7 @@ mainAppCode args = do
       (runningLocally args)
       (gitHubClientID args)
       (gitHubClientSecret args)
-      (gitHubPersonalAccessToken args)
+      (OAuth2.AccessToken $ gitHubPersonalAccessToken args)
       (gitHubWebhookSecret args)
       (adminPassword args)
 

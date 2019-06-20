@@ -20,6 +20,7 @@ import qualified Data.Text                     as T
 import qualified Data.Text.Lazy                as LT
 import qualified Data.Time.Clock               as Clock
 import qualified GitHub.Data.Webhooks.Validate as GHValidate
+import qualified Network.OAuth.OAuth2          as OAuth2
 import qualified Network.URI                   as URI
 import qualified Safe
 import           Text.Read                     (readMaybe)
@@ -91,7 +92,7 @@ get_circleci_failure sha1 event_setter = do
 -- * For each match, check if that match's pattern is tagged as "flaky".
 handleFailedStatuses ::
      DbHelpers.DbConnectionData
-  -> Text -- ^ access token
+  -> OAuth2.AccessToken
   -> Maybe AuthStages.Username -- ^ scan initiator
   -> DbHelpers.OwnerAndRepo
   -> Text
@@ -172,7 +173,7 @@ handleFailedStatuses
 
 handleStatusWebhook ::
      DbHelpers.DbConnectionData
-  -> Text -- ^ access token
+  -> OAuth2.AccessToken
   -> Maybe AuthStages.Username
   -> Webhooks.GitHubStatusEvent
   -> IO (Either LT.Text ())

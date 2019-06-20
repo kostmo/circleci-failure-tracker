@@ -17,7 +17,7 @@ data GithubConfig = NewGithubConfig {
     is_local              :: Bool
   , client_id             :: Text
   , client_secret         :: Text
-  , personal_access_token :: Text
+  , personal_access_token :: AccessToken
   , webhook_secret        :: Text
   , admin_password        :: Text
   }

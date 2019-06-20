@@ -22,6 +22,7 @@ import           Data.Time                  (UTCTime)
 import           GHC.Generics
 import           GHC.Int                    (Int64)
 import qualified Network.HTTP.Client        as NC
+import qualified Network.OAuth.OAuth2       as OAuth2
 import           Network.Wreq               as NW
 
 import qualified DbHelpers
@@ -44,12 +45,12 @@ instance FromJSON StatusPostResult
 
 
 postCommitStatus ::
-     T.Text
+     OAuth2.AccessToken
   -> DbHelpers.OwnerAndRepo
   -> T.Text
   -> StatusEvent.GitHubStatusEventSetter
   -> IO (Either LT.Text StatusPostResult)
-postCommitStatus personal_access_token owned_repo target_sha1 status_obj = runExceptT $ do
+postCommitStatus (OAuth2.AccessToken personal_access_token) owned_repo target_sha1 status_obj = runExceptT $ do
 
   response <- ExceptT $ fmap (first LT.pack) $ FetchHelpers.safeGetUrl $ NW.postWith opts url_string $ toJSON status_obj
   except $ first LT.pack $ eitherDecode $ NC.responseBody response
