@@ -13,6 +13,7 @@ import           Session
 import           Types
 import qualified Utils
 
+
 data GithubConfig = NewGithubConfig {
     is_local              :: Bool
   , client_id             :: Text
@@ -24,11 +25,13 @@ data GithubConfig = NewGithubConfig {
 
 
 initIdps :: CacheStore -> GithubConfig -> IO ()
-initIdps c auth_config = insertIDPData c $ mkIDPData auth_config
+initIdps c = insertIDPData c . mkIDPData
 
 
 mkIDPData :: GithubConfig -> IDPData
-mkIDPData auth_config = IDPData (Utils.createCodeUri (githubKey auth_config) [("state", "Github.test-state-123")]) Nothing (idpLabel Github.Github)
+mkIDPData auth_config = IDPData code_uri Nothing $ idpLabel Github.Github
+  where
+    code_uri = Utils.createCodeUri (githubKey auth_config) [("state", "Github.test-state-123")]
 
 
 -- | http://developer.github.com/v3/oauth/
@@ -46,9 +49,5 @@ githubKey auth_config = OAuth2 {
       else [uri|https://circle.pytorch.org/api/github-auth-callback|]
 
 
-
 getLoginUrl :: GithubConfig -> Text
-getLoginUrl auth_config =
-  TL.toStrict $ codeFlowUri idp_data
-  where
-    idp_data = mkIDPData auth_config
+getLoginUrl = TL.toStrict . codeFlowUri . mkIDPData

@@ -27,12 +27,14 @@ import           Text.Read                     (readMaybe)
 import qualified Web.Scotty                    as S
 import           Web.Scotty.Internal.Types     (ActionT)
 
+
 import qualified ApiPost
 import qualified Auth
 import qualified AuthConfig
 import qualified AuthStages
 import qualified Builds
 import qualified DbHelpers
+import qualified GithubApiFetch
 import qualified Scanning
 import qualified ScanPatterns
 import qualified SqlRead
@@ -111,7 +113,7 @@ handleFailedStatuses
     current_time <- Clock.getCurrentTime
     putStrLn $ "Processing at " ++ show current_time
 
-  build_statuses_list_any_source <- ExceptT $ Auth.getBuildStatuses access_token owned_repo sha1
+  build_statuses_list_any_source <- ExceptT $ GithubApiFetch.getBuildStatuses access_token owned_repo sha1
 
   liftIO $ putStrLn $ "Build statuses count: " ++ show (length build_statuses_list_any_source)
 

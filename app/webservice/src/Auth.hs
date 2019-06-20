@@ -8,8 +8,6 @@
 module Auth (
     getAuthenticatedUser
   , getAuthenticatedUserByToken
-  , getBuildStatuses
-  , getCommits
   , logoutH
   , callbackH
   , githubAuthTokenSessionKey
@@ -49,8 +47,10 @@ import           Web.Scotty.Internal.Types
 
 import qualified AuthConfig
 import qualified AuthStages
+import qualified Constants
 import qualified DbHelpers
 import qualified Github
+import qualified GithubApiFetch
 import qualified GitHubRecords
 import           Session
 import           SillyMonoids               ()
@@ -60,38 +60,30 @@ import           Utils
 import qualified Webhooks
 
 
-maxGitHubCommitFetchCount :: Int
-maxGitHubCommitFetchCount = 2000
-
-perPageCount :: Int
-perPageCount = 100
-
-
-targetOrganization :: T.Text
-targetOrganization = "pytorch"
-
-
 githubAuthTokenSessionKey :: String
 githubAuthTokenSessionKey = "github_api_token"
 
 
+wrap_login_err ::
+     T.Text
+  -> AuthStages.AuthenticationFailureStageInfo
+  -> AuthStages.BackendFailure a
 wrap_login_err login_url = AuthStages.AuthFailure . AuthStages.AuthenticationFailure (Just $ AuthStages.LoginUrl login_url)
 
 
 getAuthenticatedUserByToken ::
-     String -- ^ token
+     OAuth2.AccessToken -- ^ token
   -> AuthConfig.GithubConfig
   -> (AuthStages.Username -> IO (Either a b))
   -> IO (Either (AuthStages.BackendFailure a) b)
-getAuthenticatedUserByToken api_token github_config callback = do
+getAuthenticatedUserByToken wrapped_token github_config callback = do
 
   mgr <- newManager tlsManagerSettings
-  let wrapped_token = OAuth2.AccessToken $ T.pack api_token
-      api_support_data = GitHubApiSupport mgr wrapped_token
+  let api_support_data = GithubApiFetch.GitHubApiSupport mgr wrapped_token
 
   runExceptT $ do
     Types.LoginUser _login_name login_alias <- ExceptT $
-      (first $ const (wrap_login_err login_url AuthStages.FailUsernameDetermination)) <$> Auth.fetchUser api_support_data
+      (first $ const (wrap_login_err login_url AuthStages.FailUsernameDetermination)) <$> GithubApiFetch.fetchUser api_support_data
 
     let username_text = TL.toStrict login_alias
     is_org_member <- ExceptT $ do
@@ -100,7 +92,7 @@ getAuthenticatedUserByToken api_token github_config callback = do
 
     unless is_org_member $ except $
       Left $ AuthStages.AuthFailure $ AuthStages.AuthenticationFailure (Just $ AuthStages.LoginUrl login_url)
-        $ AuthStages.FailOrgMembership (AuthStages.Username username_text) Auth.targetOrganization
+        $ AuthStages.FailOrgMembership (AuthStages.Username username_text) $ T.pack Constants.project_name
 
     ExceptT $ fmap (first AuthStages.DbFailure) $
       callback $ AuthStages.Username username_text
@@ -120,7 +112,7 @@ getAuthenticatedUser rq session github_config callback = do
   u <- sessionLookup githubAuthTokenSessionKey
   case u of
     Nothing -> return $ Left $ wrap_login_err login_url AuthStages.FailLoginRequired
-    Just api_token -> getAuthenticatedUserByToken api_token github_config callback
+    Just api_token -> getAuthenticatedUserByToken (OAuth2.AccessToken $ T.pack api_token) github_config callback
 
   where
     Just (sessionLookup, _sessionInsert) = Vault.lookup session $ vault rq
@@ -178,12 +170,6 @@ fetchTokenAndUser c github_config code session_insert = do
         idp = Github.Github
 
 
-data GitHubApiSupport = GitHubApiSupport {
-    tls_manager  :: Manager
-  , access_token :: OAuth2.AccessToken
-  }
-
-
 tryFetchUser ::
      AuthConfig.GithubConfig
   -> TL.Text           -- ^ code
@@ -199,186 +185,9 @@ tryFetchUser github_config code session_insert = do
           access_token_string = T.unpack $ OAuth2.atoken access_token_object
 
       liftIO $ session_insert access_token_string
-      fetchUser $ GitHubApiSupport mgr access_token_object
+      GithubApiFetch.fetchUser $ GithubApiFetch.GitHubApiSupport mgr access_token_object
 
     Left e   -> return $ Left $ TL.pack $ "tryFetchUser: cannot fetch asses token. error detail: " ++ show e
-
-
-recursePaginated :: FromJSON a =>
-     Manager
-  -> OAuth2.AccessToken
-  -> String
-  -> T.Text
-  -> Int
-  -> [a]
-  -> IO (Either TL.Text [a])
-recursePaginated
-    mgr
-    token
-    uri_prefix
-    field_accessor
-    page_offset
-    old_retrieved_items = do
-
-  putStrLn $ "Querying URL for build statuses: " ++ uri_string
-
-  runExceptT $ do
-
-    uri <- except $ first (const $ "Bad URL: " <> TL.pack uri_string) either_uri
-
-    r <- ExceptT ((fmap (first displayOAuth2Error) $ OAuth2.authGetJSON mgr token uri) :: IO (Either TL.Text Value))
-
-    let subval = r ^. key field_accessor . _Array
-
-    newly_retrieved_items <- except $ first TL.pack $ mapM (parseEither parseJSON) $ V.toList subval
-
-    let expected_count = r ^. key "total_count" . _Integral
-        combined_list = old_retrieved_items ++ newly_retrieved_items
-
-    if length combined_list < expected_count
-      then ExceptT $ recursePaginated
-        mgr
-        token
-        uri_prefix
-        field_accessor
-        (page_offset + 1)
-        combined_list
-      else return combined_list
-
-  where
-    either_uri = parseURI strictURIParserOptions $ BSU.pack uri_string
-    uri_string = uri_prefix <> "?per_page=" <> show perPageCount <> "&page=" <> show page_offset
-
-
-
--- | Recursively calls the GitHub API
-getCommitsRecurse ::
-     Manager
-  -> OAuth2.AccessToken -- ^ token
-  -> Int -- ^ commit fetch limit
-  -> String -- ^ URL prefix
-  -> T.Text  -- ^ starting commit
-  -> T.Text  -- ^ last known commit (stopping commit)
-  -> [GitHubRecords.GitHubCommit] -- ^ previously found commits
-  -> IO (Either TL.Text [GitHubRecords.GitHubCommit])
-getCommitsRecurse
-    mgr
-    token
-    limit
-    uri_prefix
-    target_sha1
-    stopping_sha1
-    old_retrieved_items = do
-
-  putStrLn $ "Querying URL for commits: " ++ uri_string
-
-  runExceptT $ do
-
-    uri <- except $ first (const $ "Bad URL: " <> TL.pack uri_string) either_uri
-
-    newly_retrieved_items <- ExceptT $ fmap (first displayOAuth2Error) $
-      OAuth2.authGetJSON mgr token uri
-
-    let (novel_commits, known_commits) = break ((== stopping_sha1) . GitHubRecords._sha) newly_retrieved_items
-        combined_list = old_retrieved_items ++ novel_commits
-
-    Maybe.fromMaybe (return combined_list) $ do
-      last_fetched_commit <- Safe.lastMay novel_commits
-      guard $ null known_commits && length combined_list < limit
-      return $ ExceptT $ getCommitsRecurse
-        mgr
-        token
-        limit
-        uri_prefix
-        (GitHubRecords._sha last_fetched_commit <> "~")
-        stopping_sha1
-        combined_list
-
-  where
-    either_uri = parseURI strictURIParserOptions $ BSU.pack uri_string
-
-    uri_string = uri_prefix
---      <> "?per_page=" <> show perPageCount
-      <> "?per_page=" <> show 20
-      <> "&sha=" <> T.unpack target_sha1
-
-
-getCommits ::
-     OAuth2.AccessToken -- ^ token
-  -> DbHelpers.OwnerAndRepo
-  -> T.Text  -- ^ starting commit
-  -> T.Text  -- ^ last known commit (stopping commit)
-  -> IO (Either TL.Text [GitHubRecords.GitHubCommit])
-getCommits
-    token
-    (DbHelpers.OwnerAndRepo repo_owner repo_name)
-    target_sha1
-    stopping_sha1 = do
-
-  mgr <- newManager tlsManagerSettings
-
-  either_items <- getCommitsRecurse
-    mgr
-    token
-    maxGitHubCommitFetchCount
-    uri_prefix
-    target_sha1
-    stopping_sha1
-    []
-
-  return either_items
-  where
-    uri_prefix = intercalate "/" [
-        "https://api.github.com/repos"
-      , repo_owner
-      , repo_name
-      , "commits"
-      ]
-
-
-getBuildStatuses ::
-     OAuth2.AccessToken
-  -> DbHelpers.OwnerAndRepo
-  -> T.Text
-  -> IO (Either TL.Text [StatusEventQuery.GitHubStatusEventGetter])
-getBuildStatuses
-    token
-    (DbHelpers.OwnerAndRepo repo_owner repo_name)
-    target_sha1 = do
-
-  mgr <- newManager tlsManagerSettings
-
-  either_items <- recursePaginated
-    mgr
-    token
-    uri_prefix
-    "statuses"
-    1
-    []
-
-  return either_items
-  where
-    uri_prefix = intercalate "/" [
-        "https://api.github.com/repos"
-      , repo_owner
-      , repo_name
-      , "commits"
-      , T.unpack target_sha1
-      , "status"
-      ]
-
-
-fetchUser :: GitHubApiSupport -> IO (Either TL.Text LoginUser)
-fetchUser (GitHubApiSupport mgr token) = do
-  re <- do
-    r <- OAuth2.authGetJSON mgr token Github.userInfoUri
-    return $ second Github.toLoginUser r
-
-  return (first displayOAuth2Error re)
-
-
-displayOAuth2Error :: OAuth2.OAuth2Error Errors -> TL.Text
-displayOAuth2Error = TL.pack . show
 
 
 -- | The Github API for this returns an empty response, using
@@ -397,14 +206,14 @@ isOrgMember wrapped_token username = do
 
   -- Note: This query is currently using a Personal Access Token from a pytorch org member.
   -- TODO This must be converted to an App token.
-  let api_support_data = GitHubApiSupport mgr wrapped_token
+  let api_support_data = GithubApiFetch.GitHubApiSupport mgr wrapped_token
 
   case either_membership_query_uri of
-    Left x -> return $ Left $ AuthStages.FailMembershipDetermination $ "Bad URL: " <> url_string
+    Left _x -> return $ Left $ AuthStages.FailMembershipDetermination $ "Bad URL: " <> url_string
     Right membership_query_uri -> do
       either_response <- OAuth2.authGetBS mgr wrapped_token membership_query_uri
       return $ Right $ isOrgMemberInner either_response
 
   where
-    url_string = "https://api.github.com/orgs/" <> targetOrganization <> "/members/" <> username
+    url_string = "https://api.github.com/orgs/" <> T.pack Constants.project_name <> "/members/" <> username
     either_membership_query_uri = parseURI strictURIParserOptions $ BSU.pack $ T.unpack url_string

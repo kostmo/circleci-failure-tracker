@@ -6,6 +6,7 @@ import           Control.Arrow              ((&&&))
 import           Data.Aeson
 import           Data.HashMap.Strict        (HashMap)
 import qualified Data.HashMap.Strict        as HashMap
+import           Data.List                  (intercalate)
 import           Data.Text                  (Text)
 import           Data.Time                  (UTCTime)
 import           Database.PostgreSQL.Simple
@@ -19,6 +20,15 @@ data OwnerAndRepo = OwnerAndRepo {
   }
 
 
+githubRepoApiPrefix :: DbHelpers.OwnerAndRepo -> String
+githubRepoApiPrefix (DbHelpers.OwnerAndRepo repo_owner repo_name) = intercalate "/" [
+        "https://api.github.com/repos"
+      , repo_owner
+      , repo_name
+      ]
+
+
+
 data WithAuthorship a = WithAuthorship {
     author  :: Text
   , created :: UTCTime
@@ -27,6 +37,7 @@ data WithAuthorship a = WithAuthorship {
 
 instance ToJSON a => ToJSON (WithAuthorship a)
 instance FromJSON a => FromJSON (WithAuthorship a)
+
 
 data WithId a = WithId {
     db_id  :: Int64

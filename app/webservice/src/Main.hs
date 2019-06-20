@@ -21,8 +21,8 @@ import qualified Network.OAuth.OAuth2              as OAuth2
 import           Network.Wai
 import           Network.Wai.Middleware.ForceSSL   (forceSSL)
 import           Network.Wai.Middleware.Static
-import           Network.Wai.Session               (SessionStore)
-import           Network.Wai.Session               (Session, withSession)
+import           Network.Wai.Session               (Session, SessionStore,
+                                                    withSession)
 import           Network.Wai.Session.ClientSession (clientsessionStore)
 import           Options.Applicative
 import           System.Environment                (lookupEnv)
@@ -40,6 +40,7 @@ import qualified Builds
 import qualified Constants
 import qualified DbHelpers
 import qualified DbInsertion
+import qualified GithubApiFetch
 import qualified GitHubRecords
 import qualified GitRev
 import qualified JsonUtils
@@ -54,8 +55,8 @@ import qualified Types
 import qualified WebApi
 
 
-checkbox_is_true :: Text -> Bool
-checkbox_is_true = (== ("true" :: Text))
+checkboxIsTrue :: Text -> Bool
+checkboxIsTrue = (== ("true" :: Text))
 
 
 data MutablePatternParms = MutablePatternParms {
@@ -66,9 +67,9 @@ data MutablePatternParms = MutablePatternParms {
   }
 
 
-get_mutable_pattern_parms :: ScottyTypes.ActionT LT.Text IO MutablePatternParms
-get_mutable_pattern_parms = do
-  is_nondeterministic <- checkbox_is_true <$> S.param "is_nondeterministic"
+getMutablePatternParms :: ScottyTypes.ActionT LT.Text IO MutablePatternParms
+getMutablePatternParms = do
+  is_nondeterministic <- checkboxIsTrue <$> S.param "is_nondeterministic"
   description <- S.param "description"
   specificity <- S.param "specificity"
   tags <- S.param "tags"
@@ -79,16 +80,15 @@ get_mutable_pattern_parms = do
     specificity
 
 
-pattern_from_parms :: ScottyTypes.ActionT LT.Text IO ScanPatterns.Pattern
-pattern_from_parms = do
+patternFromParms :: ScottyTypes.ActionT LT.Text IO ScanPatterns.Pattern
+patternFromParms = do
 
-  mutable_pattern_parms <- get_mutable_pattern_parms
+  mutable_pattern_parms <- getMutablePatternParms
 
   expression <- S.param "pattern"
-  is_regex <- checkbox_is_true <$> S.param "is_regex"
+  is_regex <- checkboxIsTrue <$> S.param "is_regex"
 
-  use_lines_from_end <- checkbox_is_true <$> S.param "use_lines_from_end"
-
+  use_lines_from_end <- checkboxIsTrue <$> S.param "use_lines_from_end"
   applicable_steps <- S.param "applicable_steps"
 
   let match_expression = ScanPatterns.toMatchExpression is_regex expression $ pat_is_nondeterminisitc mutable_pattern_parms
@@ -123,9 +123,8 @@ data PersistenceData = PersistenceData {
   }
 
 
-
-validate_maybe_revision :: LT.Text -> ScottyTypes.ActionT LT.Text IO (Either Text (Maybe GitRev.GitSha1))
-validate_maybe_revision key = do
+validateMaybeRevision :: LT.Text -> ScottyTypes.ActionT LT.Text IO (Either Text (Maybe GitRev.GitSha1))
+validateMaybeRevision key = do
   implicated_revision <- S.param key
   return $ if T.null implicated_revision
     then Right Nothing
@@ -148,12 +147,12 @@ echo_endpoint = S.post "/api/echo" $ do
     putStrLn "==== END BODY ===="
 
 
-retrieve_log_context ::
+retrieveLogContext ::
      Vault.Key (Session IO String String)
   -> AuthConfig.GithubConfig
   -> DbHelpers.DbConnectionData
   -> ScottyTypes.ActionT LT.Text IO ()
-retrieve_log_context session github_config connection_data = do
+retrieveLogContext session github_config connection_data = do
   match_id <- S.param "match_id"
   context_linecount <- S.param "context_linecount"
 
@@ -184,7 +183,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     S.post "/api/report-breakage" $ do
 
-      either_maybe_implicated_revision <- validate_maybe_revision "implicated_revision"
+      either_maybe_implicated_revision <- validateMaybeRevision "implicated_revision"
       notes <- S.param "notes"
       is_broken <- S.param "is_broken"
       step_id <- S.param "step_id"
@@ -273,7 +272,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
     {-
     S.post "/api/new-pattern-replace" $ do
 
-      new_pattern <- pattern_from_parms
+      new_pattern <- patternFromParms
       let callback_func user_alias = do
             conn <- DbHelpers.get_connection connection_data
             SqlWrite.copy_pattern xxx
@@ -287,7 +286,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     S.post "/api/new-pattern-insert" $ do
 
-      new_pattern <- pattern_from_parms
+      new_pattern <- patternFromParms
       let callback_func user_alias = do
             conn <- DbHelpers.get_connection connection_data
             SqlWrite.api_new_pattern conn $ Left (new_pattern, user_alias)
@@ -366,9 +365,9 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       S.json $ WebApi.toJsonEither json_result
 
     S.get "/api/new-pattern-test" $ do
-      liftIO $ putStrLn $ "Testing pattern..."
+      liftIO $ putStrLn "Testing pattern..."
       buildnum <- S.param "build_num"
-      new_pattern <- pattern_from_parms
+      new_pattern <- patternFromParms
       S.json =<< liftIO (do
         foo <- SqlRead.api_new_pattern_test connection_data (Builds.NewBuildNumber buildnum) new_pattern
         return $ WebApi.toJsonEither foo)
@@ -413,7 +412,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       S.json =<< liftIO (SqlRead.api_timeout_commit_builds connection_data commit_sha1_text)
 
     -- | Access-controlled endpoint
-    S.get "/api/view-log-context" $ retrieve_log_context session github_config connection_data
+    S.get "/api/view-log-context" $ retrieveLogContext session github_config connection_data
 
 
     S.get "/api/view-log-full" $ do
@@ -436,13 +435,13 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       pattern_id <- S.param "pattern_id"
       S.json =<< liftIO (SqlRead.api_single_pattern connection_data $ ScanPatterns.PatternId pattern_id)
 
-    S.get "/api/patterns-dump" $ do
+    S.get "/api/patterns-dump" $
       S.json =<< liftIO (SqlRead.dump_patterns connection_data)
 
-    S.get "/api/breakages-dump" $ do
+    S.get "/api/breakages-dump" $
       S.json =<< liftIO (SqlRead.dump_breakages connection_data)
 
-    S.get "/api/presumed-stable-branches-dump" $ do
+    S.get "/api/presumed-stable-branches-dump" $
       S.json =<< liftIO (SqlRead.dump_presumed_stable_branches connection_data)
 
     S.post "/api/pattern-specificity-update" $ do
@@ -505,10 +504,10 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       commit_sha1_text <- S.param "sha1"
       S.json =<< liftIO (SqlRead.api_commit_breakage_reports connection_data commit_sha1_text)
 
-    S.get "/api/patterns-timeline" $ do
+    S.get "/api/patterns-timeline" $
       S.json =<< liftIO (SqlRead.api_pattern_occurrence_timeline connection_data)
 
-    S.get "/api/patterns" $ do
+    S.get "/api/patterns" $
       S.json =<< liftIO (SqlRead.api_patterns connection_data)
 
     S.get "/api/patterns-branch-filtered" $ do
@@ -568,41 +567,27 @@ mainAppCode args = do
 
 
 
+
+
+
+
   when (AuthConfig.is_local github_config) $ do
     -- XXX FOR TESTING ONLY
 
-    either_fetched_commits <- Auth.getCommits
+    either_fetched_commits <- GithubApiFetch.getCommits
       (AuthConfig.personal_access_token github_config)
       (DbHelpers.OwnerAndRepo Constants.project_name Constants.repo_name)
---      "master"
-      "e388f704999bcd83c064caa0f056bbcb36bfb121"
-      "28ecc104f481c6012ab6a5d861e885d29d5d66d1"
+      "master"
+      "96c0bd3722dd20124119a5bb1c770ff984201b2f"
     case either_fetched_commits of
       Right commits -> do
         putStrLn $ "Fetched " ++ show (length commits) ++ " commits"
-        mapM_ (putStrLn . show . GitHubRecords._sha) commits
+        mapM_ (putStrLn . T.unpack . GitHubRecords._sha) commits
       Left _ -> putStrLn "failed to fetch commits"
 
 
 
 
-  {-
-  when (AuthConfig.is_local github_config) $ do
-    -- XXX FOR TESTING ONLY
-    putStrLn "Starting test..."
-
-    let computation = do
-          runExceptT $ handleFailedStatuses
-            connection_data
-            (AuthConfig.personal_access_token github_config)
-            (DbHelpers.OwnerAndRepo Constants.project_name Constants.repo_name)
-           "39cedc8474aa641b30b427de8f90014ba3d20c13"
-          putStrLn "Ending test..."
-          return ()
-
-    forkIO computation
-    putStrLn "Forking from test..."
-  -}
 
 
   S.scotty prt $ scottyApp persistence_data credentials_data

@@ -216,14 +216,15 @@ ALTER TABLE public.broken_build_reports OWNER TO postgres;
 -- Name: builds_join_steps; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.builds_join_steps AS
+CREATE VIEW public.builds_join_steps WITH (security_barrier='false') AS
  SELECT build_steps.id AS step_id,
     build_steps.name AS step_name,
     builds.build_num,
     builds.vcs_revision,
     builds.queued_at,
     builds.job_name,
-    builds.branch
+    builds.branch,
+    build_steps.is_timeout
    FROM (public.build_steps
      LEFT JOIN public.builds ON ((builds.build_num = build_steps.build)))
   ORDER BY builds.vcs_revision, builds.build_num DESC;
@@ -766,7 +767,8 @@ CREATE VIEW public.pattern_frequency_summary WITH (security_barrier='false') AS
     patterns_augmented.scanned_count,
     patterns_augmented.total_scanned_builds,
     patterns_augmented.usually_last_line,
-    patterns_augmented.position_likelihood
+    patterns_augmented.position_likelihood,
+    patterns_augmented.has_nondeterministic_values
    FROM (public.patterns_augmented
      LEFT JOIN public.aggregated_build_matches ON ((patterns_augmented.id = aggregated_build_matches.pat)));
 
@@ -1053,6 +1055,14 @@ ALTER TABLE ONLY public.mitigations
 
 ALTER TABLE ONLY public.ordered_master_commits
     ADD CONSTRAINT ordered_master_commits_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: ordered_master_commits ordered_master_commits_sha1_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ordered_master_commits
+    ADD CONSTRAINT ordered_master_commits_sha1_key UNIQUE (sha1);
 
 
 --

@@ -74,7 +74,7 @@ function populate_build_info(build_id, parent_data) {
 
 	var local_logview_item_full = link("View full log", "/api/view-log-full?build_id=" + build_id);
 	var logview_items = render_list([
-		"View log " + link("on CircleCI", "https://circleci.com/gh/pytorch/pytorch/" + build_id),
+		"View log " + link("on CircleCI", "https://circleci.com/gh/pytorch/pytorch/" + build_id, true),
 		local_logview_item_full,
 	]);
 

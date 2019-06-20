@@ -11,8 +11,14 @@ function render_tag(tag, content, attributes) {
 }
 
 
-function link(text, url) {
-	return render_tag("a", text, {"href": url});
+function link(text, url, new_window) {
+
+	var prop_dict = {"href": url}
+	if (new_window) {
+		prop_dict["target"] = "_blank";
+	}
+
+	return render_tag("a", text, prop_dict);
 }
 
 

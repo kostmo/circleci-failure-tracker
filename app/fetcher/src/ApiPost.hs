@@ -1,10 +1,5 @@
-{-# LANGUAGE DeriveGeneric             #-}
-{-# LANGUAGE ExistentialQuantification #-}
-{-# LANGUAGE FlexibleContexts          #-}
-{-# LANGUAGE GADTs                     #-}
-{-# LANGUAGE OverloadedStrings         #-}
-{-# LANGUAGE RankNTypes                #-}
-{-# LANGUAGE TypeFamilies              #-}
+{-# LANGUAGE DeriveGeneric     #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module ApiPost where
 
@@ -50,9 +45,15 @@ postCommitStatus ::
   -> T.Text
   -> StatusEvent.GitHubStatusEventSetter
   -> IO (Either LT.Text StatusPostResult)
-postCommitStatus (OAuth2.AccessToken personal_access_token) owned_repo target_sha1 status_obj = runExceptT $ do
+postCommitStatus
+    (OAuth2.AccessToken personal_access_token)
+    owned_repo
+    target_sha1
+    status_obj = runExceptT $ do
 
-  response <- ExceptT $ fmap (first LT.pack) $ FetchHelpers.safeGetUrl $ NW.postWith opts url_string $ toJSON status_obj
+  response <- ExceptT $ fmap (first LT.pack) $ FetchHelpers.safeGetUrl $
+    NW.postWith opts url_string $ toJSON status_obj
+
   except $ first LT.pack $ eitherDecode $ NC.responseBody response
 
   where
@@ -60,9 +61,7 @@ postCommitStatus (OAuth2.AccessToken personal_access_token) owned_repo target_sh
       & NW.header "Authorization" .~ ["token " <> encodeUtf8 personal_access_token]
 
     url_string = intercalate "/" [
-        "https://api.github.com/repos"
-      , DbHelpers.owner owned_repo
-      , DbHelpers.repo owned_repo
+        DbHelpers.githubRepoApiPrefix owned_repo
       , "statuses"
       , T.unpack target_sha1
       ]
