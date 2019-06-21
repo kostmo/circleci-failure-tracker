@@ -566,10 +566,14 @@ mainAppCode args = do
   when (AuthConfig.is_local github_config) $ do
     -- XXX FOR TESTING ONLY
 
-    SqlWrite.populate_latest_master_commits connection_data access_token
-    return ()
+    SqlWrite.populate_latest_master_commits
+      connection_data
+      access_token
+      (DbHelpers.OwnerAndRepo Constants.project_name Constants.repo_name)
 
-      -}
+    return ()
+  -}
+
 
 
 

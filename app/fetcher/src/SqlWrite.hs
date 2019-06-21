@@ -28,7 +28,6 @@ import qualified ApiPost
 import qualified AuthStages
 import qualified Breakages
 import qualified Builds
-import qualified Constants
 import qualified DbHelpers
 import qualified GithubApiFetch
 import qualified GitHubRecords
@@ -47,8 +46,9 @@ build_to_tuple (Builds.NewBuild (Builds.NewBuildNumber build_num) vcs_rev queued
 populate_latest_master_commits ::
      DbHelpers.DbConnectionData
   -> OAuth2.AccessToken
+  -> DbHelpers.OwnerAndRepo
   -> IO (Either Text Int64)
-populate_latest_master_commits conn_data access_token = do
+populate_latest_master_commits conn_data access_token owned_repo = do
 
   conn <- DbHelpers.get_connection conn_data
 
@@ -56,12 +56,13 @@ populate_latest_master_commits conn_data access_token = do
 
   runExceptT $ do
 
-    -- The admin must manually populate the first several thousand commits.
+    -- The admin must manually populate the first several thousand commits,
+    -- as these would be inefficient to fetch from the GitHub API.
     latest_known_commit <- except $ maybeToEither "Database has no commits" maybe_latest_known_commit
 
     fetched_commits_newest_first <- ExceptT $ first TL.toStrict <$> GithubApiFetch.getCommits
       access_token
-      (DbHelpers.OwnerAndRepo Constants.project_name Constants.repo_name)
+      owned_repo
       "master"
       latest_known_commit
 

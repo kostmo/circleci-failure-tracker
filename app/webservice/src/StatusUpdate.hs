@@ -86,6 +86,38 @@ get_circleci_failure sha1 event_setter = do
     url_text = StatusEventQuery._target_url event_setter
 
 
+-- | Find known build breakages applicable to the merge base
+-- of this PR commit
+findKnownBuildBreakages ::
+     DbHelpers.DbConnectionData
+  -> OAuth2.AccessToken
+  -> DbHelpers.OwnerAndRepo
+  -> Text
+  -> IO [SqlRead.CodeBreakage]
+findKnownBuildBreakages db_connection_data access_token owned_repo sha1 = do
+
+
+  -- Note that this is a self-contained Either monad; a failure here
+  -- shouldn't abort the rest of this function.
+  either_spanning_breakages <- runExceptT $ do
+
+    -- First, ensure knowledge of "master" branch lineage
+    -- is up-to-date
+    ExceptT $ SqlWrite.populate_latest_master_commits db_connection_data access_token owned_repo
+
+    -- Second, find which "master" commit is the most recent
+    -- ancestor of the given PR commit.
+    nearest_ancestor <- ExceptT $ SqlRead.find_master_ancestor db_connection_data access_token owned_repo sha1
+
+    -- Third, find whether that commit is within the
+    -- [start, end) span of any known breakages
+    liftIO $ SqlRead.get_spanning_breakages db_connection_data nearest_ancestor
+
+  return $ case either_spanning_breakages of
+    Left _  -> []
+    Right x -> x
+
+
 -- | Operations:
 -- * Filter out the CircleCI builds
 -- * Check if the builds have been scanned yet.
@@ -132,24 +164,10 @@ handleFailedStatuses
 
 
 
-  -- TODO Find known build breakages
-  liftIO $ unless (null circleci_failed_builds) $ do
-
-    -- First, ensure knowledge of "master" branch lineage
-    -- is up-to-date
-    SqlWrite.populate_latest_master_commits db_connection_data access_token
-
-
-    -- Second, find which "master" commit is the most recent
-    -- ancestor of the given PR commit.
-    nearest_ancestor <- SqlRead.find_master_ancestor db_connection_data access_token sha1
-
-    -- Third, find whether that commit is within the
-    -- [start, end) span of any known breakages
-
-    return ()
-
-
+  -- WIP
+  _known_breakages <- liftIO $ if null circleci_failed_builds
+    then return []
+    else findKnownBuildBreakages db_connection_data access_token owned_repo sha1
 
 
 

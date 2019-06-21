@@ -35,7 +35,6 @@ import qualified Breakages
 import qualified Builds
 import qualified BuildSteps
 import qualified CommitBuilds
-import qualified Constants
 import qualified DbHelpers
 import qualified GithubApiFetch
 import qualified GitHubRecords
@@ -382,9 +381,10 @@ get_latest_known_master_commit conn = do
 find_master_ancestor ::
      DbHelpers.DbConnectionData
   -> OAuth2.AccessToken
+  -> DbHelpers.OwnerAndRepo
   -> Text -- ^ sha1
   -> IO (Either Text Text)
-find_master_ancestor conn_data access_token sha1 = do
+find_master_ancestor conn_data access_token owner_and_repo sha1 = do
 
   conn <- DbHelpers.get_connection conn_data
   rows <- query_ conn sql
@@ -400,7 +400,23 @@ find_master_ancestor conn_data access_token sha1 = do
 
   where
     sql = "SELECT sha1 FROM ordered_master_commits;"
-    owner_and_repo = DbHelpers.OwnerAndRepo Constants.project_name Constants.repo_name
+
+
+data CodeBreakage = CodeBreakage {
+    breakage_commit      :: Text
+  , breakage_description :: Text
+  }
+
+-- | TODO finish this
+get_spanning_breakages ::
+     DbHelpers.DbConnectionData
+  -> Text -- ^ sha1
+  -> IO [CodeBreakage]
+get_spanning_breakages conn_data _sha1 = do
+
+  _conn <- DbHelpers.get_connection conn_data
+--  rows <- query_ conn sql
+  return []
 
 
 list_flat :: FromField a => Query -> DbHelpers.DbConnectionData -> Text -> IO [a]
