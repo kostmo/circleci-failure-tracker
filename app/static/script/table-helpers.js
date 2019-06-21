@@ -1,3 +1,6 @@
+var STANDARD_LOG_CONTEXT_LINECOUNT = 30;
+
+
 function gen_error_cell_html(cell) {
 
 	var row_data = cell.getRow().getData();
@@ -34,7 +37,7 @@ function get_log_text(match_id, context_linecount) {
 
 			var dialog_content = [
 				render_tag("div", "<a href='javascript: document.getElementById(\"myDialog\").close();'>Press <i>Esc</i> to close</a>", {"style": "color: gray; text-align: right; float: right;"}),
-				render_tag("div", "<a href='/api/view-log-full?build_id=" + data.payload.build_number + "'>View full log</a>"),
+				render_tag("div", link("Full plaintext log", "/api/view-log-full?build_id=" + data.payload.build_number) + " | " + link("on CircleCI", "https://circleci.com/gh/pytorch/pytorch/" + data.payload.build_number, true)),
 				render_table(table_items, {"class": "code-lines"}),
 			];
 

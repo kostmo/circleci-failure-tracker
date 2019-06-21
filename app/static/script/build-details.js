@@ -47,7 +47,7 @@ function gen_builds_table(element_id, data_url, height_string) {
 
 				var row_data = cell.getRow().getData();
 				var match_id = row_data["match_id"];
-				get_log_text(match_id, 5);
+				get_log_text(match_id, STANDARD_LOG_CONTEXT_LINECOUNT);
 			},
 		},
 		{title: "Pattern", field: "pattern_id", formatter: "link", formatterParams: {urlPrefix: "/pattern-details.html?pattern_id="}, width: 75},

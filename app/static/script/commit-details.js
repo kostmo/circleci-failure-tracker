@@ -80,7 +80,7 @@ function gen_builds_table(element_id, data_url) {
 				cellClick: function(e, cell) {
 					var row_data = cell.getRow().getData();
 					var build_id = row_data["build"]["build_id"];
-					get_log_text(row_data["match"]["match_id"], 5);
+					get_log_text(row_data["match"]["match_id"], STANDARD_LOG_CONTEXT_LINECOUNT);
 				},
 			},
 			{title: "Broken?", field: "breakage", width: 90,
