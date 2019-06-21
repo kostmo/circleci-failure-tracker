@@ -6,7 +6,7 @@ module StatusUpdate (
   ) where
 
 import           Control.Concurrent            (forkIO)
-import           Control.Monad                 (guard, when)
+import           Control.Monad                 (guard, unless, when)
 import           Control.Monad.IO.Class        (liftIO)
 import           Control.Monad.Trans.Except    (ExceptT (ExceptT), except,
                                                 runExceptT)
@@ -29,7 +29,6 @@ import           Web.Scotty.Internal.Types     (ActionT)
 
 
 import qualified ApiPost
-import qualified Auth
 import qualified AuthConfig
 import qualified AuthStages
 import qualified Builds
@@ -130,6 +129,35 @@ handleFailedStatuses
   liftIO $ putStrLn $ "Failed CircleCI build count: " ++ show circleci_failcount
 
 
+
+
+
+  -- TODO Find known build breakages
+  liftIO $ unless (null circleci_failed_builds) $ do
+
+    -- First, ensure knowledge of "master" branch lineage
+    -- is up-to-date
+    SqlWrite.populate_latest_master_commits db_connection_data access_token
+
+
+    -- Second, find which "master" commit is the most recent
+    -- ancestor of the given PR commit.
+    nearest_ancestor <- SqlRead.find_master_ancestor db_connection_data access_token sha1
+
+    -- Third, find whether that commit is within the
+    -- [start, end) span of any known breakages
+
+    return ()
+
+
+
+
+
+
+
+
+
+
   builds_with_flaky_pattern_matches <- liftIO $ do
     conn <- DbHelpers.get_connection db_connection_data
     scan_resources <- Scanning.prepareScanResources conn maybe_initiator
@@ -165,9 +193,9 @@ handleFailedStatuses
 
   case maybe_previously_posted_status of
     Nothing -> when (circleci_failcount > 0) post_and_store
-    Just previous_state_description_tuple -> if previous_state_description_tuple /= new_state_description_tuple
-      then post_and_store
-      else return ()
+    Just previous_state_description_tuple ->
+      when (previous_state_description_tuple /= new_state_description_tuple)
+        post_and_store
 
   where
     is_not_my_own_context = (/= myAppStatusContext) . LT.toStrict . StatusEventQuery._context
@@ -179,23 +207,21 @@ handleStatusWebhook ::
   -> Maybe AuthStages.Username
   -> Webhooks.GitHubStatusEvent
   -> IO (Either LT.Text ())
-handleStatusWebhook db_connection_data access_token maybe_initiator status_event = do
+handleStatusWebhook db_connection_data access_token maybe_initiator status_event =
 
   runExceptT $ do
 
     liftIO $ putStrLn $ "Notified status context was: " ++ notified_status_context_string
 
     let notified_status_url_string = LT.unpack $ Webhooks.target_url status_event
-    when (circleCIContextPrefix `T.isPrefixOf` notified_status_context_text) $ do
-
+    when (circleCIContextPrefix `T.isPrefixOf` notified_status_context_text) $
       liftIO $ putStrLn $ "CircleCI URL was: " ++ notified_status_url_string
-
 
     let owner_repo_text = Webhooks.name status_event
         splitted = splitOn "/" $ LT.unpack owner_repo_text
 
     owned_repo <- except $ case splitted of
-      (org:repo:[]) -> Right $ DbHelpers.OwnerAndRepo org repo
+      [org, repo] -> Right $ DbHelpers.OwnerAndRepo org repo
       _ -> Left $ "un-parseable owner/repo text: " <> owner_repo_text
 
     maybe_previously_posted_status <- liftIO $ SqlRead.get_posted_github_status db_connection_data owned_repo sha1
@@ -220,7 +246,6 @@ handleStatusWebhook db_connection_data access_token maybe_initiator status_event
       _thread_id <- liftIO $ forkIO computation
       return ()
 
-    return ()
 
   where
     notified_status_state_string = LT.unpack $ Webhooks.state status_event
@@ -250,7 +275,7 @@ gen_flakiness_status sha1 flaky_count total_failcount =
         show flaky_count <> "/" <> show total_failcount <> " flaky"
 --      , show 0 <> "/" <> show 0 <> " KPs"
       ]
-    description = LT.pack $ intercalate " " [
+    description = LT.pack $ unwords [
         "(experimental)"
       , metrics
       ]

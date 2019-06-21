@@ -35,8 +35,8 @@ def get_linear_commits(repo_path):
     return list(reversed(linear_commits))
 
 
-def upload_commits(auth_token, commits):
-    url = 'http://localhost:3001/api/populate-master-commits'
+def upload_commits(hostname, auth_token, commits):
+    url = hostname + '/api/populate-master-commits'
 
     headers_dict = {
         'content-type': 'application/json',
@@ -52,6 +52,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Fetch master commits')
     parser.add_argument('--repo-path', dest='repo_path', required=True, help='PyTorch repo path')
     parser.add_argument('--token', dest='token', required=True, help='GitHub auth token')
+    parser.add_argument('--hostname', dest='hostname', required=True, help='Server hostname')
 
     return parser.parse_args()
 
@@ -62,4 +63,4 @@ if __name__ == "__main__":
     linear_commits = get_linear_commits(options.repo_path)
     print("Count:", len(linear_commits))
 
-    upload_commits(options.token, linear_commits)
+    upload_commits(options.hostname, options.token, linear_commits)

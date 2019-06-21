@@ -1,4 +1,3 @@
-{-# LANGUAGE DeriveGeneric     #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module SqlWrite where
@@ -7,12 +6,14 @@ import           Control.Applicative               ((<|>))
 import           Control.Exception                 (throwIO)
 import           Control.Monad.Trans.Except        (ExceptT (ExceptT), except,
                                                     runExceptT)
+import           Data.Bifunctor                    (first)
 import qualified Data.ByteString.Char8             as BS
 import           Data.Either.Utils                 (maybeToEither)
 import           Data.Foldable                     (for_)
 import qualified Data.Maybe                        as Maybe
 import           Data.Text                         (Text)
 import qualified Data.Text                         as T
+import qualified Data.Text.Lazy                    as TL
 import           Data.Time.Format                  (defaultTimeLocale,
                                                     formatTime,
                                                     rfc822DateFormat)
@@ -20,13 +21,17 @@ import           Data.Traversable                  (for)
 import           Database.PostgreSQL.Simple
 import           Database.PostgreSQL.Simple.Errors
 import           GHC.Int                           (Int64)
+import qualified Network.OAuth.OAuth2              as OAuth2
 import qualified Safe
 
 import qualified ApiPost
 import qualified AuthStages
 import qualified Breakages
 import qualified Builds
+import qualified Constants
 import qualified DbHelpers
+import qualified GithubApiFetch
+import qualified GitHubRecords
 import qualified ScanPatterns
 import qualified ScanRecords
 import qualified SqlRead
@@ -39,20 +44,49 @@ build_to_tuple (Builds.NewBuild (Builds.NewBuildNumber build_num) vcs_rev queued
     queued_at_string = T.pack $ formatTime defaultTimeLocale rfc822DateFormat queuedat
 
 
--- | This is idempotent; will not insert if any rows already exist
+populate_latest_master_commits ::
+     DbHelpers.DbConnectionData
+  -> OAuth2.AccessToken
+  -> IO (Either Text Int64)
+populate_latest_master_commits conn_data access_token = do
+
+  conn <- DbHelpers.get_connection conn_data
+
+  maybe_latest_known_commit <- SqlRead.get_latest_known_master_commit conn
+
+  runExceptT $ do
+
+    -- The admin must manually populate the first several thousand commits.
+    latest_known_commit <- except $ maybeToEither "Database has no commits" maybe_latest_known_commit
+
+    fetched_commits_newest_first <- ExceptT $ first TL.toStrict <$> GithubApiFetch.getCommits
+      access_token
+      (DbHelpers.OwnerAndRepo Constants.project_name Constants.repo_name)
+      "master"
+      latest_known_commit
+
+    let fetched_commits_oldest_first = reverse fetched_commits_newest_first
+
+    ExceptT $ do
+      insertion_count <- store_master_commits conn_data $ map GitHubRecords._sha fetched_commits_oldest_first
+      putStrLn $ "Inserted " ++ show insertion_count ++ " commits"
+      return insertion_count
+
+
 store_master_commits :: DbHelpers.DbConnectionData -> [Text] -> IO (Either Text Int64)
 store_master_commits conn_data commit_list = do
   conn <- DbHelpers.get_connection conn_data
 
-  rows <- query_ conn query_sql
-  case rows of
-    [] -> fmap Right $ executeMany conn insertion_sql $ map Only commit_list
-    Only sha1:_ ->
-      return $ Left $ "Already populated up to sha1: " <> sha1
+  catchViolation catcher $ do
+    count <- executeMany conn insertion_sql $ map Only commit_list
+    return $ Right count
 
   where
     insertion_sql = "INSERT INTO ordered_master_commits(sha1) VALUES(?);"
-    query_sql = "SELECT sha1 FROM ordered_master_commits ORDER BY id DESC LIMIT 1;"
+
+    catcher _ (UniqueViolation some_error) = return $ Left $
+      "Insertion error: " <> T.pack (BS.unpack some_error)
+    catcher e _                            = throwIO e
 
 
 -- | This is idempotent; builds that are already present will not be overwritten
@@ -167,7 +201,7 @@ insert_single_pattern conn either_pattern = do
     Just timestamp -> execute conn authorship_insertion_with_timestamp_sql (pattern_id, author, timestamp)
     Nothing -> execute conn authorship_insertion_sql (pattern_id, author)
 
-  for_ tags $ \tag -> do
+  for_ tags $ \tag ->
     execute conn tag_insertion_sql (tag, pattern_id)
 
   for_ applicable_steps $ \applicable_step ->
@@ -223,20 +257,15 @@ step_failure_to_tuple (Builds.NewBuildNumber buildnum, visitation_result) = case
 
 
 populate_presumed_stable_branches :: Connection -> [Text] -> IO Int64
-populate_presumed_stable_branches conn branch_names = do
-
-  executeMany conn sql $ map Only branch_names
-
+populate_presumed_stable_branches conn =
+  executeMany conn sql . map Only
   where
     sql = "INSERT INTO presumed_stable_branches(branch) VALUES(?);"
 
 
-
 store_log_info :: ScanRecords.ScanCatchupResources -> Builds.BuildStepId -> ScanRecords.LogInfo -> IO Int64
-store_log_info scan_resources (Builds.NewBuildStepId step_id) (ScanRecords.LogInfo byte_count line_count log_content) = do
-
+store_log_info scan_resources (Builds.NewBuildStepId step_id) (ScanRecords.LogInfo byte_count line_count log_content) =
   execute conn sql (step_id, line_count, byte_count, log_content)
-
   where
     sql = "INSERT INTO log_metadata(step, line_count, byte_count, content) VALUES(?,?,?,?) ON CONFLICT (step) DO NOTHING;"
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
@@ -353,7 +382,7 @@ api_new_pattern ::
      Connection
   -> Either (ScanPatterns.Pattern, AuthStages.Username) (DbHelpers.WithAuthorship ScanPatterns.DbPattern)
   -> IO (Either Text Int64)
-api_new_pattern conn new_pattern = do
+api_new_pattern conn new_pattern =
 
   catchViolation catcher $ do
     record_id <- insert_single_pattern conn new_pattern

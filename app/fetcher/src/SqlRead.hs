@@ -8,6 +8,7 @@ import           Control.Monad                        (forM)
 import           Control.Monad.IO.Class               (liftIO)
 import           Control.Monad.Trans.Except           (except, runExceptT)
 import           Data.Aeson
+import           Data.Bifunctor                       (first)
 import           Data.Either.Utils                    (maybeToEither)
 import           Data.List                            (sort, sortOn)
 import           Data.List.Split                      (splitOn)
@@ -17,6 +18,7 @@ import           Data.Set                             (Set)
 import qualified Data.Set                             as Set
 import           Data.Text                            (Text)
 import qualified Data.Text                            as T
+import qualified Data.Text.Lazy                       as TL
 import           Data.Time                            (UTCTime)
 import           Data.Time.Calendar                   (Day)
 import           Data.Tuple                           (swap)
@@ -24,6 +26,7 @@ import           Database.PostgreSQL.Simple
 import           Database.PostgreSQL.Simple.FromField (FromField)
 import           GHC.Generics
 import           GHC.Int                              (Int64)
+import qualified Network.OAuth.OAuth2                 as OAuth2
 import qualified Safe
 
 import qualified AuthStages
@@ -32,7 +35,10 @@ import qualified Breakages
 import qualified Builds
 import qualified BuildSteps
 import qualified CommitBuilds
+import qualified Constants
 import qualified DbHelpers
+import qualified GithubApiFetch
+import qualified GitHubRecords
 import qualified GitRev
 import qualified JsonUtils
 import qualified MatchOccurrences
@@ -207,7 +213,7 @@ api_test_failures conn_data test_failure_pattern_id = do
         extracted_chunk = T.take span_length $ T.drop start_idx $ _line_text pattern_occurrence
 
         pattern_text = _pattern test_failure_pattern
-        maybe_first_match_group = ScanUtils.get_first_match_group extracted_chunk pattern_text
+        maybe_first_match_group = ScanUtils.getFirstMatchGroup extracted_chunk pattern_text
 
 
 -- XXX NOT USED
@@ -257,7 +263,7 @@ api_step conn_data = do
   conn <- DbHelpers.get_connection conn_data
 
   xs <- query_ conn sql
-  let inners = map (\(stepname, freq) -> WebApi.PieSliceApiRecord stepname freq) xs
+  let inners = map (uncurry WebApi.PieSliceApiRecord) xs
   return $ WebApi.ApiResponse inners
 
   where
@@ -365,6 +371,38 @@ read_log conn (Builds.NewBuildNumber build_num) = do
     sql = "SELECT log_metadata.content FROM log_metadata JOIN builds_join_steps ON log_metadata.step = builds_join_steps.step_id WHERE builds_join_steps.build_num = ? LIMIT 1;"
 
 
+get_latest_known_master_commit :: Connection -> IO (Maybe Text)
+get_latest_known_master_commit conn = do
+  rows <- query_ conn sql
+  return $ Safe.headMay $ map (\(Only x) -> x) rows
+  where
+    sql = "SELECT sha1 FROM ordered_master_commits ORDER BY id DESC LIMIT 1;"
+
+
+find_master_ancestor ::
+     DbHelpers.DbConnectionData
+  -> OAuth2.AccessToken
+  -> Text -- ^ sha1
+  -> IO (Either Text Text)
+find_master_ancestor conn_data access_token sha1 = do
+
+  conn <- DbHelpers.get_connection conn_data
+  rows <- query_ conn sql
+  let known_commit_set = Set.fromList $ map (\(Only x) -> x) rows
+
+  merge_base_commit <- GithubApiFetch.findAncestor
+    access_token
+    owner_and_repo
+    sha1
+    known_commit_set
+
+  return $ GitHubRecords._sha <$> first TL.toStrict merge_base_commit
+
+  where
+    sql = "SELECT sha1 FROM ordered_master_commits;"
+    owner_and_repo = DbHelpers.OwnerAndRepo Constants.project_name Constants.repo_name
+
+
 list_flat :: FromField a => Query -> DbHelpers.DbConnectionData -> Text -> IO [a]
 list_flat sql conn_data t = do
   conn <- DbHelpers.get_connection conn_data
@@ -387,8 +425,7 @@ api_autocomplete_steps = list_flat sql
 api_list_steps :: DbHelpers.DbConnectionData -> IO [Text]
 api_list_steps conn_data = do
   conn <- DbHelpers.get_connection conn_data
-  inners <- query_ conn sql
-  return $ map (\(Only x) -> x) inners
+  map (\(Only x) -> x) <$> query_ conn sql
   where
     sql = "SELECT name FROM build_steps WHERE name IS NOT NULL GROUP BY name ORDER BY COUNT(*) DESC, name ASC;"
 
@@ -412,21 +449,23 @@ api_list_branches conn_data = do
 get_revision_builds :: DbHelpers.DbConnectionData -> GitRev.GitSha1 -> IO [CommitBuilds.CommitBuild]
 get_revision_builds conn_data git_revision = do
   conn <- DbHelpers.get_connection conn_data
-  xs <- query conn sql $ Only $ GitRev.sha1 git_revision
-  return $ map f xs
+  fmap (map f) $ query conn sql $ Only $ GitRev.sha1 git_revision
 
   where
-    f (step_name, match_id, buildnum, vcs_rev, queuedat, jobname, branch, pattern, line_number, line_count, line_text, span_start, span_end, specificity, maybe_is_broken, maybe_reporter, maybe_report_timestamp) =
+    f (step_name, match_id, buildnum, vcs_rev, queuedat, jobname, branch, patt, line_number, line_count, line_text, span_start, span_end, specificity, maybe_is_broken, maybe_reporter, maybe_report_timestamp) =
       CommitBuilds.NewCommitBuild
         build_obj
         match_obj
         (maybe_breakage_report maybe_is_broken  maybe_reporter maybe_report_timestamp)
       where
         build_obj = Builds.NewBuild (Builds.NewBuildNumber buildnum) vcs_rev queuedat jobname branch
-        match_obj = MatchOccurrences.MatchOccurrencesForBuild step_name (ScanPatterns.PatternId pattern) (MatchOccurrences.MatchId match_id) line_number line_count line_text span_start span_end specificity
+        match_obj = MatchOccurrences.MatchOccurrencesForBuild step_name (ScanPatterns.PatternId patt) (MatchOccurrences.MatchId match_id) line_number line_count line_text span_start span_end specificity
 
         maybe_breakage_report :: Maybe Bool -> Maybe Text -> Maybe UTCTime -> Maybe CommitBuilds.StoredBreakageReport
-        maybe_breakage_report x y z = CommitBuilds.StoredBreakageReport <$> x <*> (AuthStages.Username <$> y) <*> z
+        maybe_breakage_report x y z = CommitBuilds.StoredBreakageReport
+          <$> x
+          <*> (AuthStages.Username <$> y)
+          <*> z
 
     sql = "SELECT step_name, match_id, build, vcs_revision, queued_at, job_name, branch, pattern_id, line_number, line_count, line_text, span_start, span_end, specificity, is_broken, reporter, report_timestamp FROM best_pattern_match_augmented_builds WHERE vcs_revision = ?;"
 
@@ -497,7 +536,7 @@ api_new_pattern_test conn_data build_number@(Builds.NewBuildNumber buildnum) new
             Nothing -> Left $ "No log found for build number " ++ show buildnum
   where
     apply_pattern :: (Int, Text) -> Maybe ScanPatterns.ScanMatch
-    apply_pattern line_tuple = ScanUtils.apply_single_pattern line_tuple $ DbHelpers.WithId 0 new_pattern
+    apply_pattern line_tuple = ScanUtils.applySinglePattern line_tuple $ DbHelpers.WithId 0 new_pattern
 
 
 -- | NOTE: Some of these values can be derived from the others.
@@ -556,8 +595,7 @@ make_pattern_records =
 api_single_pattern :: DbHelpers.DbConnectionData -> ScanPatterns.PatternId ->  IO [PatternRecord]
 api_single_pattern conn_data (ScanPatterns.PatternId pattern_id) = do
   conn <- DbHelpers.get_connection conn_data
-  xs <- query conn sql $ Only pattern_id
-  return $ make_pattern_records xs
+  fmap make_pattern_records $ query conn sql $ Only pattern_id
   where
     sql = "SELECT id, regex, expression, description, matching_build_count, most_recent, earliest, tags, steps, specificity, CAST((scanned_count * 100 / total_scanned_builds) AS DECIMAL(6, 1)) AS percent_scanned FROM pattern_frequency_summary WHERE id = ?;"
 
@@ -565,8 +603,7 @@ api_single_pattern conn_data (ScanPatterns.PatternId pattern_id) = do
 api_patterns :: DbHelpers.DbConnectionData -> IO [PatternRecord]
 api_patterns conn_data = do
   conn <- DbHelpers.get_connection conn_data
-  xs <- query_ conn sql
-  return $ make_pattern_records xs
+  make_pattern_records <$> query_ conn sql
   where
     sql = "SELECT id, regex, expression, description, matching_build_count, most_recent, earliest, tags, steps, specificity, CAST((scanned_count * 100 / total_scanned_builds) AS DECIMAL(6, 1)) AS percent_scanned FROM pattern_frequency_summary ORDER BY most_recent DESC NULLS LAST;"
 
@@ -575,8 +612,7 @@ api_patterns conn_data = do
 dump_presumed_stable_branches :: DbHelpers.DbConnectionData -> IO [Text]
 dump_presumed_stable_branches conn_data = do
   conn <- DbHelpers.get_connection conn_data
-  xs <- query_ conn sql
-  return $ map (\(Only x) -> x) xs
+  map (\(Only x) -> x) <$> query_ conn sql
   where
     sql = "SELECT branch FROM presumed_stable_branches ORDER BY branch;"
 
@@ -585,8 +621,7 @@ dump_presumed_stable_branches conn_data = do
 dump_patterns :: DbHelpers.DbConnectionData -> IO [DbHelpers.WithAuthorship ScanPatterns.DbPattern]
 dump_patterns conn_data = do
   conn <- DbHelpers.get_connection conn_data
-  xs <- query_ conn sql
-  return $ map f xs
+  map f <$> query_ conn sql
 
   where
     f (author, created, pattern_id, is_regex, expression, has_nondeterministic_values, description, tags, steps, specificity, is_retired, lines_from_end) =
@@ -604,8 +639,7 @@ dump_patterns conn_data = do
 dump_breakages :: DbHelpers.DbConnectionData -> IO [DbHelpers.WithId BreakageReportsBackup.DbBreakageReport]
 dump_breakages conn_data = do
   conn <- DbHelpers.get_connection conn_data
-  xs <- query_ conn sql
-  return $ map f xs
+  map f <$> query_ conn sql
   where
     f (id, reporter, reported_at, build_step, is_broken, implicated_revision, notes) = DbHelpers.WithId id $ BreakageReportsBackup.DbBreakageReport (AuthStages.Username reporter) reported_at (Builds.NewBuildStepId build_step) is_broken implicated_revision notes
     sql = "SELECT id, reporter, reported_at, build_step, is_broken, implicated_revision, notes FROM broken_build_reports ORDER BY id;"
@@ -616,8 +650,7 @@ dump_breakages conn_data = do
 api_patterns_branch_filtered :: DbHelpers.DbConnectionData -> [Text] -> IO [PatternRecord]
 api_patterns_branch_filtered conn_data branches = do
   conn <- DbHelpers.get_connection conn_data
-  xs <- query conn sql $ Only $ In branches
-  return $ make_pattern_records xs
+  fmap make_pattern_records $ query conn sql $ Only $ In branches
 
   where
     sql = "SELECT patterns_augmented.id, patterns_augmented.regex, patterns_augmented.expression, patterns_augmented.description, COALESCE(aggregated_build_matches.matching_build_count, 0::int) AS matching_build_count, aggregated_build_matches.most_recent, aggregated_build_matches.earliest, patterns_augmented.tags, patterns_augmented.steps, patterns_augmented.specificity, CAST((patterns_augmented.scanned_count * 100 / patterns_augmented.total_scanned_builds) AS DECIMAL(6, 1)) AS percent_scanned FROM patterns_augmented LEFT JOIN ( SELECT best_pattern_match_for_builds.pattern_id AS pat, count(best_pattern_match_for_builds.build) AS matching_build_count, max(builds.queued_at) AS most_recent, min(builds.queued_at) AS earliest FROM best_pattern_match_for_builds JOIN builds ON builds.build_num = best_pattern_match_for_builds.build WHERE builds.branch IN ? GROUP BY best_pattern_match_for_builds.pattern_id) aggregated_build_matches ON patterns_augmented.id = aggregated_build_matches.pat ORDER BY matching_build_count DESC;"
@@ -651,9 +684,9 @@ get_build_pattern_matches conn_data (Builds.NewBuildNumber build_id) = do
   return $ map f xs
 
   where
-    f (step_name, pattern, match_id, line_number, line_count, line_text, span_start, span_end, specificity) =
+    f (step_name, patt, match_id, line_number, line_count, line_text, span_start, span_end, specificity) =
       MatchOccurrences.MatchOccurrencesForBuild
-        step_name (ScanPatterns.PatternId pattern) (MatchOccurrences.MatchId match_id) line_number line_count line_text span_start span_end specificity
+        step_name (ScanPatterns.PatternId patt) (MatchOccurrences.MatchId match_id) line_number line_count line_text span_start span_end specificity
 
     sql = "SELECT step_name, pattern, matches_with_log_metadata.id, line_number, line_count, line_text, span_start, span_end, specificity FROM matches_with_log_metadata JOIN build_steps ON matches_with_log_metadata.build_step = build_steps.id JOIN patterns_augmented ON patterns_augmented.id = matches_with_log_metadata.pattern WHERE matches_with_log_metadata.build_num = ? ORDER BY specificity DESC, patterns_augmented.id ASC, line_number ASC;"
 
@@ -683,7 +716,7 @@ pattern_occurrence_txform pattern_id = txform . f
     f (buildnum, stepname, match_id, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch) =
       (Builds.NewBuild (Builds.NewBuildNumber buildnum) vcs_revision queued_at job_name branch, stepname, line_count, MatchOccurrences.MatchId match_id, ScanPatterns.NewMatchDetails line_text line_number $ ScanPatterns.NewMatchSpan span_start span_end)
 
-    txform ((Builds.NewBuild buildnum vcs_rev queued_at job_name branch), stepname, line_count, match_id, ScanPatterns.NewMatchDetails line_text line_number (ScanPatterns.NewMatchSpan start end)) = NewPatternOccurrence buildnum pattern_id match_id vcs_rev queued_at job_name branch stepname line_number line_count line_text start end
+    txform (Builds.NewBuild buildnum vcs_rev queued_at job_name branch, stepname, line_count, match_id, ScanPatterns.NewMatchDetails line_text line_number (ScanPatterns.NewMatchSpan start end)) = NewPatternOccurrence buildnum pattern_id match_id vcs_rev queued_at job_name branch stepname line_number line_count line_text start end
 
 
 get_best_pattern_matches :: DbHelpers.DbConnectionData -> ScanPatterns.PatternId -> IO [PatternOccurrence]
@@ -814,12 +847,11 @@ get_build_info conn_data build@(Builds.NewBuildNumber build_id) = do
 
 
 get_pattern_matches :: DbHelpers.DbConnectionData -> ScanPatterns.PatternId -> IO [PatternOccurrence]
-get_pattern_matches conn_data pattern_id = do
-  rows <- get_pattern_occurrence_rows conn_data pattern_id
-  return $ map f rows
+get_pattern_matches conn_data pattern_id =
+  map f <$> get_pattern_occurrence_rows conn_data pattern_id
 
   where
-    f ((Builds.NewBuild buildnum vcs_rev queued_at job_name branch), stepname, line_count, match_id, ScanPatterns.NewMatchDetails line_text line_number (ScanPatterns.NewMatchSpan start end)) =
+    f (Builds.NewBuild buildnum vcs_rev queued_at job_name branch, stepname, line_count, match_id, ScanPatterns.NewMatchDetails line_text line_number (ScanPatterns.NewMatchSpan start end)) =
       NewPatternOccurrence buildnum pattern_id match_id vcs_rev queued_at job_name branch stepname line_number line_count line_text start end
 
 
@@ -827,8 +859,7 @@ get_pattern_occurrence_rows :: DbHelpers.DbConnectionData -> ScanPatterns.Patter
 get_pattern_occurrence_rows conn_data (ScanPatterns.PatternId pattern_id) = do
 
   conn <- DbHelpers.get_connection conn_data
-  xs <- query conn sql $ Only pattern_id
-  return $ map f xs
+  fmap (map f) $ query conn sql $ Only pattern_id
 
   where
     f (buildnum, stepname, match_id, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch) =

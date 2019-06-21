@@ -78,7 +78,7 @@ rescanSingleBuild db_connection_data initiator build_to_scan = do
   conn <- DbHelpers.get_connection db_connection_data
   scan_resources <- prepareScanResources conn $ Just initiator
 
-  either_visitation_result <- get_failed_build_info scan_resources build_to_scan
+  either_visitation_result <- getFailedBuildInfo scan_resources build_to_scan
   case either_visitation_result of
     Right _ -> return ()
     Left (Builds.BuildWithStepFailure build_obj _step_failure) -> do
@@ -143,8 +143,8 @@ getPatternObjects scan_resources =
 -- failed step of this build.
 -- Patterns that are not annotated with applicability will apply
 -- to any step.
-catchup_scan :: ScanRecords.ScanCatchupResources -> Builds.BuildStepId -> T.Text -> (Builds.BuildNumber, Maybe Builds.BuildFailureOutput) -> [ScanPatterns.DbPattern] -> IO (Either String [ScanPatterns.ScanMatch])
-catchup_scan scan_resources buildstep_id step_name (buildnum, maybe_console_output_url) scannable_patterns = do
+catchupScan :: ScanRecords.ScanCatchupResources -> Builds.BuildStepId -> T.Text -> (Builds.BuildNumber, Maybe Builds.BuildFailureOutput) -> [ScanPatterns.DbPattern] -> IO (Either String [ScanPatterns.ScanMatch])
+catchupScan scan_resources buildstep_id step_name (buildnum, maybe_console_output_url) scannable_patterns = do
 
   putStrLn $ "\tThere are " ++ (show $ length scannable_patterns) ++ " scannable patterns"
 
@@ -155,7 +155,7 @@ catchup_scan scan_resources buildstep_id step_name (buildnum, maybe_console_outp
           appl_steps = ScanPatterns.applicable_steps pat_record
       applicable_patterns = filter is_pattern_applicable scannable_patterns
 
-  putStrLn $ "\t\twith " ++ (show $ length applicable_patterns) ++ " applicable to this step"
+  putStrLn $ "\t\twith " ++ show (length applicable_patterns) ++ " applicable to this step"
 
   -- | We only access the console log if there is at least one
   -- pattern to scan:
@@ -179,7 +179,7 @@ rescanVisitedBuilds scan_resources visited_builds_list =
   for (zip [1::Int ..] visited_builds_list) $ \(idx, (build_step_id, step_name, build_num, pattern_ids)) -> do
     putStrLn $ "Visiting " ++ show idx ++ "/" ++ show visited_count ++ " previously-visited builds (" ++ show build_num ++ ")..."
 
-    either_matches <- catchup_scan scan_resources build_step_id step_name (build_num, Nothing) $
+    either_matches <- catchupScan scan_resources build_step_id step_name (build_num, Nothing) $
       getPatternObjects scan_resources pattern_ids
 
     return (build_num, Either.fromRight [] either_matches)
@@ -197,7 +197,7 @@ processUnvisitedBuilds scan_resources unvisited_builds_list =
 
   for (zip [1::Int ..] unvisited_builds_list) $ \(idx, build_num) -> do
     putStrLn $ "Visiting " ++ show idx ++ "/" ++ show unvisited_count ++ " unvisited builds..."
-    visitation_result <- get_failed_build_info scan_resources build_num
+    visitation_result <- getFailedBuildInfo scan_resources build_num
 
     let pair = (build_num, visitation_result)
     build_step_id <- SqlWrite.insert_build_visitation scan_resources pair
@@ -207,7 +207,7 @@ processUnvisitedBuilds scan_resources unvisited_builds_list =
       Left (Builds.BuildWithStepFailure _build_obj (Builds.NewBuildStepFailure step_name mode)) -> case mode of
         Builds.BuildTimeoutFailure             -> return $ Right []
         Builds.ScannableFailure failure_output ->
-          catchup_scan scan_resources build_step_id step_name (build_num, Just failure_output) $
+          catchupScan scan_resources build_step_id step_name (build_num, Just failure_output) $
             ScanRecords.get_patterns_with_id scan_resources
 
     return (build_num, Either.fromRight [] either_matches)
@@ -223,11 +223,11 @@ processUnvisitedBuilds scan_resources unvisited_builds_list =
 -- here, the *expected* outcome is a Left, whereas a Right is the "bad" condition.
 -- Rationale: we're searching a known-failed build for failures, so not finding a failure is unexpected.
 -- We make use of Either's short-circuting to find the *first* failure.
-get_failed_build_info ::
+getFailedBuildInfo ::
      ScanRecords.ScanCatchupResources
   -> Builds.BuildNumber
   -> IO (Either Builds.BuildWithStepFailure ScanRecords.UnidentifiedBuildFailure)
-get_failed_build_info scan_resources build_number = do
+getFailedBuildInfo scan_resources build_number = do
 
   putStrLn $ "Fetching from: " ++ fetch_url
 
@@ -248,7 +248,7 @@ get_failed_build_info scan_resources build_number = do
       return ScanRecords.NoFailedSteps
 
     Left err_message -> do
-      let fail_string = "PROBLEM: Failed in get_failed_build_info with message: " ++ err_message
+      let fail_string = "PROBLEM: Failed in getFailedBuildInfo with message: " ++ err_message
       return $ ScanRecords.NetworkProblem fail_string
 
   where
@@ -272,7 +272,7 @@ getAndStoreLog scan_resources build_number build_step_id maybe_failed_build_outp
       download_url <- ExceptT $ case maybe_failed_build_output of
         Just failed_build_output -> return $ Right $ Builds.log_url failed_build_output
         Nothing -> do
-          visitation_result <- get_failed_build_info scan_resources build_number
+          visitation_result <- getFailedBuildInfo scan_resources build_number
 
           return $ case visitation_result of
             Right _ -> Left "This build didn't have a console log!"
@@ -311,7 +311,7 @@ scanLogText ::
 scanLogText lines_list patterns =
   concat $ filter (not . null) $ zipWith (curry apply_patterns) [0 ..] $ map T.stripEnd lines_list
   where
-    apply_patterns line_tuple = Maybe.mapMaybe (ScanUtils.apply_single_pattern line_tuple) patterns
+    apply_patterns line_tuple = Maybe.mapMaybe (ScanUtils.applySinglePattern line_tuple) patterns
 
 
 scanLog ::

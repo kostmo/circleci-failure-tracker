@@ -562,24 +562,14 @@ mainAppCode args = do
 
 
 
-
-
-
+  {-
   when (AuthConfig.is_local github_config) $ do
     -- XXX FOR TESTING ONLY
 
-    either_fetched_commits <- GithubApiFetch.getCommits
-      (AuthConfig.personal_access_token github_config)
-      (DbHelpers.OwnerAndRepo Constants.project_name Constants.repo_name)
-      "master"
-      "96c0bd3722dd20124119a5bb1c770ff984201b2f"
-    case either_fetched_commits of
-      Right commits -> do
-        putStrLn $ "Fetched " ++ show (length commits) ++ " commits"
-        mapM_ (putStrLn . T.unpack . GitHubRecords._sha) commits
-      Left _ -> putStrLn "failed to fetch commits"
+    SqlWrite.populate_latest_master_commits connection_data access_token
+    return ()
 
-
+      -}
 
 
 
@@ -590,11 +580,12 @@ mainAppCode args = do
     credentials_data = SetupData static_base github_config connection_data
     static_base = staticBase args
 
+    access_token = OAuth2.AccessToken $ gitHubPersonalAccessToken args
     github_config = AuthConfig.NewGithubConfig
       (runningLocally args)
       (gitHubClientID args)
       (gitHubClientSecret args)
-      (OAuth2.AccessToken $ gitHubPersonalAccessToken args)
+      access_token
       (gitHubWebhookSecret args)
       (adminPassword args)
 

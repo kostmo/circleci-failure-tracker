@@ -38,6 +38,10 @@ library:
     - scientific
     - text
     - hoauth2
+    - http-conduit
+    - uri-bytestring
+    - hashable
+    - scotty
     - array
     - MissingH 
 

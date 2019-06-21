@@ -1,7 +1,6 @@
 {-# LANGUAGE AllowAmbiguousTypes       #-}
 {-# LANGUAGE DeriveGeneric             #-}
 {-# LANGUAGE ExistentialQuantification #-}
-{-# LANGUAGE OverloadedStrings         #-}
 {-# LANGUAGE RankNTypes                #-}
 {-# LANGUAGE TypeFamilies              #-}
 
@@ -11,12 +10,10 @@ import           Control.Concurrent.MVar
 import           Data.Aeson
 import           Data.Hashable
 import qualified Data.HashMap.Strict     as Map
-import           Data.Maybe
 import           Data.Text.Lazy
 import qualified Data.Text.Lazy          as TL
 import           GHC.Generics
-import           Text.Mustache
-import qualified Text.Mustache           as M
+
 
 type IDPLabel = Text
 
@@ -55,18 +52,4 @@ instance Eq IDPData where
 
 instance Ord IDPData where
   a `compare` b = idpDisplayLabel a `compare` idpDisplayLabel b
-
-
--- * Mustache instances
-instance ToMustache IDPData where
-  toMustache t' = M.object
-    [ "codeFlowUri" ~> codeFlowUri t'
-    , "isLogin" ~> isJust (loginUser t')
-    , "user" ~> loginUser t'
-    , "name" ~> TL.unpack (idpDisplayLabel t')
-    ]
-
-instance ToMustache LoginUser where
-  toMustache t' = M.object
-    [ "name" ~> loginUserName t' ]
 

@@ -8,6 +8,7 @@
 module GithubApiFetch (
     getBuildStatuses
   , getCommits
+  , findAncestor
   , GitHubApiSupport (..)
   , fetchUser
   ) where
@@ -22,8 +23,11 @@ import           Data.Aeson.Types           (FromJSON, Value, parseEither,
                                              parseJSON)
 import           Data.Bifunctor
 import qualified Data.ByteString.Char8      as BSU
+import           Data.Either.Utils          (maybeToEither)
 import           Data.List                  (intercalate)
 import qualified Data.Maybe                 as Maybe
+import           Data.Set                   (Set)
+import qualified Data.Set                   as Set
 import qualified Data.Text                  as T
 import qualified Data.Text.Lazy             as TL
 import qualified Data.Vector                as V
@@ -45,15 +49,22 @@ maxGitHubCommitFetchCount :: Int
 maxGitHubCommitFetchCount = 2000
 
 
+-- | Sometimes what we're looking for is within the first few items
+-- of the result set, so we can optimistically fetch a small number
+-- of results to reduce bandwidth.
+expressPerPageCount :: Int
+expressPerPageCount = 10
+
+
 perPageCount :: Int
 perPageCount = 100
 
 
 githubCommitsApiPrefix :: DbHelpers.OwnerAndRepo -> String
 githubCommitsApiPrefix repo_owner_name = intercalate "/" [
-        DbHelpers.githubRepoApiPrefix repo_owner_name
-      , "commits"
-      ]
+    DbHelpers.githubRepoApiPrefix repo_owner_name
+  , "commits"
+  ]
 
 
 data GitHubApiSupport = GitHubApiSupport {
@@ -82,7 +93,7 @@ recursePaginated
 
     uri <- except $ first (const $ "Bad URL: " <> TL.pack uri_string) either_uri
 
-    r <- ExceptT ((first displayOAuth2Error <$> OAuth2.authGetJSON mgr token uri) :: IO (Either TL.Text Value))
+    r <- ExceptT (first displayOAuth2Error <$> OAuth2.authGetJSON mgr token uri :: IO (Either TL.Text Value))
 
     let subval = V.toList $ r ^. key field_accessor . _Array
 
@@ -112,51 +123,75 @@ getCommitsRecurse ::
      GitHubApiSupport
   -> Int -- ^ commit fetch limit
   -> String -- ^ URL prefix
+  -> Int -- ^ iteration number
   -> T.Text  -- ^ starting commit
-  -> T.Text  -- ^ last known commit (stopping commit)
+  -> (T.Text -> Bool)  -- ^ Stopping condition. May compare against last known commit (stopping commit)
   -> [GitHubRecords.GitHubCommit] -- ^ previously found commits
-  -> IO (Either TL.Text [GitHubRecords.GitHubCommit])
+  -> IO (Either TL.Text ([GitHubRecords.GitHubCommit], Maybe GitHubRecords.GitHubCommit))
 getCommitsRecurse
     ghsupport@(GitHubApiSupport mgr token)
     limit
     uri_prefix
+    iteration_number
     target_sha1
-    stopping_sha1
+    stopping_condition
     old_retrieved_items = do
 
   putStrLn $ "Querying URL for commits: " ++ uri_string
 
   runExceptT $ do
 
+    unless (length old_retrieved_items < limit) $
+      except $ Left "Too many commits to fetch!"
+
     uri <- except $ first (const $ "Bad URL: " <> TL.pack uri_string) either_uri
 
-    newly_retrieved_items <- ExceptT $ first displayOAuth2Error <$> OAuth2.authGetJSON mgr token uri
+    newly_retrieved_items <- ExceptT $
+      first displayOAuth2Error <$> OAuth2.authGetJSON mgr token uri
 
-    let (novel_commits, known_commits) = break ((== stopping_sha1) . GitHubRecords._sha) newly_retrieved_items
-        merge_commits = filter ((> 1) . length . GitHubRecords._parents) novel_commits
-        combined_list = old_retrieved_items ++ novel_commits
+    let (novel_commits, known_commits) = break (stopping_condition . GitHubRecords._sha) newly_retrieved_items
+        is_merge_commit = (> 1) . length . GitHubRecords._parents
+        merge_commits = filter is_merge_commit novel_commits
+        combined_list = old_retrieved_items <> novel_commits
 
     unless (null merge_commits) $
       except $ Left "Commit ancestry is nonlinear!"
 
-    Maybe.fromMaybe (return combined_list) $ do
+    let retval = (combined_list, Safe.headMay known_commits)
+
+    Maybe.fromMaybe (return retval) $ do
       last_fetched_commit <- Safe.lastMay novel_commits
-      guard $ not $ null $ GitHubRecords._parents last_fetched_commit
-      guard $ null known_commits && length combined_list < limit
+
+      -- Terminate recursion if we've encountered the root revision
+      -- (which has no parents).
+      parent_list <- GitHubRecords._parents last_fetched_commit
+      parent_of_last_fetched <- Safe.headMay parent_list
+
+      -- Terminate recursion if we've encountered a known commit.
+      guard $ null known_commits
+
+      -- start the next iteration at the parent of the last found commit
+      let next_target_ref = GitHubRecords._sha parent_of_last_fetched
+
       return $ ExceptT $ getCommitsRecurse
         ghsupport
         limit
         uri_prefix
-        (GitHubRecords._sha last_fetched_commit <> "~")
-        stopping_sha1
+        (iteration_number + 1)
+        next_target_ref
+        stopping_condition
         combined_list
 
   where
     either_uri = parseURI strictURIParserOptions $ BSU.pack uri_string
 
+    -- try a small number first, then immediately ramp up to the max
+    fetch_quantity = if iteration_number == 0
+      then expressPerPageCount
+      else perPageCount
+
     uri_string = uri_prefix
---      <> "?per_page=" <> show perPageCount
-      <> "?per_page=" <> show 10
+      <> "?per_page=" <> show fetch_quantity
       <> "&sha=" <> T.unpack target_sha1
 
 
@@ -175,13 +210,46 @@ getCommits
 
   mgr <- newManager tlsManagerSettings
 
-  getCommitsRecurse
-    (GitHubApiSupport mgr token)
-    maxGitHubCommitFetchCount
-    (githubCommitsApiPrefix owner_and_repo)
+  runExceptT $ do
+
+    (combined_list, _first_known_commit) <- ExceptT $ getCommitsRecurse
+      (GitHubApiSupport mgr token)
+      maxGitHubCommitFetchCount
+      (githubCommitsApiPrefix owner_and_repo)
+      0
+      target_sha1
+      (== stopping_sha1)
+      []
+
+    return combined_list
+
+
+-- | This only works if the commit history is linear!
+findAncestor ::
+     OAuth2.AccessToken -- ^ token
+  -> DbHelpers.OwnerAndRepo
+  -> T.Text  -- ^ starting commit
+  -> Set T.Text  -- ^ known commits
+  -> IO (Either TL.Text GitHubRecords.GitHubCommit)
+findAncestor
+    token
+    owner_and_repo
     target_sha1
-    stopping_sha1
-    []
+    known_commit_set = do
+
+  mgr <- newManager tlsManagerSettings
+
+  runExceptT $ do
+    (_combined_list, first_known_commit) <- ExceptT $ getCommitsRecurse
+      (GitHubApiSupport mgr token)
+      maxGitHubCommitFetchCount
+      (githubCommitsApiPrefix owner_and_repo)
+      0
+      target_sha1
+      (`Set.member` known_commit_set)
+      []
+
+    except $ maybeToEither "No merge base found" first_known_commit
 
 
 getBuildStatuses ::
