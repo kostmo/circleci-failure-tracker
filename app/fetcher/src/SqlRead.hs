@@ -24,6 +24,7 @@ import           Data.Time.Calendar                   (Day)
 import           Data.Tuple                           (swap)
 import           Database.PostgreSQL.Simple
 import           Database.PostgreSQL.Simple.FromField (FromField)
+import           Database.PostgreSQL.Simple.ToField   (ToField)
 import           GHC.Generics
 import           GHC.Int                              (Int64)
 import qualified Network.OAuth.OAuth2                 as OAuth2
@@ -32,6 +33,7 @@ import qualified Safe
 import qualified AuthStages
 import qualified BreakageReportsBackup
 import qualified Breakages
+import qualified BuildResults
 import qualified Builds
 import qualified BuildSteps
 import qualified CommitBuilds
@@ -419,7 +421,11 @@ get_spanning_breakages conn_data _sha1 = do
   return []
 
 
-list_flat :: FromField a => Query -> DbHelpers.DbConnectionData -> Text -> IO [a]
+list_flat :: (ToField b, FromField a) =>
+     Query
+  -> DbHelpers.DbConnectionData
+  -> b
+  -> IO [a]
 list_flat sql conn_data t = do
   conn <- DbHelpers.get_connection conn_data
   inners <- query conn sql $ Only t
@@ -484,6 +490,58 @@ get_revision_builds conn_data git_revision = do
           <*> z
 
     sql = "SELECT step_name, match_id, build, vcs_revision, queued_at, job_name, branch, pattern_id, line_number, line_count, line_text, span_start, span_end, specificity, is_broken, reporter, report_timestamp FROM best_pattern_match_augmented_builds WHERE vcs_revision = ?;"
+
+
+
+
+
+
+
+
+
+get_master_commits ::
+     Connection
+  -> Int -- ^ commit count
+  -> IO [BuildResults.IndexedCommit]
+get_master_commits conn commit_count =
+  map f <$> query conn sql (Only commit_count)
+  where
+    f (my_id, my_commit) = DbHelpers.WithId my_id $ BuildResults.RawCommit my_commit
+    sql = "SELECT id, sha1 FROM ordered_master_commits ORDER BY id DESC LIMIT ?"
+
+
+-- | Gets last N commits in one query,
+-- then gets the list of jobs that apply to those commits,
+-- then gets the associated builds
+api_master_builds ::
+     DbHelpers.DbConnectionData
+  -> Int -- ^ commit count
+  -> IO BuildResults.MasterBuildsResponse
+api_master_builds conn_data commit_count = do
+
+  conn <- DbHelpers.get_connection conn_data
+
+  master_commits <- get_master_commits conn commit_count
+  let last_row_id = maybe 0 DbHelpers.db_id $ Safe.lastMay master_commits
+  putStrLn $ "Last row ID: " ++ show last_row_id
+
+  job_names <- list_flat job_names_sql conn_data last_row_id
+
+  failure_rows <- query conn failures_sql $ Only last_row_id
+
+  return $ BuildResults.MasterBuildsResponse job_names master_commits $
+    map f failure_rows
+
+  where
+    f (sha1, build_id, job_name, match_id) = BuildResults.SimpleBuildStatus
+      sha1
+      (Builds.NewBuildNumber build_id)
+      job_name
+      (BuildResults.PatternMatch $ MatchOccurrences.MatchId  match_id)
+
+    job_names_sql = "SELECT DISTINCT job_name FROM ordered_master_commits JOIN best_pattern_match_augmented_builds ON ordered_master_commits.sha1 = best_pattern_match_augmented_builds.vcs_revision WHERE ordered_master_commits.id >= ?"
+
+    failures_sql = "SELECT ordered_master_commits.sha1, build, job_name, match_id FROM ordered_master_commits JOIN best_pattern_match_augmented_builds ON ordered_master_commits.sha1 = best_pattern_match_augmented_builds.vcs_revision WHERE ordered_master_commits.id >= ?"
 
 
 data CommitInfo = NewCommitInfo {

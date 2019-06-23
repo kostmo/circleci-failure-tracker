@@ -1,5 +1,4 @@
-{-# LANGUAGE DeriveGeneric     #-}
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DeriveGeneric #-}
 
 module Builds where
 
@@ -55,6 +54,6 @@ data BuildFailureMode =
   deriving Show
 
 
-data BuildFailureOutput = NewBuildFailureOutput {
+newtype BuildFailureOutput = NewBuildFailureOutput {
     log_url :: Text
   } deriving Show

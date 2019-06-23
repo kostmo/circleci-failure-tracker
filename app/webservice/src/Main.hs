@@ -40,8 +40,6 @@ import qualified Builds
 import qualified Constants
 import qualified DbHelpers
 import qualified DbInsertion
-import qualified GithubApiFetch
-import qualified GitHubRecords
 import qualified GitRev
 import qualified JsonUtils
 import qualified MatchOccurrences
@@ -347,6 +345,11 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     S.get "/api/log-lines-histogram" $
       S.json =<< liftIO (SqlRead.api_line_count_histogram connection_data)
+
+    S.get "/api/master-timeline" $ do
+      commit_count <- S.param "count"
+      json_result <- liftIO $ SqlRead.api_master_builds connection_data commit_count
+      S.json json_result
 
     S.get "/api/step" $
       S.json =<< liftIO (SqlRead.api_step connection_data)

@@ -1,4 +1,4 @@
-var STANDARD_LOG_CONTEXT_LINECOUNT = 30;
+var STANDARD_LOG_CONTEXT_LINECOUNT = 25;
 
 
 function gen_error_cell_html(cell) {

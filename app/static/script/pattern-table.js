@@ -143,6 +143,9 @@ function gen_patterns_table(pattern_id, filtered_branches) {
 				},
 			},
 			{title:"Count", field:"frequency", sorter:"number", align:"center", width: 75},
+// BUG: The built-in "datetimediff" Tabulator formatter does not account for timezone properly.
+//			{title:"Since", field:"earliest", sorter:"datetime", align:"center", formatter: "datetimediff", formatterParams: {humanize: true, suffix: true, invalidPlaceholder: "never", date: moment()}},
+//			{title:"Until", field:"last", sorter:"datetime", align:"center", formatter: "datetimediff", formatterParams: {humanize: true, suffix: true, invalidPlaceholder: "never", date: moment()}},
 			{title:"Since", field:"earliest", sorter:"datetime", align:"center", formatter: function(cell, formatterParams, onRendered) {
 				return render_relative_time(cell)
 			    }

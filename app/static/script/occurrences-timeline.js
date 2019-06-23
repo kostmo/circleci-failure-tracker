@@ -1,7 +1,3 @@
-function setDefault(obj, prop, deflt) {
-  return obj.hasOwnProperty(prop) ? obj[prop] : (obj[prop] = deflt);
-}
-
 function main() {
 
    $.getJSON('/api/patterns-timeline', function (data) {
