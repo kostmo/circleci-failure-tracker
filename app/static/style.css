@@ -6,7 +6,9 @@ body {
 	cursor: url(images/trash-cursor.png), pointer;
 }
 
-
+.smallish {
+	font-size: 70%;
+}
 
 .pattern-expression {
 	font-family: monospace;

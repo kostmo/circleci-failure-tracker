@@ -1,11 +1,13 @@
 
 function get_timeline_data() {
 
-	$.getJSON('/api/master-timeline', {"count": 10}, function (mydata) {
+	$.getJSON('/api/master-timeline', {"count": 60}, function (mydata) {
 		gen_timeline_table("master-timeline-table", mydata);
 	});
 }
 
+// global
+var build_failures_by_commit;
 
 function gen_timeline_table(element_id, fetched_data) {
 
@@ -18,7 +20,11 @@ function gen_timeline_table(element_id, fetched_data) {
 		formatter: function(cell, formatterParams, onRendered) {
 			return render_tag("code", link(cell.getValue().substring(0, 7), "/commit-details.html?sha1=" + cell.getValue()));
 		},
-		width: 75,
+		minWidth: 90,
+		width: 90,
+		resizable: true,
+		headerSort: false,
+		frozen: true,
 	};
 
 	column_list.push(commit_column_definition);
@@ -31,12 +37,42 @@ function gen_timeline_table(element_id, fetched_data) {
 			headerVertical: "flip",
 			formatter: "tickCross",
 			formatterParams: {allowEmpty: true},
+			width: 22,
+			minWidth: 22,
+			resizable: false,
+			headerSort: false,
+			cssClass: "smallish",
+
+/*
+			accessor: function(value, data, type, params, column) {
+				//value - original value of the cell
+				//data - the data for the row
+				//type - the type of access occurring  (data|download|clipboard)
+				//params - the accessorParams object passed from the column definition
+				//column - column component for the column this accessor is bound to
+
+				return true;
+			},
+*/
+
+			cellClick: function(e, cell){
+				//e - the click event object
+				//cell - cell component
+				var cell_value = cell.getValue()
+				console.log("cell: " + cell_value + "; commit: " + cell.getRow().getData()["commit"]);
+
+				if (cell_value != null) {
+					console.log("build: " + cell_value["build_id"]);
+				}
+
+			},
+
 		};
 		column_list.push(col_dict);
 	}
 
-
-	var build_failures_by_commit = {};
+	// global
+	build_failures_by_commit = {};
 
 	for (var commit_obj of fetched_data.failures) {
 
@@ -55,7 +91,8 @@ function gen_timeline_table(element_id, fetched_data) {
 
 
 		for (var job_name in failures_by_job_name) {
-			row_dict[job_name] = false;
+			row_dict[job_name] = failures_by_job_name[job_name];
+//			row_dict[job_name] = true;
 		}
 
 		table_data.push(row_dict);
@@ -65,6 +102,7 @@ function gen_timeline_table(element_id, fetched_data) {
 	var table = new Tabulator("#" + element_id, {
 		layout: "fitColumns",
 		placeholder: "No Data Set",
+		selectable: true,
 		columns: column_list,
 		data: table_data, //set initial table data
 	});
@@ -72,8 +110,6 @@ function gen_timeline_table(element_id, fetched_data) {
 
 
 function main() {
-
-	console.log("Hello");
 	get_timeline_data();
 }
 
