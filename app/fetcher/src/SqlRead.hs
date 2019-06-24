@@ -43,6 +43,7 @@ import qualified GitHubRecords
 import qualified GitRev
 import qualified JsonUtils
 import qualified MatchOccurrences
+import qualified Pagination
 import qualified PostedStatuses
 import qualified ScanPatterns
 import qualified ScanUtils
@@ -501,13 +502,13 @@ get_revision_builds conn_data git_revision = do
 
 get_master_commits ::
      Connection
-  -> Int -- ^ commit count
+  -> Pagination.OffsetLimit
   -> IO [BuildResults.IndexedCommit]
-get_master_commits conn commit_count =
-  map f <$> query conn sql (Only commit_count)
+get_master_commits conn (Pagination.OffsetLimit offset_count commit_count) =
+  map f <$> query conn sql (offset_count, commit_count)
   where
     f (my_id, my_commit) = DbHelpers.WithId my_id $ BuildResults.RawCommit my_commit
-    sql = "SELECT id, sha1 FROM ordered_master_commits ORDER BY id DESC LIMIT ?"
+    sql = "SELECT id, sha1 FROM ordered_master_commits ORDER BY id DESC OFFSET ? LIMIT ?"
 
 
 -- | Gets last N commits in one query,
@@ -515,33 +516,37 @@ get_master_commits conn commit_count =
 -- then gets the associated builds
 api_master_builds ::
      DbHelpers.DbConnectionData
-  -> Int -- ^ commit count
+  -> Pagination.OffsetLimit
   -> IO BuildResults.MasterBuildsResponse
-api_master_builds conn_data commit_count = do
+api_master_builds conn_data offset_limit = do
 
   conn <- DbHelpers.get_connection conn_data
 
-  master_commits <- get_master_commits conn commit_count
+  master_commits <- get_master_commits conn offset_limit
   let last_row_id = maybe 0 DbHelpers.db_id $ Safe.lastMay master_commits
-  putStrLn $ "Last row ID: " ++ show last_row_id
-
   job_names <- list_flat job_names_sql conn_data last_row_id
-
   failure_rows <- query conn failures_sql $ Only last_row_id
 
   return $ BuildResults.MasterBuildsResponse job_names master_commits $
     map f failure_rows
 
   where
-    f (sha1, build_id, job_name, match_id) = BuildResults.SimpleBuildStatus
-      sha1
-      (Builds.NewBuildNumber build_id)
-      job_name
-      (BuildResults.PatternMatch $ MatchOccurrences.MatchId  match_id)
+    f (sha1, build_id, queued_at, job_name, branch, step_name, match_id, pattern_id, line_number, line_count, line_text, span_start, span_end, specificity) = BuildResults.SimpleBuildStatus
+      build_obj
+      (BuildResults.PatternMatch match_obj)
+      where
+        build_obj = Builds.NewBuild
+          (Builds.NewBuildNumber build_id)
+          sha1
+          queued_at
+          job_name
+          branch
+
+        match_obj = MatchOccurrences.MatchOccurrencesForBuild step_name (ScanPatterns.PatternId pattern_id) (MatchOccurrences.MatchId match_id) line_number line_count line_text span_start span_end specificity
 
     job_names_sql = "SELECT DISTINCT job_name FROM ordered_master_commits JOIN best_pattern_match_augmented_builds ON ordered_master_commits.sha1 = best_pattern_match_augmented_builds.vcs_revision WHERE ordered_master_commits.id >= ?"
 
-    failures_sql = "SELECT ordered_master_commits.sha1, build, job_name, match_id FROM ordered_master_commits JOIN best_pattern_match_augmented_builds ON ordered_master_commits.sha1 = best_pattern_match_augmented_builds.vcs_revision WHERE ordered_master_commits.id >= ?"
+    failures_sql = "SELECT ordered_master_commits.sha1, build, queued_at, job_name, branch, step_name, match_id, pattern_id, line_number, line_count, line_text, span_start, span_end, specificity FROM ordered_master_commits JOIN best_pattern_match_augmented_builds ON ordered_master_commits.sha1 = best_pattern_match_augmented_builds.vcs_revision WHERE ordered_master_commits.id >= ?"
 
 
 data CommitInfo = NewCommitInfo {

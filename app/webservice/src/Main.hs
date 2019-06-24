@@ -43,6 +43,7 @@ import qualified DbInsertion
 import qualified GitRev
 import qualified JsonUtils
 import qualified MatchOccurrences
+import qualified Pagination
 import qualified Scanning
 import qualified ScanPatterns
 import qualified Session
@@ -347,8 +348,9 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       S.json =<< liftIO (SqlRead.api_line_count_histogram connection_data)
 
     S.get "/api/master-timeline" $ do
+      offset_count <- S.param "offset"
       commit_count <- S.param "count"
-      json_result <- liftIO $ SqlRead.api_master_builds connection_data commit_count
+      json_result <- liftIO $ SqlRead.api_master_builds connection_data $ Pagination.OffsetLimit offset_count commit_count
       S.json json_result
 
     S.get "/api/step" $

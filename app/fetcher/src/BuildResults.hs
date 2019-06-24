@@ -23,16 +23,14 @@ type IndexedCommit = DbHelpers.WithId RawCommit
 data FailureMode =
    Timeout
  | NoLog
- | PatternMatch MatchOccurrences.MatchId
+ | PatternMatch MatchOccurrences.MatchOccurrencesForBuild
  deriving Generic
 
 instance ToJSON FailureMode
 
 
 data SimpleBuildStatus = SimpleBuildStatus {
-    _commit       :: Text
-  , _build_id     :: Builds.BuildNumber
-  , _job_name     :: Text
+    _build        :: Builds.Build
   , _failure_mode :: FailureMode
   } deriving Generic
 
