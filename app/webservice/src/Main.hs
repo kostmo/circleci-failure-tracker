@@ -183,6 +183,9 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     S.post "/api/github-event" $ StatusUpdate.github_event_endpoint connection_data github_config
 
+
+
+    -- Experimental
     S.post "/api/report-breakage" $ do
 
       either_maybe_implicated_revision <- validateMaybeRevision "implicated_revision"
@@ -205,6 +208,27 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
         ExceptT $ Auth.getAuthenticatedUser rq session github_config callback_func
       S.json $ WebApi.toJsonEither insertion_result
+
+
+
+    S.post "/api/code-breakage-cause-report" $ do
+
+      sha1 <- S.param "sha1"
+      description <- S.param "description"
+
+      rq <- S.request
+      insertion_result <- liftIO $ runExceptT $ do
+
+        let callback_func user_alias = SqlWrite.api_code_breakage_cause_insert connection_data breakage_report
+              where
+                breakage_report = Breakages2.NewBreakageReport
+                  is_broken
+                  notes
+                  user_alias
+
+        ExceptT $ Auth.getAuthenticatedUser rq session github_config callback_func
+      S.json $ WebApi.toJsonEither insertion_result
+
 
 
     S.post "/api/rescan-build" $ do

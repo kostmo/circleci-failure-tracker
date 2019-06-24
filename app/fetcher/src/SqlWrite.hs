@@ -323,6 +323,29 @@ api_new_breakage_report
     catcher e _                                  = throwIO e
 
 
+
+
+api_code_breakage_cause_insert ::
+     DbHelpers.DbConnectionData
+  -> Breakages.BreakageReport
+  -> IO (Either Text Int64)
+api_code_breakage_cause_insert
+    conn_data
+    (Breakages.NewBreakageReport (Builds.NewBuildStepId build_step_id) implicated_rev is_broken notes (AuthStages.Username author_username)) = do
+
+  conn <- DbHelpers.get_connection conn_data
+  catchViolation catcher $ do
+
+    [Only report_id] <- query conn insertion_sql (build_step_id, author_username, is_broken, implicated_rev, notes)
+    return $ Right report_id
+
+  where
+    insertion_sql = "INSERT INTO broken_build_reports(build_step, reporter, is_broken, implicated_revision, notes) VALUES(?,?,?,?,?) RETURNING id;"
+
+    catcher _ (UniqueViolation some_error) = return $ Left $ "Insertion error: " <> T.pack (BS.unpack some_error)
+    catcher e _                                  = throwIO e
+
+
 retire_pattern ::
      Connection
   -> ScanPatterns.PatternId

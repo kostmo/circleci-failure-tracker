@@ -7,8 +7,29 @@ function get_timeline_data(offset, count) {
 }
 
 
-// global
-var build_failures_by_commit;
+
+
+
+function mark_failure_cause(commit_sha1) {
+
+	console.log("Submitting breakage report...");
+
+	var description = prompt("Enter description of breakage:", "no comment");
+
+        $.post({
+		url: "/api/code-breakage-cause-report",
+		data: {"sha1": commit_sha1, "description": description},
+		success: function( data ) {
+
+			if (data.success) {
+				alert("submitted report with ID: " + data.payload);
+			} else {
+				alert("Error: " + data.error.message);
+			}
+		}
+        });
+}
+
 
 function gen_timeline_table(element_id, fetched_data) {
 
@@ -103,8 +124,10 @@ function gen_timeline_table(element_id, fetched_data) {
 			},
 			cellContext: function(e, cell) {
 
-				var cell_value = cell.getValue()
-				console.log("CONTEXT cell: " + cell_value + "; commit: " + cell.getRow().getData()["commit"]);
+				var cell_value = cell.getValue();
+
+				var commit_sha1 = cell.getRow().getData()["commit"];
+				console.log("CONTEXT cell: " + cell_value + "; commit: " + commit_sha1);
 
 
 				//e - the click event object
@@ -116,22 +139,20 @@ function gen_timeline_table(element_id, fetched_data) {
 					var build_id = cell_value["build"]["build_id"];
 					console.log("CONTEXT build: " + build_id);
 
-
 					var cell_element = cell.getElement();
-
-					var x = event.clientX;     // Get the horizontal coordinate
-					var y = event.clientY;     // Get the vertical coordinate
-					var coor = "X coords: " + x + ", Y coords: " + y;
-					console.log(coor);
 
 					var dropdown_element = document.getElementById("myDropdown");
 					dropdown_element.style.left = event.pageX;
 					dropdown_element.style.top = event.pageY;
 
+					// populate menu items
+					dropdown_element.innerHTML = "";
+					dropdown_element.innerHTML += link("Mark failure start", "javascript:mark_failure_cause(\"" + commit_sha1 + "\");");
+					dropdown_element.innerHTML += link("Mark failure end", "javascript:alert('goodbye');");
+
 					showContextMenu();
-
-
 				}
+
 				e.preventDefault();
 			},
 
@@ -139,8 +160,7 @@ function gen_timeline_table(element_id, fetched_data) {
 		column_list.push(col_dict);
 	}
 
-	// global
-	build_failures_by_commit = {};
+	var build_failures_by_commit = {};
 
 	for (var failure_obj of fetched_data.failures) {
 		var failures_by_job_name = setDefault(build_failures_by_commit, failure_obj.build.vcs_revision, {});
