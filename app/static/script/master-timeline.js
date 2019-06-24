@@ -1,3 +1,6 @@
+// global
+var breakage_starts_by_job_name = {};
+
 
 function get_timeline_data(offset, count) {
 
@@ -7,18 +10,86 @@ function get_timeline_data(offset, count) {
 }
 
 
+function get_context_menu_items_for_cell(cell) {
+
+	var job_name = cell.getColumn().getField();
+	var job_names_delimited = [job_name].join(";"); // TODO
+
+	var commit_sha1 = cell.getRow().getData()["commit"];
+
+
+	var context_menu_items = [];
+
+	var cell_value = cell.getValue();
+	if (cell_value != null) {
+		var node = document.createElement("span");
+		var textnode = document.createTextNode("Mark failure start");
+		node.appendChild(textnode);
+
+		node.addEventListener("click", function () {mark_failure_cause(commit_sha1, job_names_delimited);});
+
+		context_menu_items.push(node);
+	}
+
+	var open_breakages = get_open_breakges(cell);
+	if (open_breakages.length > 0) {
+
+		var node = document.createElement("span");
+
+		var textnode = document.createTextNode("Mark failure end");
+		node.appendChild(textnode);
+
+		node.addEventListener("click", function () {mark_failure_resolution(commit_sha1, open_breakages);});
+
+		context_menu_items.push(node);
+	}
+
+	return context_menu_items;
+}
 
 
 
-function mark_failure_cause(commit_sha1) {
+function get_open_breakges(cell) {
 
-	console.log("Submitting breakage report...");
+	var open_breakages = [];
 
-	var description = prompt("Enter description of breakage:", "no comment");
+	var job_name = cell.getColumn().getField();
+
+	if (job_name in breakage_starts_by_job_name) {
+		var current_commit_index = cell.getRow().getData()["commit_index"];
+
+		for (var job_breakage_span of breakage_starts_by_job_name[job_name]) {
+
+			var is_after_breakage_start = current_commit_index >= job_breakage_span.start.record.payload.breakage_commit.db_id;
+			var is_before_breakage_end = !("end" in job_breakage_span) || current_commit_index < job_breakage_span.end.record.payload.resolution_commit.db_id;
+
+			if (is_after_breakage_start && is_before_breakage_end) {
+
+				open_breakages.push(job_breakage_span);
+			}
+		}
+	}
+
+	return open_breakages;
+}
+
+
+
+
+function mark_failure_resolution(commit_sha1, active_breakages) {
+
+	console.log("Submitting resolution report...");
+
+	var cause_ids = [];
+	for (var breakage_obj of active_breakages) {
+		cause_ids.push(breakage_obj.db_id);
+	}
+
+	var causes_delimited = cause_ids.join(";")
 
         $.post({
-		url: "/api/code-breakage-cause-report",
-		data: {"sha1": commit_sha1, "description": description},
+		url: "/api/code-breakage-resolution-report",
+		data: {"sha1": commit_sha1, "causes": causes_delimited},
 		success: function( data ) {
 
 			if (data.success) {
@@ -28,6 +99,35 @@ function mark_failure_cause(commit_sha1) {
 			}
 		}
         });
+}
+
+
+
+function mark_failure_cause(commit_sha1, jobs_list_delimited) {
+
+	console.log("Submitting breakage report...");
+
+	var description = prompt("Enter description of breakage:", "no comment");
+
+
+//	document.getElementById("affected-jobs-dialog").showModal();
+
+//	dialog-submit-button
+
+	if (description != null) {
+		$.post({
+			url: "/api/code-breakage-cause-report",
+			data: {"sha1": commit_sha1, "description": description, "jobs": jobs_list_delimited},
+			success: function( data ) {
+
+				if (data.success) {
+					alert("submitted report with ID: " + data.payload);
+				} else {
+					alert("Error: " + data.error.message);
+				}
+			}
+		});
+	}
 }
 
 
@@ -59,39 +159,31 @@ function gen_timeline_table(element_id, fetched_data) {
 			title: col,
 			field: col,
 			headerVertical: "flip",
-//			formatter: "tickCross",
-//			formatterParams: {allowEmpty: true},
 			width: 22,
 			minWidth: 22,
 			resizable: false,
 			headerSort: false,
 			cssClass: "smallish",
-
-
 			tooltip: function(cell) {
-				//cell - cell component
-
 
 				var cell_value = cell.getValue();
 				if (cell_value != null) {
 					return cell_value["failure_mode"]["contents"]["line_text"];
 				} else {
-					return "";
+					return false;
+				}
+			},
+			formatter: function(cell, formatterParams, onRendered) {
+
+				var open_breakages = get_open_breakges(cell);
+				if (open_breakages.length > 0) {
+					cell.getElement().style.backgroundColor = "#fcc8";
 				}
 
-
-
-				//function should return a string for the tooltip of false to hide the tooltip
-				return  cell.getColumn().getField() + " - " + cell.getValue(); //return cells "field - value";
-			},
-
-
-			formatter: function(cell, formatterParams, onRendered){
-			    //cell - the cell component
-			    //formatterParams - parameters set for the column
-			    //onRendered - function to call when the formatter has been rendered
-
-
+				var context_menu_items = get_context_menu_items_for_cell(cell);
+				if (context_menu_items.length > 0) {
+					cell.getElement().style.cursor = "context-menu";
+				}
 
 				var cell_value = cell.getValue();
 				if (cell_value != null) {
@@ -99,12 +191,9 @@ function gen_timeline_table(element_id, fetched_data) {
 				} else {
 					return "";
 				}
-
 			},
-
 			cellClick: function(e, cell) {
-				//e - the click event object
-				//cell - cell component
+
 				var cell_value = cell.getValue()
 				console.log("cell: " + cell_value + "; commit: " + cell.getRow().getData()["commit"]);
 
@@ -112,9 +201,7 @@ function gen_timeline_table(element_id, fetched_data) {
 					var build_id = cell_value["build"]["build_id"];
 					console.log("build: " + build_id);
 
-
 /*
-
 					var should_view = confirm("View build " + build_id + "?");
 					if (should_view) {
 						window.location.href = "/build-details.html?build_id=" + build_id;
@@ -126,42 +213,48 @@ function gen_timeline_table(element_id, fetched_data) {
 
 				var cell_value = cell.getValue();
 
-				var commit_sha1 = cell.getRow().getData()["commit"];
-				console.log("CONTEXT cell: " + cell_value + "; commit: " + commit_sha1);
 
+				var dropdown_element = document.getElementById("myDropdown");
 
-				//e - the click event object
-				//cell - cell component
+				while (dropdown_element.firstChild) {
+					dropdown_element.removeChild(dropdown_element.firstChild);
+				}
 
+				var context_menu_items = get_context_menu_items_for_cell(cell);
+				if (context_menu_items.length > 0) {
 
-
-				if (cell_value != null) {
-					var build_id = cell_value["build"]["build_id"];
-					console.log("CONTEXT build: " + build_id);
-
-					var cell_element = cell.getElement();
-
-					var dropdown_element = document.getElementById("myDropdown");
 					dropdown_element.style.left = event.pageX;
 					dropdown_element.style.top = event.pageY;
 
-					// populate menu items
-					dropdown_element.innerHTML = "";
-					dropdown_element.innerHTML += link("Mark failure start", "javascript:mark_failure_cause(\"" + commit_sha1 + "\");");
-					dropdown_element.innerHTML += link("Mark failure end", "javascript:alert('goodbye');");
+
+					for (var x of context_menu_items) {
+						dropdown_element.appendChild(x);
+					}
 
 					showContextMenu();
+					e.preventDefault();
 				}
-
-				e.preventDefault();
 			},
-
 		};
 		column_list.push(col_dict);
 	}
 
-	var build_failures_by_commit = {};
 
+
+	// global
+	breakage_starts_by_job_name = {};
+	for (var breakage_span_obj of fetched_data.breakage_spans) {
+
+		var breakage_start_obj = breakage_span_obj.start;
+		for (var affected_job_obj of breakage_start_obj.record.payload.affected_jobs) {
+
+			var breakage_starts_for_job = setDefault(breakage_starts_by_job_name, affected_job_obj.payload, []);
+			breakage_starts_for_job.push(breakage_span_obj);
+		}
+	}
+
+
+	var build_failures_by_commit = {};
 	for (var failure_obj of fetched_data.failures) {
 		var failures_by_job_name = setDefault(build_failures_by_commit, failure_obj.build.vcs_revision, {});
 		failures_by_job_name[failure_obj.build.job_name] = failure_obj;
@@ -174,6 +267,7 @@ function gen_timeline_table(element_id, fetched_data) {
 		var sha1 = commit_obj.record;
 		var failures_by_job_name = build_failures_by_commit[sha1] || {};
 
+		row_dict["commit_index"] = commit_obj.db_id;
 		row_dict["commit"] = sha1;
 
 		for (var job_name in failures_by_job_name) {
@@ -191,37 +285,36 @@ function gen_timeline_table(element_id, fetched_data) {
 		columns: column_list,
 		data: table_data, //set initial table data
 	});
-
 }
-
-
-function main() {
-	get_timeline_data(0, 60);
-
-
-
-	// Close the dropdown menu if the user clicks outside of it
-	window.onclick = function(event) {
-	  if (!event.target.matches('.dropbtn')) {
-	    var dropdowns = document.getElementsByClassName("dropdown-content");
-	    var i;
-	    for (i = 0; i < dropdowns.length; i++) {
-	      var openDropdown = dropdowns[i];
-	      if (openDropdown.classList.contains('show')) {
-		openDropdown.classList.remove('show');
-	      }
-	    }
-	  }
-	}
-
-}
-
 
 
 
 /* When the user clicks on the button, 
 toggle between hiding and showing the dropdown content */
 function showContextMenu() {
-  document.getElementById("myDropdown").classList.toggle("show");
+	document.getElementById("myDropdown").classList.toggle("show");
 }
+
+
+
+function main() {
+	get_timeline_data(60, 40);
+
+
+	// Close the dropdown menu if the user clicks outside of it
+	window.onclick = function(event) {
+		if (!event.target.matches('.dropbtn')) {
+			var dropdowns = document.getElementsByClassName("dropdown-content");
+			var i;
+			for (i = 0; i < dropdowns.length; i++) {
+				var openDropdown = dropdowns[i];
+				if (openDropdown.classList.contains('show')) {
+					openDropdown.classList.remove('show');
+				}
+			}
+		}
+	}
+}
+
+
 

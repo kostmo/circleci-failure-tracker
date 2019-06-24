@@ -27,6 +27,7 @@ import qualified Safe
 import qualified ApiPost
 import qualified AuthStages
 import qualified Breakages
+import qualified Breakages2
 import qualified Builds
 import qualified DbHelpers
 import qualified GithubApiFetch
@@ -312,7 +313,6 @@ api_new_breakage_report
 
   conn <- DbHelpers.get_connection conn_data
   catchViolation catcher $ do
-
     [Only report_id] <- query conn insertion_sql (build_step_id, author_username, is_broken, implicated_rev, notes)
     return $ Right report_id
 
@@ -323,24 +323,68 @@ api_new_breakage_report
     catcher e _                                  = throwIO e
 
 
-
-
 api_code_breakage_cause_insert ::
      DbHelpers.DbConnectionData
-  -> Breakages.BreakageReport
+  -> Breakages2.BreakageReport
+  -> [Text] -- ^ job names
   -> IO (Either Text Int64)
 api_code_breakage_cause_insert
     conn_data
-    (Breakages.NewBreakageReport (Builds.NewBuildStepId build_step_id) implicated_rev is_broken notes (AuthStages.Username author_username)) = do
+    (Breakages2.NewBreakageReport sha1 description (AuthStages.Username author_username))
+    job_names = do
 
   conn <- DbHelpers.get_connection conn_data
   catchViolation catcher $ do
 
-    [Only report_id] <- query conn insertion_sql (build_step_id, author_username, is_broken, implicated_rev, notes)
+    [Only report_id] <- query conn insertion_sql (sha1, description, author_username)
+
+    for_ job_names $ \job ->
+      execute conn job_insertion_sql (job, report_id, author_username)
+
     return $ Right report_id
 
   where
-    insertion_sql = "INSERT INTO broken_build_reports(build_step, reporter, is_broken, implicated_revision, notes) VALUES(?,?,?,?,?) RETURNING id;"
+    insertion_sql = "INSERT INTO code_breakage_cause(sha1, description, reporter) VALUES(?,?,?) RETURNING id;"
+    job_insertion_sql = "INSERT INTO code_breakage_affected_jobs(job, cause, reporter) VALUES(?,?,?);"
+
+    catcher _ (UniqueViolation some_error) = return $ Left $ "Insertion error: " <> T.pack (BS.unpack some_error)
+    catcher e _                                  = throwIO e
+
+
+api_code_breakage_resolution_insert ::
+     DbHelpers.DbConnectionData
+  -> Breakages2.ResolutionReport
+  -> IO (Either Text Int64)
+api_code_breakage_resolution_insert
+    conn_data
+    (Breakages2.NewResolutionReport sha1 cause_id (AuthStages.Username author_username)) = do
+
+  conn <- DbHelpers.get_connection conn_data
+
+  jobs_for_cause_id_rows <- query conn affected_cause_jobs_sql $ Only cause_id
+
+  let jobs_for_cause_id :: [Text]
+      jobs_for_cause_id = map (\(Only x) -> x) jobs_for_cause_id_rows
+
+
+  -- TODO: Ensure that the commit index of the resolution is strictly higher
+  -- than the commit index of the cause
+
+  catchViolation catcher $ do
+
+    [Only report_id] <- query conn insertion_sql (sha1, cause_id, author_username)
+
+    for_ jobs_for_cause_id $ \job ->
+      execute conn job_insertion_sql (job, report_id, author_username)
+
+    return $ Right report_id
+
+  where
+    affected_cause_jobs_sql = "SELECT job FROM code_breakage_affected_jobs WHERE cause = ?;"
+
+    insertion_sql = "INSERT INTO code_breakage_resolution(sha1, cause, reporter) VALUES(?,?,?) RETURNING id;"
+
+    job_insertion_sql = "INSERT INTO code_breakage_resolved_jobs(job, resolution, reporter) VALUES(?,?,?);"
 
     catcher _ (UniqueViolation some_error) = return $ Left $ "Insertion error: " <> T.pack (BS.unpack some_error)
     catcher e _                                  = throwIO e

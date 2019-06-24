@@ -2,8 +2,8 @@
 -- PostgreSQL database dump
 --
 
--- Dumped from database version 10.8 (Ubuntu 10.8-1.pgdg18.04+1)
--- Dumped by pg_dump version 10.8 (Ubuntu 10.8-1.pgdg18.04+1)
+-- Dumped from database version 10.9 (Ubuntu 10.9-1.pgdg18.04+1)
+-- Dumped by pg_dump version 10.9 (Ubuntu 10.9-1.pgdg18.04+1)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -402,6 +402,108 @@ ALTER TABLE public.build_steps_id_seq OWNER TO postgres;
 
 ALTER SEQUENCE public.build_steps_id_seq OWNED BY public.build_steps.id;
 
+
+--
+-- Name: code_breakage_affected_jobs; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.code_breakage_affected_jobs (
+    job text NOT NULL,
+    cause integer NOT NULL,
+    reporter text,
+    reported_at timestamp with time zone DEFAULT now()
+);
+
+
+ALTER TABLE public.code_breakage_affected_jobs OWNER TO postgres;
+
+--
+-- Name: code_breakage_cause; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.code_breakage_cause (
+    id integer NOT NULL,
+    sha1 character(40) NOT NULL,
+    description text,
+    reporter text,
+    reported_at timestamp with time zone DEFAULT now()
+);
+
+
+ALTER TABLE public.code_breakage_cause OWNER TO postgres;
+
+--
+-- Name: code_breakage_cause_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.code_breakage_cause_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.code_breakage_cause_id_seq OWNER TO postgres;
+
+--
+-- Name: code_breakage_cause_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.code_breakage_cause_id_seq OWNED BY public.code_breakage_cause.id;
+
+
+--
+-- Name: code_breakage_resolution; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.code_breakage_resolution (
+    id integer NOT NULL,
+    cause integer NOT NULL,
+    sha1 character(40) NOT NULL,
+    reporter text,
+    reported_at timestamp with time zone DEFAULT now()
+);
+
+
+ALTER TABLE public.code_breakage_resolution OWNER TO postgres;
+
+--
+-- Name: code_breakage_resolution_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.code_breakage_resolution_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.code_breakage_resolution_id_seq OWNER TO postgres;
+
+--
+-- Name: code_breakage_resolution_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.code_breakage_resolution_id_seq OWNED BY public.code_breakage_resolution.id;
+
+
+--
+-- Name: code_breakage_resolved_jobs; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.code_breakage_resolved_jobs (
+    job text NOT NULL,
+    resolution integer NOT NULL,
+    reporter text,
+    reported_at timestamp with time zone DEFAULT now()
+);
+
+
+ALTER TABLE public.code_breakage_resolved_jobs OWNER TO postgres;
 
 --
 -- Name: created_github_statuses; Type: TABLE; Schema: public; Owner: postgres
@@ -944,6 +1046,20 @@ ALTER TABLE ONLY public.build_steps ALTER COLUMN id SET DEFAULT nextval('public.
 
 
 --
+-- Name: code_breakage_cause id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.code_breakage_cause ALTER COLUMN id SET DEFAULT nextval('public.code_breakage_cause_id_seq'::regclass);
+
+
+--
+-- Name: code_breakage_resolution id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.code_breakage_resolution ALTER COLUMN id SET DEFAULT nextval('public.code_breakage_resolution_id_seq'::regclass);
+
+
+--
 -- Name: matches id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
@@ -986,6 +1102,14 @@ ALTER TABLE ONLY public.scans ALTER COLUMN id SET DEFAULT nextval('public.scans_
 
 
 --
+-- Name: code_breakage_affected_jobs breakage_affected_jobs_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.code_breakage_affected_jobs
+    ADD CONSTRAINT breakage_affected_jobs_pkey PRIMARY KEY (job);
+
+
+--
 -- Name: broken_build_reports broken_build_reports_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -1015,6 +1139,30 @@ ALTER TABLE ONLY public.build_steps
 
 ALTER TABLE ONLY public.build_steps
     ADD CONSTRAINT build_steps_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: code_breakage_cause code_breakage_cause_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.code_breakage_cause
+    ADD CONSTRAINT code_breakage_cause_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: code_breakage_resolution code_breakage_resolution_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.code_breakage_resolution
+    ADD CONSTRAINT code_breakage_resolution_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: code_breakage_resolved_jobs code_breakage_resolved_jobs_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.code_breakage_resolved_jobs
+    ADD CONSTRAINT code_breakage_resolved_jobs_pkey PRIMARY KEY (job);
 
 
 --
@@ -1138,6 +1286,27 @@ ALTER TABLE ONLY public.scans
 
 
 --
+-- Name: blah; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX blah ON public.code_breakage_affected_jobs USING btree (cause);
+
+
+--
+-- Name: blah2; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX blah2 ON public.code_breakage_resolved_jobs USING btree (resolution);
+
+
+--
+-- Name: breakage_sha1; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX breakage_sha1 ON public.code_breakage_cause USING btree (sha1);
+
+
+--
 -- Name: fk_build_step_build; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -1228,6 +1397,30 @@ ALTER TABLE ONLY public.broken_build_reports
 
 ALTER TABLE ONLY public.build_steps
     ADD CONSTRAINT build_steps_build_fkey FOREIGN KEY (build) REFERENCES public.builds(build_num);
+
+
+--
+-- Name: code_breakage_affected_jobs code_breakage_affected_jobs_cause_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.code_breakage_affected_jobs
+    ADD CONSTRAINT code_breakage_affected_jobs_cause_fkey FOREIGN KEY (cause) REFERENCES public.code_breakage_cause(id);
+
+
+--
+-- Name: code_breakage_cause code_breakage_cause_sha1_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.code_breakage_cause
+    ADD CONSTRAINT code_breakage_cause_sha1_fkey FOREIGN KEY (sha1) REFERENCES public.ordered_master_commits(sha1);
+
+
+--
+-- Name: code_breakage_resolved_jobs code_breakage_resolved_jobs_resolution_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.code_breakage_resolved_jobs
+    ADD CONSTRAINT code_breakage_resolved_jobs_resolution_fkey FOREIGN KEY (resolution) REFERENCES public.code_breakage_resolution(id);
 
 
 --
@@ -1450,6 +1643,34 @@ GRANT ALL ON SEQUENCE public.broken_revisions_id_seq TO logan;
 --
 
 GRANT ALL ON SEQUENCE public.build_steps_id_seq TO logan;
+
+
+--
+-- Name: TABLE code_breakage_affected_jobs; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.code_breakage_affected_jobs TO logan;
+
+
+--
+-- Name: TABLE code_breakage_cause; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.code_breakage_cause TO logan;
+
+
+--
+-- Name: TABLE code_breakage_resolution; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.code_breakage_resolution TO logan;
+
+
+--
+-- Name: TABLE code_breakage_resolved_jobs; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.code_breakage_resolved_jobs TO logan;
 
 
 --

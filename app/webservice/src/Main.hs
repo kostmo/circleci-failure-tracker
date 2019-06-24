@@ -36,6 +36,7 @@ import qualified Auth
 import qualified AuthConfig
 import qualified AuthStages
 import qualified Breakages
+import qualified Breakages2
 import qualified Builds
 import qualified Constants
 import qualified DbHelpers
@@ -211,19 +212,48 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
 
 
-    S.post "/api/code-breakage-cause-report" $ do
+    S.post "/api/code-breakage-resolution-report" $ do
 
       sha1 <- S.param "sha1"
-      description <- S.param "description"
+      cause_ids_delimited <- S.param "causes"
+
+      let clean_list = filter (not . T.null) . map (T.strip . T.pack) . splitOn ";"
+          cause_id_list = map read $ map T.unpack $ clean_list cause_ids_delimited
 
       rq <- S.request
       insertion_result <- liftIO $ runExceptT $ do
 
-        let callback_func user_alias = SqlWrite.api_code_breakage_cause_insert connection_data breakage_report
+        let callback_func user_alias = do
+              insertion_eithers <- mapM (SqlWrite.api_code_breakage_resolution_insert connection_data . gen_resolution_report) cause_id_list
+              return $ sequenceA insertion_eithers
+              where
+                gen_resolution_report cause_id = Breakages2.NewResolutionReport
+                  sha1
+                  cause_id
+                  user_alias
+
+        ExceptT $ Auth.getAuthenticatedUser rq session github_config callback_func
+      S.json $ WebApi.toJsonEither insertion_result
+
+
+    S.post "/api/code-breakage-cause-report" $ do
+
+      sha1 <- S.param "sha1"
+      description <- S.param "description"
+      jobs_delimited <- S.param "jobs"
+
+      let clean_list = filter (not . T.null) . map (T.strip . T.pack) . splitOn ";"
+          jobs_list = clean_list jobs_delimited
+
+
+      rq <- S.request
+      insertion_result <- liftIO $ runExceptT $ do
+
+        let callback_func user_alias = SqlWrite.api_code_breakage_cause_insert connection_data breakage_report jobs_list
               where
                 breakage_report = Breakages2.NewBreakageReport
-                  is_broken
-                  notes
+                  sha1
+                  description
                   user_alias
 
         ExceptT $ Auth.getAuthenticatedUser rq session github_config callback_func

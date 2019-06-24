@@ -89,11 +89,9 @@ get_patterns conn = do
   patterns_rows <- query_ conn patterns_sql
 
   forM patterns_rows $ \(pattern_id, is_regex, pattern_text, has_nondeterministic_values, description, specificity, is_retired, lines_from_end) -> do
-    tags_rows <- query conn tags_sql $ Only pattern_id
-    tags_list <- forM tags_rows $ \(Only tag_text) -> return tag_text
 
-    steps_rows <- query conn applicable_steps_sql $ Only pattern_id
-    steps_list <- forM steps_rows $ \(Only step_text) -> return step_text
+    tags_list <- map (\(Only tag_text) -> tag_text) <$> query conn tags_sql (Only pattern_id)
+    steps_list <- map (\(Only step_text) -> step_text) <$> query conn applicable_steps_sql (Only pattern_id)
 
     return $ wrap_pattern pattern_id is_regex pattern_text has_nondeterministic_values description tags_list steps_list specificity is_retired lines_from_end
 
@@ -410,6 +408,7 @@ data CodeBreakage = CodeBreakage {
   , breakage_description :: Text
   }
 
+
 -- | TODO finish this
 get_spanning_breakages ::
      DbHelpers.DbConnectionData
@@ -429,8 +428,7 @@ list_flat :: (ToField b, FromField a) =>
   -> IO [a]
 list_flat sql conn_data t = do
   conn <- DbHelpers.get_connection conn_data
-  inners <- query conn sql $ Only t
-  return $ map (\(Only x) -> x) inners
+  map (\(Only x) -> x) <$> query conn sql (Only t)
 
 
 api_autocomplete_tags :: DbHelpers.DbConnectionData -> Text -> IO [Text]
@@ -527,10 +525,13 @@ api_master_builds conn_data offset_limit = do
   job_names <- list_flat job_names_sql conn_data last_row_id
   failure_rows <- query conn failures_sql $ Only last_row_id
 
-  return $ BuildResults.MasterBuildsResponse job_names master_commits $
-    map f failure_rows
+  code_breakage_ranges <- get_code_breakage_ranges conn
+
+  return $ BuildResults.MasterBuildsResponse job_names master_commits
+    (map f failure_rows) code_breakage_ranges
 
   where
+
     f (sha1, build_id, queued_at, job_name, branch, step_name, match_id, pattern_id, line_number, line_count, line_text, span_start, span_end, specificity) = BuildResults.SimpleBuildStatus
       build_obj
       (BuildResults.PatternMatch match_obj)
@@ -544,9 +545,68 @@ api_master_builds conn_data offset_limit = do
 
         match_obj = MatchOccurrences.MatchOccurrencesForBuild step_name (ScanPatterns.PatternId pattern_id) (MatchOccurrences.MatchId match_id) line_number line_count line_text span_start span_end specificity
 
-    job_names_sql = "SELECT DISTINCT job_name FROM ordered_master_commits JOIN best_pattern_match_augmented_builds ON ordered_master_commits.sha1 = best_pattern_match_augmented_builds.vcs_revision WHERE ordered_master_commits.id >= ?"
+    job_names_sql = "SELECT DISTINCT job_name FROM ordered_master_commits JOIN best_pattern_match_augmented_builds ON ordered_master_commits.sha1 = best_pattern_match_augmented_builds.vcs_revision WHERE ordered_master_commits.id >= ?;"
 
-    failures_sql = "SELECT ordered_master_commits.sha1, build, queued_at, job_name, branch, step_name, match_id, pattern_id, line_number, line_count, line_text, span_start, span_end, specificity FROM ordered_master_commits JOIN best_pattern_match_augmented_builds ON ordered_master_commits.sha1 = best_pattern_match_augmented_builds.vcs_revision WHERE ordered_master_commits.id >= ?"
+    failures_sql = "SELECT ordered_master_commits.sha1, build, queued_at, job_name, branch, step_name, match_id, pattern_id, line_number, line_count, line_text, span_start, span_end, specificity FROM ordered_master_commits JOIN best_pattern_match_augmented_builds ON ordered_master_commits.sha1 = best_pattern_match_augmented_builds.vcs_revision WHERE ordered_master_commits.id >= ?;"
+
+
+-- | TODO What to do when multiple resolutions are assigned to the same cause?
+get_code_breakage_span_end ::
+     Connection
+  -> Int64
+  -> IO (Maybe BuildResults.BreakageEndRecord)
+get_code_breakage_span_end conn cause_id = do
+
+  rows <- query conn resolutions_sql $ Only cause_id
+
+  breakage_ends <- forM rows $ \(commit_index, resolution_id, sha1, reporter, reported_at) -> do
+
+    affected_jobs <- map f <$> query conn affected_cause_jobs_sql (Only resolution_id)
+
+    return $ DbHelpers.WithId resolution_id $ DbHelpers.WithAuthorship reporter reported_at $
+      BuildResults.BreakageEnd
+        (DbHelpers.WithId commit_index $ BuildResults.RawCommit sha1)
+        cause_id
+        affected_jobs
+
+  return $ Safe.headMay breakage_ends
+
+  where
+    f (job, reporter, reported_at) = DbHelpers.WithAuthorship reporter reported_at job
+
+    resolutions_sql = "SELECT ordered_master_commits.id AS commit_index, code_breakage_resolution.id AS resolution_id, code_breakage_resolution.sha1, reporter, reported_at FROM code_breakage_resolution JOIN ordered_master_commits ON code_breakage_resolution.sha1 = ordered_master_commits.sha1 WHERE cause = ? ORDER BY resolution_id DESC LIMIT 1;"
+
+    affected_cause_jobs_sql = "SELECT job, reporter, reported_at FROM code_breakage_resolved_jobs WHERE resolution = ?;"
+
+
+get_code_breakage_ranges ::
+     Connection
+  -> IO [BuildResults.BreakageSpan]
+get_code_breakage_ranges conn = do
+
+  rows <- query_ conn causes_sql
+
+  forM rows $ \(commit_index, cause_id, sha1, description, reporter, reported_at) -> do
+
+    affected_jobs <- map f <$> query conn affected_cause_jobs_sql (Only cause_id)
+
+    let span_start = DbHelpers.WithId cause_id $ DbHelpers.WithAuthorship reporter reported_at $
+          BuildResults.BreakageStart
+            (DbHelpers.WithId commit_index $ BuildResults.RawCommit sha1)
+            description
+            affected_jobs
+
+    maybe_span_end <- get_code_breakage_span_end conn cause_id
+
+    return $ BuildResults.BreakageSpan span_start maybe_span_end
+
+  where
+    f (job, reporter, reported_at) = DbHelpers.WithAuthorship reporter reported_at job
+
+    causes_sql = "SELECT ordered_master_commits.id AS commit_index, code_breakage_cause.id AS cause_id, code_breakage_cause.sha1, description, reporter, reported_at FROM code_breakage_cause JOIN ordered_master_commits ON code_breakage_cause.sha1 = ordered_master_commits.sha1;"
+
+    affected_cause_jobs_sql = "SELECT job, reporter, reported_at FROM code_breakage_affected_jobs WHERE cause = ?;"
+
 
 
 data CommitInfo = NewCommitInfo {
