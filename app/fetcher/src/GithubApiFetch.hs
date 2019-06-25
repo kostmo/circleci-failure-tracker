@@ -37,6 +37,7 @@ import           Prelude
 import qualified Safe
 import           URI.ByteString             (parseURI, strictURIParserOptions)
 
+import qualified BuildResults
 import qualified DbHelpers
 import qualified Github
 import qualified GitHubRecords
@@ -228,13 +229,13 @@ getCommits
 findAncestor ::
      OAuth2.AccessToken -- ^ token
   -> DbHelpers.OwnerAndRepo
-  -> T.Text  -- ^ starting commit
+  -> BuildResults.RawCommit  -- ^ starting commit
   -> Set T.Text  -- ^ known commits
   -> IO (Either TL.Text GitHubRecords.GitHubCommit)
 findAncestor
     token
     owner_and_repo
-    target_sha1
+    (BuildResults.RawCommit target_sha1)
     known_commit_set = do
 
   mgr <- newManager tlsManagerSettings

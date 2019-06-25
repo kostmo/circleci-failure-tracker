@@ -6,7 +6,7 @@ module StatusUpdate (
   ) where
 
 import           Control.Concurrent            (forkIO)
-import           Control.Monad                 (guard, unless, when)
+import           Control.Monad                 (guard, when)
 import           Control.Monad.IO.Class        (liftIO)
 import           Control.Monad.Trans.Except    (ExceptT (ExceptT), except,
                                                 runExceptT)
@@ -31,6 +31,7 @@ import           Web.Scotty.Internal.Types     (ActionT)
 import qualified ApiPost
 import qualified AuthConfig
 import qualified AuthStages
+import qualified BuildResults
 import qualified Builds
 import qualified DbHelpers
 import qualified GithubApiFetch
@@ -93,7 +94,7 @@ findKnownBuildBreakages ::
   -> OAuth2.AccessToken
   -> DbHelpers.OwnerAndRepo
   -> Text
-  -> IO [SqlRead.CodeBreakage]
+  -> IO [DbHelpers.WithId SqlRead.CodeBreakage]
 findKnownBuildBreakages db_connection_data access_token owned_repo sha1 = do
 
 
@@ -107,11 +108,11 @@ findKnownBuildBreakages db_connection_data access_token owned_repo sha1 = do
 
     -- Second, find which "master" commit is the most recent
     -- ancestor of the given PR commit.
-    nearest_ancestor <- ExceptT $ SqlRead.find_master_ancestor db_connection_data access_token owned_repo sha1
+    nearest_ancestor <- ExceptT $ SqlRead.find_master_ancestor db_connection_data access_token owned_repo $ BuildResults.RawCommit sha1
 
     -- Third, find whether that commit is within the
     -- [start, end) span of any known breakages
-    liftIO $ SqlRead.get_spanning_breakages db_connection_data nearest_ancestor
+    ExceptT $ SqlRead.get_spanning_breakages db_connection_data nearest_ancestor
 
   return $ case either_spanning_breakages of
     Left _  -> []

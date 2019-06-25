@@ -31,7 +31,7 @@ function get_context_menu_items_for_cell(cell) {
 		context_menu_items.push(node);
 	}
 
-	var open_breakages = get_open_breakges(cell);
+	var open_breakages = get_open_breakages(cell);
 	if (open_breakages.length > 0) {
 
 		var node = document.createElement("span");
@@ -49,7 +49,7 @@ function get_context_menu_items_for_cell(cell) {
 
 
 
-function get_open_breakges(cell) {
+function get_open_breakages(cell) {
 
 	var open_breakages = [];
 
@@ -61,7 +61,7 @@ function get_open_breakges(cell) {
 		for (var job_breakage_span of breakage_starts_by_job_name[job_name]) {
 
 			var is_after_breakage_start = current_commit_index >= job_breakage_span.start.record.payload.breakage_commit.db_id;
-			var is_before_breakage_end = !("end" in job_breakage_span) || current_commit_index < job_breakage_span.end.record.payload.resolution_commit.db_id;
+			var is_before_breakage_end = !("end" in job_breakage_span) || job_breakage_span.end == null || current_commit_index < job_breakage_span.end.record.payload.resolution_commit.db_id;
 
 			if (is_after_breakage_start && is_before_breakage_end) {
 
@@ -78,11 +78,11 @@ function get_open_breakges(cell) {
 
 function mark_failure_resolution(commit_sha1, active_breakages) {
 
-	console.log("Submitting resolution report...");
+	console.log("Submitting resolution report. Active breakage count: " + active_breakages.length);
 
 	var cause_ids = [];
 	for (var breakage_obj of active_breakages) {
-		cause_ids.push(breakage_obj.db_id);
+		cause_ids.push(breakage_obj.start.db_id);
 	}
 
 	var causes_delimited = cause_ids.join(";")
@@ -94,6 +94,7 @@ function mark_failure_resolution(commit_sha1, active_breakages) {
 
 			if (data.success) {
 				alert("submitted report with ID: " + data.payload);
+				render_table();
 			} else {
 				alert("Error: " + data.error.message);
 			}
@@ -117,6 +118,7 @@ function mark_failure_cause(commit_sha1, jobs_list_delimited) {
 
 				if (data.success) {
 					alert("submitted report with ID: " + data.payload);
+					render_table();
 				} else {
 					alert("Error: " + data.error.message);
 				}
@@ -170,7 +172,7 @@ function gen_timeline_table(element_id, fetched_data) {
 			},
 			formatter: function(cell, formatterParams, onRendered) {
 
-				var open_breakages = get_open_breakges(cell);
+				var open_breakages = get_open_breakages(cell);
 				if (open_breakages.length > 0) {
 					cell.getElement().style.backgroundColor = "#fcc8";
 				}
@@ -182,8 +184,8 @@ function gen_timeline_table(element_id, fetched_data) {
 
 				var cell_value = cell.getValue();
 				if (cell_value != null) {
-					var img_path = cell_value.is_flaky ? "/images/yellow-x.svg" : "/images/red-x.svg";
-					return '<img src="' + img_path + '" style="width: 100%; top: 50%;"/>';
+					var img_path = cell_value.is_flaky ? "yellow-x.svg" : "red-x.svg";
+					return '<img src="/images/' + img_path + '" style="width: 100%; top: 50%;"/>';
 				} else {
 					return "";
 				}
@@ -276,7 +278,7 @@ function gen_timeline_table(element_id, fetched_data) {
 		placeholder: "No Data Set",
 //		selectable: true,
 		columns: column_list,
-		data: table_data, //set initial table data
+		data: table_data,
 	});
 }
 

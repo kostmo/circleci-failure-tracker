@@ -6,7 +6,8 @@ module SqlRead where
 
 import           Control.Monad                        (forM)
 import           Control.Monad.IO.Class               (liftIO)
-import           Control.Monad.Trans.Except           (except, runExceptT)
+import           Control.Monad.Trans.Except           (ExceptT (ExceptT),
+                                                       except, runExceptT)
 import           Data.Aeson
 import           Data.Bifunctor                       (first)
 import           Data.Either.Utils                    (maybeToEither)
@@ -383,8 +384,8 @@ find_master_ancestor ::
      DbHelpers.DbConnectionData
   -> OAuth2.AccessToken
   -> DbHelpers.OwnerAndRepo
-  -> Text -- ^ sha1
-  -> IO (Either Text Text)
+  -> BuildResults.RawCommit
+  -> IO (Either Text BuildResults.RawCommit)
 find_master_ancestor conn_data access_token owner_and_repo sha1 = do
 
   conn <- DbHelpers.get_connection conn_data
@@ -397,28 +398,54 @@ find_master_ancestor conn_data access_token owner_and_repo sha1 = do
     sha1
     known_commit_set
 
-  return $ GitHubRecords._sha <$> first TL.toStrict merge_base_commit
+  return $ BuildResults.RawCommit . GitHubRecords._sha <$> first TL.toStrict merge_base_commit
 
   where
     sql = "SELECT sha1 FROM ordered_master_commits;"
 
 
 data CodeBreakage = CodeBreakage {
-    breakage_commit      :: Text
-  , breakage_description :: Text
-  }
+    _breakage_commit      :: BuildResults.RawCommit
+  , _breakage_description :: Text
+  , _jobs                 :: [Text]
+  } deriving Generic
+
+instance ToJSON CodeBreakage where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+get_master_commit_index ::
+     Connection
+  -> BuildResults.RawCommit -- ^ sha1
+  -> IO (Either Text Int64)
+get_master_commit_index conn (BuildResults.RawCommit sha1) = do
+  rows <- query conn sql (Only sha1)
+  return $ maybeToEither "Commit not found" $ Safe.headMay $ map (\(Only x) -> x) rows
+  where
+    sql = "SELECT id FROM ordered_master_commits WHERE sha1 = ?;"
 
 
 -- | TODO finish this
 get_spanning_breakages ::
      DbHelpers.DbConnectionData
-  -> Text -- ^ sha1
-  -> IO [CodeBreakage]
-get_spanning_breakages conn_data _sha1 = do
+  -> BuildResults.RawCommit -- ^ sha1
+  -> IO (Either Text [DbHelpers.WithId CodeBreakage])
+get_spanning_breakages conn_data sha1 = do
 
-  _conn <- DbHelpers.get_connection conn_data
---  rows <- query_ conn sql
-  return []
+  conn <- DbHelpers.get_connection conn_data
+
+  runExceptT $ do
+    target_commit_index <- ExceptT $ get_master_commit_index conn sha1
+
+    rows <- liftIO $ query conn sql (target_commit_index, target_commit_index)
+    return $ map f rows
+
+  where
+    f (sha1, description, cause_id, jobs) = DbHelpers.WithId cause_id $
+      CodeBreakage (BuildResults.RawCommit sha1) description $
+        map T.pack $ split_agg_text jobs
+
+    sql = "SELECT code_breakage_cause.sha1, code_breakage_cause.description, cause_id, COALESCE(jobs, ''::text) AS jobs FROM (SELECT code_breakage_spans.cause_id, string_agg((code_breakage_affected_jobs.job)::text, ';'::text) AS jobs FROM code_breakage_spans LEFT JOIN code_breakage_affected_jobs ON code_breakage_affected_jobs.cause = code_breakage_spans.cause_id WHERE cause_commit_index <= ? AND (resolved_commit_index IS NULL OR ? < resolved_commit_index) GROUP BY code_breakage_spans.cause_id) foo JOIN code_breakage_cause ON foo.cause_id = code_breakage_cause.id"
 
 
 list_flat :: (ToField b, FromField a) =>
@@ -574,6 +601,7 @@ get_code_breakage_span_end conn cause_id = do
     affected_cause_jobs_sql = "SELECT job, reporter, reported_at FROM code_breakage_resolved_jobs WHERE resolution = ?;"
 
 
+-- | TODO replace with a query from the view "code_breakage_spans"
 get_code_breakage_ranges ::
      Connection
   -> IO [BuildResults.BreakageSpan]
@@ -601,7 +629,6 @@ get_code_breakage_ranges conn = do
     causes_sql = "SELECT ordered_master_commits.id AS commit_index, code_breakage_cause.id AS cause_id, code_breakage_cause.sha1, description, reporter, reported_at FROM code_breakage_cause JOIN ordered_master_commits ON code_breakage_cause.sha1 = ordered_master_commits.sha1;"
 
     affected_cause_jobs_sql = "SELECT job, reporter, reported_at FROM code_breakage_affected_jobs WHERE cause = ?;"
-
 
 
 data CommitInfo = NewCommitInfo {

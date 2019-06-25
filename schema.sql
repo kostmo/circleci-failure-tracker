@@ -694,6 +694,55 @@ CREATE TABLE public.code_breakage_resolved_jobs (
 ALTER TABLE public.code_breakage_resolved_jobs OWNER TO postgres;
 
 --
+-- Name: ordered_master_commits; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.ordered_master_commits (
+    id integer NOT NULL,
+    sha1 character(40) NOT NULL
+);
+
+
+ALTER TABLE public.ordered_master_commits OWNER TO postgres;
+
+--
+-- Name: code_breakage_spans; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.code_breakage_spans AS
+ SELECT DISTINCT ON (foo.cause_id) foo.cause_id,
+    foo.commit_index AS cause_commit_index,
+    foo.sha1 AS cause_sha1,
+    foo.description,
+    foo.reporter AS cause_reporter,
+    foo.reported_at AS cause_reported_at,
+    bar.resolution_id,
+    bar.commit_index AS resolved_commit_index,
+    bar.sha1 AS resolution_sha1,
+    bar.reporter AS resolution_reporter,
+    bar.reported_at AS resolution_reported_at
+   FROM (( SELECT code_breakage_cause.reporter,
+            code_breakage_cause.reported_at,
+            code_breakage_cause.id AS cause_id,
+            ordered_master_commits.id AS commit_index,
+            code_breakage_cause.description,
+            code_breakage_cause.sha1
+           FROM (public.code_breakage_cause
+             JOIN public.ordered_master_commits ON ((ordered_master_commits.sha1 = code_breakage_cause.sha1)))) foo
+     LEFT JOIN ( SELECT code_breakage_resolution.reporter,
+            code_breakage_resolution.reported_at,
+            code_breakage_resolution.id AS resolution_id,
+            code_breakage_resolution.cause AS cause_id,
+            ordered_master_commits.id AS commit_index,
+            code_breakage_resolution.sha1
+           FROM (public.code_breakage_resolution
+             JOIN public.ordered_master_commits ON ((ordered_master_commits.sha1 = code_breakage_resolution.sha1)))) bar ON ((foo.cause_id = bar.cause_id)))
+  ORDER BY foo.cause_id, bar.resolution_id DESC;
+
+
+ALTER TABLE public.code_breakage_spans OWNER TO postgres;
+
+--
 -- Name: created_github_statuses; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -820,18 +869,6 @@ ALTER TABLE public.mitigations_id_seq OWNER TO postgres;
 
 ALTER SEQUENCE public.mitigations_id_seq OWNED BY public.mitigations.id;
 
-
---
--- Name: ordered_master_commits; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.ordered_master_commits (
-    id integer NOT NULL,
-    sha1 character(40) NOT NULL
-);
-
-
-ALTER TABLE public.ordered_master_commits OWNER TO postgres;
 
 --
 -- Name: ordered_master_commits_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
@@ -1106,14 +1143,6 @@ ALTER TABLE ONLY public.scans ALTER COLUMN id SET DEFAULT nextval('public.scans_
 
 
 --
--- Name: code_breakage_affected_jobs breakage_affected_jobs_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.code_breakage_affected_jobs
-    ADD CONSTRAINT breakage_affected_jobs_pkey PRIMARY KEY (job);
-
-
---
 -- Name: broken_build_reports broken_build_reports_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -1146,6 +1175,14 @@ ALTER TABLE ONLY public.build_steps
 
 
 --
+-- Name: code_breakage_affected_jobs code_breakage_affected_jobs_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.code_breakage_affected_jobs
+    ADD CONSTRAINT code_breakage_affected_jobs_pkey PRIMARY KEY (job, cause);
+
+
+--
 -- Name: code_breakage_cause code_breakage_cause_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -1166,7 +1203,7 @@ ALTER TABLE ONLY public.code_breakage_resolution
 --
 
 ALTER TABLE ONLY public.code_breakage_resolved_jobs
-    ADD CONSTRAINT code_breakage_resolved_jobs_pkey PRIMARY KEY (job);
+    ADD CONSTRAINT code_breakage_resolved_jobs_pkey PRIMARY KEY (job, resolution);
 
 
 --
@@ -1770,6 +1807,13 @@ GRANT ALL ON TABLE public.code_breakage_resolved_jobs TO logan;
 
 
 --
+-- Name: TABLE ordered_master_commits; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.ordered_master_commits TO logan;
+
+
+--
 -- Name: TABLE created_github_statuses; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -1816,13 +1860,6 @@ GRANT ALL ON TABLE public.mitigations TO logan;
 --
 
 GRANT ALL ON SEQUENCE public.mitigations_id_seq TO logan;
-
-
---
--- Name: TABLE ordered_master_commits; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.ordered_master_commits TO logan;
 
 
 --
