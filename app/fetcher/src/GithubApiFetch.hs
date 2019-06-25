@@ -231,26 +231,30 @@ findAncestor ::
   -> DbHelpers.OwnerAndRepo
   -> BuildResults.RawCommit  -- ^ starting commit
   -> Set T.Text  -- ^ known commits
-  -> IO (Either TL.Text GitHubRecords.GitHubCommit)
+  -> IO (Either TL.Text BuildResults.RawCommit)
 findAncestor
     token
     owner_and_repo
-    (BuildResults.RawCommit target_sha1)
-    known_commit_set = do
+    t@(BuildResults.RawCommit target_sha1)
+    known_commit_set =
 
-  mgr <- newManager tlsManagerSettings
+  if Set.member target_sha1 known_commit_set
+    then return $ Right t
+    else do
+      mgr <- newManager tlsManagerSettings
 
-  runExceptT $ do
-    (_combined_list, first_known_commit) <- ExceptT $ getCommitsRecurse
-      (GitHubApiSupport mgr token)
-      maxGitHubCommitFetchCount
-      (githubCommitsApiPrefix owner_and_repo)
-      0
-      target_sha1
-      (`Set.member` known_commit_set)
-      []
+      runExceptT $ do
+        (_combined_list, first_known_commit) <- ExceptT $ getCommitsRecurse
+          (GitHubApiSupport mgr token)
+          maxGitHubCommitFetchCount
+          (githubCommitsApiPrefix owner_and_repo)
+          0
+          target_sha1
+          (`Set.member` known_commit_set)
+          []
 
-    except $ maybeToEither "No merge base found" first_known_commit
+        let maybe_ancestor = BuildResults.RawCommit . GitHubRecords._sha <$> first_known_commit
+        except $ maybeToEither "No merge base found" maybe_ancestor
 
 
 getBuildStatuses ::

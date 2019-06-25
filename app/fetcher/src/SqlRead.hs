@@ -40,7 +40,6 @@ import qualified BuildSteps
 import qualified CommitBuilds
 import qualified DbHelpers
 import qualified GithubApiFetch
-import qualified GitHubRecords
 import qualified GitRev
 import qualified JsonUtils
 import qualified MatchOccurrences
@@ -398,7 +397,7 @@ find_master_ancestor conn_data access_token owner_and_repo sha1 = do
     sha1
     known_commit_set
 
-  return $ BuildResults.RawCommit . GitHubRecords._sha <$> first TL.toStrict merge_base_commit
+  return $ first TL.toStrict merge_base_commit
 
   where
     sql = "SELECT sha1 FROM ordered_master_commits;"

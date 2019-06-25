@@ -15,7 +15,7 @@ import qualified MatchOccurrences
 
 
 newtype RawCommit = RawCommit Text
- deriving Generic
+ deriving (Generic, Show)
 
 instance ToJSON RawCommit
 

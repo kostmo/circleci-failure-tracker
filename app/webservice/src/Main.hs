@@ -37,6 +37,7 @@ import qualified AuthConfig
 import qualified AuthStages
 import qualified Breakages
 import qualified Breakages2
+import qualified BuildResults
 import qualified Builds
 import qualified Constants
 import qualified DbHelpers
@@ -621,17 +622,25 @@ mainAppCode args = do
 
 
 
-  {-
+
   when (AuthConfig.is_local github_config) $ do
     -- XXX FOR TESTING ONLY
 
+    find_master_ancestor <- SqlRead.find_master_ancestor
+      connection_data
+      access_token
+      (DbHelpers.OwnerAndRepo Constants.project_name Constants.repo_name)
+      (BuildResults.RawCommit "058beae4115afb76ee5f45dfa42c6ab4ee01895c")
+
+    putStrLn $ "Master ancestor: " ++ show find_master_ancestor
+  {-
     SqlWrite.populate_latest_master_commits
       connection_data
       access_token
       (DbHelpers.OwnerAndRepo Constants.project_name Constants.repo_name)
-
-    return ()
   -}
+    return ()
+
 
 
 
