@@ -35,6 +35,7 @@ instance ToJSON FailureMode
 data SimpleBuildStatus = SimpleBuildStatus {
     _build        :: Builds.Build
   , _failure_mode :: FailureMode
+  , _is_flaky     :: Bool
   } deriving Generic
 
 instance ToJSON SimpleBuildStatus where

@@ -491,13 +491,6 @@ get_revision_builds conn_data git_revision = do
     sql = "SELECT step_name, match_id, build, vcs_revision, queued_at, job_name, branch, pattern_id, line_number, line_count, line_text, span_start, span_end, specificity, is_broken, reporter, report_timestamp FROM best_pattern_match_augmented_builds WHERE vcs_revision = ?;"
 
 
-
-
-
-
-
-
-
 get_master_commits ::
      Connection
   -> Pagination.OffsetLimit
@@ -522,6 +515,7 @@ api_master_builds conn_data offset_limit = do
 
   master_commits <- get_master_commits conn offset_limit
   let last_row_id = maybe 0 DbHelpers.db_id $ Safe.lastMay master_commits
+
   job_names <- list_flat job_names_sql conn_data last_row_id
   failure_rows <- query conn failures_sql $ Only last_row_id
 
@@ -532,9 +526,10 @@ api_master_builds conn_data offset_limit = do
 
   where
 
-    f (sha1, build_id, queued_at, job_name, branch, step_name, match_id, pattern_id, line_number, line_count, line_text, span_start, span_end, specificity) = BuildResults.SimpleBuildStatus
+    f (sha1, build_id, queued_at, job_name, branch, step_name, match_id, pattern_id, line_number, line_count, line_text, span_start, span_end, specificity, is_flaky) = BuildResults.SimpleBuildStatus
       build_obj
       (BuildResults.PatternMatch match_obj)
+      is_flaky
       where
         build_obj = Builds.NewBuild
           (Builds.NewBuildNumber build_id)
@@ -547,7 +542,7 @@ api_master_builds conn_data offset_limit = do
 
     job_names_sql = "SELECT DISTINCT job_name FROM ordered_master_commits JOIN best_pattern_match_augmented_builds ON ordered_master_commits.sha1 = best_pattern_match_augmented_builds.vcs_revision WHERE ordered_master_commits.id >= ?;"
 
-    failures_sql = "SELECT ordered_master_commits.sha1, build, queued_at, job_name, branch, step_name, match_id, pattern_id, line_number, line_count, line_text, span_start, span_end, specificity FROM ordered_master_commits JOIN best_pattern_match_augmented_builds ON ordered_master_commits.sha1 = best_pattern_match_augmented_builds.vcs_revision WHERE ordered_master_commits.id >= ?;"
+    failures_sql = "SELECT ordered_master_commits.sha1, build, queued_at, job_name, branch, step_name, match_id, pattern_id, line_number, line_count, line_text, span_start, span_end, specificity, is_flaky FROM ordered_master_commits JOIN best_pattern_match_augmented_builds ON ordered_master_commits.sha1 = best_pattern_match_augmented_builds.vcs_revision WHERE ordered_master_commits.id >= ?;"
 
 
 -- | TODO What to do when multiple resolutions are assigned to the same cause?

@@ -126,6 +126,140 @@ CREATE VIEW public.build_match_repetitions WITH (security_barrier='false') AS
 ALTER TABLE public.build_match_repetitions OWNER TO postgres;
 
 --
+-- Name: log_metadata; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.log_metadata (
+    line_count integer NOT NULL,
+    byte_count integer NOT NULL,
+    step integer NOT NULL,
+    content text
+);
+
+
+ALTER TABLE public.log_metadata OWNER TO postgres;
+
+--
+-- Name: match_positions; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.match_positions WITH (security_barrier='false') AS
+ SELECT foo.pattern,
+    build_steps.build,
+    log_metadata.step AS step_id,
+    build_steps.name AS step_name,
+    foo.first_line,
+    foo.last_line,
+    log_metadata.line_count,
+    foo.matched_line_count,
+    ((foo.first_line)::double precision / (log_metadata.line_count)::double precision) AS first_position_fraction,
+    ((foo.last_line)::double precision / (log_metadata.line_count)::double precision) AS last_position_fraction,
+    (log_metadata.line_count - (1 + foo.last_line)) AS lines_from_end
+   FROM ((( SELECT matches.pattern,
+            matches.build_step,
+            min(matches.line_number) AS first_line,
+            max(matches.line_number) AS last_line,
+            count(matches.line_number) AS matched_line_count
+           FROM public.matches
+          GROUP BY matches.pattern, matches.build_step) foo
+     JOIN public.log_metadata ON ((log_metadata.step = foo.build_step)))
+     JOIN public.build_steps ON ((build_steps.id = log_metadata.step)))
+  ORDER BY foo.matched_line_count DESC, foo.pattern, build_steps.build;
+
+
+ALTER TABLE public.match_positions OWNER TO postgres;
+
+--
+-- Name: match_last_position_frequencies; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.match_last_position_frequencies WITH (security_barrier='false') AS
+ SELECT DISTINCT ON (foo.pattern) foo.pattern,
+    foo.lines_from_end,
+    foo.distance_from_end_frequency,
+    bar.build_count,
+    (NOT (foo.lines_from_end)::boolean) AS usually_last_line,
+    ((foo.distance_from_end_frequency)::double precision / (bar.build_count)::double precision) AS position_likelihood
+   FROM (( SELECT match_positions.pattern,
+            match_positions.lines_from_end,
+            count(match_positions.build) AS distance_from_end_frequency
+           FROM public.match_positions
+          GROUP BY match_positions.pattern, match_positions.lines_from_end
+          ORDER BY match_positions.pattern, (count(match_positions.build)) DESC) foo
+     JOIN ( SELECT match_positions.pattern,
+            count(match_positions.build) AS build_count
+           FROM public.match_positions
+          GROUP BY match_positions.pattern) bar ON ((foo.pattern = bar.pattern)));
+
+
+ALTER TABLE public.match_last_position_frequencies OWNER TO postgres;
+
+--
+-- Name: pattern_authorship; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.pattern_authorship (
+    pattern integer NOT NULL,
+    author text,
+    created timestamp with time zone DEFAULT now()
+);
+
+
+ALTER TABLE public.pattern_authorship OWNER TO postgres;
+
+--
+-- Name: scanned_patterns; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.scanned_patterns (
+    scan integer NOT NULL,
+    newest_pattern integer NOT NULL,
+    build integer NOT NULL
+);
+
+
+ALTER TABLE public.scanned_patterns OWNER TO postgres;
+
+--
+-- Name: pattern_scan_counts; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.pattern_scan_counts AS
+ SELECT scanned_patterns.newest_pattern,
+    count(scanned_patterns.build) AS count
+   FROM public.scanned_patterns
+  GROUP BY scanned_patterns.newest_pattern
+  ORDER BY scanned_patterns.newest_pattern DESC;
+
+
+ALTER TABLE public.pattern_scan_counts OWNER TO postgres;
+
+--
+-- Name: pattern_step_applicability; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.pattern_step_applicability (
+    id integer NOT NULL,
+    pattern integer,
+    step_name text
+);
+
+
+ALTER TABLE public.pattern_step_applicability OWNER TO postgres;
+
+--
+-- Name: pattern_tags; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.pattern_tags (
+    pattern integer NOT NULL,
+    tag character varying(20) NOT NULL
+);
+
+
+ALTER TABLE public.pattern_tags OWNER TO postgres;
+
+--
 -- Name: patterns; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -144,6 +278,70 @@ CREATE TABLE public.patterns (
 ALTER TABLE public.patterns OWNER TO postgres;
 
 --
+-- Name: patterns_augmented; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.patterns_augmented WITH (security_barrier='false') AS
+ SELECT patterns.expression,
+    patterns.id,
+    patterns.description,
+    patterns.regex,
+    patterns.has_nondeterministic_values,
+    patterns.is_retired,
+    patterns.specificity,
+    COALESCE(foo.tags, ''::text) AS tags,
+    COALESCE(bar.steps, ''::text) AS steps,
+    pattern_authorship.author,
+    pattern_authorship.created,
+    ( SELECT COALESCE(sum(pattern_scan_counts.count), (0)::numeric) AS "coalesce"
+           FROM public.pattern_scan_counts
+          WHERE (pattern_scan_counts.newest_pattern >= patterns.id)) AS scanned_count,
+    ( SELECT sum(pattern_scan_counts.count) AS sum
+           FROM public.pattern_scan_counts) AS total_scanned_builds,
+    match_last_position_frequencies.usually_last_line,
+    match_last_position_frequencies.position_likelihood,
+    patterns.lines_from_end
+   FROM ((((public.patterns
+     LEFT JOIN ( SELECT pattern_tags.pattern,
+            string_agg((pattern_tags.tag)::text, ';'::text) AS tags
+           FROM public.pattern_tags
+          GROUP BY pattern_tags.pattern) foo ON ((foo.pattern = patterns.id)))
+     LEFT JOIN ( SELECT pattern_step_applicability.pattern,
+            string_agg(pattern_step_applicability.step_name, ';'::text) AS steps
+           FROM public.pattern_step_applicability
+          GROUP BY pattern_step_applicability.pattern) bar ON ((bar.pattern = patterns.id)))
+     LEFT JOIN public.pattern_authorship ON ((pattern_authorship.pattern = patterns.id)))
+     LEFT JOIN public.match_last_position_frequencies ON ((patterns.id = match_last_position_frequencies.pattern)));
+
+
+ALTER TABLE public.patterns_augmented OWNER TO postgres;
+
+--
+-- Name: flaky_patterns_augmented; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.flaky_patterns_augmented AS
+ SELECT foo.pattern,
+    patterns_augmented.expression,
+    patterns_augmented.id,
+    patterns_augmented.description,
+    patterns_augmented.regex,
+    patterns_augmented.has_nondeterministic_values,
+    patterns_augmented.is_retired,
+    patterns_augmented.specificity,
+    patterns_augmented.tags,
+    patterns_augmented.steps,
+    patterns_augmented.author,
+    patterns_augmented.created
+   FROM (( SELECT pattern_tags.pattern
+           FROM public.pattern_tags
+          WHERE ((pattern_tags.tag)::text = 'flaky'::text)) foo
+     JOIN public.patterns_augmented ON ((patterns_augmented.id = foo.pattern)));
+
+
+ALTER TABLE public.flaky_patterns_augmented OWNER TO postgres;
+
+--
 -- Name: best_pattern_match_for_builds; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -156,7 +354,10 @@ CREATE VIEW public.best_pattern_match_for_builds WITH (security_barrier='false')
     patterns.is_retired,
     patterns.specificity,
     count(build_match_repetitions.pat) OVER (PARTITION BY build_match_repetitions.build) AS distinct_matching_pattern_count,
-    sum(build_match_repetitions.repetitions) OVER (PARTITION BY build_match_repetitions.build) AS total_pattern_matches
+    sum(build_match_repetitions.repetitions) OVER (PARTITION BY build_match_repetitions.build) AS total_pattern_matches,
+    (EXISTS ( SELECT flaky_patterns_augmented.id
+           FROM public.flaky_patterns_augmented
+          WHERE (flaky_patterns_augmented.pattern = build_match_repetitions.pat))) AS is_flaky
    FROM (public.build_match_repetitions
      JOIN public.patterns ON ((build_match_repetitions.pat = patterns.id)))
   ORDER BY build_match_repetitions.build, patterns.specificity DESC, patterns.is_retired, patterns.regex, patterns.id DESC;
@@ -276,20 +477,6 @@ CREATE VIEW public.builds_with_reports AS
 ALTER TABLE public.builds_with_reports OWNER TO postgres;
 
 --
--- Name: log_metadata; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.log_metadata (
-    line_count integer NOT NULL,
-    byte_count integer NOT NULL,
-    step integer NOT NULL,
-    content text
-);
-
-
-ALTER TABLE public.log_metadata OWNER TO postgres;
-
---
 -- Name: matches_with_log_metadata; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -335,7 +522,8 @@ CREATE VIEW public.best_pattern_match_augmented_builds WITH (security_barrier='f
     builds_with_reports.is_broken,
     builds_with_reports.reporter,
     builds_with_reports.report_timestamp,
-    matches_with_log_metadata.id AS match_id
+    matches_with_log_metadata.id AS match_id,
+    best_pattern_match_for_builds.is_flaky
    FROM ((public.best_pattern_match_for_builds
      JOIN public.matches_with_log_metadata ON (((matches_with_log_metadata.pattern = best_pattern_match_for_builds.pattern_id) AND (matches_with_log_metadata.build_num = best_pattern_match_for_builds.build))))
      JOIN public.builds_with_reports ON ((builds_with_reports.build_num = best_pattern_match_for_builds.build)))
@@ -525,190 +713,6 @@ CREATE TABLE public.created_github_statuses (
 
 
 ALTER TABLE public.created_github_statuses OWNER TO postgres;
-
---
--- Name: match_positions; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.match_positions WITH (security_barrier='false') AS
- SELECT foo.pattern,
-    build_steps.build,
-    log_metadata.step AS step_id,
-    build_steps.name AS step_name,
-    foo.first_line,
-    foo.last_line,
-    log_metadata.line_count,
-    foo.matched_line_count,
-    ((foo.first_line)::double precision / (log_metadata.line_count)::double precision) AS first_position_fraction,
-    ((foo.last_line)::double precision / (log_metadata.line_count)::double precision) AS last_position_fraction,
-    (log_metadata.line_count - (1 + foo.last_line)) AS lines_from_end
-   FROM ((( SELECT matches.pattern,
-            matches.build_step,
-            min(matches.line_number) AS first_line,
-            max(matches.line_number) AS last_line,
-            count(matches.line_number) AS matched_line_count
-           FROM public.matches
-          GROUP BY matches.pattern, matches.build_step) foo
-     JOIN public.log_metadata ON ((log_metadata.step = foo.build_step)))
-     JOIN public.build_steps ON ((build_steps.id = log_metadata.step)))
-  ORDER BY foo.matched_line_count DESC, foo.pattern, build_steps.build;
-
-
-ALTER TABLE public.match_positions OWNER TO postgres;
-
---
--- Name: match_last_position_frequencies; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.match_last_position_frequencies WITH (security_barrier='false') AS
- SELECT DISTINCT ON (foo.pattern) foo.pattern,
-    foo.lines_from_end,
-    foo.distance_from_end_frequency,
-    bar.build_count,
-    (NOT (foo.lines_from_end)::boolean) AS usually_last_line,
-    ((foo.distance_from_end_frequency)::double precision / (bar.build_count)::double precision) AS position_likelihood
-   FROM (( SELECT match_positions.pattern,
-            match_positions.lines_from_end,
-            count(match_positions.build) AS distance_from_end_frequency
-           FROM public.match_positions
-          GROUP BY match_positions.pattern, match_positions.lines_from_end
-          ORDER BY match_positions.pattern, (count(match_positions.build)) DESC) foo
-     JOIN ( SELECT match_positions.pattern,
-            count(match_positions.build) AS build_count
-           FROM public.match_positions
-          GROUP BY match_positions.pattern) bar ON ((foo.pattern = bar.pattern)));
-
-
-ALTER TABLE public.match_last_position_frequencies OWNER TO postgres;
-
---
--- Name: pattern_authorship; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.pattern_authorship (
-    pattern integer NOT NULL,
-    author text,
-    created timestamp with time zone DEFAULT now()
-);
-
-
-ALTER TABLE public.pattern_authorship OWNER TO postgres;
-
---
--- Name: scanned_patterns; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.scanned_patterns (
-    scan integer NOT NULL,
-    newest_pattern integer NOT NULL,
-    build integer NOT NULL
-);
-
-
-ALTER TABLE public.scanned_patterns OWNER TO postgres;
-
---
--- Name: pattern_scan_counts; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.pattern_scan_counts AS
- SELECT scanned_patterns.newest_pattern,
-    count(scanned_patterns.build) AS count
-   FROM public.scanned_patterns
-  GROUP BY scanned_patterns.newest_pattern
-  ORDER BY scanned_patterns.newest_pattern DESC;
-
-
-ALTER TABLE public.pattern_scan_counts OWNER TO postgres;
-
---
--- Name: pattern_step_applicability; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.pattern_step_applicability (
-    id integer NOT NULL,
-    pattern integer,
-    step_name text
-);
-
-
-ALTER TABLE public.pattern_step_applicability OWNER TO postgres;
-
---
--- Name: pattern_tags; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.pattern_tags (
-    pattern integer NOT NULL,
-    tag character varying(20) NOT NULL
-);
-
-
-ALTER TABLE public.pattern_tags OWNER TO postgres;
-
---
--- Name: patterns_augmented; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.patterns_augmented WITH (security_barrier='false') AS
- SELECT patterns.expression,
-    patterns.id,
-    patterns.description,
-    patterns.regex,
-    patterns.has_nondeterministic_values,
-    patterns.is_retired,
-    patterns.specificity,
-    COALESCE(foo.tags, ''::text) AS tags,
-    COALESCE(bar.steps, ''::text) AS steps,
-    pattern_authorship.author,
-    pattern_authorship.created,
-    ( SELECT COALESCE(sum(pattern_scan_counts.count), (0)::numeric) AS "coalesce"
-           FROM public.pattern_scan_counts
-          WHERE (pattern_scan_counts.newest_pattern >= patterns.id)) AS scanned_count,
-    ( SELECT sum(pattern_scan_counts.count) AS sum
-           FROM public.pattern_scan_counts) AS total_scanned_builds,
-    match_last_position_frequencies.usually_last_line,
-    match_last_position_frequencies.position_likelihood,
-    patterns.lines_from_end
-   FROM ((((public.patterns
-     LEFT JOIN ( SELECT pattern_tags.pattern,
-            string_agg((pattern_tags.tag)::text, ';'::text) AS tags
-           FROM public.pattern_tags
-          GROUP BY pattern_tags.pattern) foo ON ((foo.pattern = patterns.id)))
-     LEFT JOIN ( SELECT pattern_step_applicability.pattern,
-            string_agg(pattern_step_applicability.step_name, ';'::text) AS steps
-           FROM public.pattern_step_applicability
-          GROUP BY pattern_step_applicability.pattern) bar ON ((bar.pattern = patterns.id)))
-     LEFT JOIN public.pattern_authorship ON ((pattern_authorship.pattern = patterns.id)))
-     LEFT JOIN public.match_last_position_frequencies ON ((patterns.id = match_last_position_frequencies.pattern)));
-
-
-ALTER TABLE public.patterns_augmented OWNER TO postgres;
-
---
--- Name: flaky_patterns_augmented; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.flaky_patterns_augmented AS
- SELECT foo.pattern,
-    patterns_augmented.expression,
-    patterns_augmented.id,
-    patterns_augmented.description,
-    patterns_augmented.regex,
-    patterns_augmented.has_nondeterministic_values,
-    patterns_augmented.is_retired,
-    patterns_augmented.specificity,
-    patterns_augmented.tags,
-    patterns_augmented.steps,
-    patterns_augmented.author,
-    patterns_augmented.created
-   FROM (( SELECT pattern_tags.pattern
-           FROM public.pattern_tags
-          WHERE ((pattern_tags.tag)::text = 'flaky'::text)) foo
-     JOIN public.patterns_augmented ON ((patterns_augmented.id = foo.pattern)));
-
-
-ALTER TABLE public.flaky_patterns_augmented OWNER TO postgres;
 
 --
 -- Name: idiopathic_build_failures; Type: VIEW; Schema: public; Owner: postgres
@@ -1356,6 +1360,13 @@ CREATE INDEX fk_scan_id ON public.matches USING btree (scan_id);
 
 
 --
+-- Name: fk_sha1_thing; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX fk_sha1_thing ON public.code_breakage_resolution USING btree (sha1);
+
+
+--
 -- Name: fk_tag_pattern; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -1413,6 +1424,14 @@ ALTER TABLE ONLY public.code_breakage_affected_jobs
 
 ALTER TABLE ONLY public.code_breakage_cause
     ADD CONSTRAINT code_breakage_cause_sha1_fkey FOREIGN KEY (sha1) REFERENCES public.ordered_master_commits(sha1);
+
+
+--
+-- Name: code_breakage_resolution code_breakage_resolution_sha1_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.code_breakage_resolution
+    ADD CONSTRAINT code_breakage_resolution_sha1_fkey FOREIGN KEY (sha1) REFERENCES public.ordered_master_commits(sha1);
 
 
 --
@@ -1548,136 +1567,10 @@ GRANT ALL ON TABLE public.build_match_repetitions TO logan;
 
 
 --
--- Name: TABLE patterns; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.patterns TO logan;
-
-
---
--- Name: TABLE best_pattern_match_for_builds; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.best_pattern_match_for_builds TO logan;
-
-
---
--- Name: TABLE builds; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.builds TO logan;
-
-
---
--- Name: TABLE aggregated_build_matches; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.aggregated_build_matches TO logan;
-
-
---
--- Name: TABLE broken_build_reports; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.broken_build_reports TO logan;
-
-
---
--- Name: TABLE builds_join_steps; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.builds_join_steps TO logan;
-
-
---
--- Name: TABLE latest_broken_build_reports; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.latest_broken_build_reports TO logan;
-
-
---
--- Name: TABLE builds_with_reports; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.builds_with_reports TO logan;
-
-
---
 -- Name: TABLE log_metadata; Type: ACL; Schema: public; Owner: postgres
 --
 
 GRANT ALL ON TABLE public.log_metadata TO logan;
-
-
---
--- Name: TABLE matches_with_log_metadata; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.matches_with_log_metadata TO logan;
-
-
---
--- Name: TABLE best_pattern_match_augmented_builds; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.best_pattern_match_augmented_builds TO logan;
-
-
---
--- Name: SEQUENCE broken_build_reports_id_seq; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON SEQUENCE public.broken_build_reports_id_seq TO logan;
-
-
---
--- Name: SEQUENCE broken_revisions_id_seq; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON SEQUENCE public.broken_revisions_id_seq TO logan;
-
-
---
--- Name: SEQUENCE build_steps_id_seq; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON SEQUENCE public.build_steps_id_seq TO logan;
-
-
---
--- Name: TABLE code_breakage_affected_jobs; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.code_breakage_affected_jobs TO logan;
-
-
---
--- Name: TABLE code_breakage_cause; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.code_breakage_cause TO logan;
-
-
---
--- Name: TABLE code_breakage_resolution; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.code_breakage_resolution TO logan;
-
-
---
--- Name: TABLE code_breakage_resolved_jobs; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.code_breakage_resolved_jobs TO logan;
-
-
---
--- Name: TABLE created_github_statuses; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.created_github_statuses TO logan;
 
 
 --
@@ -1730,6 +1623,13 @@ GRANT ALL ON TABLE public.pattern_tags TO logan;
 
 
 --
+-- Name: TABLE patterns; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.patterns TO logan;
+
+
+--
 -- Name: TABLE patterns_augmented; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -1741,6 +1641,139 @@ GRANT ALL ON TABLE public.patterns_augmented TO logan;
 --
 
 GRANT ALL ON TABLE public.flaky_patterns_augmented TO logan;
+
+
+--
+-- Name: TABLE best_pattern_match_for_builds; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.best_pattern_match_for_builds TO logan;
+
+
+--
+-- Name: TABLE builds; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.builds TO logan;
+
+
+--
+-- Name: TABLE aggregated_build_matches; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.aggregated_build_matches TO logan;
+
+
+--
+-- Name: TABLE broken_build_reports; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.broken_build_reports TO logan;
+
+
+--
+-- Name: TABLE builds_join_steps; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.builds_join_steps TO logan;
+
+
+--
+-- Name: TABLE latest_broken_build_reports; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.latest_broken_build_reports TO logan;
+
+
+--
+-- Name: TABLE builds_with_reports; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.builds_with_reports TO logan;
+
+
+--
+-- Name: TABLE matches_with_log_metadata; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.matches_with_log_metadata TO logan;
+
+
+--
+-- Name: TABLE best_pattern_match_augmented_builds; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.best_pattern_match_augmented_builds TO logan;
+
+
+--
+-- Name: SEQUENCE broken_build_reports_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE public.broken_build_reports_id_seq TO logan;
+
+
+--
+-- Name: SEQUENCE broken_revisions_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE public.broken_revisions_id_seq TO logan;
+
+
+--
+-- Name: SEQUENCE build_steps_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE public.build_steps_id_seq TO logan;
+
+
+--
+-- Name: TABLE code_breakage_affected_jobs; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.code_breakage_affected_jobs TO logan;
+
+
+--
+-- Name: TABLE code_breakage_cause; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.code_breakage_cause TO logan;
+
+
+--
+-- Name: SEQUENCE code_breakage_cause_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE public.code_breakage_cause_id_seq TO logan;
+
+
+--
+-- Name: TABLE code_breakage_resolution; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.code_breakage_resolution TO logan;
+
+
+--
+-- Name: SEQUENCE code_breakage_resolution_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE public.code_breakage_resolution_id_seq TO logan;
+
+
+--
+-- Name: TABLE code_breakage_resolved_jobs; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.code_breakage_resolved_jobs TO logan;
+
+
+--
+-- Name: TABLE created_github_statuses; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.created_github_statuses TO logan;
 
 
 --
@@ -1776,6 +1809,13 @@ GRANT ALL ON TABLE public.match_position_stats TO logan;
 --
 
 GRANT ALL ON TABLE public.mitigations TO logan;
+
+
+--
+-- Name: SEQUENCE mitigations_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE public.mitigations_id_seq TO logan;
 
 
 --

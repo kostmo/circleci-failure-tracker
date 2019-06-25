@@ -32,8 +32,21 @@
 <span style="float: right;">[<a href="/">home</a>]</span>
 <h2>Master timeline</h2>
 
-<div id="master-timeline-table"></div>
+<form onsubmit="return false;">
+<label>
+Offset:
+<input id="offset-input" type="number" value="0" min="0" size="3"/>
+</label>
 
+<label>
+count:
+<input id="count-input" type="number" value="40" min="1" max="100" size="3"/>
+</label>
+
+<button onclick="render_table();">Go</button>
+</form>
+
+<div id="master-timeline-table"></div>
 
 
 <div id="myDropdown" class="dropdown-content"></div>

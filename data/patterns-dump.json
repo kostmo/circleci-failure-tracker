@@ -309,7 +309,8 @@
         "lines_from_end": null,
         "specificity": 5,
         "tags": [
-          "apt"
+          "apt",
+          "flaky"
         ]
       }
     }
@@ -564,7 +565,8 @@
         "lines_from_end": null,
         "specificity": 2,
         "tags": [
-          "docker"
+          "docker",
+          "flaky"
         ]
       }
     }
@@ -1242,7 +1244,8 @@
         "lines_from_end": 0,
         "specificity": 1,
         "tags": [
-          "docker"
+          "docker",
+          "flaky"
         ]
       }
     }
@@ -1322,6 +1325,25 @@
         "description": "Linker error",
         "expression": {
           "contents": ": undefined reference to",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "lines_from_end": null,
+        "specificity": 3,
+        "tags": []
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-06-20T18:16:15.149942Z",
+    "payload": {
+      "db_id": 61,
+      "record": {
+        "applicable_steps": [],
+        "description": "XLA failure",
+        "expression": {
+          "contents": "Failed to run",
           "tag": "LiteralExpression"
         },
         "is_retired": false,

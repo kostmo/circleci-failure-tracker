@@ -109,11 +109,6 @@ function mark_failure_cause(commit_sha1, jobs_list_delimited) {
 
 	var description = prompt("Enter description of breakage:", "no comment");
 
-
-//	document.getElementById("affected-jobs-dialog").showModal();
-
-//	dialog-submit-button
-
 	if (description != null) {
 		$.post({
 			url: "/api/code-breakage-cause-report",
@@ -187,7 +182,8 @@ function gen_timeline_table(element_id, fetched_data) {
 
 				var cell_value = cell.getValue();
 				if (cell_value != null) {
-					return '<img src="/images/red-x.svg" style="width: 100%; top: 50%;"/>';
+					var img_path = cell_value.is_flaky ? "/images/yellow-x.svg" : "/images/red-x.svg";
+					return '<img src="' + img_path + '" style="width: 100%; top: 50%;"/>';
 				} else {
 					return "";
 				}
@@ -199,14 +195,11 @@ function gen_timeline_table(element_id, fetched_data) {
 
 				if (cell_value != null) {
 					var build_id = cell_value["build"]["build_id"];
-					console.log("build: " + build_id);
 
-/*
 					var should_view = confirm("View build " + build_id + "?");
 					if (should_view) {
 						window.location.href = "/build-details.html?build_id=" + build_id;
 					}
-*/
 				}
 			},
 			cellContext: function(e, cell) {
@@ -281,7 +274,7 @@ function gen_timeline_table(element_id, fetched_data) {
 	var table = new Tabulator("#" + element_id, {
 		layout: "fitColumns",
 		placeholder: "No Data Set",
-		selectable: true,
+//		selectable: true,
 		columns: column_list,
 		data: table_data, //set initial table data
 	});
@@ -296,9 +289,35 @@ function showContextMenu() {
 }
 
 
+function render_table() {
+
+	var offset = $('#offset-input').val();
+	var count = $('#count-input').val();
+
+	get_timeline_data(offset, count);
+}
+
+
+function init_fields() {
+
+	var urlParams = new URLSearchParams(window.location.search);
+
+
+	var offset = urlParams.get('offset');
+	if (offset != null) {
+		$('#offset-input').val(offset);
+	}
+
+	var count = urlParams.get('count');
+	if (count != null) {
+		$('#count-input').val(count);
+	}
+}
+
 
 function main() {
-	get_timeline_data(60, 40);
+
+	init_fields();
 
 
 	// Close the dropdown menu if the user clicks outside of it
@@ -314,7 +333,7 @@ function main() {
 			}
 		}
 	}
+
+	render_table();
 }
-
-
 
