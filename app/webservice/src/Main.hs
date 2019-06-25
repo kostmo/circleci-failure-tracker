@@ -630,7 +630,7 @@ mainAppCode args = do
       connection_data
       access_token
       (DbHelpers.OwnerAndRepo Constants.project_name Constants.repo_name)
-      (BuildResults.RawCommit "058beae4115afb76ee5f45dfa42c6ab4ee01895c")
+      (Builds.RawCommit "058beae4115afb76ee5f45dfa42c6ab4ee01895c")
 
     putStrLn $ "Master ancestor: " ++ show find_master_ancestor
   {-

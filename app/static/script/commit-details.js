@@ -4,27 +4,28 @@ function populate_commit_info(commit_sha1) {
 	$.getJSON('/api/commit-info', {"sha1": commit_sha1}, function (data) {
 
 		var github_link = link("View on GitHub", "https://github.com/pytorch/pytorch/commits/" + commit_sha1);
+		var counts_obj = data["payload"]["counts"];
 
 		var items = [
 			["Commit ancestry:", github_link],
-			["Failed build count:", data["payload"]["failed_build_count"]],
-			["Matched build count:", data["payload"]["matched_build_count"]],
-			["Code breakage count:", data["payload"]["code_breakage_count"]],
-			["Flaky build count:", data["payload"]["flaky_build_count"]],
-			["Timeout count:", data["payload"]["timeout_count"]],
+			["Failed build count:", counts_obj["failed_build_count"]],
+			["Matched build count:", counts_obj["matched_build_count"]],
+			["Code breakage count:", counts_obj["code_breakage_count"]],
+			["Flaky build count:", counts_obj["flaky_build_count"]],
+			["Timeout count:", counts_obj["timeout_count"]],
 		];
 
 		var stats_table = render_table_vertical_headers(items);
 
 		var analysis_text;
 
-		if (data["payload"]["failed_build_count"] == 0) {
+		if (counts_obj["failed_build_count"] == 0) {
 			analysis_text = render_tag("span", "No CircleCI builds failed.", {"style": "color: green;"});
 
-		} else if (data["payload"]["failed_build_count"] == data["payload"]["flaky_build_count"]) {
+		} else if (counts_obj["failed_build_count"] == counts_obj["flaky_build_count"]) {
 			analysis_text = render_tag("span", "All of the CircleCI build failures were due to intermittent causes. Consider rerunning them.", {"style": "color: green;"});
 
-		} else if (data["payload"]["failed_build_count"] == data["payload"]["matched_build_count"]) {
+		} else if (counts_obj["failed_build_count"] == counts_obj["matched_build_count"]) {
 			analysis_text = "All of the CircleCI build failures matched with predefined patterns.";
 		} else {
 			analysis_text = "Some of the build failure causes weren't determined. Please investigate below.";

@@ -9,6 +9,12 @@ import           GHC.Generics
 import           GHC.Int      (Int64)
 
 
+newtype RawCommit = RawCommit Text
+ deriving (Generic, Show)
+
+instance ToJSON RawCommit
+instance FromJSON RawCommit
+
 newtype BuildNumber = NewBuildNumber Int64
   deriving (Show, Generic, Eq, Ord)
 
@@ -25,7 +31,7 @@ instance FromJSON BuildStepId
 
 data Build = NewBuild {
     build_id     :: BuildNumber
-  , vcs_revision :: Text
+  , vcs_revision :: RawCommit
   , queued_at    :: UTCTime
   , job_name     :: Text
   , branch       :: Text

@@ -69,6 +69,7 @@ function gen_builds_table(element_id, data_url, height_string) {
 
 
 function render_known_failure(failure_obj) {
+	var description = failure_obj["record"]["breakage_description"] ? failure_obj["record"]["breakage_description"] : "<no description>";
 	return link(failure_obj["record"]["breakage_description"], "/breakage-details.html?cause=" + failure_obj["db_id"]) + render_list([
 		"Broken by " + sha1_link(failure_obj["record"]["breakage_commit"]),
 		"Applies to " + failure_obj["record"]["jobs"].length + " job(s)",

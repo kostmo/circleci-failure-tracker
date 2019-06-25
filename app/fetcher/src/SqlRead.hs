@@ -10,6 +10,7 @@ import           Control.Monad.Trans.Except           (ExceptT (ExceptT),
                                                        except, runExceptT)
 import           Data.Aeson
 import           Data.Bifunctor                       (first)
+import           Data.Coerce                          (coerce)
 import           Data.Either.Utils                    (maybeToEither)
 import           Data.List                            (sort, sortOn)
 import           Data.List.Split                      (splitOn)
@@ -177,7 +178,7 @@ api_pattern_occurrence_timeline conn_data = do
 
 
 data TestFailure = TestFailure {
-    _sha1       :: Text
+    _sha1       :: Builds.RawCommit
   , _test_name  :: Text
   , _build_date :: UTCTime
   } deriving Generic
@@ -223,7 +224,7 @@ query_builds conn_data = do
   map f <$> query_ conn sql
   where
     f (buildnum, vcs_rev, queuedat, jobname, branch) =
-      Builds.NewBuild (Builds.NewBuildNumber buildnum) vcs_rev queuedat jobname branch
+      Builds.NewBuild (Builds.NewBuildNumber buildnum) (Builds.RawCommit vcs_rev) queuedat jobname branch
 
     sql = "SELECT build_num, vcs_revision, queued_at, job_name, branch FROM builds;"
 
@@ -383,8 +384,8 @@ find_master_ancestor ::
      DbHelpers.DbConnectionData
   -> OAuth2.AccessToken
   -> DbHelpers.OwnerAndRepo
-  -> BuildResults.RawCommit
-  -> IO (Either Text BuildResults.RawCommit)
+  -> Builds.RawCommit
+  -> IO (Either Text Builds.RawCommit)
 find_master_ancestor conn_data access_token owner_and_repo sha1 = do
 
   conn <- DbHelpers.get_connection conn_data
@@ -404,7 +405,7 @@ find_master_ancestor conn_data access_token owner_and_repo sha1 = do
 
 
 data CodeBreakage = CodeBreakage {
-    _breakage_commit      :: BuildResults.RawCommit
+    _breakage_commit      :: Builds.RawCommit
   , _breakage_description :: Text
   , _jobs                 :: Set Text
   } deriving Generic
@@ -415,9 +416,9 @@ instance ToJSON CodeBreakage where
 
 get_master_commit_index ::
      Connection
-  -> BuildResults.RawCommit -- ^ sha1
+  -> Builds.RawCommit
   -> IO (Either Text Int64)
-get_master_commit_index conn (BuildResults.RawCommit sha1) = do
+get_master_commit_index conn (Builds.RawCommit sha1) = do
   rows <- query conn sql (Only sha1)
   return $ maybeToEither "Commit not found" $ Safe.headMay $ map (\(Only x) -> x) rows
   where
@@ -426,7 +427,7 @@ get_master_commit_index conn (BuildResults.RawCommit sha1) = do
 
 get_spanning_breakages ::
      DbHelpers.DbConnectionData
-  -> BuildResults.RawCommit -- ^ sha1
+  -> Builds.RawCommit
   -> IO (Either Text [DbHelpers.WithId CodeBreakage])
 get_spanning_breakages conn_data sha1 = do
 
@@ -440,7 +441,7 @@ get_spanning_breakages conn_data sha1 = do
 
   where
     f (sha1, description, cause_id, jobs) = DbHelpers.WithId cause_id $
-      CodeBreakage (BuildResults.RawCommit sha1) description $ Set.fromList $ map T.pack $ split_agg_text jobs
+      CodeBreakage (Builds.RawCommit sha1) description $ Set.fromList $ map T.pack $ split_agg_text jobs
 
     sql = "SELECT code_breakage_cause.sha1, code_breakage_cause.description, cause_id, COALESCE(jobs, ''::text) AS jobs FROM (SELECT code_breakage_spans.cause_id, string_agg((code_breakage_affected_jobs.job)::text, ';'::text) AS jobs FROM code_breakage_spans LEFT JOIN code_breakage_affected_jobs ON code_breakage_affected_jobs.cause = code_breakage_spans.cause_id WHERE cause_commit_index <= ? AND (resolved_commit_index IS NULL OR ? < resolved_commit_index) GROUP BY code_breakage_spans.cause_id) foo JOIN code_breakage_cause ON foo.cause_id = code_breakage_cause.id"
 
@@ -503,7 +504,7 @@ get_revision_builds conn_data git_revision = do
         match_obj
         (maybe_breakage_report maybe_is_broken  maybe_reporter maybe_report_timestamp)
       where
-        build_obj = Builds.NewBuild (Builds.NewBuildNumber buildnum) vcs_rev queuedat jobname branch
+        build_obj = Builds.NewBuild (Builds.NewBuildNumber buildnum) (Builds.RawCommit vcs_rev) queuedat jobname branch
         match_obj = MatchOccurrences.MatchOccurrencesForBuild step_name (ScanPatterns.PatternId patt) (MatchOccurrences.MatchId match_id) line_number line_count line_text span_start span_end specificity
 
         maybe_breakage_report :: Maybe Bool -> Maybe Text -> Maybe UTCTime -> Maybe CommitBuilds.StoredBreakageReport
@@ -522,7 +523,7 @@ get_master_commits ::
 get_master_commits conn (Pagination.OffsetLimit offset_count commit_count) =
   map f <$> query conn sql (offset_count, commit_count)
   where
-    f (my_id, my_commit) = DbHelpers.WithId my_id $ BuildResults.RawCommit my_commit
+    f (my_id, my_commit) = DbHelpers.WithId my_id $ Builds.RawCommit my_commit
     sql = "SELECT id, sha1 FROM ordered_master_commits ORDER BY id DESC OFFSET ? LIMIT ?"
 
 
@@ -557,7 +558,7 @@ api_master_builds conn_data offset_limit = do
       where
         build_obj = Builds.NewBuild
           (Builds.NewBuildNumber build_id)
-          sha1
+          (Builds.RawCommit sha1)
           queued_at
           job_name
           branch
@@ -584,7 +585,7 @@ get_code_breakage_span_end conn cause_id = do
 
     return $ DbHelpers.WithId resolution_id $ DbHelpers.WithAuthorship reporter reported_at $
       BuildResults.BreakageEnd
-        (DbHelpers.WithId commit_index $ BuildResults.RawCommit sha1)
+        (DbHelpers.WithId commit_index $ Builds.RawCommit sha1)
         cause_id
         affected_jobs
 
@@ -612,7 +613,7 @@ get_code_breakage_ranges conn = do
 
     let span_start = DbHelpers.WithId cause_id $ DbHelpers.WithAuthorship reporter reported_at $
           BuildResults.BreakageStart
-            (DbHelpers.WithId commit_index $ BuildResults.RawCommit sha1)
+            (DbHelpers.WithId commit_index $ Builds.RawCommit sha1)
             description
             affected_jobs
 
@@ -628,12 +629,20 @@ get_code_breakage_ranges conn = do
     affected_cause_jobs_sql = "SELECT job, reporter, reported_at FROM code_breakage_affected_jobs WHERE cause = ?;"
 
 
-data CommitInfo = NewCommitInfo {
+data CommitInfoCounts = NewCommitInfoCounts {
     _failed_build_count  :: Int
   , _timeout_count       :: Int
   , _matched_build_count :: Int
   , _code_breakage_count :: Int
   , _flaky_build_count   :: Int
+  } deriving Generic
+
+instance ToJSON CommitInfoCounts where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+data CommitInfo = NewCommitInfo {
+    _counts  :: CommitInfoCounts
   } deriving Generic
 
 instance ToJSON CommitInfo where
@@ -648,15 +657,20 @@ count_revision_builds conn_data git_revision = do
   [Only timeout_count] <- query conn timeout_count_sql only_commit
   [Only reported_count] <- query conn reported_broken_count_sql only_commit
 
-
   revision_builds <- get_revision_builds conn_data git_revision
   flaky_pattern_ids <- get_flaky_pattern_ids conn
 
-  let is_flaky = (`Set.member` flaky_pattern_ids) . (\(ScanPatterns.PatternId x) -> x) . MatchOccurrences._pattern_id . CommitBuilds._match
+  let is_flaky = (`Set.member` flaky_pattern_ids) . coerce . MatchOccurrences._pattern_id . CommitBuilds._match
       flaky_builds = filter is_flaky revision_builds
       flaky_build_count = length flaky_builds
 
-  return $ NewCommitInfo failed_count timeout_count matched_count reported_count flaky_build_count
+  return $ NewCommitInfo $ NewCommitInfoCounts
+    failed_count
+    timeout_count
+    matched_count
+    reported_count
+    flaky_build_count
+
   where
     sha1 = GitRev.sha1 git_revision
     only_commit = Only sha1
@@ -713,6 +727,7 @@ instance ToJSON SummaryStats where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
+api_summary_stats :: DbHelpers.DbConnectionData -> IO SummaryStats
 api_summary_stats conn_data = do
   conn <- DbHelpers.get_connection conn_data
 
@@ -818,7 +833,7 @@ data PatternOccurrence = NewPatternOccurrence {
     _build_number :: Builds.BuildNumber
   , _pattern_id   :: ScanPatterns.PatternId
   , _match_id     :: MatchOccurrences.MatchId
-  , _vcs_revision :: Text
+  , _vcs_revision :: Builds.RawCommit
   , _queued_at    :: UTCTime
   , _job_name     :: Text
   , _branch       :: Text
@@ -872,7 +887,7 @@ pattern_occurrence_txform pattern_id = txform . f
   where
     -- TODO consolidate this transformation with "get_pattern_matches"
     f (buildnum, stepname, match_id, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch) =
-      (Builds.NewBuild (Builds.NewBuildNumber buildnum) vcs_revision queued_at job_name branch, stepname, line_count, MatchOccurrences.MatchId match_id, ScanPatterns.NewMatchDetails line_text line_number $ ScanPatterns.NewMatchSpan span_start span_end)
+      (Builds.NewBuild (Builds.NewBuildNumber buildnum) (Builds.RawCommit vcs_revision) queued_at job_name branch, stepname, line_count, MatchOccurrences.MatchId match_id, ScanPatterns.NewMatchDetails line_text line_number $ ScanPatterns.NewMatchSpan span_start span_end)
 
     txform (Builds.NewBuild buildnum vcs_rev queued_at job_name branch, stepname, line_count, match_id, ScanPatterns.NewMatchDetails line_text line_number (ScanPatterns.NewMatchSpan start end)) = NewPatternOccurrence buildnum pattern_id match_id vcs_rev queued_at job_name branch stepname line_number line_count line_text start end
 
@@ -997,7 +1012,7 @@ get_build_info conn_data build@(Builds.NewBuildNumber build_id) = do
 
     let sha1 = Builds.vcs_revision $ BuildSteps.build step_container
         job_name = Builds.job_name $ BuildSteps.build step_container
-    breakages <- ExceptT $ get_spanning_breakages conn_data $ BuildResults.RawCommit sha1
+    breakages <- ExceptT $ get_spanning_breakages conn_data sha1
     let applicable_breakages = filter (Set.member job_name . _jobs . DbHelpers.record) breakages
     return $ SingleBuildInfo multi_match_count step_container applicable_breakages
 
@@ -1005,7 +1020,7 @@ get_build_info conn_data build@(Builds.NewBuildNumber build_id) = do
     f multi_match_count (step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch, maybe_implicated_revision, maybe_is_broken, maybe_notes, maybe_reporter) = (multi_match_count, step_container)
       where
         step_container = BuildSteps.NewBuildStep step_name (Builds.NewBuildStepId step_id) build_obj maybe_breakage_obj
-        build_obj = Builds.NewBuild (Builds.NewBuildNumber build_num) vcs_revision queued_at job_name branch
+        build_obj = Builds.NewBuild (Builds.NewBuildNumber build_num) (Builds.RawCommit vcs_revision) queued_at job_name branch
         maybe_breakage_obj = do
           is_broken <- maybe_is_broken
           notes <- maybe_notes
@@ -1032,6 +1047,6 @@ get_pattern_occurrence_rows conn_data (ScanPatterns.PatternId pattern_id) = do
 
   where
     f (buildnum, stepname, match_id, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch) =
-      (Builds.NewBuild (Builds.NewBuildNumber buildnum) vcs_revision queued_at job_name branch, stepname, line_count, MatchOccurrences.MatchId match_id, ScanPatterns.NewMatchDetails line_text line_number $ ScanPatterns.NewMatchSpan span_start span_end)
+      (Builds.NewBuild (Builds.NewBuildNumber buildnum) (Builds.RawCommit vcs_revision) queued_at job_name branch, stepname, line_count, MatchOccurrences.MatchId match_id, ScanPatterns.NewMatchDetails line_text line_number $ ScanPatterns.NewMatchSpan span_start span_end)
 
     sql = "SELECT builds.build_num, step_name, matches_with_log_metadata.id, line_number, line_count, line_text, span_start, span_end, builds.vcs_revision, queued_at, job_name, branch FROM matches_with_log_metadata JOIN builds ON matches_with_log_metadata.build_num = builds.build_num WHERE pattern = ?;"

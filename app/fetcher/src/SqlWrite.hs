@@ -38,7 +38,7 @@ import qualified SqlRead
 
 
 build_to_tuple :: Builds.Build -> (Int64, Text, Text, Text, Text)
-build_to_tuple (Builds.NewBuild (Builds.NewBuildNumber build_num) vcs_rev queuedat jobname branch) =
+build_to_tuple (Builds.NewBuild (Builds.NewBuildNumber build_num) (Builds.RawCommit vcs_rev) queuedat jobname branch) =
   (build_num, vcs_rev, queued_at_string, jobname, branch)
   where
     queued_at_string = T.pack $ formatTime defaultTimeLocale rfc822DateFormat queuedat

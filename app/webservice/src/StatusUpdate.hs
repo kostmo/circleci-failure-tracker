@@ -76,7 +76,7 @@ get_circleci_failure sha1 event_setter = do
 
   last_segment <- Safe.lastMay $ splitOn "/" $ URI.uriPath parsed_uri
   build_number <- readMaybe last_segment
-  return $ Builds.NewBuild (Builds.NewBuildNumber build_number) sha1 current_time build_name ""
+  return $ Builds.NewBuild (Builds.NewBuildNumber build_number) (Builds.RawCommit sha1) current_time build_name ""
 
   where
     context_text = LT.toStrict context
@@ -108,7 +108,7 @@ findKnownBuildBreakages db_connection_data access_token owned_repo sha1 = do
 
     -- Second, find which "master" commit is the most recent
     -- ancestor of the given PR commit.
-    nearest_ancestor <- ExceptT $ SqlRead.find_master_ancestor db_connection_data access_token owned_repo $ BuildResults.RawCommit sha1
+    nearest_ancestor <- ExceptT $ SqlRead.find_master_ancestor db_connection_data access_token owned_repo $ Builds.RawCommit sha1
 
     -- Third, find whether that commit is within the
     -- [start, end) span of any known breakages

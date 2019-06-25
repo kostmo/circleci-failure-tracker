@@ -36,7 +36,7 @@ instance FromJSON WorkflowChild
 toBuild :: Builds.BuildNumber -> SingleBuild -> Builds.Build
 toBuild build_num single_build = Builds.NewBuild
   build_num
-  (vcs_revision single_build)
+  (Builds.RawCommit $ vcs_revision single_build)
   (queued_at single_build)
   (job_name $ workflows single_build)
   (branch single_build)

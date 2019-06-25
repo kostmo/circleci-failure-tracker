@@ -37,7 +37,7 @@ import           Prelude
 import qualified Safe
 import           URI.ByteString             (parseURI, strictURIParserOptions)
 
-import qualified BuildResults
+import qualified Builds
 import qualified DbHelpers
 import qualified Github
 import qualified GitHubRecords
@@ -229,13 +229,13 @@ getCommits
 findAncestor ::
      OAuth2.AccessToken -- ^ token
   -> DbHelpers.OwnerAndRepo
-  -> BuildResults.RawCommit  -- ^ starting commit
+  -> Builds.RawCommit  -- ^ starting commit
   -> Set T.Text  -- ^ known commits
-  -> IO (Either TL.Text BuildResults.RawCommit)
+  -> IO (Either TL.Text Builds.RawCommit)
 findAncestor
     token
     owner_and_repo
-    t@(BuildResults.RawCommit target_sha1)
+    t@(Builds.RawCommit target_sha1)
     known_commit_set =
 
   if Set.member target_sha1 known_commit_set
@@ -253,7 +253,7 @@ findAncestor
           (`Set.member` known_commit_set)
           []
 
-        let maybe_ancestor = BuildResults.RawCommit . GitHubRecords._sha <$> first_known_commit
+        let maybe_ancestor = Builds.RawCommit . GitHubRecords._sha <$> first_known_commit
         except $ maybeToEither "No merge base found" maybe_ancestor
 
 

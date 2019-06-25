@@ -14,13 +14,7 @@ import qualified JsonUtils
 import qualified MatchOccurrences
 
 
-newtype RawCommit = RawCommit Text
- deriving (Generic, Show)
-
-instance ToJSON RawCommit
-
-
-type IndexedCommit = DbHelpers.WithId RawCommit
+type IndexedCommit = DbHelpers.WithId Builds.RawCommit
 
 
 data FailureMode =

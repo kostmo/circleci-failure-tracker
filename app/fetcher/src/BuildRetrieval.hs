@@ -51,7 +51,7 @@ updateBuildsList conn branch_names fetch_count age_days = do
 itemToBuild :: Value -> Build
 itemToBuild json = NewBuild {
     build_id = NewBuildNumber $ view (key "build_num" . _Integral) json
-  , vcs_revision = view (key "vcs_revision" . _String) json
+  , vcs_revision = Builds.RawCommit $ view (key "vcs_revision" . _String) json
   , queued_at = head $ Maybe.fromJust $ decode (encode [queued_at_string])
   , job_name = view (key "workflows" . key "job_name" . _String) json
   , branch = view (key "branch" . _String) json
