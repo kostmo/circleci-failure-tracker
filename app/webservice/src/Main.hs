@@ -413,9 +413,9 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     S.get "/api/commit-info" $ do
       commit_sha1_text <- S.param "sha1"
-      json_result <- runExceptT $ do
+      json_result <- liftIO $ runExceptT $ do
         sha1 <- except $ GitRev.validateSha1 commit_sha1_text
-        liftIO $ SqlRead.count_revision_builds connection_data sha1
+        ExceptT $ SqlRead.count_revision_builds connection_data sha1
 
       S.json $ WebApi.toJsonEither json_result
 

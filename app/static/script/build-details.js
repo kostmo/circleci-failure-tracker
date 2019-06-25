@@ -40,7 +40,11 @@ function gen_builds_table(element_id, data_url, height_string) {
 		{title: "Line", field: "line_number", width: 100, formatter: function(cell, formatterParams, onRendered) {
 			return gen_line_number_cell(cell);
 		}},
-		{title: "Match (" + render_tag("span", "click to show log context", {"style": "color: #0d0;"}) + ")", field: "line_text", sorter: "string", widthGrow: 8, formatter: function(cell, formatterParams, onRendered) {
+		{title: "Match (" + render_tag("span", "click to show log context", {"style": "color: #0d0;"}) + ")",
+			field: "line_text",
+			sorter: "string",
+			widthGrow: 8,
+			formatter: function(cell, formatterParams, onRendered) {
 				return gen_error_cell_html(cell);
 			},
 			cellClick: function(e, cell){
@@ -50,7 +54,10 @@ function gen_builds_table(element_id, data_url, height_string) {
 				get_log_text(match_id, STANDARD_LOG_CONTEXT_LINECOUNT);
 			},
 		},
-		{title: "Pattern", field: "pattern_id", formatter: "link", formatterParams: {urlPrefix: "/pattern-details.html?pattern_id="}, width: 75},
+		{title: "Pattern", field: "pattern_id", formatter: "link",
+			formatterParams: {urlPrefix: "/pattern-details.html?pattern_id="},
+			width: 75,
+		},
 	];
 
 	// Is not the single-entry "best match" table
@@ -70,6 +77,7 @@ function gen_builds_table(element_id, data_url, height_string) {
 
 function render_known_failure(failure_obj) {
 	var description = failure_obj["record"]["breakage_description"] ? failure_obj["record"]["breakage_description"] : "<no description>";
+
 	return link(failure_obj["record"]["breakage_description"], "/breakage-details.html?cause=" + failure_obj["db_id"]) + render_list([
 		"Broken by " + sha1_link(failure_obj["record"]["breakage_commit"]),
 		"Applies to " + failure_obj["record"]["jobs"].length + " job(s)",

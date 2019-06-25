@@ -10,6 +10,7 @@ import           Control.Monad                 (guard, when)
 import           Control.Monad.IO.Class        (liftIO)
 import           Control.Monad.Trans.Except    (ExceptT (ExceptT), except,
                                                 runExceptT)
+import           Data.Bifunctor                (first)
 import qualified Data.ByteString.Lazy          as LBS
 import           Data.List                     (filter, intercalate)
 import           Data.List.Split               (splitOn)
@@ -31,7 +32,6 @@ import           Web.Scotty.Internal.Types     (ActionT)
 import qualified ApiPost
 import qualified AuthConfig
 import qualified AuthStages
-import qualified BuildResults
 import qualified Builds
 import qualified DbHelpers
 import qualified GithubApiFetch
@@ -76,7 +76,12 @@ get_circleci_failure sha1 event_setter = do
 
   last_segment <- Safe.lastMay $ splitOn "/" $ URI.uriPath parsed_uri
   build_number <- readMaybe last_segment
-  return $ Builds.NewBuild (Builds.NewBuildNumber build_number) (Builds.RawCommit sha1) current_time build_name ""
+  return $ Builds.NewBuild
+    (Builds.NewBuildNumber build_number)
+    (Builds.RawCommit sha1)
+    current_time
+    build_name
+    ""
 
   where
     context_text = LT.toStrict context
@@ -94,13 +99,10 @@ findKnownBuildBreakages ::
   -> OAuth2.AccessToken
   -> DbHelpers.OwnerAndRepo
   -> Text
-  -> IO [DbHelpers.WithId SqlRead.CodeBreakage]
-findKnownBuildBreakages db_connection_data access_token owned_repo sha1 = do
+  -> IO (Either Text [DbHelpers.WithId SqlRead.CodeBreakage])
+findKnownBuildBreakages db_connection_data access_token owned_repo sha1 =
 
-
-  -- Note that this is a self-contained Either monad; a failure here
-  -- shouldn't abort the rest of this function.
-  either_spanning_breakages <- runExceptT $ do
+  runExceptT $ do
 
     -- First, ensure knowledge of "master" branch lineage
     -- is up-to-date
@@ -113,10 +115,6 @@ findKnownBuildBreakages db_connection_data access_token owned_repo sha1 = do
     -- Third, find whether that commit is within the
     -- [start, end) span of any known breakages
     ExceptT $ SqlRead.get_spanning_breakages db_connection_data nearest_ancestor
-
-  return $ case either_spanning_breakages of
-    Left _  -> []
-    Right x -> x
 
 
 -- | Operations:
@@ -164,17 +162,10 @@ handleFailedStatuses
 
 
 
-
-  -- WIP
-  _known_breakages <- liftIO $ if null circleci_failed_builds
-    then return []
-    else findKnownBuildBreakages db_connection_data access_token owned_repo sha1
-
-
-
-
-
-
+  known_breakages <- ExceptT $ first LT.fromStrict <$> findKnownBuildBreakages db_connection_data access_token owned_repo sha1
+  let all_broken_jobs = Set.unions $ map (SqlRead._jobs . DbHelpers.record) known_breakages
+      known_broken_circle_builds = filter ((`Set.member` all_broken_jobs) . Builds.job_name) circleci_failed_builds
+      known_broken_circle_build_count = length known_broken_circle_builds
 
 
   builds_with_flaky_pattern_matches <- liftIO $ do
@@ -192,7 +183,8 @@ handleFailedStatuses
     return builds_with_flaky_pattern_matches
 
   let flaky_count = length builds_with_flaky_pattern_matches
-      status_setter_data = gen_flakiness_status (LT.fromStrict sha1) flaky_count circleci_failcount
+      status_setter_data = genFlakinessStatus (LT.fromStrict sha1) flaky_count known_broken_circle_build_count circleci_failcount
+
       new_state_description_tuple = (LT.toStrict $ StatusEvent._state status_setter_data, LT.toStrict $ StatusEvent._description status_setter_data)
 
   -- We're examining statuses on both failed and successful build notifications, which can add
@@ -277,12 +269,13 @@ handleStatusWebhook db_connection_data access_token maybe_initiator status_event
     sha1 = LT.toStrict $ Webhooks.sha status_event
 
 
-gen_flakiness_status ::
+genFlakinessStatus ::
      LT.Text
-  -> Int
-  -> Int
+  -> Int -- ^ flaky count
+  -> Int -- ^ pre-broken count
+  -> Int -- ^ total failure count
   -> StatusEvent.GitHubStatusEventSetter
-gen_flakiness_status sha1 flaky_count total_failcount =
+genFlakinessStatus sha1 flaky_count pre_broken_count total_failcount =
   StatusEvent.GitHubStatusEventSetter
     description
     status_string
@@ -290,14 +283,19 @@ gen_flakiness_status sha1 flaky_count total_failcount =
     (LT.fromStrict myAppStatusContext)
 
   where
-    metrics = intercalate ", " [
+    optional_kb_metric = if pre_broken_count > 0
+      then [show pre_broken_count <> "/" <> show total_failcount <> " pre-broken"]
+      else []
+
+    metrics = intercalate ", " $ [
         show flaky_count <> "/" <> show total_failcount <> " flaky"
---      , show 0 <> "/" <> show 0 <> " KPs"
-      ]
+      ] ++ optional_kb_metric
+
     description = LT.pack $ unwords [
         "(experimental)"
       , metrics
       ]
+
     status_string = if flaky_count == total_failcount
       then "success"
       else "failure"

@@ -165,6 +165,7 @@ instance ToJSON PatternsTimeline where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
+api_pattern_occurrence_timeline :: DbHelpers.DbConnectionData -> IO PatternsTimeline
 api_pattern_occurrence_timeline conn_data = do
   conn <- DbHelpers.get_connection conn_data
   points <- map f <$> query_ conn timeline_sql
@@ -215,18 +216,6 @@ api_test_failures conn_data test_failure_pattern_id = do
 
         pattern_text = _pattern test_failure_pattern
         maybe_first_match_group = ScanUtils.getFirstMatchGroup extracted_chunk pattern_text
-
-
--- XXX NOT USED
-query_builds :: DbHelpers.DbConnectionData -> IO [Builds.Build]
-query_builds conn_data = do
-  conn <- DbHelpers.get_connection conn_data
-  map f <$> query_ conn sql
-  where
-    f (buildnum, vcs_rev, queuedat, jobname, branch) =
-      Builds.NewBuild (Builds.NewBuildNumber buildnum) (Builds.RawCommit vcs_rev) queuedat jobname branch
-
-    sql = "SELECT build_num, vcs_revision, queued_at, job_name, branch FROM builds;"
 
 
 api_line_count_histogram :: DbHelpers.DbConnectionData -> IO [(Text, Int)]
@@ -441,7 +430,8 @@ get_spanning_breakages conn_data sha1 = do
 
   where
     f (sha1, description, cause_id, jobs) = DbHelpers.WithId cause_id $
-      CodeBreakage (Builds.RawCommit sha1) description $ Set.fromList $ map T.pack $ split_agg_text jobs
+      CodeBreakage (Builds.RawCommit sha1) description $ Set.fromList $
+        map T.pack $ split_agg_text jobs
 
     sql = "SELECT code_breakage_cause.sha1, code_breakage_cause.description, cause_id, COALESCE(jobs, ''::text) AS jobs FROM (SELECT code_breakage_spans.cause_id, string_agg((code_breakage_affected_jobs.job)::text, ';'::text) AS jobs FROM code_breakage_spans LEFT JOIN code_breakage_affected_jobs ON code_breakage_affected_jobs.cause = code_breakage_spans.cause_id WHERE cause_commit_index <= ? AND (resolved_commit_index IS NULL OR ? < resolved_commit_index) GROUP BY code_breakage_spans.cause_id) foo JOIN code_breakage_cause ON foo.cause_id = code_breakage_cause.id"
 
@@ -635,6 +625,7 @@ data CommitInfoCounts = NewCommitInfoCounts {
   , _matched_build_count :: Int
   , _code_breakage_count :: Int
   , _flaky_build_count   :: Int
+  , _known_broken_count  :: Int
   } deriving Generic
 
 instance ToJSON CommitInfoCounts where
@@ -642,14 +633,18 @@ instance ToJSON CommitInfoCounts where
 
 
 data CommitInfo = NewCommitInfo {
-    _counts  :: CommitInfoCounts
+    _breakges :: [DbHelpers.WithId CodeBreakage]
+  , _counts   :: CommitInfoCounts
   } deriving Generic
 
 instance ToJSON CommitInfo where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
-count_revision_builds :: DbHelpers.DbConnectionData -> GitRev.GitSha1 -> IO CommitInfo
+count_revision_builds ::
+     DbHelpers.DbConnectionData
+  -> GitRev.GitSha1
+  -> IO (Either Text CommitInfo)
 count_revision_builds conn_data git_revision = do
   conn <- DbHelpers.get_connection conn_data
   [Only failed_count] <- query conn failed_count_sql only_commit
@@ -664,12 +659,19 @@ count_revision_builds conn_data git_revision = do
       flaky_builds = filter is_flaky revision_builds
       flaky_build_count = length flaky_builds
 
-  return $ NewCommitInfo $ NewCommitInfoCounts
-    failed_count
-    timeout_count
-    matched_count
-    reported_count
-    flaky_build_count
+  runExceptT $ do
+
+    breakages <- ExceptT $ get_spanning_breakages conn_data $ Builds.RawCommit sha1
+    let all_broken_jobs = Set.unions $ map (_jobs . DbHelpers.record) breakages
+
+    [Only known_broken_count] <- liftIO $ query conn known_broken_count_sql (sha1, In $ Set.toAscList all_broken_jobs)
+    return $ NewCommitInfo breakages $ NewCommitInfoCounts
+      failed_count
+      timeout_count
+      matched_count
+      reported_count
+      flaky_build_count
+      known_broken_count
 
   where
     sha1 = GitRev.sha1 git_revision
@@ -679,6 +681,7 @@ count_revision_builds conn_data git_revision = do
     failed_count_sql = "SELECT COUNT(*) FROM builds WHERE vcs_revision = ?;"
     matched_count_sql = "SELECT COUNT(*) FROM best_pattern_match_augmented_builds WHERE vcs_revision = ?;"
     reported_broken_count_sql = "SELECT COUNT(*) FROM builds_with_reports WHERE vcs_revision = ? AND is_broken;"
+    known_broken_count_sql = "SELECT COUNT(*) FROM builds WHERE vcs_revision = ? AND job_name IN ?;"
 
 
 data ScanTestResponse = ScanTestResponse {

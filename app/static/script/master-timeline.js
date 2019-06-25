@@ -48,7 +48,6 @@ function get_context_menu_items_for_cell(cell) {
 }
 
 
-
 function get_open_breakages(cell) {
 
 	var open_breakages = [];

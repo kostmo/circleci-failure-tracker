@@ -1,10 +1,8 @@
-{-# LANGUAGE DeriveGeneric     #-}
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DeriveGeneric #-}
 
 module CircleBuild where
 
 import           Data.Aeson
-import           Data.Aeson   (Value)
 import           Data.Text    (Text)
 import           Data.Time    (UTCTime)
 import           GHC.Generics
