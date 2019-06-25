@@ -74,8 +74,6 @@ function get_open_breakages(cell) {
 }
 
 
-
-
 function mark_failure_resolution(commit_sha1, active_breakages) {
 
 	console.log("Submitting resolution report. Active breakage count: " + active_breakages.length);
@@ -137,7 +135,7 @@ function gen_timeline_table(element_id, fetched_data) {
 		field: "commit",
 		headerVertical: false,
 		formatter: function(cell, formatterParams, onRendered) {
-			return render_tag("code", link(cell.getValue().substring(0, 7), "/commit-details.html?sha1=" + cell.getValue()));
+			return sha1_link(cell.getValue());
 		},
 		minWidth: 90,
 		width: 90,
@@ -303,7 +301,6 @@ function render_table() {
 function init_fields() {
 
 	var urlParams = new URLSearchParams(window.location.search);
-
 
 	var offset = urlParams.get('offset');
 	if (offset != null) {

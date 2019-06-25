@@ -68,6 +68,14 @@ function gen_builds_table(element_id, data_url, height_string) {
 }
 
 
+function render_known_failure(failure_obj) {
+	return link(failure_obj["record"]["breakage_description"], "/breakage-details.html?cause=" + failure_obj["db_id"]) + render_list([
+		"Broken by " + sha1_link(failure_obj["record"]["breakage_commit"]),
+		"Applies to " + failure_obj["record"]["jobs"].length + " job(s)",
+	]);
+}
+
+
 function populate_build_info(build_id, parent_data) {
 
 	var data = parent_data["build_info"];
@@ -85,6 +93,8 @@ function populate_build_info(build_id, parent_data) {
 	var github_link = link("View " + render_tag("code", short_commit) + " on GitHub", "https://github.com/pytorch/pytorch/commit/" + full_commit);
 	var commit_links = render_list([local_link, github_link]);
 
+	var breakage_cause_items = render_list(parent_data["known_failures"].map(render_known_failure));
+
 
 	var items = [
 		["Logs:", logview_items],
@@ -92,6 +102,7 @@ function populate_build_info(build_id, parent_data) {
 		["Build step:", render_tag("i", data["step_name"])],
 		["Branch:", data["build"]["branch"]],
 		["Job name:", link(data["build"]["job_name"], "/job-details.html?job=" + data["build"]["job_name"])],
+		["Known breakage causes:", breakage_cause_items],
 		["Date:", moment(data["build"]["queued_at"]).fromNow()],
 	];
 

@@ -406,7 +406,7 @@ find_master_ancestor conn_data access_token owner_and_repo sha1 = do
 data CodeBreakage = CodeBreakage {
     _breakage_commit      :: BuildResults.RawCommit
   , _breakage_description :: Text
-  , _jobs                 :: [Text]
+  , _jobs                 :: Set Text
   } deriving Generic
 
 instance ToJSON CodeBreakage where
@@ -424,7 +424,6 @@ get_master_commit_index conn (BuildResults.RawCommit sha1) = do
     sql = "SELECT id FROM ordered_master_commits WHERE sha1 = ?;"
 
 
--- | TODO finish this
 get_spanning_breakages ::
      DbHelpers.DbConnectionData
   -> BuildResults.RawCommit -- ^ sha1
@@ -441,8 +440,7 @@ get_spanning_breakages conn_data sha1 = do
 
   where
     f (sha1, description, cause_id, jobs) = DbHelpers.WithId cause_id $
-      CodeBreakage (BuildResults.RawCommit sha1) description $
-        map T.pack $ split_agg_text jobs
+      CodeBreakage (BuildResults.RawCommit sha1) description $ Set.fromList $ map T.pack $ split_agg_text jobs
 
     sql = "SELECT code_breakage_cause.sha1, code_breakage_cause.description, cause_id, COALESCE(jobs, ''::text) AS jobs FROM (SELECT code_breakage_spans.cause_id, string_agg((code_breakage_affected_jobs.job)::text, ';'::text) AS jobs FROM code_breakage_spans LEFT JOIN code_breakage_affected_jobs ON code_breakage_affected_jobs.cause = code_breakage_spans.cause_id WHERE cause_commit_index <= ? AND (resolved_commit_index IS NULL OR ? < resolved_commit_index) GROUP BY code_breakage_spans.cause_id) foo JOIN code_breakage_cause ON foo.cause_id = code_breakage_cause.id"
 
@@ -973,6 +971,7 @@ log_context_func connection_data (MatchOccurrences.MatchId match_id) context_lin
 data SingleBuildInfo = SingleBuildInfo {
     _multi_match_count :: Int
   , _build_info        :: BuildSteps.BuildStep
+  , _known_failures    :: [DbHelpers.WithId CodeBreakage]
   } deriving Generic
 
 instance ToJSON SingleBuildInfo where
@@ -991,9 +990,19 @@ get_build_info conn_data build@(Builds.NewBuildNumber build_id) = do
   -- TODO Replace this with SQL COUNT()
   matches <- get_build_pattern_matches conn_data build
 
-  return $ f (length matches) <$> maybeToEither (T.pack $ "Build with ID " ++ show build_id ++ " not found!") (Safe.headMay xs)
+  let either_tuple = f (length matches) <$> maybeToEither (T.pack $ "Build with ID " ++ show build_id ++ " not found!") (Safe.headMay xs)
+
+  runExceptT $ do
+    (multi_match_count, step_container) <- except either_tuple
+
+    let sha1 = Builds.vcs_revision $ BuildSteps.build step_container
+        job_name = Builds.job_name $ BuildSteps.build step_container
+    breakages <- ExceptT $ get_spanning_breakages conn_data $ BuildResults.RawCommit sha1
+    let applicable_breakages = filter (Set.member job_name . _jobs . DbHelpers.record) breakages
+    return $ SingleBuildInfo multi_match_count step_container applicable_breakages
+
   where
-    f multi_match_count (step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch, maybe_implicated_revision, maybe_is_broken, maybe_notes, maybe_reporter) = SingleBuildInfo multi_match_count step_container
+    f multi_match_count (step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch, maybe_implicated_revision, maybe_is_broken, maybe_notes, maybe_reporter) = (multi_match_count, step_container)
       where
         step_container = BuildSteps.NewBuildStep step_name (Builds.NewBuildStepId step_id) build_obj maybe_breakage_obj
         build_obj = Builds.NewBuild (Builds.NewBuildNumber build_num) vcs_revision queued_at job_name branch

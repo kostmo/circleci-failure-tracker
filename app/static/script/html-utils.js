@@ -11,6 +11,11 @@ function render_tag(tag, content, attributes) {
 }
 
 
+function sha1_link(full_sha1) {
+	return render_tag("code", link(full_sha1.substring(0, 7), "/commit-details.html?sha1=" + full_sha1));
+}
+
+
 function link(text, url, new_window) {
 
 	var prop_dict = {"href": url}
