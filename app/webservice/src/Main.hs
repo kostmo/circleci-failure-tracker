@@ -517,7 +517,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
     S.post "/api/pattern-specificity-update" $ do
       pattern_id <- S.param "pattern_id"
       specificity <- S.param "specificity"
-      let callback_func _user_alias = SqlWrite.update_pattern_specificity connection_data pattern_id specificity
+      let callback_func _user_alias = SqlWrite.update_pattern_specificity connection_data (ScanPatterns.PatternId pattern_id) specificity
 
       rq <- S.request
       insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
@@ -526,17 +526,16 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
     S.post "/api/pattern-description-update" $ do
       pattern_id <- S.param "pattern_id"
       description <- S.param "description"
-      let callback_func _user_alias = SqlWrite.update_pattern_description connection_data pattern_id description
+      let callback_func _user_alias = SqlWrite.update_pattern_description connection_data (ScanPatterns.PatternId pattern_id) description
 
       rq <- S.request
       insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
       S.json $ WebApi.toJsonEither insertion_result
 
-
     S.post "/api/pattern-tag-add" $ do
       pattern_id <- S.param "pattern_id"
       tag <- S.param "tag"
-      let callback_func _user_alias = SqlWrite.add_pattern_tag connection_data pattern_id tag
+      let callback_func _user_alias = SqlWrite.add_pattern_tag connection_data (ScanPatterns.PatternId pattern_id) tag
 
       rq <- S.request
       insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
@@ -545,7 +544,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
     S.post "/api/pattern-tag-remove" $ do
       pattern_id <- S.param "pattern_id"
       tag <- S.param "tag"
-      let callback_func _user_alias = SqlWrite.remove_pattern_tag connection_data pattern_id tag
+      let callback_func _user_alias = SqlWrite.remove_pattern_tag connection_data (ScanPatterns.PatternId pattern_id) tag
 
       rq <- S.request
       insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
@@ -563,6 +562,19 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     S.get "/api/code-breakages" $ do
       S.json =<< liftIO (SqlRead.api_all_code_breakages connection_data)
+
+
+    S.post "/api/code-breakage-description-update" $ do
+      item_id <- S.param "cause_id"
+      description <- S.param "description"
+      let callback_func _user_alias = SqlWrite.update_code_breakage_description connection_data item_id description
+
+      rq <- S.request
+      insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
+      S.json $ WebApi.toJsonEither insertion_result
+
+
+
 
     -- XXX This is the deprecated kind of breakage report
     S.get "/api/commit-breakage-reports" $ do

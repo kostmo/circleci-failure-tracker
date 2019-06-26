@@ -1,3 +1,26 @@
+function post_modification(api_endpoint, data_dict) {
+
+	$.post( {
+		url: api_endpoint,
+		data: data_dict,
+		success: function( data ) {
+			if (data.success) {
+				console.log("Result: " + data.payload);
+				location.reload();
+			} else {
+				if (data.error.details.authentication_failed) {
+					alert("Not logged in: " + data.error.message);
+					window.location.href = data.error.details.login_url;
+				} else if (data.error.details.database_failed) {
+					alert("Database error: " + data.error.message);
+				} else {
+					alert("Unknown error: " + data.error.message);
+				}
+			}
+		}
+	});
+}
+
 function render_tag(tag, content, attributes) {
 
 	var attributes = attributes || {};

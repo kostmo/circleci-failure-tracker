@@ -144,10 +144,10 @@ insert_posted_github_status conn_data git_sha1 (DbHelpers.OwnerAndRepo owner rep
 
 add_pattern_tag ::
      DbHelpers.DbConnectionData
-  -> Int
+  -> ScanPatterns.PatternId
   -> Text
   -> IO (Either Text Int64)
-add_pattern_tag conn_data pattern_id tag = do
+add_pattern_tag conn_data (ScanPatterns.PatternId pattern_id) tag = do
   conn <- DbHelpers.get_connection conn_data
   Right <$> execute conn sql (pattern_id, tag)
   where
@@ -156,22 +156,34 @@ add_pattern_tag conn_data pattern_id tag = do
 
 remove_pattern_tag ::
      DbHelpers.DbConnectionData
-  -> Int
+  -> ScanPatterns.PatternId
   -> Text
   -> IO (Either Text Int64)
-remove_pattern_tag conn_data pattern_id tag = do
+remove_pattern_tag conn_data (ScanPatterns.PatternId pattern_id) tag = do
   conn <- DbHelpers.get_connection conn_data
   Right <$> execute conn sql (pattern_id, tag)
   where
     sql = "DELETE FROM pattern_tags WHERE pattern = ? AND tag = ?;"
 
 
-update_pattern_description ::
+update_code_breakage_description ::
      DbHelpers.DbConnectionData
-  -> Int
+  -> Int64
   -> Text
   -> IO (Either Text Int64)
-update_pattern_description conn_data pattern_id description = do
+update_code_breakage_description conn_data cause_id description = do
+  conn <- DbHelpers.get_connection conn_data
+  Right <$> execute conn sql (description, cause_id)
+  where
+    sql = "UPDATE code_breakage_cause SET description = ? WHERE id = ?;"
+
+
+update_pattern_description ::
+     DbHelpers.DbConnectionData
+  -> ScanPatterns.PatternId
+  -> Text
+  -> IO (Either Text Int64)
+update_pattern_description conn_data (ScanPatterns.PatternId pattern_id) description = do
   conn <- DbHelpers.get_connection conn_data
   Right <$> execute conn sql (description, pattern_id)
   where
@@ -180,10 +192,10 @@ update_pattern_description conn_data pattern_id description = do
 
 update_pattern_specificity ::
      DbHelpers.DbConnectionData
-  -> Int
+  -> ScanPatterns.PatternId
   -> Int
   -> IO (Either Text Int64)
-update_pattern_specificity conn_data pattern_id specificity = do
+update_pattern_specificity conn_data (ScanPatterns.PatternId pattern_id) specificity = do
   conn <- DbHelpers.get_connection conn_data
   Right <$> execute conn sql (specificity, pattern_id)
   where
