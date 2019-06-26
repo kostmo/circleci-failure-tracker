@@ -50,6 +50,7 @@ import qualified Scanning
 import qualified ScanPatterns
 import qualified Session
 import qualified SqlRead
+import qualified SqlUpdate
 import qualified SqlWrite
 import qualified StatusUpdate
 import qualified Types
@@ -415,7 +416,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       commit_sha1_text <- S.param "sha1"
       json_result <- liftIO $ runExceptT $ do
         sha1 <- except $ GitRev.validateSha1 commit_sha1_text
-        ExceptT $ SqlRead.count_revision_builds connection_data sha1
+        ExceptT $ SqlUpdate.count_revision_builds connection_data (AuthConfig.personal_access_token github_config) sha1
 
       S.json $ WebApi.toJsonEither json_result
 

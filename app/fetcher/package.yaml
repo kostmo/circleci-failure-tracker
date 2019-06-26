@@ -43,6 +43,8 @@ library:
     - hashable
     - scotty
     - array
+    - network-uri
+    - github
     - MissingH 
 
 executables:

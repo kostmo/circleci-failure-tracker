@@ -38,11 +38,11 @@ import qualified GithubApiFetch
 import qualified Scanning
 import qualified ScanPatterns
 import qualified SqlRead
+import qualified SqlUpdate
 import qualified SqlWrite
 import qualified StatusEvent
 import qualified StatusEventQuery
 import qualified Webhooks
-
 
 webserverBaseUrl :: LT.Text
 webserverBaseUrl = "https://circle.pytorch.org"
@@ -92,29 +92,6 @@ get_circleci_failure sha1 event_setter = do
     url_text = StatusEventQuery._target_url event_setter
 
 
--- | Find known build breakages applicable to the merge base
--- of this PR commit
-findKnownBuildBreakages ::
-     DbHelpers.DbConnectionData
-  -> OAuth2.AccessToken
-  -> DbHelpers.OwnerAndRepo
-  -> Text
-  -> IO (Either Text [DbHelpers.WithId SqlRead.CodeBreakage])
-findKnownBuildBreakages db_connection_data access_token owned_repo sha1 =
-
-  runExceptT $ do
-
-    -- First, ensure knowledge of "master" branch lineage
-    -- is up-to-date
-    ExceptT $ SqlWrite.populate_latest_master_commits db_connection_data access_token owned_repo
-
-    -- Second, find which "master" commit is the most recent
-    -- ancestor of the given PR commit.
-    nearest_ancestor <- ExceptT $ SqlRead.find_master_ancestor db_connection_data access_token owned_repo $ Builds.RawCommit sha1
-
-    -- Third, find whether that commit is within the
-    -- [start, end) span of any known breakages
-    ExceptT $ SqlRead.get_spanning_breakages db_connection_data nearest_ancestor
 
 
 -- | Operations:
@@ -160,9 +137,7 @@ handleFailedStatuses
   liftIO $ putStrLn $ "Failed CircleCI build count: " ++ show circleci_failcount
 
 
-
-
-  known_breakages <- ExceptT $ first LT.fromStrict <$> findKnownBuildBreakages db_connection_data access_token owned_repo sha1
+  known_breakages <- ExceptT $ first LT.fromStrict <$> SqlUpdate.findKnownBuildBreakages db_connection_data access_token owned_repo (Builds.RawCommit sha1)
   let all_broken_jobs = Set.unions $ map (SqlRead._jobs . DbHelpers.record) known_breakages
       known_broken_circle_builds = filter ((`Set.member` all_broken_jobs) . Builds.job_name) circleci_failed_builds
       known_broken_circle_build_count = length known_broken_circle_builds

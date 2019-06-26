@@ -1,7 +1,5 @@
 {-# LANGUAGE DeriveGeneric         #-}
 {-# LANGUAGE DuplicateRecordFields #-}
-{-# LANGUAGE OverloadedStrings     #-}
-{-# LANGUAGE QuasiQuotes           #-}
 
 module Webhooks where
 
@@ -9,8 +7,6 @@ import           Data.Aeson
 import           Data.Text.Lazy (Text)
 import           Data.Time      (UTCTime)
 import           GHC.Generics
-
-import qualified JsonUtils
 
 
 data GitHubStatusEvent = GitHubStatusEvent {

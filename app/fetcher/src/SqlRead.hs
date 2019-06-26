@@ -10,7 +10,6 @@ import           Control.Monad.Trans.Except           (ExceptT (ExceptT),
                                                        except, runExceptT)
 import           Data.Aeson
 import           Data.Bifunctor                       (first)
-import           Data.Coerce                          (coerce)
 import           Data.Either.Utils                    (maybeToEither)
 import           Data.List                            (sort, sortOn)
 import           Data.List.Split                      (splitOn)
@@ -408,12 +407,15 @@ get_master_commit_index ::
   -> Builds.RawCommit
   -> IO (Either Text Int64)
 get_master_commit_index conn (Builds.RawCommit sha1) = do
-  rows <- query conn sql (Only sha1)
-  return $ maybeToEither "Commit not found" $ Safe.headMay $ map (\(Only x) -> x) rows
+  rows <- query conn sql $ Only sha1
+  return $ maybeToEither ("Commit " <> sha1 <>" not found in master branch") $ Safe.headMay $ map (\(Only x) -> x) rows
   where
     sql = "SELECT id FROM ordered_master_commits WHERE sha1 = ?;"
 
 
+-- | This only works for commits from the master branch.
+-- Commits from other branches must use
+-- StatusUpdate.findKnownBuildBreakages
 get_spanning_breakages ::
      DbHelpers.DbConnectionData
   -> Builds.RawCommit
@@ -619,69 +621,8 @@ get_code_breakage_ranges conn = do
     affected_cause_jobs_sql = "SELECT job, reporter, reported_at FROM code_breakage_affected_jobs WHERE cause = ?;"
 
 
-data CommitInfoCounts = NewCommitInfoCounts {
-    _failed_build_count  :: Int
-  , _timeout_count       :: Int
-  , _matched_build_count :: Int
-  , _code_breakage_count :: Int
-  , _flaky_build_count   :: Int
-  , _known_broken_count  :: Int
-  } deriving Generic
-
-instance ToJSON CommitInfoCounts where
-  toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
-data CommitInfo = NewCommitInfo {
-    _breakges :: [DbHelpers.WithId CodeBreakage]
-  , _counts   :: CommitInfoCounts
-  } deriving Generic
-
-instance ToJSON CommitInfo where
-  toJSON = genericToJSON JsonUtils.dropUnderscore
-
-
-count_revision_builds ::
-     DbHelpers.DbConnectionData
-  -> GitRev.GitSha1
-  -> IO (Either Text CommitInfo)
-count_revision_builds conn_data git_revision = do
-  conn <- DbHelpers.get_connection conn_data
-  [Only failed_count] <- query conn failed_count_sql only_commit
-  [Only matched_count] <- query conn matched_count_sql only_commit
-  [Only timeout_count] <- query conn timeout_count_sql only_commit
-  [Only reported_count] <- query conn reported_broken_count_sql only_commit
-
-  revision_builds <- get_revision_builds conn_data git_revision
-  flaky_pattern_ids <- get_flaky_pattern_ids conn
-
-  let is_flaky = (`Set.member` flaky_pattern_ids) . coerce . MatchOccurrences._pattern_id . CommitBuilds._match
-      flaky_builds = filter is_flaky revision_builds
-      flaky_build_count = length flaky_builds
-
-  runExceptT $ do
-
-    breakages <- ExceptT $ get_spanning_breakages conn_data $ Builds.RawCommit sha1
-    let all_broken_jobs = Set.unions $ map (_jobs . DbHelpers.record) breakages
-
-    [Only known_broken_count] <- liftIO $ query conn known_broken_count_sql (sha1, In $ Set.toAscList all_broken_jobs)
-    return $ NewCommitInfo breakages $ NewCommitInfoCounts
-      failed_count
-      timeout_count
-      matched_count
-      reported_count
-      flaky_build_count
-      known_broken_count
-
-  where
-    sha1 = GitRev.sha1 git_revision
-    only_commit = Only sha1
-
-    timeout_count_sql = "SELECT COUNT(*) FROM builds_join_steps WHERE vcs_revision = ? AND is_timeout;"
-    failed_count_sql = "SELECT COUNT(*) FROM builds WHERE vcs_revision = ?;"
-    matched_count_sql = "SELECT COUNT(*) FROM best_pattern_match_augmented_builds WHERE vcs_revision = ?;"
-    reported_broken_count_sql = "SELECT COUNT(*) FROM builds_with_reports WHERE vcs_revision = ? AND is_broken;"
-    known_broken_count_sql = "SELECT COUNT(*) FROM builds WHERE vcs_revision = ? AND job_name IN ?;"
 
 
 data ScanTestResponse = ScanTestResponse {
