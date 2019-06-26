@@ -572,7 +572,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     S.get "/api/single-build-info" $ do
       build_id <- S.param "build_id"
-      result <- liftIO (SqlRead.get_build_info connection_data $ Builds.NewBuildNumber build_id)
+      result <- liftIO (SqlUpdate.get_build_info connection_data (AuthConfig.personal_access_token github_config) $ Builds.NewBuildNumber build_id)
       S.json $ WebApi.toJsonEither result
 
     S.get "/api/best-build-match" $ do

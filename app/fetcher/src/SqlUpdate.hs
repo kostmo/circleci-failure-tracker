@@ -5,16 +5,23 @@
 module SqlUpdate where
 
 import           Control.Monad.IO.Class     (liftIO)
-import           Control.Monad.Trans.Except (ExceptT (ExceptT), runExceptT)
+import           Control.Monad.Trans.Except (ExceptT (ExceptT), except,
+                                             runExceptT)
 import           Data.Aeson
 import           Data.Coerce                (coerce)
+import           Data.Either.Utils          (maybeToEither)
 import qualified Data.Set                   as Set
 import           Data.Text                  (Text)
+import qualified Data.Text                  as T
 import           Database.PostgreSQL.Simple
 import           GHC.Generics
 import qualified Network.OAuth.OAuth2       as OAuth2
+import qualified Safe
 
+import qualified AuthStages
+import qualified Breakages
 import qualified Builds
+import qualified BuildSteps
 import qualified CommitBuilds
 import qualified Constants
 import qualified DbHelpers
@@ -24,6 +31,10 @@ import qualified MatchOccurrences
 import qualified ScanPatterns
 import qualified SqlRead
 import qualified SqlWrite
+
+
+pytorchRepoOwner :: DbHelpers.OwnerAndRepo
+pytorchRepoOwner = DbHelpers.OwnerAndRepo Constants.project_name Constants.repo_name
 
 
 data CommitInfoCounts = NewCommitInfoCounts {
@@ -49,6 +60,56 @@ instance ToJSON CommitInfo where
 
 
 
+
+data SingleBuildInfo = SingleBuildInfo {
+    _multi_match_count :: Int
+  , _build_info        :: BuildSteps.BuildStep
+  , _known_failures    :: [DbHelpers.WithId SqlRead.CodeBreakage]
+  } deriving Generic
+
+instance ToJSON SingleBuildInfo where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+get_build_info ::
+     DbHelpers.DbConnectionData
+  -> OAuth2.AccessToken
+  -> Builds.BuildNumber
+  -> IO (Either Text SingleBuildInfo)
+get_build_info conn_data access_token build@(Builds.NewBuildNumber build_id) = do
+
+  conn <- DbHelpers.get_connection conn_data
+  xs <- query conn sql $ Only build_id
+
+  -- TODO Replace this with SQL COUNT()
+  matches <- SqlRead.get_build_pattern_matches conn_data build
+
+  let either_tuple = f (length matches) <$> maybeToEither (T.pack $ "Build with ID " ++ show build_id ++ " not found!") (Safe.headMay xs)
+
+  runExceptT $ do
+    (multi_match_count, step_container) <- except either_tuple
+
+    let sha1 = Builds.vcs_revision $ BuildSteps.build step_container
+        job_name = Builds.job_name $ BuildSteps.build step_container
+    breakages <- ExceptT $ findKnownBuildBreakages conn_data access_token pytorchRepoOwner sha1
+    let applicable_breakages = filter (Set.member job_name . SqlRead._jobs . DbHelpers.record) breakages
+    return $ SingleBuildInfo multi_match_count step_container applicable_breakages
+
+  where
+    f multi_match_count (step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch, maybe_implicated_revision, maybe_is_broken, maybe_notes, maybe_reporter) = (multi_match_count, step_container)
+      where
+        step_container = BuildSteps.NewBuildStep step_name (Builds.NewBuildStepId step_id) build_obj maybe_breakage_obj
+        build_obj = Builds.NewBuild (Builds.NewBuildNumber build_num) (Builds.RawCommit vcs_revision) queued_at job_name branch
+        maybe_breakage_obj = do
+          is_broken <- maybe_is_broken
+          notes <- maybe_notes
+          reporter <- maybe_reporter
+          return $ Breakages.NewBreakageReport (Builds.NewBuildStepId step_id) maybe_implicated_revision is_broken notes $ AuthStages.Username reporter
+
+    sql = "SELECT step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch, implicated_revision, is_broken, breakage_notes, reporter FROM builds_with_reports where build_num = ?;"
+
+
+
 count_revision_builds ::
      DbHelpers.DbConnectionData
   -> OAuth2.AccessToken
@@ -70,7 +131,7 @@ count_revision_builds conn_data access_token git_revision = do
 
   runExceptT $ do
 
-    breakages <- ExceptT $ findKnownBuildBreakages conn_data access_token (DbHelpers.OwnerAndRepo Constants.project_name Constants.repo_name) $ Builds.RawCommit sha1
+    breakages <- ExceptT $ findKnownBuildBreakages conn_data access_token pytorchRepoOwner $ Builds.RawCommit sha1
     let all_broken_jobs = Set.unions $ map (SqlRead._jobs . DbHelpers.record) breakages
 
     [Only known_broken_count] <- liftIO $ query conn known_broken_count_sql (sha1, In $ Set.toAscList all_broken_jobs)
@@ -91,9 +152,6 @@ count_revision_builds conn_data access_token git_revision = do
     matched_count_sql = "SELECT COUNT(*) FROM best_pattern_match_augmented_builds WHERE vcs_revision = ?;"
     reported_broken_count_sql = "SELECT COUNT(*) FROM builds_with_reports WHERE vcs_revision = ? AND is_broken;"
     known_broken_count_sql = "SELECT COUNT(*) FROM builds WHERE vcs_revision = ? AND job_name IN ?;"
-
-
-
 
 
 -- | Find known build breakages applicable to the merge base

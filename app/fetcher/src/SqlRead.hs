@@ -33,10 +33,8 @@ import qualified Safe
 
 import qualified AuthStages
 import qualified BreakageReportsBackup
-import qualified Breakages
 import qualified BuildResults
 import qualified Builds
-import qualified BuildSteps
 import qualified CommitBuilds
 import qualified DbHelpers
 import qualified GithubApiFetch
@@ -925,53 +923,6 @@ log_context_func connection_data (MatchOccurrences.MatchId match_id) context_lin
 
   where
     sql = "SELECT build_num, line_number, span_start, span_end, line_text FROM matches_with_log_metadata WHERE id = ?"
-
-
-data SingleBuildInfo = SingleBuildInfo {
-    _multi_match_count :: Int
-  , _build_info        :: BuildSteps.BuildStep
-  , _known_failures    :: [DbHelpers.WithId CodeBreakage]
-  } deriving Generic
-
-instance ToJSON SingleBuildInfo where
-  toJSON = genericToJSON JsonUtils.dropUnderscore
-
-
-get_build_info ::
-     DbHelpers.DbConnectionData
-  -> Builds.BuildNumber
-  -> IO (Either Text SingleBuildInfo)
-get_build_info conn_data build@(Builds.NewBuildNumber build_id) = do
-
-  conn <- DbHelpers.get_connection conn_data
-  xs <- query conn sql $ Only build_id
-
-  -- TODO Replace this with SQL COUNT()
-  matches <- get_build_pattern_matches conn_data build
-
-  let either_tuple = f (length matches) <$> maybeToEither (T.pack $ "Build with ID " ++ show build_id ++ " not found!") (Safe.headMay xs)
-
-  runExceptT $ do
-    (multi_match_count, step_container) <- except either_tuple
-
-    let sha1 = Builds.vcs_revision $ BuildSteps.build step_container
-        job_name = Builds.job_name $ BuildSteps.build step_container
-    breakages <- ExceptT $ get_spanning_breakages conn_data sha1
-    let applicable_breakages = filter (Set.member job_name . _jobs . DbHelpers.record) breakages
-    return $ SingleBuildInfo multi_match_count step_container applicable_breakages
-
-  where
-    f multi_match_count (step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch, maybe_implicated_revision, maybe_is_broken, maybe_notes, maybe_reporter) = (multi_match_count, step_container)
-      where
-        step_container = BuildSteps.NewBuildStep step_name (Builds.NewBuildStepId step_id) build_obj maybe_breakage_obj
-        build_obj = Builds.NewBuild (Builds.NewBuildNumber build_num) (Builds.RawCommit vcs_revision) queued_at job_name branch
-        maybe_breakage_obj = do
-          is_broken <- maybe_is_broken
-          notes <- maybe_notes
-          reporter <- maybe_reporter
-          return $ Breakages.NewBreakageReport (Builds.NewBuildStepId step_id) maybe_implicated_revision is_broken notes $ AuthStages.Username reporter
-
-    sql = "SELECT step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch, implicated_revision, is_broken, breakage_notes, reporter FROM builds_with_reports where build_num = ?;"
 
 
 get_pattern_matches :: DbHelpers.DbConnectionData -> ScanPatterns.PatternId -> IO [PatternOccurrence]
