@@ -134,13 +134,22 @@ get_latest_pattern_id conn = do
     sql = "SELECT id FROM patterns ORDER BY id DESC LIMIT 1;"
 
 
-api_posted_statuses :: DbHelpers.DbConnectionData -> IO [PostedStatuses.PostedStatus]
-api_posted_statuses conn_data = do
+api_posted_statuses :: DbHelpers.DbConnectionData -> Int -> IO [PostedStatuses.PostedStatus]
+api_posted_statuses conn_data count = do
   conn <- DbHelpers.get_connection conn_data
-  map f <$> query_ conn sql
+  map f <$> query conn sql (Only count)
   where
     f (sha1, description, state, created_at) = PostedStatuses.PostedStatus sha1 description state created_at
-    sql = "SELECT sha1, description, state, created_at FROM created_github_statuses ORDER BY created_at DESC LIMIT 40;"
+    sql = "SELECT sha1, description, state, created_at FROM created_github_statuses ORDER BY created_at DESC LIMIT ?;"
+
+
+api_aggregate_posted_statuses :: DbHelpers.DbConnectionData -> Int -> IO [PostedStatuses.PostedStatusAggregate]
+api_aggregate_posted_statuses conn_data count = do
+  conn <- DbHelpers.get_connection conn_data
+  map f <$> query conn sql (Only count)
+  where
+    f (sha1, count, last_time, time_interval) = PostedStatuses.PostedStatusAggregate sha1 count last_time time_interval
+    sql = "SELECT sha1, count, last_time, EXTRACT(SECONDS FROM time_interval) FROM aggregated_github_status_postings LIMIT ?;"
 
 
 data PatternsTimelinePoint = PatternsTimelinePoint {

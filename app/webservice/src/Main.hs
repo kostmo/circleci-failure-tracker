@@ -388,8 +388,13 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
         either_items <- SqlRead.api_test_failures connection_data $ ScanPatterns.PatternId pattern_id
         return $ WebApi.toJsonEither either_items)
 
-    S.get "/api/posted-statuses" $
-      S.json =<< liftIO (SqlRead.api_posted_statuses connection_data)
+    S.get "/api/posted-statuses" $ do
+      count <- S.param "count"
+      S.json =<< liftIO (SqlRead.api_posted_statuses connection_data count)
+
+    S.get "/api/aggregate-posted-statuses" $ do
+      count <- S.param "count"
+      S.json =<< liftIO (SqlRead.api_aggregate_posted_statuses connection_data count)
 
     S.get "/api/job" $
       S.json =<< liftIO (SqlRead.api_jobs connection_data)

@@ -1,5 +1,5 @@
-{-# LANGUAGE DeriveGeneric     #-}
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DeriveGeneric         #-}
+{-# LANGUAGE DuplicateRecordFields #-}
 
 module PostedStatuses where
 
@@ -19,4 +19,15 @@ data PostedStatus = PostedStatus {
   } deriving Generic
 
 instance ToJSON PostedStatus where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+data PostedStatusAggregate = PostedStatusAggregate {
+    _sha1          :: Text
+  , _count         :: Int
+  , _last_time     :: UTCTime
+  , _time_interval :: Double
+  } deriving Generic
+
+instance ToJSON PostedStatusAggregate where
   toJSON = genericToJSON JsonUtils.dropUnderscore
