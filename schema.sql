@@ -397,6 +397,43 @@ CREATE VIEW public.aggregated_build_matches WITH (security_barrier='false') AS
 ALTER TABLE public.aggregated_build_matches OWNER TO postgres;
 
 --
+-- Name: created_github_statuses; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.created_github_statuses (
+    id bigint NOT NULL,
+    url text,
+    state character varying(7),
+    description text,
+    target_url text,
+    context text,
+    created_at timestamp with time zone,
+    updated_at timestamp with time zone,
+    sha1 character(40),
+    project text,
+    repo text
+);
+
+
+ALTER TABLE public.created_github_statuses OWNER TO postgres;
+
+--
+-- Name: aggregated_github_status_postings; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.aggregated_github_status_postings AS
+ SELECT created_github_statuses.sha1,
+    count(*) AS count,
+    max(created_github_statuses.created_at) AS last_time,
+    (max(created_github_statuses.created_at) - min(created_github_statuses.created_at)) AS time_interval
+   FROM public.created_github_statuses
+  GROUP BY created_github_statuses.sha1
+  ORDER BY (max(created_github_statuses.created_at)) DESC;
+
+
+ALTER TABLE public.aggregated_github_status_postings OWNER TO postgres;
+
+--
 -- Name: broken_build_reports; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -741,27 +778,6 @@ CREATE VIEW public.code_breakage_spans AS
 
 
 ALTER TABLE public.code_breakage_spans OWNER TO postgres;
-
---
--- Name: created_github_statuses; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.created_github_statuses (
-    id bigint NOT NULL,
-    url text,
-    state character varying(7),
-    description text,
-    target_url text,
-    context text,
-    created_at timestamp with time zone,
-    updated_at timestamp with time zone,
-    sha1 character(40),
-    project text,
-    repo text
-);
-
-
-ALTER TABLE public.created_github_statuses OWNER TO postgres;
 
 --
 -- Name: idiopathic_build_failures; Type: VIEW; Schema: public; Owner: postgres
@@ -1702,6 +1718,20 @@ GRANT ALL ON TABLE public.aggregated_build_matches TO logan;
 
 
 --
+-- Name: TABLE created_github_statuses; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.created_github_statuses TO logan;
+
+
+--
+-- Name: TABLE aggregated_github_status_postings; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.aggregated_github_status_postings TO logan;
+
+
+--
 -- Name: TABLE broken_build_reports; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -1814,10 +1844,10 @@ GRANT ALL ON TABLE public.ordered_master_commits TO logan;
 
 
 --
--- Name: TABLE created_github_statuses; Type: ACL; Schema: public; Owner: postgres
+-- Name: TABLE code_breakage_spans; Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON TABLE public.created_github_statuses TO logan;
+GRANT ALL ON TABLE public.code_breakage_spans TO logan;
 
 
 --

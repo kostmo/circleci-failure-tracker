@@ -36,34 +36,34 @@ instance ToJSON SimpleBuildStatus where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
-data BreakageStart = BreakageStart {
+data BreakageStart a = BreakageStart {
     _breakage_commit :: IndexedCommit
   , _description     :: Text
-  , _affected_jobs   :: [DbHelpers.WithAuthorship Text]
+  , _affected_jobs   :: [a]
   } deriving Generic
 
-instance ToJSON BreakageStart where
+instance (ToJSON a) => ToJSON (BreakageStart a) where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
-data BreakageEnd = BreakageEnd {
+data BreakageEnd a = BreakageEnd {
     _resolution_commit :: IndexedCommit
   , _cause_id          :: Int64
-  , _affected_jobs     :: [DbHelpers.WithAuthorship Text]
+  , _affected_jobs     :: [a]
   } deriving Generic
 
-instance ToJSON BreakageEnd where
+instance (ToJSON a) => ToJSON (BreakageEnd a) where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
-type BreakageEndRecord = DbHelpers.WithId (DbHelpers.WithAuthorship BreakageEnd)
+type BreakageEndRecord a = DbHelpers.WithId (DbHelpers.WithAuthorship (BreakageEnd a))
 
 
-data BreakageSpan = BreakageSpan {
-    _start :: DbHelpers.WithId (DbHelpers.WithAuthorship BreakageStart)
-  , _end   :: Maybe BreakageEndRecord
+data BreakageSpan a = BreakageSpan {
+    _start :: DbHelpers.WithId (DbHelpers.WithAuthorship (BreakageStart a))
+  , _end   :: Maybe (BreakageEndRecord a)
   } deriving Generic
 
-instance ToJSON BreakageSpan where
+instance (ToJSON a) => ToJSON (BreakageSpan a) where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
@@ -71,7 +71,7 @@ data MasterBuildsResponse = MasterBuildsResponse {
     _columns        :: [Text]
   , _commits        :: [IndexedCommit]
   , _failures       :: [SimpleBuildStatus]
-  , _breakage_spans :: [BreakageSpan]
+  , _breakage_spans :: [BreakageSpan (DbHelpers.WithAuthorship Text)]
   } deriving Generic
 
 instance ToJSON MasterBuildsResponse where

@@ -445,6 +445,7 @@ get_spanning_breakages conn_data sha1 = do
     sql = "SELECT code_breakage_cause.sha1, code_breakage_cause.description, cause_id, COALESCE(jobs, ''::text) AS jobs FROM (SELECT code_breakage_spans.cause_id, string_agg((code_breakage_affected_jobs.job)::text, ';'::text) AS jobs FROM code_breakage_spans LEFT JOIN code_breakage_affected_jobs ON code_breakage_affected_jobs.cause = code_breakage_spans.cause_id WHERE cause_commit_index <= ? AND (resolved_commit_index IS NULL OR ? < resolved_commit_index) GROUP BY code_breakage_spans.cause_id) foo JOIN code_breakage_cause ON foo.cause_id = code_breakage_cause.id"
 
 
+
 list_flat :: (ToField b, FromField a) =>
      Query
   -> DbHelpers.DbConnectionData
@@ -573,7 +574,7 @@ api_master_builds conn_data offset_limit = do
 get_code_breakage_span_end ::
      Connection
   -> Int64
-  -> IO (Maybe BuildResults.BreakageEndRecord)
+  -> IO (Maybe (BuildResults.BreakageEndRecord (DbHelpers.WithAuthorship Text)))
 get_code_breakage_span_end conn cause_id = do
 
   rows <- query conn resolutions_sql $ Only cause_id
@@ -598,10 +599,47 @@ get_code_breakage_span_end conn cause_id = do
     affected_cause_jobs_sql = "SELECT job, reporter, reported_at FROM code_breakage_resolved_jobs WHERE resolution = ?;"
 
 
+
+-- | TODO: replace usages of the "get_code_breakage_ranges" function below with this
+api_all_code_breakages ::
+     DbHelpers.DbConnectionData
+  -> IO [BuildResults.BreakageSpan Text]
+api_all_code_breakages conn_data = do
+
+  conn <- DbHelpers.get_connection conn_data
+
+  rows <- query_ conn sql
+  return $ map f rows
+
+  where
+    f (cause_id, cause_commit_index, cause_sha1, description, cause_reporter, cause_reported_at, cause_jobs_delimited, resolution_jobs_delimited, maybe_resolution_id, maybe_resolved_commit_index, maybe_resolution_sha1, maybe_resolution_reporter, maybe_resolution_reported_at) =
+
+      BuildResults.BreakageSpan cause maybe_resolution
+
+      where
+        cause = DbHelpers.WithId cause_id $ DbHelpers.WithAuthorship cause_reporter cause_reported_at $
+          BuildResults.BreakageStart
+            (DbHelpers.WithId cause_commit_index $ Builds.RawCommit cause_sha1)
+            description
+            (map T.pack $ split_agg_text cause_jobs_delimited)
+
+        maybe_resolution = do
+          resolution_id <- maybe_resolution_id
+          resolved_commit_index <- maybe_resolved_commit_index
+          resolution_sha1 <- maybe_resolution_sha1
+          resolution_reporter <- maybe_resolution_reporter
+          resolution_reported_at <- maybe_resolution_reported_at
+
+          return $ DbHelpers.WithId resolution_id $ DbHelpers.WithAuthorship resolution_reporter resolution_reported_at $ BuildResults.BreakageEnd
+            (DbHelpers.WithId resolved_commit_index $ Builds.RawCommit resolution_sha1) resolution_id (map T.pack $ split_agg_text resolution_jobs_delimited)
+
+    sql = "SELECT cause_id, cause_commit_index, cause_sha1, description, cause_reporter, cause_reported_at, COALESCE(foo.jobs, '') AS cause_jobs, COALESCE(bar.jobs, '') AS resolution_jobs, resolution_id, resolved_commit_index, resolution_sha1, resolution_reporter, resolution_reported_at FROM code_breakage_spans LEFT JOIN (SELECT cause, string_agg(job, ';') AS jobs FROM code_breakage_affected_jobs GROUP BY code_breakage_affected_jobs.cause) foo ON foo.cause = cause_id LEFT JOIN (SELECT resolution, string_agg(job, ';') AS jobs FROM code_breakage_resolved_jobs GROUP BY code_breakage_resolved_jobs.resolution) bar ON bar.resolution = resolution_id"
+
+
 -- | TODO replace with a query from the view "code_breakage_spans"
 get_code_breakage_ranges ::
      Connection
-  -> IO [BuildResults.BreakageSpan]
+  -> IO [BuildResults.BreakageSpan (DbHelpers.WithAuthorship Text)]
 get_code_breakage_ranges conn = do
 
   rows <- query_ conn causes_sql
@@ -626,9 +664,6 @@ get_code_breakage_ranges conn = do
     causes_sql = "SELECT ordered_master_commits.id AS commit_index, code_breakage_cause.id AS cause_id, code_breakage_cause.sha1, description, reporter, reported_at FROM code_breakage_cause JOIN ordered_master_commits ON code_breakage_cause.sha1 = ordered_master_commits.sha1;"
 
     affected_cause_jobs_sql = "SELECT job, reporter, reported_at FROM code_breakage_affected_jobs WHERE cause = ?;"
-
-
-
 
 
 

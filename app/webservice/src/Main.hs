@@ -507,6 +507,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
     S.get "/api/patterns-dump" $
       S.json =<< liftIO (SqlRead.dump_patterns connection_data)
 
+    -- XXX This is the deprecated kind of breakage report
     S.get "/api/breakages-dump" $
       S.json =<< liftIO (SqlRead.dump_breakages connection_data)
 
@@ -560,6 +561,10 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
       S.json $ WebApi.toJsonEither insertion_result
 
+    S.get "/api/code-breakages" $ do
+      S.json =<< liftIO (SqlRead.api_all_code_breakages connection_data)
+
+    -- XXX This is the deprecated kind of breakage report
     S.get "/api/commit-breakage-reports" $ do
       commit_sha1_text <- S.param "sha1"
       S.json =<< liftIO (SqlRead.api_commit_breakage_reports connection_data commit_sha1_text)
