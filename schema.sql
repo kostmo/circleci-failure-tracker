@@ -2,8 +2,8 @@
 -- PostgreSQL database dump
 --
 
--- Dumped from database version 10.9 (Ubuntu 10.9-1.pgdg18.04+1)
--- Dumped by pg_dump version 10.9 (Ubuntu 10.9-1.pgdg18.04+1)
+-- Dumped from database version 10.6
+-- Dumped by pg_dump version 11.4 (Ubuntu 11.4-1.pgdg18.04+1)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -37,20 +37,6 @@ SET check_function_bodies = false;
 SET xmloption = content;
 SET client_min_messages = warning;
 SET row_security = off;
-
---
--- Name: plpgsql; Type: EXTENSION; Schema: -; Owner: 
---
-
-CREATE EXTENSION IF NOT EXISTS plpgsql WITH SCHEMA pg_catalog;
-
-
---
--- Name: EXTENSION plpgsql; Type: COMMENT; Schema: -; Owner: 
---
-
-COMMENT ON EXTENSION plpgsql IS 'PL/pgSQL procedural language';
-
 
 SET default_tablespace = '';
 
@@ -1364,6 +1350,13 @@ CREATE INDEX breakage_sha1 ON public.code_breakage_cause USING btree (sha1);
 
 
 --
+-- Name: cause_fk; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX cause_fk ON public.code_breakage_resolution USING btree (cause);
+
+
+--
 -- Name: fk_build_step_build; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -1468,7 +1461,7 @@ ALTER TABLE ONLY public.build_steps
 --
 
 ALTER TABLE ONLY public.code_breakage_affected_jobs
-    ADD CONSTRAINT code_breakage_affected_jobs_cause_fkey FOREIGN KEY (cause) REFERENCES public.code_breakage_cause(id);
+    ADD CONSTRAINT code_breakage_affected_jobs_cause_fkey FOREIGN KEY (cause) REFERENCES public.code_breakage_cause(id) ON DELETE CASCADE;
 
 
 --
@@ -1477,6 +1470,14 @@ ALTER TABLE ONLY public.code_breakage_affected_jobs
 
 ALTER TABLE ONLY public.code_breakage_cause
     ADD CONSTRAINT code_breakage_cause_sha1_fkey FOREIGN KEY (sha1) REFERENCES public.ordered_master_commits(sha1);
+
+
+--
+-- Name: code_breakage_resolution code_breakage_resolution_cause_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.code_breakage_resolution
+    ADD CONSTRAINT code_breakage_resolution_cause_fkey FOREIGN KEY (cause) REFERENCES public.code_breakage_cause(id) ON DELETE CASCADE;
 
 
 --
@@ -1492,7 +1493,7 @@ ALTER TABLE ONLY public.code_breakage_resolution
 --
 
 ALTER TABLE ONLY public.code_breakage_resolved_jobs
-    ADD CONSTRAINT code_breakage_resolved_jobs_resolution_fkey FOREIGN KEY (resolution) REFERENCES public.code_breakage_resolution(id);
+    ADD CONSTRAINT code_breakage_resolved_jobs_resolution_fkey FOREIGN KEY (resolution) REFERENCES public.code_breakage_resolution(id) ON DELETE CASCADE;
 
 
 --

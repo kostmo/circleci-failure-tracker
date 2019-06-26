@@ -37,7 +37,6 @@ import qualified AuthConfig
 import qualified AuthStages
 import qualified Breakages
 import qualified Breakages2
-import qualified BuildResults
 import qualified Builds
 import qualified Constants
 import qualified DbHelpers
@@ -573,6 +572,14 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
       S.json $ WebApi.toJsonEither insertion_result
 
+
+    S.post "/api/code-breakage-delete" $ do
+      item_id <- S.param "cause_id"
+      let callback_func _user_alias = SqlWrite.delete_code_breakage connection_data item_id
+
+      rq <- S.request
+      insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
+      S.json $ WebApi.toJsonEither insertion_result
 
 
 
