@@ -47,7 +47,6 @@ function gen_breakages_table(element_id, data_url) {
 					post_modification("/api/code-breakage-description-update", data_dict);
 				},
 			},
-
 			{title: "Affected jobs", columns: [
 				{title: "Count",
 					width: 75,
@@ -57,6 +56,11 @@ function gen_breakages_table(element_id, data_url) {
 					},
 				},
 				{title: "Names", field: "start.record.payload.affected_jobs",
+					tooltip: function(cell) {
+
+						var cell_value = cell.getValue();
+						return cell_value.join("\n");
+					},
 					formatter: function(cell, formatterParams, onRendered) {
 						var cell_val = cell.getValue();
 						var items = [];
@@ -75,7 +79,7 @@ function gen_breakages_table(element_id, data_url) {
 						return cell_val == null ? "" : sha1_link(cell_val);
 					},
 				},
-				{title: "authorship", width: 250, field: "start.record.created",
+				{title: "reported", width: 250, field: "start.record.created",
 					formatter: function(cell, formatterParams, onRendered) {
 						var val = cell.getValue();
 						var start_obj = cell.getRow().getData()["start"];
@@ -90,7 +94,7 @@ function gen_breakages_table(element_id, data_url) {
 						return cell_val == null ? "" : sha1_link(cell_val);
 					},
 				},
-				{title: "authorship", width: 250, field: "end.record.created",
+				{title: "reported", width: 250, field: "end.record.created",
 					formatter: function(cell, formatterParams, onRendered) {
 						var val = cell.getValue();
 
@@ -102,6 +106,22 @@ function gen_breakages_table(element_id, data_url) {
 					},
 				},
 			]},
+			{title: "Span", width: 100,
+				headerSort: false,
+				formatter: function(cell, formatterParams, onRendered) {
+
+					var data_obj = cell.getRow().getData();
+					var start_index = data_obj["start"]["record"]["payload"]["breakage_commit"]["db_id"];
+
+					if (data_obj["end"]) {
+						var end_index = data_obj["end"]["record"]["payload"]["resolution_commit"]["db_id"];
+						var span_count = end_index - start_index;
+						return span_count;
+					} else {
+						return "ongoing";
+					}
+				},
+			},
 
 		],
 		ajaxURL: data_url,
