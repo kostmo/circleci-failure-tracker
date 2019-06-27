@@ -6,14 +6,7 @@ var breakage_starts_by_job_name = {};
 function gen_broken_jobs_table(element_id, data_url) {
 
 	var column_list = [
-		{title: "Use",
-			formatter:"tickCross",
-			sorter:"boolean",
-			editable:true,
-			editor:"tickCross",
-			field: "selected", 
-		},
-		{title: "Job", field: "job", width: 200},
+		{title: "Job", field: "job", width: 350},
 		{title: "Build", field: "build", formatter: "link",
 			formatterParams: {urlPrefix: "/build-details.html?build_id="},
 			width: 75,
@@ -23,10 +16,13 @@ function gen_broken_jobs_table(element_id, data_url) {
 	var table = new Tabulator("#" + element_id, {
 		height: 300,
 		layout: "fitColumns",
+		selectable: true,
 		placeholder: "No Data Set",
 		columns: column_list,
 		ajaxURL: data_url,
 	});
+
+	return table;
 }
 
 
@@ -62,10 +58,7 @@ function get_timeline_data(offset, count) {
 function get_context_menu_items_for_cell(cell) {
 
 	var job_name = cell.getColumn().getField();
-	var job_names_delimited = [job_name].join(";"); // TODO
-
 	var commit_sha1 = cell.getRow().getData()["commit"];
-
 
 	var context_menu_items = [];
 
@@ -75,7 +68,7 @@ function get_context_menu_items_for_cell(cell) {
 		var textnode = document.createTextNode("Mark failure start");
 		node.appendChild(textnode);
 
-		node.addEventListener("click", function () {mark_failure_cause(commit_sha1, job_names_delimited);});
+		node.addEventListener("click", function () {mark_failure_cause(commit_sha1, job_name);});
 
 		context_menu_items.push(node);
 	}
@@ -150,46 +143,67 @@ function mark_failure_resolution(commit_sha1, active_breakages) {
 
 
 
-function mark_failure_cause(commit_sha1, jobs_list_delimited) {
+function mark_failure_cause(commit_sha1, clicked_job_name) {
 
-	console.log("Submitting breakage report...");
+	var tabulator = gen_broken_jobs_table("broken-jobs-table", "/api/list-commit-jobs?sha1=" + commit_sha1);
 
+	$('#dialog-cancel-button').click(function(e) {
+		document.getElementById("affected-jobs-dialog").close();
+	});
 
-	gen_broken_jobs_table("broken-jobs-table", "/api/list-commit-jobs?sha1=" + commit_sha1);
+	$('#dialog-select-all-button').click(function(e) {
 
+		var rows = tabulator.getRows();
+		rows.forEach(function(row) {
+			row.toggleSelect();
+		});
+	});
 
+	$('#dialog-submit-button').click(function(e) {
 
+		var selectedData = tabulator.getSelectedData();
 
-	document.getElementById("dialog-cancel-button").click = function() {console.log("closing");} 
+		console.log("Selected count: " + selectedData.length);
+		var selected_job_names = [];
+		for (var datum of selectedData) {
 
+			console.log("Row: " + JSON.stringify(datum));
 
-	$('#dialog-cancel-button').click(function(e) {document.getElementById("affected-jobs-dialog").close();});
+			selected_job_names.push(datum["job"]);
+		}
 
+		if (selected_job_names.length) {
+			var jobs_list_delimited = selected_job_names.join(";");
 
+			var description = $("#dialog-description-textarea").val();
+
+			if (description) {
+				$.post({
+					url: "/api/code-breakage-cause-report",
+					data: {"sha1": commit_sha1, "description": description, "jobs": jobs_list_delimited},
+					success: function( data ) {
+
+						if (data.success) {
+							alert("submitted report with ID: " + data.payload);
+							render_table();
+						} else {
+							alert("Error: " + data.error.message);
+						}
+					}
+				});
+
+				document.getElementById("affected-jobs-dialog").close();
+
+			} else {
+				alert("Description must not be empty!");
+			}
+
+		} else {
+			alert("Must select at least one job!");
+		}
+	});
 
 	document.getElementById("affected-jobs-dialog").showModal();
-
-
-/*
-	var description = prompt("Enter description of breakage:", "no comment");
-
-	if (description != null) {
-		$.post({
-			url: "/api/code-breakage-cause-report",
-			data: {"sha1": commit_sha1, "description": description, "jobs": jobs_list_delimited},
-			success: function( data ) {
-
-				if (data.success) {
-					alert("submitted report with ID: " + data.payload);
-					render_table();
-				} else {
-					alert("Error: " + data.error.message);
-				}
-			}
-		});
-	}
-
-*/
 }
 
 

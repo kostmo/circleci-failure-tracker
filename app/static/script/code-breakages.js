@@ -6,34 +6,36 @@ function gen_breakages_table(element_id, data_url) {
 		layout:"fitColumns",
 		placeholder:"No Data Set",
 		columns:[
-			{title:"X",
-				headerSort: false,
-				formatter: function(cell, formatterParams, onRendered){ //plain text value
-				    return "<img src='/images/trash-icon.png' style='width: 16;'/>";
-				},
-				width:40,
-				align:"center",
-				cellClick:function(e, cell) {
+			{title: "Action", columns: [
+				{title:"X",
+					headerSort: false,
+					formatter: function(cell, formatterParams, onRendered){ //plain text value
+					    return "<img src='/images/trash-icon.png' style='width: 16;'/>";
+					},
+					width:40,
+					align:"center",
+					cellClick:function(e, cell) {
 
-					var cause_id = cell.getRow().getData()["start"]["db_id"];
+						var cause_id = cell.getRow().getData()["start"]["db_id"];
 
-					if (confirm("Realy delete cause #" + cause_id + "?")) {
-						post_modification("/api/code-breakage-delete", {"cause_id": cause_id});
-					}
+						if (confirm("Realy delete cause #" + cause_id + "?")) {
+							post_modification("/api/code-breakage-delete", {"cause_id": cause_id});
+						}
+					},
 				},
-			},
-			{title:"?",
-				headerSort: false,
-				formatter: function(cell, formatterParams, onRendered){ //plain text value
-				    return "<img src='/images/view-icon.png' style='width: 16;'/>";
+				{title:"?",
+					headerSort: false,
+					formatter: function(cell, formatterParams, onRendered){ //plain text value
+					    return "<img src='/images/view-icon.png' style='width: 16;'/>";
+					},
+					width:40,
+					align:"center",
+					cellClick:function(e, cell) {
+						var cause_id = cell.getRow().getData()["start"]["db_id"];
+						window.location.href = "/breakage-details.html?cause=" + cause_id;
+					},
 				},
-				width:40,
-				align:"center",
-				cellClick:function(e, cell) {
-					var cause_id = cell.getRow().getData()["start"]["db_id"];
-					window.location.href = "/breakage-details.html?cause=" + cause_id;
-				},
-			},
+			]},
 			{title: "Description", width: 250, field: "start.record.payload.description",
 				editor: "input",
 				cellEdited: function(cell) {
@@ -45,20 +47,27 @@ function gen_breakages_table(element_id, data_url) {
 					post_modification("/api/code-breakage-description-update", data_dict);
 				},
 			},
-			{title: "Affected jobs", field: "start.record.payload.affected_jobs",
-				formatter: function(cell, formatterParams, onRendered) {
-					var cell_val = cell.getValue();
-					var items = [];
-					for (var jobname of cell_val) {
-						items.push(jobname);
-					}
 
-					if (items.length) {
-						return items.length + ": " + items.join(", ");
-					}
-					return "";
+			{title: "Affected jobs", columns: [
+				{title: "Count",
+					width: 75,
+					formatter: function(cell, formatterParams, onRendered) {
+						var joblist = cell.getRow().getData()["start"]["record"]["payload"]["affected_jobs"];
+						return joblist.length;
+					},
 				},
-			},
+				{title: "Names", field: "start.record.payload.affected_jobs",
+					formatter: function(cell, formatterParams, onRendered) {
+						var cell_val = cell.getValue();
+						var items = [];
+						for (var jobname of cell_val) {
+							items.push(jobname);
+						}
+
+						return items.join(", ");
+					},
+				},
+			]},
 			{title: "Start", columns: [
 				{title: "commit", width: 300, field: "start.record.payload.breakage_commit.record",
 					formatter: function(cell, formatterParams, onRendered) {

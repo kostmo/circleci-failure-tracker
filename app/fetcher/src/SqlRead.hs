@@ -245,9 +245,8 @@ api_byte_count_histogram conn_data = do
 
 
 data JobBuild = JobBuild {
-    _job      :: Text
-  , _build    :: Builds.BuildNumber
-  , _selected :: Bool
+    _job   :: Text
+  , _build :: Builds.BuildNumber
   } deriving Generic
 
 instance ToJSON JobBuild where
@@ -263,7 +262,7 @@ api_commit_jobs conn_data (Builds.RawCommit sha1) = do
   xs <- query conn sql $ Only sha1
   return $ map f xs
   where
-    f (job, build_num) = JobBuild job (Builds.NewBuildNumber build_num) True
+    f (job, build_num) = JobBuild job $ Builds.NewBuildNumber build_num
     sql = "SELECT DISTINCT job_name, build_num FROM builds WHERE vcs_revision = ?;"
 
 

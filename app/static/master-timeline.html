@@ -32,6 +32,9 @@
 <span style="float: right;">[<a href="/">home</a>]</span>
 <h2>Master timeline</h2>
 
+
+<span style="float: right"><a href="/code-breakages.html">List known breakages</a></span>
+
 <form onsubmit="return false;">
 <label>
 Offset:
@@ -46,18 +49,26 @@ count:
 <button onclick="render_table();">Go</button>
 </form>
 
+
 <div id="master-timeline-table"></div>
 
 
 <div id="myDropdown" class="dropdown-content"></div>
 
 <dialog id="affected-jobs-dialog">
-<p>Select builds broken by this commit:</p>
+<table><tr><td>
 
-<div id="broken-jobs-table"></div>
+	<p>Select breakages caused by this commit:</p>
+	<button id="dialog-select-all-button">Toggle select all</button>
+	<div id="broken-jobs-table"></div>
+
+</td><td style="padding-left: 1em;">
+	<p>Enter description of breakge:</p>
+<textarea id="dialog-description-textarea">No comment</textarea>
 <br/>
-<button id="dialog-cancel-button">Cancel</button>
-<button id="dialog-submit-button">Submit</button>
+	<button id="dialog-submit-button">Submit</button>
+	<button id="dialog-cancel-button">Cancel</button>
+</td></tr></table>
 </dialog>
 
 <hr/>
