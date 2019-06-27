@@ -6,7 +6,7 @@ function gen_breakages_table(element_id, data_url) {
 		layout:"fitColumns",
 		placeholder:"No Data Set",
 		columns:[
-			{title:"Delete",
+			{title:"X",
 				headerSort: false,
 				formatter: function(cell, formatterParams, onRendered){ //plain text value
 				    return "<img src='/images/trash-icon.png' style='width: 16;'/>";
@@ -22,18 +22,24 @@ function gen_breakages_table(element_id, data_url) {
 					}
 				},
 			},
-			{title: "Description", width: 250, field: "start.record.payload.description",
-				formatter: function(cell, formatterParams, onRendered) {
-					var cell_val = cell.getValue();
-					var cause_id = cell.getRow().getData()["start"]["db_id"];
-					return link(cell_val, "/breakage-details.html?cause=" + cause_id);
+			{title:"?",
+				headerSort: false,
+				formatter: function(cell, formatterParams, onRendered){ //plain text value
+				    return "<img src='/images/view-icon.png' style='width: 16;'/>";
 				},
+				width:40,
+				align:"center",
+				cellClick:function(e, cell) {
+					var cause_id = cell.getRow().getData()["start"]["db_id"];
+					window.location.href = "/breakage-details.html?cause=" + cause_id;
+				},
+			},
+			{title: "Description", width: 250, field: "start.record.payload.description",
 				editor: "input",
 				cellEdited: function(cell) {
 					var cause_id = cell.getRow().getData()["start"]["db_id"];
 					var new_description = cell.getValue();
 
-					console.log("updating cause " + cause_id + " description...");
 
 					var data_dict = {"cause_id": cause_id, "description": new_description};
 					post_modification("/api/code-breakage-description-update", data_dict);

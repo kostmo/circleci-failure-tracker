@@ -520,11 +520,18 @@ get_master_commits ::
      Connection
   -> Pagination.OffsetLimit
   -> IO [BuildResults.IndexedCommit]
-get_master_commits conn (Pagination.OffsetLimit offset_count commit_count) =
-  map f <$> query conn sql (offset_count, commit_count)
+get_master_commits conn (Pagination.OffsetLimit offset_mode commit_count) = do
+  rows <- case offset_mode of
+    Pagination.Count offset_count -> query conn sql_commit_count_offset (offset_count, commit_count)
+    Pagination.Commit (Builds.RawCommit sha1) -> query conn sql_sha1_offset (sha1, commit_count)
+
+  return $ map f rows
   where
     f (my_id, my_commit) = DbHelpers.WithId my_id $ Builds.RawCommit my_commit
-    sql = "SELECT id, sha1 FROM ordered_master_commits ORDER BY id DESC OFFSET ? LIMIT ?"
+
+    sql_commit_count_offset = "SELECT id, sha1 FROM ordered_master_commits ORDER BY id DESC OFFSET ? LIMIT ?"
+
+    sql_sha1_offset = "SELECT id, sha1 FROM ordered_master_commits WHERE (id <= (SELECT id FROM ordered_master_commits WHERE sha1 = ?)) ORDER BY id DESC LIMIT ?"
 
 
 -- | Gets last N commits in one query,

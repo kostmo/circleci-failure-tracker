@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+import           Control.Applicative               ((<|>))
 import           Control.Monad                     (unless, when)
 import           Control.Monad.IO.Class            (liftIO)
 import           Control.Monad.Trans.Except        (ExceptT (ExceptT), except,
@@ -20,7 +21,7 @@ import qualified Data.Vault.Lazy                   as Vault
 import qualified Network.OAuth.OAuth2              as OAuth2
 import           Network.Wai
 import           Network.Wai.Middleware.ForceSSL   (forceSSL)
-import           Network.Wai.Middleware.Static
+import           Network.Wai.Middleware.Static     hiding ((<|>))
 import           Network.Wai.Session               (Session, SessionStore,
                                                     withSession)
 import           Network.Wai.Session.ClientSession (clientsessionStore)
@@ -44,6 +45,7 @@ import qualified DbInsertion
 import qualified GitRev
 import qualified JsonUtils
 import qualified MatchOccurrences
+import qualified Pagination
 import qualified Pagination
 import qualified Scanning
 import qualified ScanPatterns
@@ -409,8 +411,18 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     S.get "/api/master-timeline" $ do
       offset_count <- S.param "offset"
+      starting_commit <- S.param "sha1"
+      use_sha1_offset <- S.param "use_sha1_offset"
+
+      let offset_mode = if checkboxIsTrue use_sha1_offset
+            then Pagination.Commit $ Builds.RawCommit starting_commit
+            else Pagination.Count offset_count
+
       commit_count <- S.param "count"
-      json_result <- liftIO $ SqlRead.api_master_builds connection_data $ Pagination.OffsetLimit offset_count commit_count
+
+      liftIO $ putStrLn $ "Offset mode: " ++ show offset_mode
+
+      json_result <- liftIO $ SqlRead.api_master_builds connection_data $ Pagination.OffsetLimit offset_mode commit_count
       S.json json_result
 
     S.get "/api/step" $

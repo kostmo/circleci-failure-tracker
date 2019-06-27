@@ -4,7 +4,26 @@ var breakage_starts_by_job_name = {};
 
 function get_timeline_data(offset, count) {
 
-	$.getJSON('/api/master-timeline', {"offset": offset, "count": count}, function (mydata) {
+	var urlParams = new URLSearchParams(window.location.search);
+
+	var sha1 = "nothing";
+	var use_sha1_offset = false;
+
+	var url_sha1 = urlParams.get('sha1');
+
+	if (url_sha1 != null) {
+		sha1 = url_sha1;
+		use_sha1_offset = true;
+	}
+
+	var parms = {
+		"offset": offset,
+		"sha1": sha1,
+		"use_sha1_offset": use_sha1_offset,
+		"count": count,
+	}
+
+	$.getJSON('/api/master-timeline', parms, function (mydata) {
 		gen_timeline_table("master-timeline-table", mydata);
 	});
 }
@@ -148,7 +167,7 @@ function define_column(col) {
 
 			var open_breakages = get_open_breakages(cell);
 			if (open_breakages.length > 0) {
-				cell.getElement().style.backgroundColor = "#fcc8";
+				cell.getElement().style.backgroundColor = "#fcca";
 			}
 
 			var context_menu_items = get_context_menu_items_for_cell(cell);
@@ -164,6 +183,32 @@ function define_column(col) {
 				return "";
 			}
 		},
+
+
+
+		headerClick: function(e, column){
+			//e - the click event object
+			//column - column component
+
+			var columnField = column.getField();
+
+			console.log("Column name: " + columnField);
+
+/*
+			const el = document.createElement('textarea');
+			el.value = cell_value;
+			el.setAttribute('readonly', '');
+			el.style.position = 'absolute';
+			el.style.left = '-9999px';
+			document.body.appendChild(el);
+			el.select();
+			document.execCommand('copy');
+			document.body.removeChild(el);
+*/
+
+
+		},
+
 		cellClick: function(e, cell) {
 
 			var cell_value = cell.getValue()
@@ -212,8 +257,6 @@ function define_column(col) {
 
 function get_column_definitions(raw_column_list) {
 
-	var column_list = [];
-
 	var commit_column_definition = {
 		title: "Commit",
 		field: "commit",
@@ -228,37 +271,53 @@ function get_column_definitions(raw_column_list) {
 		frozen: true,
 	};
 
-	column_list.push(commit_column_definition);
-
 	var filtered_column_names = raw_column_list.filter(x => !x.startsWith("binary"));
 	filtered_column_names.sort();
 
+	var column_list = [commit_column_definition].concat(generate_column_tree(filtered_column_names));
+	return column_list;
+}
+
+
+// TODO Make recursive
+function generate_column_tree(column_names) {
 
 	var colname_by_prefix = {};
-	for (var col of filtered_column_names) {
+	for (var col of column_names) {
 		var chunks = col.split("_");
 
 		var members = setDefault(colname_by_prefix, chunks[0], []);
 		members.push(col);
 	}
 
+	var column_list = [];
 
 	for (var col_prefix in colname_by_prefix) {
 
 		var grouped_cols = colname_by_prefix[col_prefix];
 
-		var subcolumn_definitions = [];
-		for (var col of grouped_cols) {
-			var col_dict = define_column(col);
-			subcolumn_definitions.push(col_dict);
-		}
+		if (grouped_cols.length < 3) {
 
-		var column_group_definition = {
-			title: col_prefix,
-			columns: subcolumn_definitions,
-		}
+			for (var col of grouped_cols) {
+				var col_dict = define_column(col);
+				column_list.push(col_dict);
+			}
 
-		column_list.push(column_group_definition);
+		} else {
+
+			var subcolumn_definitions = [];
+			for (var col of grouped_cols) {
+				var col_dict = define_column(col);
+				subcolumn_definitions.push(col_dict);
+			}
+
+			var column_group_definition = {
+				title: col_prefix,
+				columns: subcolumn_definitions,
+			}
+
+			column_list.push(column_group_definition);
+		}
 	}
 
 	return column_list;
