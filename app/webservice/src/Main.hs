@@ -397,6 +397,10 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       count <- S.param "count"
       S.json =<< liftIO (SqlRead.api_aggregate_posted_statuses connection_data count)
 
+    S.get "/api/list-commit-jobs" $ do
+      sha1 <- S.param "sha1"
+      S.json =<< liftIO (SqlRead.api_commit_jobs connection_data $ Builds.RawCommit sha1)
+
     S.get "/api/job" $
       S.json =<< liftIO (SqlRead.api_jobs connection_data)
 
@@ -419,8 +423,6 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
             else Pagination.Count offset_count
 
       commit_count <- S.param "count"
-
-      liftIO $ putStrLn $ "Offset mode: " ++ show offset_mode
 
       json_result <- liftIO $ SqlRead.api_master_builds connection_data $ Pagination.OffsetLimit offset_mode commit_count
       S.json json_result

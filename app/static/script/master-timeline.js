@@ -2,6 +2,36 @@
 var breakage_starts_by_job_name = {};
 
 
+
+function gen_broken_jobs_table(element_id, data_url) {
+
+	var column_list = [
+		{title: "Use",
+			formatter:"tickCross",
+			sorter:"boolean",
+			editable:true,
+			editor:"tickCross",
+			field: "selected", 
+		},
+		{title: "Job", field: "job", width: 200},
+		{title: "Build", field: "build", formatter: "link",
+			formatterParams: {urlPrefix: "/build-details.html?build_id="},
+			width: 75,
+		},
+	];
+
+	var table = new Tabulator("#" + element_id, {
+		height: 300,
+		layout: "fitColumns",
+		placeholder: "No Data Set",
+		columns: column_list,
+		ajaxURL: data_url,
+	});
+}
+
+
+
+
 function get_timeline_data(offset, count) {
 
 	var urlParams = new URLSearchParams(window.location.search);
@@ -124,6 +154,23 @@ function mark_failure_cause(commit_sha1, jobs_list_delimited) {
 
 	console.log("Submitting breakage report...");
 
+
+	gen_broken_jobs_table("broken-jobs-table", "/api/list-commit-jobs?sha1=" + commit_sha1);
+
+
+
+
+	document.getElementById("dialog-cancel-button").click = function() {console.log("closing");} 
+
+
+	$('#dialog-cancel-button').click(function(e) {document.getElementById("affected-jobs-dialog").close();});
+
+
+
+	document.getElementById("affected-jobs-dialog").showModal();
+
+
+/*
 	var description = prompt("Enter description of breakage:", "no comment");
 
 	if (description != null) {
@@ -141,6 +188,8 @@ function mark_failure_cause(commit_sha1, jobs_list_delimited) {
 			}
 		});
 	}
+
+*/
 }
 
 
@@ -185,7 +234,6 @@ function define_column(col) {
 		},
 
 
-
 		headerClick: function(e, column){
 			//e - the click event object
 			//column - column component
@@ -194,6 +242,7 @@ function define_column(col) {
 
 			console.log("Column name: " + columnField);
 
+			// TODO make header
 /*
 			const el = document.createElement('textarea');
 			el.value = cell_value;

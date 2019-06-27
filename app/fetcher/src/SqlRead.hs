@@ -244,6 +244,29 @@ api_byte_count_histogram conn_data = do
     sql = "select count(*) as qty, pow(10, floor(ln(byte_count) / ln(10)))::numeric::integer as bin from log_metadata WHERE byte_count > 0 group by bin ORDER BY bin ASC;"
 
 
+data JobBuild = JobBuild {
+    _job      :: Text
+  , _build    :: Builds.BuildNumber
+  , _selected :: Bool
+  } deriving Generic
+
+instance ToJSON JobBuild where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+api_commit_jobs ::
+     DbHelpers.DbConnectionData
+  -> Builds.RawCommit
+  -> IO [JobBuild]
+api_commit_jobs conn_data (Builds.RawCommit sha1) = do
+  conn <- DbHelpers.get_connection conn_data
+  xs <- query conn sql $ Only sha1
+  return $ map f xs
+  where
+    f (job, build_num) = JobBuild job (Builds.NewBuildNumber build_num) True
+    sql = "SELECT DISTINCT job_name, build_num FROM builds WHERE vcs_revision = ?;"
+
+
 api_jobs :: DbHelpers.DbConnectionData -> IO (WebApi.ApiResponse WebApi.JobApiRecord)
 api_jobs conn_data = do
   conn <- DbHelpers.get_connection conn_data
