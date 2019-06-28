@@ -369,6 +369,9 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     S.get "/logout" $ Auth.logoutH cache
 
+    S.get "/api/status-posted-commits-by-day" $
+      S.json =<< liftIO (SqlRead.api_status_posted_commits_by_day connection_data)
+
     S.get "/api/status-postings-by-day" $
       S.json =<< liftIO (SqlRead.api_status_postings_by_day connection_data)
 
