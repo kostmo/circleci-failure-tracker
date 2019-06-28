@@ -279,11 +279,7 @@ function define_column(col) {
 
 			if (cell_value != null) {
 				var build_id = cell_value["build"]["build_id"];
-
-				var should_view = confirm("View build " + build_id + "?");
-				if (should_view) {
-					window.location.href = "/build-details.html?build_id=" + build_id;
-				}
+				window.location.href = "/build-details.html?build_id=" + build_id;
 			}
 		},
 		cellContext: function(e, cell) {
