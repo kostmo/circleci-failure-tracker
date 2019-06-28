@@ -271,7 +271,6 @@ function define_column(col) {
 
 
 		},
-
 		cellClick: function(e, cell) {
 
 			var cell_value = cell.getValue()

@@ -172,7 +172,6 @@ function rescan_build(button) {
 			$("#scan-throbber").hide();
 
 			if (data.success) {
-				alert("Success: " + data.payload);
 				location.reload();
 			} else {
 				alert("Error: " + data.error.message);
