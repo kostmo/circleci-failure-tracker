@@ -28,7 +28,6 @@ library:
     - regex-base
     - regex-pcre
     - postgresql-simple
-    - filepath
     - containers
     - unordered-containers
     - split

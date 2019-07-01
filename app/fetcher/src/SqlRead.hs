@@ -334,7 +334,7 @@ list_builds sql conn_data = do
 api_unmatched_builds :: DbHelpers.DbConnectionData -> IO [WebApi.BuildBranchRecord]
 api_unmatched_builds = list_builds sql
   where
-    sql = "SELECT build, branch FROM unattributed_failed_builds;"
+    sql = "SELECT build, branch FROM unattributed_failed_builds ORDER BY build DESC;"
 
 
 api_commit_breakage_reports :: DbHelpers.DbConnectionData -> Text -> IO [StoredBreakageReports.BreakageReport]
@@ -358,7 +358,7 @@ api_unmatched_commit_builds conn_data sha1 = do
 api_idiopathic_builds :: DbHelpers.DbConnectionData -> IO [WebApi.BuildBranchRecord]
 api_idiopathic_builds = list_builds sql
   where
-    sql = "SELECT build, branch FROM idiopathic_build_failures;"
+    sql = "SELECT build, branch FROM idiopathic_build_failures ORDER BY build DESC;"
 
 
 api_idiopathic_commit_builds :: DbHelpers.DbConnectionData -> Text -> IO [WebApi.UnmatchedBuild]

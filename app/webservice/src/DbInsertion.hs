@@ -1,20 +1,17 @@
 {-# LANGUAGE DeriveGeneric         #-}
 {-# LANGUAGE DuplicateRecordFields #-}
-{-# LANGUAGE OverloadedStrings     #-}
 
 
-module DbInsertion where
+module DbInsertion (toInsertionResponse) where
 
 import           Data.Aeson
-import           Data.Text      (Text)
-import qualified Data.Text.Lazy as TL
+import           Data.Text    (Text)
 import           GHC.Generics
-import           GHC.Int        (Int64)
+import           GHC.Int      (Int64)
 
 import qualified AuthConfig
 import qualified AuthStages
 import qualified JsonUtils
-import qualified Types
 import qualified WebApi
 
 
@@ -28,6 +25,7 @@ instance ToJSON BackendFailureResponse where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
+backendFailureToResponse :: AuthConfig.GithubConfig -> AuthStages.BackendFailure Text -> WebApi.JsonEither a b
 backendFailureToResponse auth_config failure_mode =
   WebApi.JsonEither False (Just stuff) Nothing
   where

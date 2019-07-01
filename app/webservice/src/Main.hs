@@ -1,6 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-import           Control.Applicative               ((<|>))
 import           Control.Monad                     (unless, when)
 import           Control.Monad.IO.Class            (liftIO)
 import           Control.Monad.Trans.Except        (ExceptT (ExceptT), except,
@@ -45,7 +44,6 @@ import qualified DbInsertion
 import qualified GitRev
 import qualified JsonUtils
 import qualified MatchOccurrences
-import qualified Pagination
 import qualified Pagination
 import qualified Scanning
 import qualified ScanPatterns

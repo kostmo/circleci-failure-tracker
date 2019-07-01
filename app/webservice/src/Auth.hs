@@ -7,40 +7,28 @@
 
 module Auth (
     getAuthenticatedUser
-  , getAuthenticatedUserByToken
   , logoutH
   , callbackH
   , githubAuthTokenSessionKey
   ) where
 
-
-import           Control.Lens               hiding ((<.>))
 import           Control.Monad
 import           Control.Monad.Error.Class
 import           Control.Monad.IO.Class     (liftIO)
 import           Control.Monad.Trans.Except (ExceptT (ExceptT), except,
                                              runExceptT)
-import           Data.Aeson.Lens            (key, _Array, _Integer, _Integral,
-                                             _Value)
-import           Data.Aeson.Types           (FromJSON, Value, parseEither,
-                                             parseJSON)
 import           Data.Bifunctor
 import qualified Data.ByteString.Char8      as BSU
 import qualified Data.ByteString.Lazy       as LBS
-import qualified Data.Either                as Either
-import           Data.List                  (intercalate)
 import           Data.Maybe
-import qualified Data.Maybe                 as Maybe
 import qualified Data.Text                  as T
 import qualified Data.Text.Lazy             as TL
 import qualified Data.Vault.Lazy            as Vault
-import qualified Data.Vector                as V
 import           Network.HTTP.Conduit       hiding (Request)
 import qualified Network.OAuth.OAuth2       as OAuth2
 import           Network.Wai                (Request, vault)
 import           Network.Wai.Session        (Session)
 import           Prelude
-import qualified Safe
 import           URI.ByteString             (parseURI, strictURIParserOptions)
 import           Web.Scotty
 import           Web.Scotty.Internal.Types
@@ -48,16 +36,12 @@ import           Web.Scotty.Internal.Types
 import qualified AuthConfig
 import qualified AuthStages
 import qualified Constants
-import qualified DbHelpers
 import qualified Github
 import qualified GithubApiFetch
-import qualified GitHubRecords
 import           Session
 import           SillyMonoids               ()
-import qualified StatusEventQuery
 import           Types
 import           Utils
-import qualified Webhooks
 
 
 githubAuthTokenSessionKey :: String
@@ -83,7 +67,7 @@ getAuthenticatedUserByToken wrapped_token github_config callback = do
 
   runExceptT $ do
     Types.LoginUser _login_name login_alias <- ExceptT $
-      (first $ const (wrap_login_err login_url AuthStages.FailUsernameDetermination)) <$> GithubApiFetch.fetchUser api_support_data
+      first (const $ wrap_login_err login_url AuthStages.FailUsernameDetermination) <$> GithubApiFetch.fetchUser api_support_data
 
     let username_text = TL.toStrict login_alias
     is_org_member <- ExceptT $ do
