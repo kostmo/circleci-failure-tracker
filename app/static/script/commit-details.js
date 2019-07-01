@@ -112,59 +112,79 @@ function gen_builds_table(element_id, data_url) {
 
 function gen_unmatched_build_list(api_endpoint, div_id) {
 
-	var table = new Tabulator("#" + div_id, {
-		height:"200px",
-		layout:"fitColumns",
-		placeholder:"No Data Set",
-		columns:[
-			{title:"Build number", field:"build", formatter: "link", width: 75, formatterParams: {urlPrefix: "/build-details.html?build_id="}},
-			{title:"Step", field:"step_name", width: 200},
-			{title:"Job", field:"job_name", width: 200},
-			{title:"Time", field:"queued_at", width: 150,
-				formatter: function(cell, formatterParams, onRendered) {
-					var val = cell.getValue();
-					return moment(val).fromNow();
+
+	$.getJSON(api_endpoint, function (data) {
+
+		if (data.length == 0) {
+			return;
+		}
+
+		$("#" + div_id + "-parent").show();
+
+
+		var table = new Tabulator("#" + div_id, {
+			height:"200px",
+			layout:"fitColumns",
+			placeholder:"No Data Set",
+			columns:[
+				{title:"Build number", field:"build", formatter: "link", width: 75, formatterParams: {urlPrefix: "/build-details.html?build_id="}},
+				{title:"Step", field:"step_name", width: 200},
+				{title:"Job", field:"job_name", width: 200},
+				{title:"Time", field:"queued_at", width: 150,
+					formatter: function(cell, formatterParams, onRendered) {
+						var val = cell.getValue();
+						return moment(val).fromNow();
+					},
 				},
-			},
-			{title:"Branch", field:"branch", width: 150},
-			{title:"Broken?", field:"is_broken", formatter:"tickCross", sorter:"boolean",
-				formatterParams: {
-					allowEmpty: true,
-					tickElement:"<img src='/images/broken-lightbulb.svg' class='brokenness-icon'/>",
-					crossElement: "<img src='/images/bandaid.svg' class='brokenness-icon'/>",
+				{title:"Branch", field:"branch", width: 150},
+				{title:"Broken?", field:"is_broken", formatter:"tickCross", sorter:"boolean",
+					formatterParams: {
+						allowEmpty: true,
+						tickElement:"<img src='/images/broken-lightbulb.svg' class='brokenness-icon'/>",
+						crossElement: "<img src='/images/bandaid.svg' class='brokenness-icon'/>",
+					},
+					width: 90,
 				},
-				width: 90,
-			},
-		],
-		ajaxURL: api_endpoint,
+			],
+			data: data,
+		});
 	});
 }
 
 
 function gen_breakage_reports_list(api_endpoint, div_id) {
 
-	var table = new Tabulator("#" + div_id, {
-		height:"200px",
-		layout:"fitColumns",
-		placeholder:"No Data Set",
-		columns:[
-			{title:"Broken?", field:"is_broken", formatter:"tickCross", sorter:"boolean",
-				formatterParams: {
-					allowEmpty: true,
-					tickElement: "<img src='/images/broken-lightbulb.svg' class='brokenness-icon'/>",
-					crossElement: "<img src='/images/bandaid.svg' class='brokenness-icon'/>",
+	$.getJSON(api_endpoint, function (data) {
+
+		if (data.length == 0) {
+			return;
+		}
+
+		$("#" + div_id + "-parent").show();
+
+		var table = new Tabulator("#" + div_id, {
+			height:"200px",
+			layout:"fitColumns",
+			placeholder:"No Data Set",
+			columns:[
+				{title:"Broken?", field:"is_broken", formatter:"tickCross", sorter:"boolean",
+					formatterParams: {
+						allowEmpty: true,
+						tickElement: "<img src='/images/broken-lightbulb.svg' class='brokenness-icon'/>",
+						crossElement: "<img src='/images/bandaid.svg' class='brokenness-icon'/>",
+					},
+					width: 90,
 				},
-				width: 90,
-			},
-			{title:"Build", field:"build", formatter: "link", width: 75, formatterParams: {urlPrefix: "/build-details.html?build_id="}},
-			{title:"Step", field:"step_name", width: 200},
-			{title:"Job", field:"job_name", width: 200},
-			{title:"Reporter", field:"reporter", width: 150},
-			{title:"Report time", field:"reported_at", width: 150},
-			{title:"Notes", field:"notes", width: 300},
-			{title:"Breaking rev", field:"implicated_revision", width: 100},
-		],
-		ajaxURL: api_endpoint,
+				{title:"Build", field:"build", formatter: "link", width: 75, formatterParams: {urlPrefix: "/build-details.html?build_id="}},
+				{title:"Step", field:"step_name", width: 200},
+				{title:"Job", field:"job_name", width: 200},
+				{title:"Reporter", field:"reporter", width: 150},
+				{title:"Report time", field:"reported_at", width: 150},
+				{title:"Notes", field:"notes", width: 300},
+				{title:"Breaking rev", field:"implicated_revision", width: 100},
+			],
+			data: data,
+		});
 	});
 }
 
