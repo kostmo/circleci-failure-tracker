@@ -87,7 +87,14 @@ function gen_patterns_table(pattern_id, filtered_branches) {
 						return "<span onclick='remove_pattern_tag(" + pattern_id + ",\"" + val + "\");' class='" + class_list.join(" ") + "'>" + val + "</span>";
 					});
 
+					if (!tag_list.length) {
+
+						tag_elements.push("<i style='color: #ccc;' onclick='add_tag(" + pattern_id + ");'>add tag</i>");
+
+					}
+
 					tag_elements.push("<button class='tag-add-button' style='display: none;' id='tag-add-button-" + pattern_id + "' onclick='add_tag(" + pattern_id + ");'>+</button>");
+
 					return tag_elements.join(" ");
 				},
 				cellMouseEnter: function(e, cell) {
