@@ -436,7 +436,9 @@
         "is_retired": false,
         "lines_from_end": null,
         "specificity": 1,
-        "tags": []
+        "tags": [
+          "flaky"
+        ]
       }
     }
   },
@@ -1350,6 +1352,236 @@
         "lines_from_end": null,
         "specificity": 3,
         "tags": []
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-06-26T06:06:31.057091Z",
+    "payload": {
+      "db_id": 62,
+      "record": {
+        "applicable_steps": [],
+        "description": "CMake error",
+        "expression": {
+          "contents": "CMake Error",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "lines_from_end": null,
+        "specificity": 3,
+        "tags": [
+          "cmake"
+        ]
+      }
+    }
+  },
+  {
+    "author": "ezyang",
+    "created": "2019-06-27T20:21:00.733729Z",
+    "payload": {
+      "db_id": 63,
+      "record": {
+        "applicable_steps": [],
+        "description": "XLA schema mismatch error",
+        "expression": {
+          "contents": "Failed to run '['/var/lib/jenkins/workspace/xla/scripts/generate_code.sh']'",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "lines_from_end": null,
+        "specificity": 4,
+        "tags": []
+      }
+    }
+  },
+  {
+    "author": "ezyang",
+    "created": "2019-06-27T20:27:22.956218Z",
+    "payload": {
+      "db_id": 64,
+      "record": {
+        "applicable_steps": [
+          "Test"
+        ],
+        "description": "Conda download gateway error",
+        "expression": {
+          "contents": [
+            "CondaHTTPError: HTTP 504 GATEWAY_TIMEOUT for url",
+            false
+          ],
+          "tag": "RegularExpression"
+        },
+        "is_retired": false,
+        "lines_from_end": null,
+        "specificity": 3,
+        "tags": [
+          "flaky"
+        ]
+      }
+    }
+  },
+  {
+    "author": "ezyang",
+    "created": "2019-06-27T20:37:30.26659Z",
+    "payload": {
+      "db_id": 70,
+      "record": {
+        "applicable_steps": [],
+        "description": "test_tracing_multiple_methods",
+        "expression": {
+          "contents": "ERROR: test_tracing_multiple_methods (__main__.TestScript)",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "lines_from_end": null,
+        "specificity": 5,
+        "tags": [
+          "flaky"
+        ]
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-06-28T17:41:09.407544Z",
+    "payload": {
+      "db_id": 71,
+      "record": {
+        "applicable_steps": [],
+        "description": "Conda",
+        "expression": {
+          "contents": "CondaHTTPError: ",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "lines_from_end": null,
+        "specificity": 4,
+        "tags": [
+          "flaky",
+          "network"
+        ]
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-07-01T02:53:19.350743Z",
+    "payload": {
+      "db_id": 73,
+      "record": {
+        "applicable_steps": [],
+        "description": "stale CircleCI config.yml",
+        "expression": {
+          "contents": "The checked-in CircleCI \"config.yml\" file does not match",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "lines_from_end": null,
+        "specificity": 5,
+        "tags": []
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-07-01T02:57:22.377897Z",
+    "payload": {
+      "db_id": 74,
+      "record": {
+        "applicable_steps": [],
+        "description": "Python runtime error",
+        "expression": {
+          "contents": "RuntimeError: ",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "lines_from_end": null,
+        "specificity": 2,
+        "tags": []
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-07-01T04:19:12.08733Z",
+    "payload": {
+      "db_id": 75,
+      "record": {
+        "applicable_steps": [],
+        "description": "Compilation error",
+        "expression": {
+          "contents": [
+            "([^\\s]+):(\\d+):(\\d+): fatal error:",
+            false
+          ],
+          "tag": "RegularExpression"
+        },
+        "is_retired": false,
+        "lines_from_end": null,
+        "specificity": 3,
+        "tags": []
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-07-01T17:58:52.620029Z",
+    "payload": {
+      "db_id": 76,
+      "record": {
+        "applicable_steps": [],
+        "description": "",
+        "expression": {
+          "contents": "No url found for submodule path",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "lines_from_end": null,
+        "specificity": 1,
+        "tags": [
+          "git"
+        ]
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-07-01T18:06:19.288233Z",
+    "payload": {
+      "db_id": 77,
+      "record": {
+        "applicable_steps": [],
+        "description": "obsolete CUDA",
+        "expression": {
+          "contents": "unknown cuda version",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "lines_from_end": null,
+        "specificity": 4,
+        "tags": []
+      }
+    }
+  },
+  {
+    "author": "kostmo",
+    "created": "2019-07-01T18:09:07.029247Z",
+    "payload": {
+      "db_id": 78,
+      "record": {
+        "applicable_steps": [],
+        "description": "apt directory permissions",
+        "expression": {
+          "contents": "Unable to lock the administration directory",
+          "tag": "LiteralExpression"
+        },
+        "is_retired": false,
+        "lines_from_end": null,
+        "specificity": 3,
+        "tags": [
+          "apt"
+        ]
       }
     }
   }
