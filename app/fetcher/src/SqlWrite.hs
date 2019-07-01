@@ -296,7 +296,7 @@ store_log_info :: ScanRecords.ScanCatchupResources -> Builds.BuildStepId -> Scan
 store_log_info scan_resources (Builds.NewBuildStepId step_id) (ScanRecords.LogInfo byte_count line_count log_content) =
   execute conn sql (step_id, line_count, byte_count, log_content)
   where
-    sql = "INSERT INTO log_metadata(step, line_count, byte_count, content) VALUES(?,?,?,?) ON CONFLICT (step) DO NOTHING;"
+    sql = "INSERT INTO log_metadata(step, line_count, byte_count, content) VALUES(?,?,?,?) ON CONFLICT (step) DO UPDATE SET line_count = EXCLUDED.line_count, byte_count = EXCLUDED.byte_count, content = EXCLUDED.content;"
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
 
 

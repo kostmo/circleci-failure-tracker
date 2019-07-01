@@ -147,7 +147,7 @@ handleFailedStatuses
     conn <- DbHelpers.get_connection db_connection_data
     scan_resources <- Scanning.prepareScanResources conn maybe_initiator
     SqlWrite.store_builds_list conn circleci_failed_builds
-    scan_matches <- Scanning.scanBuilds scan_resources $ Left $ Set.fromList scannable_build_numbers
+    scan_matches <- Scanning.scanBuilds scan_resources True $ Left $ Set.fromList scannable_build_numbers
 
     -- TODO - we should instead see if the "best matching pattern" is
     -- flaky, rather than checking if *any* matching pattern is a

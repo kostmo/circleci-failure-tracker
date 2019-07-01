@@ -12,6 +12,7 @@ import qualified ScanPatterns
 
 
 data UnidentifiedBuildFailure = NetworkProblem String | NoFailedSteps
+  deriving Show
 
 
 data LogInfo = LogInfo {

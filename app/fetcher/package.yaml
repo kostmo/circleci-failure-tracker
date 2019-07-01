@@ -45,6 +45,7 @@ library:
     - array
     - network-uri
     - github
+    - regex-compat
     - MissingH 
 
 executables:

@@ -3,6 +3,7 @@ import           Options.Applicative
 import           System.IO
 
 import qualified BuildRetrieval
+import qualified Builds
 import qualified Constants
 import qualified DbHelpers
 import qualified DbPreparation
@@ -10,13 +11,13 @@ import qualified Scanning
 
 
 data CommandLineArgs = NewCommandLineArgs {
-    buildCount   :: Int
-  , ageDays      :: Int
-  , branchName   :: [String]
-  , dbHostname   :: String
-  , dbPassword   :: String
-  , wipeDatabase :: Bool
-    -- ^ Suppress console output
+    buildCount    :: Int
+  , ageDays       :: Int
+  , branchName    :: [String]
+  , dbHostname    :: String
+  , dbPassword    :: String
+  , wipeDatabase  :: Bool
+  , rescanVisited :: Bool
   }
 
 
@@ -35,6 +36,8 @@ myCliParser = NewCommandLineArgs
    -- Note: this is not the production password; this default is only for local testing
   <*> switch      (long "wipe"
     <> help "Wipe database content before beginning")
+  <*> switch      (long "rescan"
+    <> help "Rescan previously visited builds")
 
 
 mainAppCode :: CommandLineArgs -> IO ()
@@ -47,10 +50,23 @@ mainAppCode args = do
 
   conn <- DbPreparation.prepare_database connection_data $ wipeDatabase args
 
+
+  -- Experimental
+  {-
+  my_scan_result <- Scanning.getFailedBuildInfo scan_resources $ Builds.NewBuildNumber 2102088
+  putStrLn $ "My scan result: " ++ show my_scan_result
+  -}
+
+
+
   BuildRetrieval.updateBuildsList conn (branchName args) fetch_count age_days
 
+
+
   scan_resources <- Scanning.prepareScanResources conn $ Just Constants.defaultPatternAuthor
-  build_matches <- Scanning.scanBuilds scan_resources $ Right fetch_count
+
+
+  build_matches <- Scanning.scanBuilds scan_resources (rescanVisited args) $ Right fetch_count
   putStrLn $ "Scanned " ++ show (length build_matches) ++ " builds."
 
   where

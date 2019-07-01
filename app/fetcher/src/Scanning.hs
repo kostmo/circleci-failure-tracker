@@ -23,6 +23,7 @@ import           GHC.Int                    (Int64)
 import           Network.Wreq               as NW
 import qualified Network.Wreq.Session       as Sess
 import qualified Safe
+import           Text.Regex                 (mkRegex, subRegex)
 
 import qualified AuthStages
 import qualified Builds
@@ -41,13 +42,19 @@ import qualified SqlWrite
 -- | Stores scan results to database and returns them.
 scanBuilds ::
      ScanRecords.ScanCatchupResources
+  -> Bool -- ^ revisit
   -> Either (Set Builds.BuildNumber) Int
   -> IO [(Builds.BuildNumber, [ScanPatterns.ScanMatch])]
-scanBuilds scan_resources whitelisted_builds_or_fetch_count = do
+scanBuilds scan_resources revisit whitelisted_builds_or_fetch_count = do
 
-  visited_builds_list <- SqlRead.get_revisitable_builds conn
-  let whitelisted_visited = visited_filter visited_builds_list
-  rescan_matches <- rescanVisitedBuilds scan_resources whitelisted_visited
+  rescan_matches <- if revisit
+    then do
+      visited_builds_list <- SqlRead.get_revisitable_builds conn
+      let whitelisted_visited = visited_filter visited_builds_list
+      rescanVisitedBuilds scan_resources whitelisted_visited
+    else do
+      putStrLn "NOT rescanning previously-visited builds!"
+      return []
 
   unvisited_builds_list <- SqlRead.get_unvisited_build_ids conn maybe_fetch_limit
   let whitelisted_unvisited = unvisited_filter unvisited_builds_list
@@ -85,8 +92,10 @@ rescanSingleBuild db_connection_data initiator build_to_scan = do
 
       SqlWrite.store_builds_list conn [build_obj]
 
-      scan_matches <- scanBuilds scan_resources $ Left $ Set.singleton build_to_scan
-      putStrLn $ "Found " ++ show (length scan_matches) ++ " matches."
+      scan_matches <- scanBuilds scan_resources True $ Left $ Set.singleton build_to_scan
+--      putStrLn $ "Found " ++ show (length scan_matches) ++ " matches."
+      let total_match_count = sum $ map (length . snd) scan_matches
+      putStrLn $ "Found " ++ show total_match_count ++ " matches across " ++ show (length scan_matches) ++ " builds."
       return ()
 
 
@@ -143,8 +152,19 @@ getPatternObjects scan_resources =
 -- failed step of this build.
 -- Patterns that are not annotated with applicability will apply
 -- to any step.
-catchupScan :: ScanRecords.ScanCatchupResources -> Builds.BuildStepId -> T.Text -> (Builds.BuildNumber, Maybe Builds.BuildFailureOutput) -> [ScanPatterns.DbPattern] -> IO (Either String [ScanPatterns.ScanMatch])
-catchupScan scan_resources buildstep_id step_name (buildnum, maybe_console_output_url) scannable_patterns = do
+catchupScan ::
+     ScanRecords.ScanCatchupResources
+  -> Builds.BuildStepId
+  -> T.Text -- ^ step name
+  -> (Builds.BuildNumber, Maybe Builds.BuildFailureOutput)
+  -> [ScanPatterns.DbPattern]
+  -> IO (Either String [ScanPatterns.ScanMatch])
+catchupScan
+    scan_resources
+    buildstep_id
+    step_name
+    (buildnum, maybe_console_output_url)
+    scannable_patterns = do
 
   putStrLn $ "\tThere are " ++ (show $ length scannable_patterns) ++ " scannable patterns"
 
@@ -163,7 +183,13 @@ catchupScan scan_resources buildstep_id step_name (buildnum, maybe_console_outpu
     Nothing -> return $ Right []
     Just maximum_pattern_id -> runExceptT $ do
 
-      lines_list <- ExceptT $ getAndStoreLog scan_resources buildnum buildstep_id maybe_console_output_url
+      lines_list <- ExceptT $ getAndStoreLog
+        scan_resources
+        False
+        buildnum
+        buildstep_id
+        maybe_console_output_url
+
       let matches = scanLogText lines_list applicable_patterns
 
       liftIO $ do
@@ -173,7 +199,10 @@ catchupScan scan_resources buildstep_id step_name (buildnum, maybe_console_outpu
       return matches
 
 
-rescanVisitedBuilds :: ScanRecords.ScanCatchupResources -> [(Builds.BuildStepId, T.Text, Builds.BuildNumber, [Int64])] -> IO [(Builds.BuildNumber, [ScanPatterns.ScanMatch])]
+rescanVisitedBuilds ::
+     ScanRecords.ScanCatchupResources
+  -> [(Builds.BuildStepId, T.Text, Builds.BuildNumber, [Int64])]
+  -> IO [(Builds.BuildNumber, [ScanPatterns.ScanMatch])]
 rescanVisitedBuilds scan_resources visited_builds_list =
 
   for (zip [1::Int ..] visited_builds_list) $ \(idx, (build_step_id, step_name, build_num, pattern_ids)) -> do
@@ -259,13 +288,22 @@ getFailedBuildInfo scan_resources build_number = do
 
 getAndStoreLog ::
      ScanRecords.ScanCatchupResources
+  -> Bool -- ^ overwrite existing log
   -> Builds.BuildNumber
   -> Builds.BuildStepId
   -> Maybe Builds.BuildFailureOutput
   -> IO (Either String [T.Text])
-getAndStoreLog scan_resources build_number build_step_id maybe_failed_build_output = do
+getAndStoreLog
+    scan_resources
+    overwrite
+    build_number
+    build_step_id
+    maybe_failed_build_output = do
 
-  maybe_console_log <- SqlRead.read_log conn build_number
+  maybe_console_log <- if overwrite
+    then return Nothing
+    else SqlRead.read_log conn build_number
+
   case maybe_console_log of
     Just console_log -> return $ Right $ T.lines console_log  -- Log was already fetched
     Nothing -> runExceptT $ do
@@ -290,18 +328,30 @@ getAndStoreLog scan_resources build_number build_step_id maybe_failed_build_outp
           pred x = x ^. key "type" . _String == "out"
           output_elements = filter pred $ V.toList parent_elements
 
-          console_log = mconcat $ map (\x -> x ^. key "message" . _String) output_elements
-          lines_list = T.lines console_log
-          byte_count = T.length console_log
+          raw_console_log = mconcat $ map (\x -> x ^. key "message" . _String) output_elements
+
+          -- TODO
+          ansi_stripped_log = T.pack $ filterAnsi $ T.unpack raw_console_log
+
+          lines_list = T.lines ansi_stripped_log
+          byte_count = T.length ansi_stripped_log
 
       liftIO $ SqlWrite.store_log_info scan_resources build_step_id $
-        ScanRecords.LogInfo byte_count (length lines_list) console_log
+        ScanRecords.LogInfo byte_count (length lines_list) ansi_stripped_log
 
       return lines_list
 
   where
     aws_sess = ScanRecords.aws_sess $ ScanRecords.fetching scan_resources
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
+
+
+-- | Strips bold markup and coloring
+ansiRegex = mkRegex "\x1b\\[([0-9;]*m|K)"
+
+
+filterAnsi :: String -> String
+filterAnsi line = subRegex ansiRegex line ""
 
 
 scanLogText ::

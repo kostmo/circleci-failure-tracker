@@ -1453,7 +1453,7 @@ ALTER TABLE ONLY public.broken_build_reports
 --
 
 ALTER TABLE ONLY public.build_steps
-    ADD CONSTRAINT build_steps_build_fkey FOREIGN KEY (build) REFERENCES public.builds(build_num);
+    ADD CONSTRAINT build_steps_build_fkey FOREIGN KEY (build) REFERENCES public.builds(build_num) ON DELETE CASCADE;
 
 
 --
@@ -1517,7 +1517,7 @@ ALTER TABLE ONLY public.scanned_patterns
 --
 
 ALTER TABLE ONLY public.log_metadata
-    ADD CONSTRAINT log_metadata_step_fkey FOREIGN KEY (step) REFERENCES public.build_steps(id);
+    ADD CONSTRAINT log_metadata_step_fkey FOREIGN KEY (step) REFERENCES public.build_steps(id) ON DELETE CASCADE;
 
 
 --
@@ -1533,7 +1533,7 @@ ALTER TABLE ONLY public.matches
 --
 
 ALTER TABLE ONLY public.matches
-    ADD CONSTRAINT matches_build_step_fkey FOREIGN KEY (build_step) REFERENCES public.build_steps(id);
+    ADD CONSTRAINT matches_build_step_fkey FOREIGN KEY (build_step) REFERENCES public.build_steps(id) ON DELETE CASCADE;
 
 
 --
@@ -1581,7 +1581,7 @@ ALTER TABLE ONLY public.pattern_tags
 --
 
 ALTER TABLE ONLY public.scanned_patterns
-    ADD CONSTRAINT scanned_patterns_build_fkey FOREIGN KEY (build) REFERENCES public.builds(build_num);
+    ADD CONSTRAINT scanned_patterns_build_fkey FOREIGN KEY (build) REFERENCES public.builds(build_num) ON DELETE CASCADE;
 
 
 --
