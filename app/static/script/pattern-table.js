@@ -36,7 +36,7 @@ function render_relative_time(cell) {
 }
 
 
-function gen_patterns_table(pattern_id, filtered_branches) {
+function gen_patterns_table(pattern_id, used_presumed_stable_branches, filtered_branches) {
 
 	// Note the plural ("s")
 	var api_endpoint_url = "/api/patterns";
@@ -48,6 +48,10 @@ function gen_patterns_table(pattern_id, filtered_branches) {
 
 	        var ajax_url_query_string = $.param(query_parms);
 		api_endpoint_url = "/api/pattern?" + ajax_url_query_string;
+
+	} else if (used_presumed_stable_branches) {
+
+		api_endpoint_url = "/api/patterns-presumed-stable-branches"
 
 	} else if (filtered_branches.length > 0) {
 

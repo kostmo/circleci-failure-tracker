@@ -351,7 +351,7 @@ function get_column_definitions(raw_column_list) {
 			}
 		},
 		minWidth: 90,
-		width: 120,
+		width: 200,
 		resizable: true,
 		headerSort: false,
 		frozen: true,

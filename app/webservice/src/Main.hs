@@ -612,6 +612,9 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
     S.get "/api/patterns" $
       S.json =<< liftIO (SqlRead.api_patterns connection_data)
 
+    S.get "/api/patterns-presumed-stable-branches" $
+      S.json =<< liftIO (SqlRead.api_patterns_presumed_stable_branches connection_data)
+
     S.get "/api/patterns-branch-filtered" $ do
       branches <- S.param "branches"
       liftIO $ putStrLn $ "Got branch list: " ++ show branches
