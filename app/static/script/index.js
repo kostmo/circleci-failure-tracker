@@ -1,55 +1,8 @@
-
-
-
-function setup_autocomplete() {
-
-    $( "#branch-name-input" ).autocomplete({
-      source: function( request, response ) {
-        $.ajax( {
-          url: "/api/branch-suggest",
-          dataType: "json",
-          data: {
-            term: request.term
-          },
-          success: function( data ) {
-            response( data );
-          }
-        } );
-      },
-      minLength: 1,
-      select: function( event, ui ) {
-	console.log( "Selected: " + ui.item.value + " aka " + ui.item.id );
-	requery_patterns();
-      }
-    } );
-}
-
-
-
-function requery_patterns() {
-
-	var branch_name = $( "#branch-name-input" ).val();
-
-	var branches_list = document.getElementById('branch-filter-checkbox').checked ? [branch_name] : [];
-
-	gen_patterns_table(null, branches_list);
-}
-
-
-function main() {
-
-	$("#branch-filter-checkbox").change(function() {
-		requery_patterns();
-	});
-
-	setup_autocomplete();
-
-	requery_patterns();
-
+function gen_step_failures_chart(container_id) {
 
    $.getJSON('/api/step', function (data) {
 
-      Highcharts.chart('container-step-failures', {
+      Highcharts.chart(container_id, {
         chart: {
             plotBackgroundColor: null,
             plotBorderWidth: null,
@@ -89,4 +42,10 @@ function main() {
       });
 
    });
+}
+
+
+function main() {
+
+	gen_step_failures_chart('container-step-failures');
 }

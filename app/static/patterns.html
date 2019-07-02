@@ -18,33 +18,33 @@
 <script type="text/javascript" src="https://unpkg.com/tabulator-tables@4.2.5/dist/js/tabulator.min.js"></script>
 
 <script src="/script/html-utils.js"></script>
-<script src="/script/index.js"></script>
+<script src="/script/tag-helpers.js"></script>
+<script src="/script/pattern-table.js"></script>
+<script src="/script/patterns.js"></script>
 </head>
 
 <body onload="main();">
 
-<h2>Contents</h2>
+
+<span style="float: right">[<a href="/">home</a>]</span>
+<h1>Pattern occurrences</h1>
 <ul>
-<li>Admin
-<ul>
-	<li><a href="live-scan-updates.html">Scan progress</a></li>
-	<li><a href="status-postings.html">Status postings</a></li>
-	<li><a href="system-health.html">System health</a></li>
-</ul></li>
-<li>Analysis<ul>
-	<li><a href="trends.html">Failures over time</a></li>
-	<li><a href="occurrences-timeline.html">Pattern occurrences timeline</a></li>
-	<li><a href="unattributed-failures.html">Unattributed failures</a></li>
-	<li><a href="analysis-by-job.html">Analysis by job</a></li>
-	<li><a href="master-timeline.html">Master branch</a></li>
-	<li><a href="code-breakages.html">Code breakages</a></li>
-	<li><a href="patterns.html">Patterns</a></li>
-</ul></li>
+<li>
+<a href="/add-pattern.html">Add pattern</a>
+</li>
 </ul>
 
-<h2>Charts</h2>
+<form onsubmit="return false;">
+<label><input type="radio" name="filter-mode" value="stable-branches"/> "presumed stable" branches</label><br/>
+<label><input type="radio" name="filter-mode" value="single-branch"/> Filter for branch: <input id="branch-name-input" type="text" value=""/></label><br/>
+<label><input type="radio" name="filter-mode" value="none" checked="true"/> no filter</label>
+</form>
 
-<div id="container-step-failures" style="min-width: 500px; height: 400px; max-width: 600px; margin: 0 auto"></div>
+<div id="patterns-table"></div>
+
+<h1>Tags</h1>
+
+<div id="container-tag-builds" style="min-width: 500px; height: 400px; max-width: 600px; margin: 0 auto"></div>
 
 <hr/>
 

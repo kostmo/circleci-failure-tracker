@@ -2,7 +2,6 @@
 var breakage_starts_by_job_name = {};
 
 
-
 function gen_broken_jobs_table(element_id, data_url) {
 
 	var column_list = [
@@ -26,8 +25,6 @@ function gen_broken_jobs_table(element_id, data_url) {
 }
 
 
-
-
 function get_timeline_data(offset, count) {
 
 	var urlParams = new URLSearchParams(window.location.search);
@@ -49,8 +46,26 @@ function get_timeline_data(offset, count) {
 		"count": count,
 	}
 
+
 	$.getJSON('/api/master-timeline', parms, function (mydata) {
-		gen_timeline_table("master-timeline-table", mydata);
+
+		if (mydata.commits.length) {
+
+			var first_commit_sha1 = mydata.commits[0].record;
+
+			// Get commit messages
+			$.getJSON('https://api.github.com/repos/pytorch/pytorch/commits', {"sha": first_commit_sha1, "per_page": mydata.commits.length}, function (data) {
+				var commit_dict = {};
+				for (var value of data) {
+					commit_dict[value["sha"]] = value["commit"];
+				}
+
+				gen_timeline_table("master-timeline-table", commit_dict, mydata);
+			});
+
+		} else {
+			alert("No commits!");
+		}
 	});
 }
 
@@ -285,7 +300,6 @@ function define_column(col) {
 
 			var cell_value = cell.getValue();
 
-
 			var dropdown_element = document.getElementById("myDropdown");
 
 			while (dropdown_element.firstChild) {
@@ -320,10 +334,24 @@ function get_column_definitions(raw_column_list) {
 		field: "commit",
 		headerVertical: false,
 		formatter: function(cell, formatterParams, onRendered) {
-			return sha1_link(cell.getValue());
+
+			var commit_metadata = cell.getRow().getData()["commit_metadata"];
+
+			var message_suffix = commit_metadata ? ": " + commit_metadata["message"] : "";
+			return sha1_link(cell.getValue()) + message_suffix;
+		},
+		tooltip: function(cell) {
+
+			var commit_metadata = cell.getRow().getData()["commit_metadata"];
+			if (commit_metadata) {
+				return commit_metadata["message"];
+			} else {
+				console.log("No message for commit " + cell.getValue());
+				return false;
+			}
 		},
 		minWidth: 90,
-		width: 90,
+		width: 120,
 		resizable: true,
 		headerSort: false,
 		frozen: true,
@@ -383,7 +411,7 @@ function generate_column_tree(column_names) {
 
 
 
-function gen_timeline_table(element_id, fetched_data) {
+function gen_timeline_table(element_id, commit_info_by_sha1, fetched_data) {
 
 	var column_list = get_column_definitions(fetched_data.columns);
 
@@ -416,6 +444,7 @@ function gen_timeline_table(element_id, fetched_data) {
 
 		row_dict["commit_index"] = commit_obj.db_id;
 		row_dict["commit"] = sha1;
+		row_dict["commit_metadata"] = commit_info_by_sha1[sha1];
 
 		for (var job_name in failures_by_job_name) {
 			row_dict[job_name] = failures_by_job_name[job_name];

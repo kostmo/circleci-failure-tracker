@@ -487,6 +487,25 @@ list_flat sql conn_data t = do
   map (\(Only x) -> x) <$> query conn sql (Only t)
 
 
+data TagUsage = TagUsage {
+    _tag           :: Text
+  , _pattern_count :: Integer
+  , _build_count   :: Integer
+  } deriving Generic
+
+
+instance ToJSON TagUsage where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+api_tags_histogram :: DbHelpers.DbConnectionData -> IO [TagUsage]
+api_tags_histogram conn_data = do
+  conn <- DbHelpers.get_connection conn_data
+  map (\(x, y, z) -> TagUsage x y z) <$> query_ conn sql
+  where
+    sql = "SELECT tag, COUNT(*) AS pattern_count, SUM(matching_build_count)::bigint AS build_matches FROM pattern_tags LEFT JOIN pattern_frequency_summary ON pattern_frequency_summary.id = pattern_tags.pattern GROUP BY tag ORDER BY pattern_count DESC, build_matches DESC;"
+
+
 api_autocomplete_tags :: DbHelpers.DbConnectionData -> Text -> IO [Text]
 api_autocomplete_tags = list_flat sql
   where

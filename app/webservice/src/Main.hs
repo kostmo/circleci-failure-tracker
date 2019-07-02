@@ -455,6 +455,9 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
         foo <- SqlRead.api_new_pattern_test connection_data (Builds.NewBuildNumber buildnum) new_pattern
         return $ WebApi.toJsonEither foo)
 
+    S.get "/api/tags" $ do
+      S.json =<< liftIO (SqlRead.api_tags_histogram connection_data)
+
     S.get "/api/tag-suggest" $ do
       term <- S.param "term"
       S.json =<< liftIO (SqlRead.api_autocomplete_tags connection_data term)

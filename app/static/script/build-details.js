@@ -120,15 +120,6 @@ function populate_build_info(build_id, parent_data) {
 	});
 	$("#implicate-self-button").prop("disabled", false);
 
-	// TODO Use this for something
-	$.getJSON('https://api.github.com/repos/pytorch/pytorch/commits', {"build_id": build_id}, function (data) {
-		var commit_list = [];
-		for (var value of data) {
-			commit_list.push([value["sha1"], value["commit"]["author"]["name"], value["commit"]["message"]]);
-		}
-		console.log("Commit list: " + commit_list);
-	});
-
         $("#build-info-box").html(render_table_vertical_headers(items));
 
 	populate_breakage_form("submission_button_placeholder", data["step_id"], data);
