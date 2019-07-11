@@ -1,3 +1,5 @@
+- [![TravisCI Build Status](https://travis-ci.com/kostmo/totto.svg?branch=master)](https://travis-ci.com/kostmo/totto)
+
 # A log analyzer for CircleCI
 
 One would like to determine what the most common causes of intermittent build
