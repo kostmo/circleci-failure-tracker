@@ -350,6 +350,8 @@ getAndStoreLog
 ansiRegex = mkRegex "\x1b\\[([0-9;]*m|K)"
 
 
+-- | TODO: Consider using attoparsec instead of regex:
+-- https://pl-rants.net/posts/regexes-and-combinators/
 filterAnsi :: String -> String
 filterAnsi line = subRegex ansiRegex line ""
 

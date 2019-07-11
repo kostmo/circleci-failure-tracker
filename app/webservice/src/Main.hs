@@ -659,7 +659,6 @@ mainAppCode args = do
 
   maybe_envar_port <- lookupEnv "PORT"
   let prt = Maybe.fromMaybe (serverPort args) $ readMaybe =<< maybe_envar_port
-  putStrLn $ "Listening on port " <> show prt
 
   -- TODO get rid of this
   cache <- Session.initCacheStore
@@ -691,8 +690,6 @@ mainAppCode args = do
       (DbHelpers.OwnerAndRepo Constants.project_name Constants.repo_name)
   -}
     return ()
-
-
 
 
 
@@ -742,9 +739,8 @@ myCliParser = NewCommandLineArgs
     <> help "Path to static data files")
   <*> strOption   (long "db-hostname" <> value "localhost" <> metavar "DATABASE_HOSTNAME"
     <> help "Hostname of database")
-  <*> strOption   (long "db-password" <> value "logan01" <> metavar "DATABASE_PASSWORD"
+  <*> strOption   (long "db-password" <> metavar "DATABASE_PASSWORD"
     <> help "Password for database user")
-   -- Note: this is not the production password; this default is only for local testing
   <*> strOption   (long "github-client-id" <> metavar "GITHUB_CLIENT_ID"
     <> help "Client ID for GitHub app")
   <*> strOption   (long "github-client-secret" <> metavar "GITHUB_CLIENT_SECRET"

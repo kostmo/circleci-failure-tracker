@@ -1,0 +1,83 @@
+#!/usr/bin/env python3
+
+"""
+Obtains credentials and passes them as CLI args to stack invocation
+"""
+
+import os
+import argparse
+import json
+import subprocess
+
+import tools.deployment.args_assembly as args_assembly
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description='Run webapp locally')
+    parser.add_argument('--personal-access-token-file', dest='personal_token_file',
+                        default="../circleci-failure-tracker-credentials/github-personal-access-token.txt",
+                        help='File containing GitHub personal access token')
+
+    # Note: the "local" credentials use "github-client-id" and "github-client-secret" for
+    # the GitHub app named "circleci-failure-attribution-dev", while
+    # the "remote" credentials use a client id and secret for the GitHub app named "circleci-failure-attribution".
+    # The local credentials should be used along with ngrok for exposing our local port with.
+    parser.add_argument('--remote-app', dest='remote_app', action="store_true", help='For remote deployment (default is local)')
+    
+    parser.add_argument('--remote-db', dest='remote_db', action="store_true", help='Use remote database (default is local)')
+
+    parser.add_argument('--credentials-json-basedir', dest='credentials_json_basedir',
+                        default="../circleci-failure-tracker-credentials",
+                        help='Path to JSON file containing various webapp credentials')
+
+    parser.add_argument('--dockerrun-json-output-path', dest='dockerrun_json',
+                        default="Dockerrun.aws.json",
+                        help='Path to write Dockerrun.aws.json file')
+
+    return parser.parse_args()
+
+
+def gen_credentials_filename(is_db, is_remote):
+
+    credential_type = "database" if is_db else "app"
+    locality_suffix = "remote" if is_remote else "local"
+
+    return "-".join([credential_type, "credentials", locality_suffix]) + ".json"
+
+
+if __name__ == "__main__":
+
+    options = parse_args()
+
+    app_credentials_json_path = os.path.join(options.credentials_json_basedir, gen_credentials_filename(False, options.remote_app))
+    db_credentials_json_path = os.path.join(options.credentials_json_basedir, gen_credentials_filename(True, options.remote_db))
+
+    with open(app_credentials_json_path) as fh_app, open(db_credentials_json_path) as fh_db:
+
+        personal_access_token = open(options.personal_token_file).read().strip()
+
+        nondefault_cli_arglist = args_assembly.generate_app_nondefault_cli_arglist(
+            json.load(fh_app),
+            json.load(fh_db),
+            personal_access_token)
+
+        if options.remote_app:
+            args_assembly.generate_dockerrun_aws_json(options.dockerrun_json, nondefault_cli_arglist)
+
+        else:
+            os.system('find -name "*.tix" -delete')
+
+            cli_args = [
+                   "stack",
+                   "run",
+                   args_assembly.WEBAPP_BINARY_NAME,
+                   "--",
+                   "--local",
+                   "--data-path",
+                   "static",
+               ] + nondefault_cli_arglist
+
+            command_string = " ".join(cli_args)
+            subprocess.check_call(command_string, shell=True, cwd="app")
+
+

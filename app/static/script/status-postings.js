@@ -1,13 +1,11 @@
-function gen_time_plot(container_id, api_path) {
+function gen_time_plot(container_id, api_path, title) {
 
    $.getJSON(api_path, function (data) {
 
         var rows = [];
-
-        $.each(data.rows, function( index, value ) {
-
+        for (var value of data.rows) {
                 rows.push([Date.parse(value[0]), value[1]]);
-        });
+        }
 
       Highcharts.chart(container_id, {
 
@@ -15,7 +13,7 @@ function gen_time_plot(container_id, api_path) {
                 type: 'line'
             },
             title: {
-                text: 'Status postings by day'
+                text: title + ' by day'
             },
             xAxis: {
                 type: 'datetime',
@@ -45,12 +43,11 @@ function gen_time_plot(container_id, api_path) {
                     }
                 }
             },
-
         credits: {
             enabled: false
         },
         series: [{
-            name: "Status postings",
+            name: title,
             data: rows,
             }],
       });
@@ -83,22 +80,22 @@ function gen_postings_table(element_id, data_url) {
 function gen_aggregate_postings_table(element_id, data_url) {
 
 	var table = new Tabulator("#" + element_id, {
-	    height:"400px",
-	    layout:"fitColumns",
-	    placeholder:"No Data Set",
-	    columns:[
-		{title: "Revision", field: "sha1", width: 100, formatter: function(cell, formatterParams, onRendered) {
-			return '<code><a href="/commit-details.html?sha1=' + cell.getValue() + '">' + cell.getValue().substring(0, 7) + '</a></code>';
-		  }},
-		{title: "Count", field: "count", sorter: "string"},
-		{title: "Last", field: "last_time", formatter: function(cell, formatterParams, onRendered) {
-			return moment(cell.getValue()).fromNow();
-		    }},
-		{title: "Interval", field: "time_interval", formatter: function(cell, formatterParams, onRendered) {
-			return parseInt(cell.getValue()) + "s";
-		    }},
-	    ],
-            ajaxURL: data_url,
+		height:"400px",
+		layout:"fitColumns",
+		placeholder:"No Data Set",
+		columns:[
+			{title: "Revision", field: "sha1", width: 100, formatter: function(cell, formatterParams, onRendered) {
+				return '<code><a href="/commit-details.html?sha1=' + cell.getValue() + '">' + cell.getValue().substring(0, 7) + '</a></code>';
+			}},
+			{title: "Count", field: "count", sorter: "string"},
+			{title: "Last", field: "last_time", formatter: function(cell, formatterParams, onRendered) {
+				return moment(cell.getValue()).fromNow();
+			}},
+			{title: "Interval", field: "time_interval", formatter: function(cell, formatterParams, onRendered) {
+				return parseInt(cell.getValue()) + "s";
+			}},
+		],
+		ajaxURL: data_url,
 	});
 }
 
@@ -108,7 +105,7 @@ function main() {
 	gen_postings_table("status-postings-table", "/api/posted-statuses?count=50");
 	gen_aggregate_postings_table("aggregate-status-postings-table", "/api/aggregate-posted-statuses?count=50");
 
-	gen_time_plot('container-status-commits-by-day', '/api/status-posted-commits-by-day');
-	gen_time_plot('container-status-postings-by-day', '/api/status-postings-by-day');
+	gen_time_plot('container-status-commits-by-day', '/api/status-posted-commits-by-day', "Commit annotations");
+	gen_time_plot('container-status-postings-by-day', '/api/status-postings-by-day', "Status postings");
 }
 
