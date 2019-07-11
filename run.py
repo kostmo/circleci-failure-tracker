@@ -11,23 +11,26 @@ import subprocess
 
 import tools.deployment.args_assembly as args_assembly
 
+THIS_DIRECTORY = os.path.abspath(os.path.dirname(__file__))
+
+DEFAULT_CREDENTIALS_DIRECTORY = os.path.join(THIS_DIRECTORY, "../circleci-failure-tracker-credentials")
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Run webapp locally')
     parser.add_argument('--personal-access-token-file', dest='personal_token_file',
-                        default="../circleci-failure-tracker-credentials/github-personal-access-token.txt",
+                        default=os.path.join(DEFAULT_CREDENTIALS_DIRECTORY, "github-personal-access-token.txt"),
                         help='File containing GitHub personal access token')
 
     # Note: the "local" credentials use "github-client-id" and "github-client-secret" for
     # the GitHub app named "circleci-failure-attribution-dev", while
     # the "remote" credentials use a client id and secret for the GitHub app named "circleci-failure-attribution".
     # The local credentials should be used along with ngrok for exposing our local port with.
-    parser.add_argument('--remote-app', dest='remote_app', action="store_true", help='For remote deployment (default is local)')
+    parser.add_argument('--prod-app', dest='prod_app', action="store_true", help='For production deployment (default is local).  Implies --remote-db')
     
-    parser.add_argument('--remote-db', dest='remote_db', action="store_true", help='Use remote database (default is local)')
+    parser.add_argument('--prod-db', dest='prod_db', action="store_true", help='Use production (remote) database (default is local)')
 
     parser.add_argument('--credentials-json-basedir', dest='credentials_json_basedir',
-                        default="../circleci-failure-tracker-credentials",
+                        default=DEFAULT_CREDENTIALS_DIRECTORY,
                         help='Path to JSON file containing various webapp credentials')
 
     parser.add_argument('--dockerrun-json-output-path', dest='dockerrun_json',
@@ -49,8 +52,10 @@ if __name__ == "__main__":
 
     options = parse_args()
 
-    app_credentials_json_path = os.path.join(options.credentials_json_basedir, gen_credentials_filename(False, options.remote_app))
-    db_credentials_json_path = os.path.join(options.credentials_json_basedir, gen_credentials_filename(True, options.remote_db))
+    using_prod_db = options.prod_app or options.prod_db
+
+    app_credentials_json_path = os.path.join(options.credentials_json_basedir, gen_credentials_filename(False, options.prod_app))
+    db_credentials_json_path = os.path.join(options.credentials_json_basedir, gen_credentials_filename(True, using_prod_db))
 
     with open(app_credentials_json_path) as fh_app, open(db_credentials_json_path) as fh_db:
 
@@ -61,7 +66,7 @@ if __name__ == "__main__":
             json.load(fh_db),
             personal_access_token)
 
-        if options.remote_app:
+        if options.prod_app:
             args_assembly.generate_dockerrun_aws_json(options.dockerrun_json, nondefault_cli_arglist)
 
         else:

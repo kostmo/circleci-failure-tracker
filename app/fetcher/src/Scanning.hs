@@ -24,6 +24,7 @@ import           Network.Wreq               as NW
 import qualified Network.Wreq.Session       as Sess
 import qualified Safe
 import           Text.Regex                 (mkRegex, subRegex)
+import           Text.Regex.Posix.Wrap      (Regex)
 
 import qualified AuthStages
 import qualified Builds
@@ -93,9 +94,15 @@ rescanSingleBuild db_connection_data initiator build_to_scan = do
       SqlWrite.store_builds_list conn [build_obj]
 
       scan_matches <- scanBuilds scan_resources True $ Left $ Set.singleton build_to_scan
---      putStrLn $ "Found " ++ show (length scan_matches) ++ " matches."
+
       let total_match_count = sum $ map (length . snd) scan_matches
-      putStrLn $ "Found " ++ show total_match_count ++ " matches across " ++ show (length scan_matches) ++ " builds."
+      putStrLn $ unwords [
+          "Found"
+        , show total_match_count
+        , "matches across"
+        , show $ length scan_matches
+        , "builds."
+        ]
       return ()
 
 
@@ -166,7 +173,7 @@ catchupScan
     (buildnum, maybe_console_output_url)
     scannable_patterns = do
 
-  putStrLn $ "\tThere are " ++ (show $ length scannable_patterns) ++ " scannable patterns"
+  putStrLn $ "\tThere are " ++ show (length scannable_patterns) ++ " scannable patterns"
 
   let is_pattern_applicable p = not pat_is_retired && (null appl_steps || elem step_name appl_steps)
         where
@@ -225,7 +232,11 @@ processUnvisitedBuilds :: ScanRecords.ScanCatchupResources -> [Builds.BuildNumbe
 processUnvisitedBuilds scan_resources unvisited_builds_list =
 
   for (zip [1::Int ..] unvisited_builds_list) $ \(idx, build_num) -> do
-    putStrLn $ "Visiting " ++ show idx ++ "/" ++ show unvisited_count ++ " unvisited builds..."
+    putStrLn $ unwords [
+        "Visiting"
+      , show idx ++ "/" ++ show unvisited_count
+      , "unvisited builds..."
+      ]
     visitation_result <- getFailedBuildInfo scan_resources build_num
 
     let pair = (build_num, visitation_result)
@@ -286,6 +297,7 @@ getFailedBuildInfo scan_resources build_number = do
     sess = ScanRecords.circle_sess $ ScanRecords.fetching scan_resources
 
 
+-- | This function strips all ANSI escape codes from the console log before storage.
 getAndStoreLog ::
      ScanRecords.ScanCatchupResources
   -> Bool -- ^ overwrite existing log
@@ -324,13 +336,12 @@ getAndStoreLog
       log_download_result <- ExceptT $ FetchHelpers.safeGetUrl $ Sess.get aws_sess $ T.unpack download_url
 
       let parent_elements = log_download_result ^. NW.responseBody . _Array
-          -- we need to concatenate all of the "out" elements
+          -- for some reason the log is sometimes split into sections, so we concatenate all of the "out" elements
           pred x = x ^. key "type" . _String == "out"
           output_elements = filter pred $ V.toList parent_elements
 
           raw_console_log = mconcat $ map (\x -> x ^. key "message" . _String) output_elements
 
-          -- TODO
           ansi_stripped_log = T.pack $ filterAnsi $ T.unpack raw_console_log
 
           lines_list = T.lines ansi_stripped_log
@@ -347,6 +358,7 @@ getAndStoreLog
 
 
 -- | Strips bold markup and coloring
+ansiRegex :: Text.Regex.Posix.Wrap.Regex
 ansiRegex = mkRegex "\x1b\\[([0-9;]*m|K)"
 
 
@@ -373,12 +385,19 @@ scanLog ::
   -> IO (Either String [ScanPatterns.ScanMatch])
 scanLog scan_resources build_number@(Builds.NewBuildNumber buildnum) patterns = do
 
-  putStrLn $ "Scanning log for " ++ show (length patterns) ++ " patterns..."
+  putStrLn $ unwords [
+      "Scanning log for"
+    , show $ length patterns
+    , "patterns..."
+    ]
 
   maybe_console_log <- SqlRead.read_log conn build_number
   return $ case maybe_console_log of
     Just console_log -> Right $ scanLogText (T.lines console_log) patterns
-    Nothing -> Left $ "No log found for build number " ++ show buildnum
+    Nothing -> Left $ unwords [
+        "No log found for build number"
+      , show buildnum
+      ]
 
   where
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources

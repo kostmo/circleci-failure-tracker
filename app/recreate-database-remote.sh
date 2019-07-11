@@ -9,4 +9,4 @@ DB_HOSTNAME=$1
 #echo "SELECT pid, pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid();" | psql --no-password -U postgres -h $DB_HOSTNAME
 
 dropdb --no-password -U postgres -h $DB_HOSTNAME loganci
-psql --no-password -U postgres -h $DB_HOSTNAME < ../schema.sql
+psql --no-password -U postgres -h $DB_HOSTNAME < ../configuration/schema.sql

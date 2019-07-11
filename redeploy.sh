@@ -23,8 +23,7 @@ docker tag $DOCKER_IMAGE_NAME $DOCKER_TAG_NAME
 docker push $DOCKER_TAG_NAME
 
 # This generates the "Dockerrun.aws.json" file.
-# TODO rename this command and update args
-../run-local-server.py --remote
+../run.py --prod-app --dockerrun-json-output-path $AWS_DOCKERRUN_CONFIG_FILENAME
 
 eb deploy
 

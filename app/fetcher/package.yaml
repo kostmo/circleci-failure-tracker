@@ -36,6 +36,7 @@ library:
     - transformers
     - scientific
     - text
+    - regex-posix
     - hoauth2
     - http-conduit
     - uri-bytestring
