@@ -375,32 +375,32 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
     S.get "/api/test-failures" $ do
       pattern_id <- S.param "pattern_id"
       S.json =<< liftIO (do
-        either_items <- SqlRead.api_test_failures connection_data $ ScanPatterns.PatternId pattern_id
+        either_items <- SqlRead.apiTestFailures connection_data $ ScanPatterns.PatternId pattern_id
         return $ WebApi.toJsonEither either_items)
 
     S.get "/api/posted-statuses" $ do
       count <- S.param "count"
-      S.json =<< liftIO (SqlRead.api_posted_statuses connection_data count)
+      S.json =<< liftIO (SqlRead.apiPostedStatuses connection_data count)
 
     S.get "/api/aggregate-posted-statuses" $ do
       count <- S.param "count"
-      S.json =<< liftIO (SqlRead.api_aggregate_posted_statuses connection_data count)
+      S.json =<< liftIO (SqlRead.apiAggregatePostedStatuses connection_data count)
 
     S.get "/api/list-commit-jobs" $ do
       sha1 <- S.param "sha1"
-      S.json =<< liftIO (SqlRead.api_commit_jobs connection_data $ Builds.RawCommit sha1)
+      S.json =<< liftIO (SqlRead.apiCommitJobs connection_data $ Builds.RawCommit sha1)
 
     S.get "/api/job" $
-      S.json =<< liftIO (SqlRead.api_jobs connection_data)
+      S.json =<< liftIO (SqlRead.apiJobs connection_data)
 
     S.get "/api/log-storage-stats" $
       S.json =<< liftIO (SqlRead.api_storage_stats connection_data)
 
     S.get "/api/log-size-histogram" $
-      S.json =<< liftIO (SqlRead.api_byte_count_histogram connection_data)
+      S.json =<< liftIO (SqlRead.apiByteCountHistogram connection_data)
 
     S.get "/api/log-lines-histogram" $
-      S.json =<< liftIO (SqlRead.api_line_count_histogram connection_data)
+      S.json =<< liftIO (SqlRead.apiLineCountHistogram connection_data)
 
     S.get "/api/master-timeline" $ do
       offset_count <- S.param "offset"
@@ -417,7 +417,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       S.json json_result
 
     S.get "/api/step" $
-      S.json =<< liftIO (SqlRead.api_step connection_data)
+      S.json =<< liftIO (SqlRead.apiStep connection_data)
 
     S.get "/api/commit-info" $ do
       commit_sha1_text <- S.param "sha1"
@@ -591,7 +591,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       S.json =<< liftIO (SqlRead.api_commit_breakage_reports connection_data commit_sha1_text)
 
     S.get "/api/patterns-timeline" $
-      S.json =<< liftIO (SqlRead.api_pattern_occurrence_timeline connection_data)
+      S.json =<< liftIO (SqlRead.apiPatternOccurrenceTimeline connection_data)
 
     S.get "/api/patterns" $
       S.json =<< liftIO (SqlRead.api_patterns connection_data)

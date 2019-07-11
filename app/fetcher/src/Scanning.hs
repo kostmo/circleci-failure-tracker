@@ -50,14 +50,14 @@ scanBuilds scan_resources revisit whitelisted_builds_or_fetch_count = do
 
   rescan_matches <- if revisit
     then do
-      visited_builds_list <- SqlRead.get_revisitable_builds conn
+      visited_builds_list <- SqlRead.getRevisitableBuilds conn
       let whitelisted_visited = visited_filter visited_builds_list
       rescanVisitedBuilds scan_resources whitelisted_visited
     else do
       putStrLn "NOT rescanning previously-visited builds!"
       return []
 
-  unvisited_builds_list <- SqlRead.get_unvisited_build_ids conn maybe_fetch_limit
+  unvisited_builds_list <- SqlRead.getUnvisitedBuildIds conn maybe_fetch_limit
   let whitelisted_unvisited = unvisited_filter unvisited_builds_list
   first_scan_matches <- processUnvisitedBuilds scan_resources whitelisted_unvisited
 
@@ -135,10 +135,10 @@ prepareScanResources conn maybe_initiator = do
   aws_sess <- Sess.newSession
   circle_sess <- Sess.newSession
 
-  pattern_records <- SqlRead.get_patterns conn
+  pattern_records <- SqlRead.getPatterns conn
   let patterns_by_id = DbHelpers.to_dict pattern_records
 
-  latest_pattern_id <- SqlRead.get_latest_pattern_id conn
+  latest_pattern_id <- SqlRead.getLatestPatternId conn
   scan_id <- SqlWrite.insert_scan_id conn maybe_initiator latest_pattern_id
 
   return $ ScanRecords.ScanCatchupResources

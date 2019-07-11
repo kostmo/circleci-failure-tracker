@@ -49,12 +49,12 @@ import qualified StoredBreakageReports
 import qualified WebApi
 
 
-split_agg_text :: String -> [String]
-split_agg_text = filter (not . null) . splitOn ";"
+splitAggText :: String -> [String]
+splitAggText = filter (not . null) . splitOn ";"
 
 
-construct_expression :: Bool -> Text -> Bool -> ScanPatterns.MatchExpression
-construct_expression
+constructExpression :: Bool -> Text -> Bool -> ScanPatterns.MatchExpression
+constructExpression
     is_regex
     pattern_text
     is_nondeterministic = if is_regex
@@ -62,7 +62,7 @@ construct_expression
   else ScanPatterns.LiteralExpression pattern_text
 
 
-wrap_pattern ::
+wrapPattern ::
      Int64
   -> Bool
   -> Text
@@ -74,15 +74,15 @@ wrap_pattern ::
   -> Bool
   -> Maybe Int
   -> ScanPatterns.DbPattern
-wrap_pattern pattern_id is_regex pattern_text is_nondeterministic description tags_list steps_list specificity is_retired maybe_lines_from_end =
+wrapPattern pattern_id is_regex pattern_text is_nondeterministic description tags_list steps_list specificity is_retired maybe_lines_from_end =
   DbHelpers.WithId pattern_id inner_pattern
   where
-    expression_obj = construct_expression is_regex pattern_text is_nondeterministic
+    expression_obj = constructExpression is_regex pattern_text is_nondeterministic
     inner_pattern = ScanPatterns.NewPattern expression_obj description tags_list steps_list specificity is_retired maybe_lines_from_end
 
 
-get_patterns :: Connection -> IO [ScanPatterns.DbPattern]
-get_patterns conn = do
+getPatterns :: Connection -> IO [ScanPatterns.DbPattern]
+getPatterns conn = do
 
   patterns_rows <- query_ conn patterns_sql
 
@@ -91,7 +91,7 @@ get_patterns conn = do
     tags_list <- map (\(Only tag_text) -> tag_text) <$> query conn tags_sql (Only pattern_id)
     steps_list <- map (\(Only step_text) -> step_text) <$> query conn applicable_steps_sql (Only pattern_id)
 
-    return $ wrap_pattern pattern_id is_regex pattern_text has_nondeterministic_values description tags_list steps_list specificity is_retired lines_from_end
+    return $ wrapPattern pattern_id is_regex pattern_text has_nondeterministic_values description tags_list steps_list specificity is_retired lines_from_end
 
   where
     patterns_sql = "SELECT id, regex, expression, has_nondeterministic_values, description, specificity, is_retired, lines_from_end FROM patterns ORDER BY description;"
@@ -100,8 +100,8 @@ get_patterns conn = do
     applicable_steps_sql = "SELECT step_name FROM pattern_step_applicability WHERE pattern = ?;"
 
 
-get_unvisited_build_ids :: Connection -> Maybe Int -> IO [Builds.BuildNumber]
-get_unvisited_build_ids conn maybe_limit = do
+getUnvisitedBuildIds :: Connection -> Maybe Int -> IO [Builds.BuildNumber]
+getUnvisitedBuildIds conn maybe_limit = do
   rows <- case maybe_limit of
     Just limit -> query conn sql (Only limit)
     Nothing    -> query_ conn unlimited_sql
@@ -111,8 +111,8 @@ get_unvisited_build_ids conn maybe_limit = do
     unlimited_sql = "SELECT build_num FROM unvisited_builds ORDER BY build_NUM DESC;"
 
 
-get_revisitable_builds :: Connection -> IO [(Builds.BuildStepId, Text, Builds.BuildNumber, [Int64])]
-get_revisitable_builds conn = do
+getRevisitableBuilds :: Connection -> IO [(Builds.BuildStepId, Text, Builds.BuildNumber, [Int64])]
+getRevisitableBuilds conn = do
   rows <- query_ conn sql
   return $ map f rows
   where
@@ -126,16 +126,16 @@ get_revisitable_builds conn = do
     sql = "SELECT string_agg((patterns.id)::text, ';'), MAX(step_id) AS step_id, MAX(name) AS step_name, build_num FROM (SELECT COALESCE(scanned_patterns.newest_pattern, -1) AS latest_pattern, build_steps.build AS build_num, build_steps.name, build_steps.id AS step_id FROM build_steps LEFT JOIN scanned_patterns ON scanned_patterns.build = build_steps.build WHERE build_steps.name IS NOT NULL AND NOT build_steps.is_timeout) foo, patterns WHERE patterns.id > latest_pattern GROUP BY build_num;"
 
 
-get_latest_pattern_id :: Connection -> IO ScanPatterns.PatternId
-get_latest_pattern_id conn = do
+getLatestPatternId :: Connection -> IO ScanPatterns.PatternId
+getLatestPatternId conn = do
   [Only pattern_id] <- query_ conn sql
   return $ ScanPatterns.PatternId pattern_id
   where
     sql = "SELECT id FROM patterns ORDER BY id DESC LIMIT 1;"
 
 
-api_posted_statuses :: DbHelpers.DbConnectionData -> Int -> IO [PostedStatuses.PostedStatus]
-api_posted_statuses conn_data count = do
+apiPostedStatuses :: DbHelpers.DbConnectionData -> Int -> IO [PostedStatuses.PostedStatus]
+apiPostedStatuses conn_data count = do
   conn <- DbHelpers.get_connection conn_data
   map f <$> query conn sql (Only count)
   where
@@ -143,8 +143,8 @@ api_posted_statuses conn_data count = do
     sql = "SELECT sha1, description, state, created_at FROM created_github_statuses ORDER BY created_at DESC LIMIT ?;"
 
 
-api_aggregate_posted_statuses :: DbHelpers.DbConnectionData -> Int -> IO [PostedStatuses.PostedStatusAggregate]
-api_aggregate_posted_statuses conn_data count = do
+apiAggregatePostedStatuses :: DbHelpers.DbConnectionData -> Int -> IO [PostedStatuses.PostedStatusAggregate]
+apiAggregatePostedStatuses conn_data count = do
   conn <- DbHelpers.get_connection conn_data
   map f <$> query conn sql (Only count)
   where
@@ -171,8 +171,8 @@ instance ToJSON PatternsTimeline where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
-api_pattern_occurrence_timeline :: DbHelpers.DbConnectionData -> IO PatternsTimeline
-api_pattern_occurrence_timeline conn_data = do
+apiPatternOccurrenceTimeline :: DbHelpers.DbConnectionData -> IO PatternsTimeline
+apiPatternOccurrenceTimeline conn_data = do
   conn <- DbHelpers.get_connection conn_data
   points <- map f <$> query_ conn timeline_sql
   patterns <- api_patterns conn_data
@@ -196,8 +196,8 @@ instance ToJSON TestFailure where
 
 -- | This uses capture groups of a specifically-crafted regex
 -- to identify the name of the failing test
-api_test_failures :: DbHelpers.DbConnectionData -> ScanPatterns.PatternId -> IO (Either Text [TestFailure])
-api_test_failures conn_data test_failure_pattern_id = do
+apiTestFailures :: DbHelpers.DbConnectionData -> ScanPatterns.PatternId -> IO (Either Text [TestFailure])
+apiTestFailures conn_data test_failure_pattern_id = do
   patterns_singleton <- api_single_pattern conn_data test_failure_pattern_id
 
   case Safe.headMay patterns_singleton of
@@ -224,8 +224,8 @@ api_test_failures conn_data test_failure_pattern_id = do
         maybe_first_match_group = ScanUtils.getFirstMatchGroup extracted_chunk pattern_text
 
 
-api_line_count_histogram :: DbHelpers.DbConnectionData -> IO [(Text, Int)]
-api_line_count_histogram conn_data = do
+apiLineCountHistogram :: DbHelpers.DbConnectionData -> IO [(Text, Int)]
+apiLineCountHistogram conn_data = do
   conn <- DbHelpers.get_connection conn_data
   xs <- query_ conn sql
   return $ map (swap . f) xs
@@ -234,8 +234,8 @@ api_line_count_histogram conn_data = do
     sql = "select count(*) as qty, pow(10, floor(ln(line_count) / ln(10)))::numeric::integer as bin from log_metadata WHERE line_count > 0 group by bin ORDER BY bin ASC;"
 
 
-api_byte_count_histogram :: DbHelpers.DbConnectionData -> IO [(Text, Int)]
-api_byte_count_histogram conn_data = do
+apiByteCountHistogram :: DbHelpers.DbConnectionData -> IO [(Text, Int)]
+apiByteCountHistogram conn_data = do
   conn <- DbHelpers.get_connection conn_data
   xs <- query_ conn sql
   return $ map (swap . f) xs
@@ -253,11 +253,11 @@ instance ToJSON JobBuild where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
-api_commit_jobs ::
+apiCommitJobs ::
      DbHelpers.DbConnectionData
   -> Builds.RawCommit
   -> IO [JobBuild]
-api_commit_jobs conn_data (Builds.RawCommit sha1) = do
+apiCommitJobs conn_data (Builds.RawCommit sha1) = do
   conn <- DbHelpers.get_connection conn_data
   xs <- query conn sql $ Only sha1
   return $ map f xs
@@ -266,8 +266,8 @@ api_commit_jobs conn_data (Builds.RawCommit sha1) = do
     sql = "SELECT DISTINCT job_name, build_num FROM builds WHERE vcs_revision = ?;"
 
 
-api_jobs :: DbHelpers.DbConnectionData -> IO (WebApi.ApiResponse WebApi.JobApiRecord)
-api_jobs conn_data = do
+apiJobs :: DbHelpers.DbConnectionData -> IO (WebApi.ApiResponse WebApi.JobApiRecord)
+apiJobs conn_data = do
   conn <- DbHelpers.get_connection conn_data
   xs <- query_ conn sql
   return $ WebApi.ApiResponse $ map f xs
@@ -276,8 +276,8 @@ api_jobs conn_data = do
     sql = "SELECT job_name, freq FROM job_failure_frequencies;"
 
 
-api_step :: DbHelpers.DbConnectionData -> IO (WebApi.ApiResponse WebApi.PieSliceApiRecord)
-api_step conn_data = do
+apiStep :: DbHelpers.DbConnectionData -> IO (WebApi.ApiResponse WebApi.PieSliceApiRecord)
+apiStep conn_data = do
   conn <- DbHelpers.get_connection conn_data
 
   xs <- query_ conn sql
@@ -446,7 +446,8 @@ get_master_commit_index ::
   -> IO (Either Text Int64)
 get_master_commit_index conn (Builds.RawCommit sha1) = do
   rows <- query conn sql $ Only sha1
-  return $ maybeToEither ("Commit " <> sha1 <>" not found in master branch") $ Safe.headMay $ map (\(Only x) -> x) rows
+  return $ maybeToEither ("Commit " <> sha1 <>" not found in master branch") $
+    Safe.headMay $ map (\(Only x) -> x) rows
   where
     sql = "SELECT id FROM ordered_master_commits WHERE sha1 = ?;"
 
@@ -471,19 +472,28 @@ get_spanning_breakages conn_data sha1 = do
   where
     f (sha1, description, cause_id, jobs) = DbHelpers.WithId cause_id $
       CodeBreakage (Builds.RawCommit sha1) description $ Set.fromList $
-        map T.pack $ split_agg_text jobs
+        map T.pack $ splitAggText jobs
 
     sql = "SELECT code_breakage_cause.sha1, code_breakage_cause.description, cause_id, COALESCE(jobs, ''::text) AS jobs FROM (SELECT code_breakage_spans.cause_id, string_agg((code_breakage_affected_jobs.job)::text, ';'::text) AS jobs FROM code_breakage_spans LEFT JOIN code_breakage_affected_jobs ON code_breakage_affected_jobs.cause = code_breakage_spans.cause_id WHERE cause_commit_index <= ? AND (resolved_commit_index IS NULL OR ? < resolved_commit_index) GROUP BY code_breakage_spans.cause_id) foo JOIN code_breakage_cause ON foo.cause_id = code_breakage_cause.id"
 
 
-list_flat :: (ToField b, FromField a) =>
+listFlat1 :: (ToField b, FromField a) =>
      Query
   -> DbHelpers.DbConnectionData
   -> b
   -> IO [a]
-list_flat sql conn_data t = do
+listFlat1 sql conn_data t = do
   conn <- DbHelpers.get_connection conn_data
   map (\(Only x) -> x) <$> query conn sql (Only t)
+
+
+listFlat :: FromField a =>
+     Query
+  -> DbHelpers.DbConnectionData
+  -> IO [a]
+listFlat sql conn_data = do
+  conn <- DbHelpers.get_connection conn_data
+  map (\(Only x) -> x) <$> query_ conn sql
 
 
 data TagUsage = TagUsage {
@@ -506,37 +516,32 @@ api_tags_histogram conn_data = do
 
 
 api_autocomplete_tags :: DbHelpers.DbConnectionData -> Text -> IO [Text]
-api_autocomplete_tags = list_flat sql
+api_autocomplete_tags = listFlat1 sql
   where
     sql = "SELECT tag FROM (SELECT tag, COUNT(*) AS freq FROM pattern_tags GROUP BY tag ORDER BY freq DESC, tag ASC) foo WHERE tag ILIKE CONCAT(?,'%');"
 
 
 api_autocomplete_steps :: DbHelpers.DbConnectionData -> Text -> IO [Text]
-api_autocomplete_steps = list_flat sql
+api_autocomplete_steps = listFlat1 sql
   where
     sql = "SELECT name FROM (SELECT name, COUNT(*) AS freq FROM build_steps where name IS NOT NULL GROUP BY name ORDER BY freq DESC, name ASC) foo WHERE name ILIKE CONCAT(?,'%');"
 
 
 api_list_steps :: DbHelpers.DbConnectionData -> IO [Text]
-api_list_steps conn_data = do
-  conn <- DbHelpers.get_connection conn_data
-  map (\(Only x) -> x) <$> query_ conn sql
+api_list_steps = listFlat sql
   where
     sql = "SELECT name FROM build_steps WHERE name IS NOT NULL GROUP BY name ORDER BY COUNT(*) DESC, name ASC;"
 
 
 api_autocomplete_branches :: DbHelpers.DbConnectionData -> Text -> IO [Text]
-api_autocomplete_branches = list_flat sql
+api_autocomplete_branches = listFlat1 sql
   where
     sql = "SELECT branch FROM builds WHERE branch ILIKE CONCAT(?,'%') GROUP BY branch ORDER BY COUNT(*) DESC;"
 
 
 -- Not used yet
 api_list_branches :: DbHelpers.DbConnectionData -> IO [Text]
-api_list_branches conn_data = do
-  conn <- DbHelpers.get_connection conn_data
-  inners <- query_ conn sql
-  return $ map (\(Only x) -> x) inners
+api_list_branches = listFlat sql
   where
     sql = "SELECT branch, COUNT(*) AS count FROM builds GROUP BY branch ORDER BY count DESC;"
 
@@ -597,7 +602,7 @@ api_master_builds conn_data offset_limit = do
   master_commits <- get_master_commits conn offset_limit
   let last_row_id = maybe 0 DbHelpers.db_id $ Safe.lastMay master_commits
 
-  job_names <- list_flat job_names_sql conn_data last_row_id
+  job_names <- listFlat1 job_names_sql conn_data last_row_id
   failure_rows <- query conn failures_sql $ Only last_row_id
 
   code_breakage_ranges <- get_code_breakage_ranges conn
@@ -677,7 +682,7 @@ api_all_code_breakages conn_data = do
           BuildResults.BreakageStart
             (DbHelpers.WithId cause_commit_index $ Builds.RawCommit cause_sha1)
             description
-            (map T.pack $ split_agg_text cause_jobs_delimited)
+            (map T.pack $ splitAggText cause_jobs_delimited)
 
         maybe_resolution = do
           resolution_id <- maybe_resolution_id
@@ -687,7 +692,7 @@ api_all_code_breakages conn_data = do
           resolution_reported_at <- maybe_resolution_reported_at
 
           return $ DbHelpers.WithId resolution_id $ DbHelpers.WithAuthorship resolution_reporter resolution_reported_at $ BuildResults.BreakageEnd
-            (DbHelpers.WithId resolved_commit_index $ Builds.RawCommit resolution_sha1) resolution_id (map T.pack $ split_agg_text resolution_jobs_delimited)
+            (DbHelpers.WithId resolved_commit_index $ Builds.RawCommit resolution_sha1) resolution_id (map T.pack $ splitAggText resolution_jobs_delimited)
 
     sql = "SELECT cause_id, cause_commit_index, cause_sha1, description, cause_reporter, cause_reported_at, COALESCE(foo.jobs, '') AS cause_jobs, COALESCE(bar.jobs, '') AS resolution_jobs, resolution_id, resolved_commit_index, resolution_sha1, resolution_reporter, resolution_reported_at FROM code_breakage_spans LEFT JOIN (SELECT cause, string_agg(job, ';') AS jobs FROM code_breakage_affected_jobs GROUP BY code_breakage_affected_jobs.cause) foo ON foo.cause = cause_id LEFT JOIN (SELECT resolution, string_agg(job, ';') AS jobs FROM code_breakage_resolved_jobs GROUP BY code_breakage_resolved_jobs.resolution) bar ON bar.resolution = resolution_id"
 
@@ -720,7 +725,6 @@ get_code_breakage_ranges conn = do
     causes_sql = "SELECT ordered_master_commits.id AS commit_index, code_breakage_cause.id AS cause_id, code_breakage_cause.sha1, description, reporter, reported_at FROM code_breakage_cause JOIN ordered_master_commits ON code_breakage_cause.sha1 = ordered_master_commits.sha1;"
 
     affected_cause_jobs_sql = "SELECT job, reporter, reported_at FROM code_breakage_affected_jobs WHERE cause = ?;"
-
 
 
 data ScanTestResponse = ScanTestResponse {
@@ -803,7 +807,7 @@ instance ToJSON PatternRecord where
 
 make_pattern_records =
   map $ \(a, b, c, d, e, f, g, h, i, j, k) ->
-    PatternRecord a b c d e f g (split_agg_text h) (split_agg_text i) j k
+    PatternRecord a b c d e f g (splitAggText h) (splitAggText i) j k
 
 
 -- | Returns zero or one pattern.
@@ -825,9 +829,7 @@ api_patterns conn_data = do
 
 -- | For the purpose of database upgrades
 dump_presumed_stable_branches :: DbHelpers.DbConnectionData -> IO [Text]
-dump_presumed_stable_branches conn_data = do
-  conn <- DbHelpers.get_connection conn_data
-  map (\(Only x) -> x) <$> query_ conn sql
+dump_presumed_stable_branches = listFlat sql
   where
     sql = "SELECT branch FROM presumed_stable_branches ORDER BY branch;"
 
@@ -840,9 +842,9 @@ dump_patterns conn_data = do
 
   where
     f (author, created, pattern_id, is_regex, expression, has_nondeterministic_values, description, tags, steps, specificity, is_retired, lines_from_end) =
-      DbHelpers.WithAuthorship author created $ wrap_pattern pattern_id is_regex expression has_nondeterministic_values description
-        (sort $ map T.pack $ split_agg_text tags)
-        (sort $ map T.pack $ split_agg_text steps)
+      DbHelpers.WithAuthorship author created $ wrapPattern pattern_id is_regex expression has_nondeterministic_values description
+        (sort $ map T.pack $ splitAggText tags)
+        (sort $ map T.pack $ splitAggText steps)
         specificity
         is_retired
         lines_from_end
@@ -872,9 +874,7 @@ api_patterns_branch_filtered conn_data branches = do
 
 
 get_presumed_stable_branches :: DbHelpers.DbConnectionData -> IO [Text]
-get_presumed_stable_branches conn_data = do
-  conn <- DbHelpers.get_connection conn_data
-  map (\(Only x) -> x) <$> query_ conn sql
+get_presumed_stable_branches = listFlat sql
   where
     sql = "SELECT branch FROM presumed_stable_branches;"
 
@@ -1048,7 +1048,10 @@ get_pattern_matches conn_data pattern_id =
       NewPatternOccurrence buildnum pattern_id match_id vcs_rev queued_at job_name branch stepname line_number line_count line_text start end
 
 
-get_pattern_occurrence_rows :: DbHelpers.DbConnectionData -> ScanPatterns.PatternId -> IO [(Builds.Build, Text, Int, MatchOccurrences.MatchId, ScanPatterns.MatchDetails)]
+get_pattern_occurrence_rows ::
+     DbHelpers.DbConnectionData
+  -> ScanPatterns.PatternId
+  -> IO [(Builds.Build, Text, Int, MatchOccurrences.MatchId, ScanPatterns.MatchDetails)]
 get_pattern_occurrence_rows conn_data (ScanPatterns.PatternId pattern_id) = do
 
   conn <- DbHelpers.get_connection conn_data

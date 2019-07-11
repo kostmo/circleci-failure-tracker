@@ -458,8 +458,8 @@ copy_pattern conn_data pattern_id@(ScanPatterns.PatternId pat_id) username field
         new_pattern = ScanPatterns.NewPattern
           (ScanPatterns.toMatchExpression is_regex expression_text p_has_nondeterministic_values)
           p_description
-          (map T.pack $ SqlRead.split_agg_text p_tags_concatenated)
-          (map T.pack $ Maybe.fromMaybe (SqlRead.split_agg_text p_steps_concatenated) $ pat_applicable_steps field_overrides)
+          (map T.pack $ SqlRead.splitAggText p_tags_concatenated)
+          (map T.pack $ Maybe.fromMaybe (SqlRead.splitAggText p_steps_concatenated) $ pat_applicable_steps field_overrides)
           p_specificity
           False
           (pat_lines_from_end field_overrides <|> p_maybe_lines_from_end)
