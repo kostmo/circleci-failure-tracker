@@ -9,6 +9,7 @@ Contributing
 
 ## Prerequisites
 
+
 Ubuntu packages:
 
     sudo apt-get install libgmp3-dev libpq-dev
@@ -23,6 +24,22 @@ Log storage
 Console logs are stored in the Postgres database. Since large string fields (including `text` datatype)
 are [automatically "TOAST"ed](https://stackoverflow.com/a/3801515/105137), this sidesteps the issue
 of implementing compression.
+
+Components
+-----------
+
+* Frontend is written in Javascript
+    * jquery
+    * [highcharts](https://www.highcharts.com/demo)
+    * [tabulator](http://tabulator.info/)
+* Database is Postgres
+    * This is where most of the core logic of the application resides
+* Backend is written in Haskell
+    * Mostly simple glue code, translating between database records and JSON
+    * Most significant piece is scanning logic
+    * Libraries:
+        * `postgres-simple` database client
+        * `scotty` webserver
 
 
 Local testing
@@ -89,6 +106,12 @@ Tag the image:
 Push the image:
 
     docker push kostmo/circleci-failure-tracker-img-small-my-webapp
+
+
+Development tools
+==================
+
+Use [pgAdmin 4](https://www.pgadmin.org/download/) to explore the database
 
 
 #### Troubleshooting

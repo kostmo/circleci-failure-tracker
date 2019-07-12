@@ -337,7 +337,7 @@ function get_column_definitions(raw_column_list) {
 
 			var commit_metadata = cell.getRow().getData()["commit_metadata"];
 
-			var message_suffix = commit_metadata ? ": " + commit_metadata["message"] : "";
+			var message_suffix = commit_metadata ? ": " + commit_metadata["message"].split(/\r?\n/)[0] : "";
 			return sha1_link(cell.getValue()) + message_suffix;
 		},
 		tooltip: function(cell) {
