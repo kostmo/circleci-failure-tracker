@@ -64,6 +64,14 @@ To test the server locally via Docker:
 Deployment procedure
 ===========
 
+In short, simply run:
+
+    ./redeploy.sh
+
+This requires that Elastic Beanstalk (the `eb` command) has been configured.
+
+
+## Details
 Build the docker container with the following command:
 
     stack image container --docker
@@ -81,9 +89,6 @@ Tag the image:
 Push the image:
 
     docker push kostmo/circleci-failure-tracker-img-small-my-webapp
-
-Redeploy webapp via `Dockerrun.aws.json`
-
 
 
 #### Troubleshooting
