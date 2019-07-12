@@ -398,6 +398,29 @@ read_log conn (Builds.NewBuildNumber build_num) = do
     sql = "SELECT log_metadata.content FROM log_metadata JOIN builds_join_steps ON log_metadata.step = builds_join_steps.step_id WHERE builds_join_steps.build_num = ? LIMIT 1;"
 
 
+data MasterBuildStats = MasterBuildStats {
+    _total             :: Int
+  , _idiopathic        :: Int
+  , _timeout           :: Int
+  , _known_broken      :: Int
+    , _pattern_matched :: Int
+  , _flaky             :: Int
+    } deriving Generic
+
+instance ToJSON MasterBuildStats where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+masterBuildFailureStats :: DbHelpers.DbConnectionData -> IO MasterBuildStats
+masterBuildFailureStats conn_data = do
+
+  conn <- DbHelpers.get_connection conn_data
+  [(total, idiopathic, timeout, known_broken, pattern_matched, flaky)] <- query_ conn sql
+  return $ MasterBuildStats total idiopathic timeout known_broken pattern_matched flaky
+  where
+    sql = "SELECT count(*) AS total, sum(is_idiopathic::int) AS idiopathic, sum(is_timeout::int) AS timeout, sum(is_known_broken::int) AS known_broken, sum((NOT is_unmatched)::int) AS pattern_matched, sum(is_flaky::int) AS flaky FROM build_failure_causes JOIN ordered_master_commits ON build_failure_causes.vcs_revision = ordered_master_commits.sha1"
+
+
 get_latest_known_master_commit :: Connection -> IO (Maybe Text)
 get_latest_known_master_commit conn = do
   rows <- query_ conn sql

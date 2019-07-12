@@ -168,7 +168,7 @@ findKnownBuildBreakages db_connection_data access_token owned_repo sha1 =
 
     -- First, ensure knowledge of "master" branch lineage
     -- is up-to-date
-    ExceptT $ SqlWrite.populate_latest_master_commits db_connection_data access_token owned_repo
+    ExceptT $ SqlWrite.populateLatestMasterCommits db_connection_data access_token owned_repo
 
     -- Second, find which "master" commit is the most recent
     -- ancestor of the given PR commit.

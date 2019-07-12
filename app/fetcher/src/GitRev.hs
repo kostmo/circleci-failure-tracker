@@ -1,6 +1,8 @@
-{-# LANGUAGE DeriveGeneric     #-}
 {-# LANGUAGE OverloadedStrings #-}
 
+-- | This module is intentionally small so that
+-- it can export a "smart constructor" to validate
+-- SHA1s
 module GitRev (GitSha1, validateSha1, sha1) where
 
 import           Control.Monad (when)

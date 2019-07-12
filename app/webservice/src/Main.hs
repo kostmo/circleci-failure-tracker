@@ -63,7 +63,7 @@ mainAppCode args = do
 
     putStrLn $ "Master ancestor: " ++ show find_master_ancestor
   {-
-    SqlWrite.populate_latest_master_commits
+    SqlWrite.populateLatestMasterCommits
       connection_data
       access_token
       (DbHelpers.OwnerAndRepo Constants.project_name Constants.repo_name)

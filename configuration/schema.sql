@@ -850,6 +850,25 @@ COMMENT ON TABLE public.code_breakage_resolved_jobs IS 'This is deprecated; have
 
 
 --
+-- Name: commit_metadata; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.commit_metadata (
+    sha1 character(40) NOT NULL,
+    message text,
+    tree_sha1 character(40),
+    author_name text,
+    author_email text,
+    author_date timestamp with time zone,
+    committer_name text,
+    committer_email text,
+    committer_date timestamp with time zone
+);
+
+
+ALTER TABLE public.commit_metadata OWNER TO postgres;
+
+--
 -- Name: idiopathic_build_failures; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -877,6 +896,23 @@ CREATE VIEW public.job_failure_frequencies AS
 
 
 ALTER TABLE public.job_failure_frequencies OWNER TO postgres;
+
+--
+-- Name: master_failures_by_commit; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_failures_by_commit AS
+SELECT
+    NULL::character(40) AS sha1,
+    NULL::bigint AS total,
+    NULL::bigint AS idiopathic,
+    NULL::bigint AS timeout,
+    NULL::bigint AS known_broken,
+    NULL::bigint AS pattern_matched,
+    NULL::bigint AS flaky;
+
+
+ALTER TABLE public.master_failures_by_commit OWNER TO postgres;
 
 --
 -- Name: match_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
@@ -1307,6 +1343,14 @@ ALTER TABLE ONLY public.code_breakage_resolved_jobs
 
 
 --
+-- Name: commit_metadata commit_metadata_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.commit_metadata
+    ADD CONSTRAINT commit_metadata_pkey PRIMARY KEY (sha1);
+
+
+--
 -- Name: created_github_statuses created_github_statuses_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -1536,6 +1580,24 @@ CREATE INDEX fki_fk_pattern ON public.scanned_patterns USING btree (newest_patte
 --
 
 CREATE INDEX fki_fk_scan ON public.scanned_patterns USING btree (scan);
+
+
+--
+-- Name: master_failures_by_commit _RETURN; Type: RULE; Schema: public; Owner: postgres
+--
+
+CREATE OR REPLACE VIEW public.master_failures_by_commit AS
+ SELECT ordered_master_commits.sha1,
+    count(build_failure_causes.vcs_revision) AS total,
+    sum((build_failure_causes.is_idiopathic)::integer) AS idiopathic,
+    sum((build_failure_causes.is_timeout)::integer) AS timeout,
+    sum((build_failure_causes.is_known_broken)::integer) AS known_broken,
+    sum(((NOT build_failure_causes.is_unmatched))::integer) AS pattern_matched,
+    sum((build_failure_causes.is_flaky)::integer) AS flaky
+   FROM (public.ordered_master_commits
+     LEFT JOIN public.build_failure_causes ON ((build_failure_causes.vcs_revision = ordered_master_commits.sha1)))
+  GROUP BY ordered_master_commits.id
+  ORDER BY ordered_master_commits.id DESC;
 
 
 --
@@ -1922,6 +1984,27 @@ GRANT ALL ON TABLE public.code_breakage_spans TO logan;
 
 
 --
+-- Name: TABLE master_commit_known_breakage_causes; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_commit_known_breakage_causes TO logan;
+
+
+--
+-- Name: TABLE known_broken_builds; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.known_broken_builds TO logan;
+
+
+--
+-- Name: TABLE build_failure_causes; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.build_failure_causes TO logan;
+
+
+--
 -- Name: SEQUENCE build_steps_id_seq; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -1947,6 +2030,13 @@ GRANT ALL ON SEQUENCE public.code_breakage_resolution_id_seq TO logan;
 --
 
 GRANT ALL ON TABLE public.code_breakage_resolved_jobs TO logan;
+
+
+--
+-- Name: TABLE commit_metadata; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.commit_metadata TO logan;
 
 
 --

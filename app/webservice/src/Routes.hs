@@ -308,7 +308,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
           auth_token <- except $ maybeToEither (T.pack "Need \"token\" header!") maybe_auth_header
           when (LT.toStrict auth_token /= AuthConfig.admin_password github_config) $
             except $ Left $ T.pack "Incorrect admin password"
-          ExceptT $ SqlWrite.store_master_commits connection_data body_json
+          ExceptT $ SqlWrite.storeMasterCommits connection_data body_json
 
       S.json $ WebApi.toJsonEither insertion_result
 
@@ -466,6 +466,9 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     S.get "/api/summary" $
       S.json =<< liftIO (SqlRead.api_summary_stats connection_data)
+
+    S.get "/api/master-build-stats" $
+      S.json =<< liftIO (SqlRead.masterBuildFailureStats connection_data)
 
     S.get "/api/unmatched-builds" $
       S.json =<< liftIO (SqlRead.api_unmatched_builds connection_data)

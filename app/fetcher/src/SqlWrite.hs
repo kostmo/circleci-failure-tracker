@@ -29,6 +29,7 @@ import qualified AuthStages
 import qualified Breakages
 import qualified Breakages2
 import qualified Builds
+import qualified Commits
 import qualified DbHelpers
 import qualified GithubApiFetch
 import qualified GitHubRecords
@@ -37,20 +38,38 @@ import qualified ScanRecords
 import qualified SqlRead
 
 
-
-build_to_tuple :: Builds.Build -> (Int64, Text, Text, Text, Text)
-build_to_tuple (Builds.NewBuild (Builds.NewBuildNumber build_num) (Builds.RawCommit vcs_rev) queuedat jobname branch) =
+buildToTuple :: Builds.Build -> (Int64, Text, Text, Text, Text)
+buildToTuple (Builds.NewBuild (Builds.NewBuildNumber build_num) (Builds.RawCommit vcs_rev) queuedat jobname branch) =
   (build_num, vcs_rev, queued_at_string, jobname, branch)
   where
     queued_at_string = T.pack $ formatTime defaultTimeLocale rfc822DateFormat queuedat
 
 
-populate_latest_master_commits ::
+storeCommitMetadata ::
+     Connection
+  -> [Commits.CommitMetadata]
+  -> IO (Either Text Int64)
+storeCommitMetadata conn commit_list =
+  catchViolation catcher $ do
+    count <- executeMany conn insertion_sql $ map f commit_list
+    return $ Right count
+
+  where
+    f (Commits.CommitMetadata (Builds.RawCommit sha1) message tree_sha1 author_name author_email author_date committer_name committer_email committer_date) = (sha1, message, tree_sha1, author_name, author_email, author_date, committer_name, committer_email, committer_date)
+
+    insertion_sql = "INSERT INTO commit_metadata(sha1, message, tree_sha1, author_name, author_email, author_date, committer_name, committer_email, committer_date) VALUES(?,?,?,?,?,?,?,?,?);"
+
+    catcher _ (UniqueViolation some_error) = return $ Left $
+      "Insertion error: " <> T.pack (BS.unpack some_error)
+    catcher e _                            = throwIO e
+
+
+populateLatestMasterCommits ::
      DbHelpers.DbConnectionData
   -> OAuth2.AccessToken
   -> DbHelpers.OwnerAndRepo
   -> IO (Either Text Int64)
-populate_latest_master_commits conn_data access_token owned_repo = do
+populateLatestMasterCommits conn_data access_token owned_repo = do
 
   conn <- DbHelpers.get_connection conn_data
 
@@ -71,13 +90,13 @@ populate_latest_master_commits conn_data access_token owned_repo = do
     let fetched_commits_oldest_first = reverse fetched_commits_newest_first
 
     ExceptT $ do
-      insertion_count <- store_master_commits conn_data $ map GitHubRecords._sha fetched_commits_oldest_first
+      insertion_count <- storeMasterCommits conn_data $ map GitHubRecords._sha fetched_commits_oldest_first
       putStrLn $ "Inserted " ++ show insertion_count ++ " commits"
       return insertion_count
 
 
-store_master_commits :: DbHelpers.DbConnectionData -> [Text] -> IO (Either Text Int64)
-store_master_commits conn_data commit_list = do
+storeMasterCommits :: DbHelpers.DbConnectionData -> [Text] -> IO (Either Text Int64)
+storeMasterCommits conn_data commit_list = do
   conn <- DbHelpers.get_connection conn_data
 
   catchViolation catcher $ do
@@ -95,7 +114,7 @@ store_master_commits conn_data commit_list = do
 -- | This is idempotent; builds that are already present will not be overwritten
 store_builds_list :: Connection -> [Builds.Build] -> IO Int64
 store_builds_list conn builds_list =
-  executeMany conn sql $ map build_to_tuple builds_list
+  executeMany conn sql $ map buildToTuple builds_list
   where
     sql = "INSERT INTO builds(build_num, vcs_revision, queued_at, job_name, branch) VALUES(?,?,?,?,?) ON CONFLICT (build_num) DO NOTHING;"
 
