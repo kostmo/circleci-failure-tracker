@@ -62,7 +62,7 @@ function gen_builds_table(element_id, data_url, height_string) {
 
 	// Is not the single-entry "best match" table
 	if (height_string != null) {
-		column_list.push({title: "Specificity", field: "specificity", formatter: "number", width: 100});
+		column_list.push({title: "Specificity", field: "specificity", width: 100});
 	}
 
 	var table = new Tabulator("#" + element_id, {

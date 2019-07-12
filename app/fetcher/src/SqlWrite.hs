@@ -46,10 +46,12 @@ buildToTuple (Builds.NewBuild (Builds.NewBuildNumber build_num) (Builds.RawCommi
 
 
 storeCommitMetadata ::
-     Connection
+     DbHelpers.DbConnectionData
   -> [Commits.CommitMetadata]
   -> IO (Either Text Int64)
-storeCommitMetadata conn commit_list =
+storeCommitMetadata conn_data commit_list = do
+  conn <- DbHelpers.get_connection conn_data
+
   catchViolation catcher $ do
     count <- executeMany conn insertion_sql $ map f commit_list
     return $ Right count

@@ -50,7 +50,7 @@ def get_log_json_list(repo_path, merge_commit):
 
 
 def upload_commits(hostname, auth_token, commits):
-    url = hostname + '/api/populate-master-commits'
+    url = hostname + '/api/populate-master-commit-metadata'
 
     headers_dict = {
         'content-type': 'application/json',
@@ -65,8 +65,8 @@ def upload_commits(hostname, auth_token, commits):
 def parse_args():
     parser = argparse.ArgumentParser(description='Fetch master commits')
     parser.add_argument('--repo-path', dest='repo_path', required=True, help='PyTorch repo path')
-    # parser.add_argument('--token', dest='token', required=True, help='GitHub auth token')
-    # parser.add_argument('--hostname', dest='hostname', required=True, help='Server hostname')
+    parser.add_argument('--token', dest='token', required=True, help='GitHub auth token')
+    parser.add_argument('--hostname', dest='hostname', required=True, help='Server hostname')
 
     return parser.parse_args()
 
@@ -78,4 +78,4 @@ if __name__ == "__main__":
     commit_list_json = get_log_json_list(options.repo_path, merge_commit)
     print("Commit count:", len(commit_list_json))
 
-#    upload_commits(options.hostname, options.token, linear_commits)
+    upload_commits(options.hostname, options.token, commit_list_json)

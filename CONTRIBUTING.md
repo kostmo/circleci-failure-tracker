@@ -2,7 +2,8 @@ Contributing
 ============
 
 1. Open a pull request on GitHub
-
+2. Wait for CI builds to pass
+3. ...
 
 # Setup
 
@@ -27,21 +28,30 @@ of implementing compression.
 Local testing
 ===========
 
+Several credentials strings are required for the app.
+These can be stored as JSON files in your own private repository:
+
+* `app-credentials-local.json`
+* `app-credentials-remote.json`
+* `database-credentials-local.json`
+* `database-credentials-remote.json`
+* `github-personal-access-token.txt`
+
+Given the right credentials, one may use this command to build and run locally using the production database:
+
+    ./run.py --prod-db
+
 ### Without docker
 
-To run the scanner with a fresh database:
+((DEPRECATED)) To run the scanner with a fresh database:
 
     stack run run-scanner -- --wipe --count 10 --branch master
 
 
-To run the scanner on some specific Pull Requests:
+((DEPRECATED)) To run the scanner on some specific Pull Requests:
 
     stack run run-scanner -- --wipe --count 50 --branch pull/18339 --branch pull/18340 --branch pull/18341 --branch pull/18342 --branch pull/18343 --branch pull/18907
 
-
-To launch the server, run the following from the `haskell/` directory:
-
-    find -name "*.tix" -delete && stack run my-webapp -- --data-path static
 
 
 ### With docker

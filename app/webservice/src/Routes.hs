@@ -313,6 +313,22 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       S.json $ WebApi.toJsonEither insertion_result
 
 
+
+    S.post "/api/populate-master-commit-metadata" $ do
+      body_json <- S.jsonData
+      maybe_auth_header <- S.header "token"
+
+      insertion_result <- liftIO $ runExceptT $ do
+          auth_token <- except $ maybeToEither (T.pack "Need \"token\" header!") maybe_auth_header
+          when (LT.toStrict auth_token /= AuthConfig.admin_password github_config) $
+            except $ Left $ T.pack "Incorrect admin password"
+          ExceptT $ SqlWrite.storeCommitMetadata connection_data body_json
+
+      S.json $ WebApi.toJsonEither insertion_result
+
+
+
+
     -- TODO FINISH ME
     {-
     S.post "/api/new-pattern-replace" $ do
