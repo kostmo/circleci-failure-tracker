@@ -15,6 +15,7 @@ THIS_DIRECTORY = os.path.abspath(os.path.dirname(__file__))
 
 DEFAULT_CREDENTIALS_DIRECTORY = os.path.join(THIS_DIRECTORY, "../circleci-failure-tracker-credentials")
 
+
 def parse_args():
     parser = argparse.ArgumentParser(description='Run webapp locally')
     parser.add_argument('--personal-access-token-file', dest='personal_token_file',
@@ -24,7 +25,9 @@ def parse_args():
     # Note: the "local" credentials use "github-client-id" and "github-client-secret" for
     # the GitHub app named "circleci-failure-attribution-dev", while
     # the "remote" credentials use a client id and secret for the GitHub app named "circleci-failure-attribution".
-    # The local credentials should be used along with ngrok for exposing our local port with.
+    # The local credentials should be used along with ngrok
+    # (or something similar, like localtunnel: https://localtunnel.github.io/www/) for exposing the app
+    # on a local port.
     parser.add_argument('--prod-app', dest='prod_app', action="store_true", help='For production deployment (default is local).  Implies --remote-db')
     
     parser.add_argument('--prod-db', dest='prod_db', action="store_true", help='Use production (remote) database (default is local)')

@@ -360,7 +360,8 @@ CREATE TABLE public.builds (
     vcs_revision character(40),
     queued_at timestamp with time zone,
     job_name text,
-    branch character varying
+    branch character varying,
+    succeeded boolean
 );
 
 
@@ -435,6 +436,13 @@ CREATE TABLE public.broken_build_reports (
 
 
 ALTER TABLE public.broken_build_reports OWNER TO postgres;
+
+--
+-- Name: TABLE broken_build_reports; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.broken_build_reports IS 'This table is deprecated; it''s replaced by "code_breakage_cause"';
+
 
 --
 -- Name: builds_join_steps; Type: VIEW; Schema: public; Owner: postgres
@@ -593,28 +601,6 @@ CREATE SEQUENCE public.broken_revisions_id_seq
 ALTER TABLE public.broken_revisions_id_seq OWNER TO postgres;
 
 --
--- Name: build_steps_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
---
-
-CREATE SEQUENCE public.build_steps_id_seq
-    AS integer
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
-ALTER TABLE public.build_steps_id_seq OWNER TO postgres;
-
---
--- Name: build_steps_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
---
-
-ALTER SEQUENCE public.build_steps_id_seq OWNED BY public.build_steps.id;
-
-
---
 -- Name: code_breakage_affected_jobs; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -644,28 +630,6 @@ CREATE TABLE public.code_breakage_cause (
 ALTER TABLE public.code_breakage_cause OWNER TO postgres;
 
 --
--- Name: code_breakage_cause_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
---
-
-CREATE SEQUENCE public.code_breakage_cause_id_seq
-    AS integer
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
-ALTER TABLE public.code_breakage_cause_id_seq OWNER TO postgres;
-
---
--- Name: code_breakage_cause_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
---
-
-ALTER SEQUENCE public.code_breakage_cause_id_seq OWNED BY public.code_breakage_cause.id;
-
-
---
 -- Name: code_breakage_resolution; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -679,42 +643,6 @@ CREATE TABLE public.code_breakage_resolution (
 
 
 ALTER TABLE public.code_breakage_resolution OWNER TO postgres;
-
---
--- Name: code_breakage_resolution_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
---
-
-CREATE SEQUENCE public.code_breakage_resolution_id_seq
-    AS integer
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
-ALTER TABLE public.code_breakage_resolution_id_seq OWNER TO postgres;
-
---
--- Name: code_breakage_resolution_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
---
-
-ALTER SEQUENCE public.code_breakage_resolution_id_seq OWNED BY public.code_breakage_resolution.id;
-
-
---
--- Name: code_breakage_resolved_jobs; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.code_breakage_resolved_jobs (
-    job text NOT NULL,
-    resolution integer NOT NULL,
-    reporter text,
-    reported_at timestamp with time zone DEFAULT now()
-);
-
-
-ALTER TABLE public.code_breakage_resolved_jobs OWNER TO postgres;
 
 --
 -- Name: ordered_master_commits; Type: TABLE; Schema: public; Owner: postgres
@@ -764,6 +692,162 @@ CREATE VIEW public.code_breakage_spans AS
 
 
 ALTER TABLE public.code_breakage_spans OWNER TO postgres;
+
+--
+-- Name: master_commit_known_breakage_causes; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_commit_known_breakage_causes AS
+ SELECT ordered_master_commits.sha1,
+    code_breakage_spans.cause_id
+   FROM (public.ordered_master_commits
+     JOIN public.code_breakage_spans ON (((code_breakage_spans.cause_commit_index <= ordered_master_commits.id) AND ((code_breakage_spans.resolved_commit_index IS NULL) OR (ordered_master_commits.id < code_breakage_spans.resolved_commit_index)))))
+  ORDER BY ordered_master_commits.id DESC;
+
+
+ALTER TABLE public.master_commit_known_breakage_causes OWNER TO postgres;
+
+--
+-- Name: VIEW master_commit_known_breakage_causes; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.master_commit_known_breakage_causes IS 'This is just an intermediate view for simplifying more complex view definitions.';
+
+
+--
+-- Name: known_broken_builds; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.known_broken_builds AS
+ SELECT builds.build_num,
+    count(*) AS cause_count,
+    string_agg((foo.cause_id)::text, ';'::text) AS causes
+   FROM (public.builds
+     JOIN ( SELECT master_commit_known_breakage_causes.sha1,
+            code_breakage_affected_jobs.job,
+            master_commit_known_breakage_causes.cause_id
+           FROM (public.master_commit_known_breakage_causes
+             JOIN public.code_breakage_affected_jobs ON ((code_breakage_affected_jobs.cause = master_commit_known_breakage_causes.cause_id)))) foo ON (((builds.vcs_revision = foo.sha1) AND (builds.job_name = foo.job))))
+  WHERE (NOT COALESCE(builds.succeeded, false))
+  GROUP BY builds.build_num;
+
+
+ALTER TABLE public.known_broken_builds OWNER TO postgres;
+
+--
+-- Name: build_failure_causes; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.build_failure_causes WITH (security_barrier='false') AS
+ SELECT builds.build_num,
+    builds.vcs_revision,
+    builds.queued_at,
+    builds.job_name,
+    builds.branch,
+    COALESCE(builds.succeeded, false) AS succeeded,
+    (build_steps.build IS NULL) AS is_idiopathic,
+    build_steps.id AS step_id,
+    build_steps.name AS step_name,
+    COALESCE(build_steps.is_timeout, false) AS is_timeout,
+    (best_pattern_match_for_builds.pattern_id IS NULL) AS is_unmatched,
+    best_pattern_match_for_builds.pattern_id,
+    COALESCE(best_pattern_match_for_builds.is_flaky, false) AS is_flaky,
+    (known_broken_builds.build_num IS NOT NULL) AS is_known_broken,
+    known_broken_builds.causes AS known_cause_ids
+   FROM (((public.builds
+     LEFT JOIN public.build_steps ON ((build_steps.build = builds.build_num)))
+     LEFT JOIN public.best_pattern_match_for_builds ON ((best_pattern_match_for_builds.build = builds.build_num)))
+     LEFT JOIN public.known_broken_builds ON ((known_broken_builds.build_num = builds.build_num)));
+
+
+ALTER TABLE public.build_failure_causes OWNER TO postgres;
+
+--
+-- Name: build_steps_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.build_steps_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.build_steps_id_seq OWNER TO postgres;
+
+--
+-- Name: build_steps_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.build_steps_id_seq OWNED BY public.build_steps.id;
+
+
+--
+-- Name: code_breakage_cause_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.code_breakage_cause_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.code_breakage_cause_id_seq OWNER TO postgres;
+
+--
+-- Name: code_breakage_cause_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.code_breakage_cause_id_seq OWNED BY public.code_breakage_cause.id;
+
+
+--
+-- Name: code_breakage_resolution_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.code_breakage_resolution_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.code_breakage_resolution_id_seq OWNER TO postgres;
+
+--
+-- Name: code_breakage_resolution_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.code_breakage_resolution_id_seq OWNED BY public.code_breakage_resolution.id;
+
+
+--
+-- Name: code_breakage_resolved_jobs; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.code_breakage_resolved_jobs (
+    job text NOT NULL,
+    resolution integer NOT NULL,
+    reporter text,
+    reported_at timestamp with time zone DEFAULT now()
+);
+
+
+ALTER TABLE public.code_breakage_resolved_jobs OWNER TO postgres;
+
+--
+-- Name: TABLE code_breakage_resolved_jobs; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.code_breakage_resolved_jobs IS 'This is deprecated; have decided to use only "code_breakage_affected_jobs".';
+
 
 --
 -- Name: idiopathic_build_failures; Type: VIEW; Schema: public; Owner: postgres
@@ -849,6 +933,13 @@ CREATE TABLE public.mitigations (
 
 
 ALTER TABLE public.mitigations OWNER TO postgres;
+
+--
+-- Name: TABLE mitigations; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.mitigations IS 'This table is deprecated; it''s replaced by "code_breakage_resolution"';
+
 
 --
 -- Name: mitigations_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
@@ -974,6 +1065,13 @@ CREATE TABLE public.presumed_stable_branches (
 
 
 ALTER TABLE public.presumed_stable_branches OWNER TO postgres;
+
+--
+-- Name: TABLE presumed_stable_branches; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.presumed_stable_branches IS 'A (small) list of branches that are presumed to be stable.  That is, the branch is "policed" for human-caused breakages.  Such breakages are annotated and reverted ASAP.';
+
 
 --
 -- Name: scannable_build_steps; Type: VIEW; Schema: public; Owner: postgres
@@ -1789,13 +1887,6 @@ GRANT ALL ON SEQUENCE public.broken_revisions_id_seq TO logan;
 
 
 --
--- Name: SEQUENCE build_steps_id_seq; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON SEQUENCE public.build_steps_id_seq TO logan;
-
-
---
 -- Name: TABLE code_breakage_affected_jobs; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -1810,31 +1901,10 @@ GRANT ALL ON TABLE public.code_breakage_cause TO logan;
 
 
 --
--- Name: SEQUENCE code_breakage_cause_id_seq; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON SEQUENCE public.code_breakage_cause_id_seq TO logan;
-
-
---
 -- Name: TABLE code_breakage_resolution; Type: ACL; Schema: public; Owner: postgres
 --
 
 GRANT ALL ON TABLE public.code_breakage_resolution TO logan;
-
-
---
--- Name: SEQUENCE code_breakage_resolution_id_seq; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON SEQUENCE public.code_breakage_resolution_id_seq TO logan;
-
-
---
--- Name: TABLE code_breakage_resolved_jobs; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.code_breakage_resolved_jobs TO logan;
 
 
 --
@@ -1849,6 +1919,34 @@ GRANT ALL ON TABLE public.ordered_master_commits TO logan;
 --
 
 GRANT ALL ON TABLE public.code_breakage_spans TO logan;
+
+
+--
+-- Name: SEQUENCE build_steps_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE public.build_steps_id_seq TO logan;
+
+
+--
+-- Name: SEQUENCE code_breakage_cause_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE public.code_breakage_cause_id_seq TO logan;
+
+
+--
+-- Name: SEQUENCE code_breakage_resolution_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE public.code_breakage_resolution_id_seq TO logan;
+
+
+--
+-- Name: TABLE code_breakage_resolved_jobs; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.code_breakage_resolved_jobs TO logan;
 
 
 --
