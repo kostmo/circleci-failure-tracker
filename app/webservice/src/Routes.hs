@@ -486,6 +486,10 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
     S.get "/api/master-build-stats" $
       S.json =<< liftIO (SqlRead.masterBuildFailureStats connection_data)
 
+    S.get "/api/master-weekly-failure-stats" $ do
+      weeks <- S.param "weeks"
+      S.json =<< liftIO (SqlRead.masterWeeklyFailureStats connection_data weeks)
+
     S.get "/api/unmatched-builds" $
       S.json =<< liftIO (SqlRead.api_unmatched_builds connection_data)
 

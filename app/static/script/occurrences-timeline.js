@@ -3,7 +3,6 @@ function main() {
    $.getJSON('/api/patterns-timeline', function (data) {
 
 	// keyed by pattern ID
-        var series_titles = {};
         var series_points = {};
 
 	// TODO These lists should be combined on the server side.

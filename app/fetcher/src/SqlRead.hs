@@ -399,13 +399,13 @@ read_log conn (Builds.NewBuildNumber build_num) = do
 
 
 data MasterBuildStats = MasterBuildStats {
-    _total             :: Int
-  , _idiopathic        :: Int
-  , _timeout           :: Int
-  , _known_broken      :: Int
-    , _pattern_matched :: Int
-  , _flaky             :: Int
-    } deriving Generic
+    _total           :: Int
+  , _idiopathic      :: Int
+  , _timeout         :: Int
+  , _known_broken    :: Int
+  , _pattern_matched :: Int
+  , _flaky           :: Int
+  } deriving Generic
 
 instance ToJSON MasterBuildStats where
   toJSON = genericToJSON JsonUtils.dropUnderscore
@@ -419,6 +419,36 @@ masterBuildFailureStats conn_data = do
   return $ MasterBuildStats total idiopathic timeout known_broken pattern_matched flaky
   where
     sql = "SELECT count(*) AS total, sum(is_idiopathic::int) AS idiopathic, sum(is_timeout::int) AS timeout, sum(is_known_broken::int) AS known_broken, sum((NOT is_unmatched)::int) AS pattern_matched, sum(is_flaky::int) AS flaky FROM build_failure_causes JOIN ordered_master_commits ON build_failure_causes.vcs_revision = ordered_master_commits.sha1"
+
+
+data MasterWeeklyStats = MasterWeeklyStats {
+    _commit_count        :: Int
+  , _had_failure         :: Int
+  , _had_idiopathic      :: Int
+  , _had_timeout         :: Int
+  , _had_known_broken    :: Int
+  , _had_pattern_matched :: Int
+  , _had_flaky           :: Int
+  , _week                :: UTCTime
+  } deriving Generic
+
+instance ToJSON MasterWeeklyStats where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+masterWeeklyFailureStats :: DbHelpers.DbConnectionData -> Int -> IO [MasterWeeklyStats]
+masterWeeklyFailureStats conn_data week_count = do
+
+  conn <- DbHelpers.get_connection conn_data
+  xs <- query conn sql $ Only week_count
+  return $ reverse $ map f xs
+  where
+    sql = "SELECT commit_count, had_failure, had_idiopathic, had_timeout, had_known_broken, had_pattern_matched, had_flaky, week FROM master_failures_weekly_aggregation ORDER BY week DESC LIMIT ?"
+
+    f (commit_count, had_failure, had_idiopathic, had_timeout, had_known_broken, had_pattern_matched, had_flaky, week) = MasterWeeklyStats commit_count had_failure had_idiopathic had_timeout had_known_broken had_pattern_matched had_flaky week
+
+
+
 
 
 get_latest_known_master_commit :: Connection -> IO (Maybe Text)
