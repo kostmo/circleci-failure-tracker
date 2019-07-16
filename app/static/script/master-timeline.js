@@ -49,22 +49,12 @@ function get_timeline_data(offset, count) {
 
 	$.getJSON('/api/master-timeline', parms, function (mydata) {
 
-		if (mydata.commits.length) {
+		if (mydata.success) {
 
-			var first_commit_sha1 = mydata.commits[0].record;
-
-			// Get commit messages
-			$.getJSON('https://api.github.com/repos/pytorch/pytorch/commits', {"sha": first_commit_sha1, "per_page": mydata.commits.length}, function (data) {
-				var commit_dict = {};
-				for (var value of data) {
-					commit_dict[value["sha"]] = value["commit"];
-				}
-
-				gen_timeline_table("master-timeline-table", commit_dict, mydata);
-			});
+			gen_timeline_table("master-timeline-table", mydata.payload);
 
 		} else {
-			alert("No commits!");
+			alert(mydata.error);
 		}
 	});
 }
@@ -411,7 +401,7 @@ function generate_column_tree(column_names) {
 
 
 
-function gen_timeline_table(element_id, commit_info_by_sha1, fetched_data) {
+function gen_timeline_table(element_id, fetched_data) {
 
 	var column_list = get_column_definitions(fetched_data.columns);
 
@@ -439,12 +429,12 @@ function gen_timeline_table(element_id, commit_info_by_sha1, fetched_data) {
 	for (var commit_obj of fetched_data.commits) {
 		var row_dict = {};
 
-		var sha1 = commit_obj.record;
+		var sha1 = commit_obj.record.commit;
 		var failures_by_job_name = build_failures_by_commit[sha1] || {};
 
 		row_dict["commit_index"] = commit_obj.db_id;
 		row_dict["commit"] = sha1;
-		row_dict["commit_metadata"] = commit_info_by_sha1[sha1];
+		row_dict["commit_metadata"] = commit_obj.record.metadata;
 
 		for (var job_name in failures_by_job_name) {
 			row_dict[job_name] = failures_by_job_name[job_name];

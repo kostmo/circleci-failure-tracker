@@ -2,7 +2,7 @@
 
 module Commits where
 
-import           Data.Aeson   (FromJSON, genericParseJSON, parseJSON)
+import           Data.Aeson
 import           Data.Text    (Text)
 import           Data.Time    (UTCTime)
 import           GHC.Generics
@@ -25,3 +25,7 @@ data CommitMetadata = CommitMetadata {
 
 instance FromJSON CommitMetadata where
   parseJSON = genericParseJSON JsonUtils.dropUnderscore
+
+instance ToJSON CommitMetadata where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+

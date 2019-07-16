@@ -371,6 +371,10 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     S.get "/logout" $ Auth.logoutH cache
 
+    S.get "/api/latest-master-commit-with-metadata" $ do
+      either_items <- liftIO (SqlRead.get_latest_master_commit_with_metadata connection_data)
+      S.json $ WebApi.toJsonEither either_items
+
     S.get "/api/status-posted-commits-by-day" $
       S.json =<< liftIO (SqlRead.api_status_posted_commits_by_day connection_data)
 
@@ -430,7 +434,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       commit_count <- S.param "count"
 
       json_result <- liftIO $ SqlRead.api_master_builds connection_data $ Pagination.OffsetLimit offset_mode commit_count
-      S.json json_result
+      S.json $ WebApi.toJsonEither json_result
 
     S.get "/api/step" $
       S.json =<< liftIO (SqlRead.apiStep connection_data)

@@ -36,6 +36,7 @@ import qualified BreakageReportsBackup
 import qualified BuildResults
 import qualified Builds
 import qualified CommitBuilds
+import qualified Commits
 import qualified DbHelpers
 import qualified GithubApiFetch
 import qualified GitRev
@@ -421,21 +422,35 @@ masterBuildFailureStats conn_data = do
     sql = "SELECT count(*) AS total, sum(is_idiopathic::int) AS idiopathic, sum(is_timeout::int) AS timeout, sum(is_known_broken::int) AS known_broken, sum((NOT is_unmatched)::int) AS pattern_matched, sum(is_flaky::int) AS flaky FROM build_failure_causes JOIN ordered_master_commits ON build_failure_causes.vcs_revision = ordered_master_commits.sha1"
 
 
+-- | This holds two types of aggregations:
+-- 1) whether each commit had *any* failure of the given type
+-- 2) How *many* jobs experienced the failure of the given type for each commit.
+--
+-- Both of the above aggregations are then again summed by week.
 data MasterWeeklyStats = MasterWeeklyStats {
-    _commit_count        :: Int
-  , _had_failure         :: Int
-  , _had_idiopathic      :: Int
-  , _had_timeout         :: Int
-  , _had_known_broken    :: Int
-  , _had_pattern_matched :: Int
-  , _had_flaky           :: Int
-  , _week                :: UTCTime
+    _commit_count          :: Int
+  , _had_failure           :: Int
+  , _had_idiopathic        :: Int
+  , _had_timeout           :: Int
+  , _had_known_broken      :: Int
+  , _had_pattern_matched   :: Int
+  , _had_flaky             :: Int
+
+  , _failure_count         :: Int
+  , _idiopathic_count      :: Int
+  , _timeout_count         :: Int
+  , _known_broken_count    :: Int
+  , _pattern_matched_count :: Int
+  , _flaky_count           :: Int
+
+  , _week                  :: UTCTime
   } deriving Generic
 
 instance ToJSON MasterWeeklyStats where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
+-- | Use OFFSET 1 so we only ever show full weeks
 masterWeeklyFailureStats :: DbHelpers.DbConnectionData -> Int -> IO [MasterWeeklyStats]
 masterWeeklyFailureStats conn_data week_count = do
 
@@ -443,12 +458,10 @@ masterWeeklyFailureStats conn_data week_count = do
   xs <- query conn sql $ Only week_count
   return $ reverse $ map f xs
   where
-    sql = "SELECT commit_count, had_failure, had_idiopathic, had_timeout, had_known_broken, had_pattern_matched, had_flaky, week FROM master_failures_weekly_aggregation ORDER BY week DESC LIMIT ?"
+    sql = "SELECT commit_count, had_failure, had_idiopathic, had_timeout, had_known_broken, had_pattern_matched, had_flaky, failure_count::int, idiopathic_count::int, timeout_count::int, known_broken_count::int, pattern_matched_count::int, flaky_count::int, week FROM master_failures_weekly_aggregation ORDER BY week DESC LIMIT ? OFFSET 1"
 
-    f (commit_count, had_failure, had_idiopathic, had_timeout, had_known_broken, had_pattern_matched, had_flaky, week) = MasterWeeklyStats commit_count had_failure had_idiopathic had_timeout had_known_broken had_pattern_matched had_flaky week
-
-
-
+    f (commit_count, had_failure, had_idiopathic, had_timeout, had_known_broken, had_pattern_matched, had_flaky, failure_count, idiopathic_count, timeout_count, known_broken_count, pattern_matched_count, flaky_count, week) =
+      MasterWeeklyStats commit_count had_failure had_idiopathic had_timeout had_known_broken had_pattern_matched had_flaky failure_count idiopathic_count timeout_count known_broken_count pattern_matched_count flaky_count week
 
 
 get_latest_known_master_commit :: Connection -> IO (Maybe Text)
@@ -626,19 +639,56 @@ get_revision_builds conn_data git_revision = do
 get_master_commits ::
      Connection
   -> Pagination.OffsetLimit
-  -> IO [BuildResults.IndexedCommit]
-get_master_commits conn (Pagination.OffsetLimit offset_mode commit_count) = do
-  rows <- case offset_mode of
-    Pagination.Count offset_count -> query conn sql_commit_count_offset (offset_count, commit_count)
-    Pagination.Commit (Builds.RawCommit sha1) -> query conn sql_sha1_offset (sha1, commit_count)
+  -> IO (Either Text [BuildResults.IndexedRichCommit])
+get_master_commits conn (Pagination.OffsetLimit offset_mode commit_count) = runExceptT $ do
+
+  starting_id <- ExceptT $ case offset_mode of
+    Pagination.Count _offset_count -> do
+      xs <- query_ conn sql_first_commit_id
+      return $ maybeToEither "No master commits!" $ Safe.headMay $ map (\(Only x) -> x) xs
+    Pagination.Commit (Builds.RawCommit sha1) -> do
+      xs <- query conn sql_associated_commit_id $ Only sha1
+      return $ maybeToEither (T.unwords ["No commit with sha1", sha1]) $
+        Safe.headMay $ map (\(Only x) -> x) xs
+
+  rows <- liftIO $ query conn sql_sha1_offset (starting_id :: Int, commit_count)
 
   return $ map f rows
   where
-    f (my_id, my_commit) = DbHelpers.WithId my_id $ Builds.RawCommit my_commit
+    f (commit_id, commit_sha1, maybe_message, maybe_tree_sha1, maybe_author_name, maybe_author_email, maybe_author_date, maybe_committer_name, maybe_committer_email, maybe_committer_date) = DbHelpers.WithId commit_id $ BuildResults.CommitAndMetadata
+      wrapped_sha1
+      maybe_metadata
+      where
+        wrapped_sha1 = Builds.RawCommit commit_sha1
+        maybe_metadata = Commits.CommitMetadata wrapped_sha1 <$>
+            maybe_message <*>
+            maybe_tree_sha1 <*>
+            maybe_author_name <*>
+            maybe_author_email <*>
+            maybe_author_date <*>
+            maybe_committer_name <*>
+            maybe_committer_email <*>
+            maybe_committer_date
 
-    sql_commit_count_offset = "SELECT id, sha1 FROM ordered_master_commits ORDER BY id DESC OFFSET ? LIMIT ?"
+    sql_first_commit_id = "SELECT id FROM ordered_master_commits ORDER BY id DESC LIMIT 1"
+    sql_associated_commit_id = "SELECT id FROM ordered_master_commits WHERE sha1 = ?"
 
-    sql_sha1_offset = "SELECT id, sha1 FROM ordered_master_commits WHERE (id <= (SELECT id FROM ordered_master_commits WHERE sha1 = ?)) ORDER BY id DESC LIMIT ?"
+    sql_sha1_offset = "SELECT ordered_master_commits.id, ordered_master_commits.sha1, message, tree_sha1, author_name, author_email, author_date, committer_name, committer_email, committer_date FROM ordered_master_commits LEFT JOIN commit_metadata ON commit_metadata.sha1 = ordered_master_commits.sha1 WHERE id <= ? ORDER BY id DESC LIMIT ?"
+
+
+convert_failure_modes (sha1, build_id, queued_at, job_name, branch, step_name, match_id, pattern_id, line_number, line_count, line_text, span_start, span_end, specificity, is_flaky) = BuildResults.SimpleBuildStatus
+  build_obj
+  (BuildResults.PatternMatch match_obj)
+  is_flaky
+  where
+    build_obj = Builds.NewBuild
+      (Builds.NewBuildNumber build_id)
+      (Builds.RawCommit sha1)
+      queued_at
+      job_name
+      branch
+
+    match_obj = MatchOccurrences.MatchOccurrencesForBuild step_name (ScanPatterns.PatternId pattern_id) (MatchOccurrences.MatchId match_id) line_number line_count line_text span_start span_end specificity
 
 
 -- | Gets last N commits in one query,
@@ -647,40 +697,28 @@ get_master_commits conn (Pagination.OffsetLimit offset_mode commit_count) = do
 api_master_builds ::
      DbHelpers.DbConnectionData
   -> Pagination.OffsetLimit
-  -> IO BuildResults.MasterBuildsResponse
-api_master_builds conn_data offset_limit = do
+  -> IO (Either Text BuildResults.MasterBuildsResponse)
+api_master_builds conn_data offset_limit = runExceptT $ do
 
-  conn <- DbHelpers.get_connection conn_data
+  conn <- liftIO $ DbHelpers.get_connection conn_data
 
-  master_commits <- get_master_commits conn offset_limit
+  master_commits <- ExceptT $ get_master_commits conn offset_limit
   let last_row_id = maybe 0 DbHelpers.db_id $ Safe.lastMay master_commits
 
-  job_names <- listFlat1 job_names_sql conn_data last_row_id
-  failure_rows <- query conn failures_sql $ Only last_row_id
+  failure_rows <- liftIO $ query conn failures_sql $ Only last_row_id
 
-  code_breakage_ranges <- get_code_breakage_ranges conn
+  code_breakage_ranges <- liftIO $ get_code_breakage_ranges conn
 
-  return $ BuildResults.MasterBuildsResponse job_names master_commits
-    (map f failure_rows) code_breakage_ranges
+  let failed_builds = map convert_failure_modes failure_rows
+      job_names = Set.fromList $ map (Builds.job_name . BuildResults._build) failed_builds
+
+  return $ BuildResults.MasterBuildsResponse
+    job_names
+    master_commits
+    failed_builds
+    code_breakage_ranges
 
   where
-
-    f (sha1, build_id, queued_at, job_name, branch, step_name, match_id, pattern_id, line_number, line_count, line_text, span_start, span_end, specificity, is_flaky) = BuildResults.SimpleBuildStatus
-      build_obj
-      (BuildResults.PatternMatch match_obj)
-      is_flaky
-      where
-        build_obj = Builds.NewBuild
-          (Builds.NewBuildNumber build_id)
-          (Builds.RawCommit sha1)
-          queued_at
-          job_name
-          branch
-
-        match_obj = MatchOccurrences.MatchOccurrencesForBuild step_name (ScanPatterns.PatternId pattern_id) (MatchOccurrences.MatchId match_id) line_number line_count line_text span_start span_end specificity
-
-    job_names_sql = "SELECT DISTINCT job_name FROM ordered_master_commits JOIN best_pattern_match_augmented_builds ON ordered_master_commits.sha1 = best_pattern_match_augmented_builds.vcs_revision WHERE ordered_master_commits.id >= ?;"
-
     failures_sql = "SELECT ordered_master_commits.sha1, build, queued_at, job_name, branch, step_name, match_id, pattern_id, line_number, line_count, line_text, span_start, span_end, specificity, is_flaky FROM ordered_master_commits JOIN best_pattern_match_augmented_builds ON ordered_master_commits.sha1 = best_pattern_match_augmented_builds.vcs_revision WHERE ordered_master_commits.id >= ?;"
 
 
@@ -688,30 +726,20 @@ api_master_builds conn_data offset_limit = do
 get_code_breakage_span_end ::
      Connection
   -> Int64
-  -> IO (Maybe (BuildResults.BreakageEndRecord (DbHelpers.WithAuthorship Text)))
+  -> IO (Maybe BuildResults.BreakageEndRecord)
 get_code_breakage_span_end conn cause_id = do
 
   rows <- query conn resolutions_sql $ Only cause_id
-
-  breakage_ends <- forM rows $ \(commit_index, resolution_id, sha1, reporter, reported_at) -> do
-
-    affected_jobs <- map f <$> query conn affected_cause_jobs_sql (Only resolution_id)
-
-    return $ DbHelpers.WithId resolution_id $ DbHelpers.WithAuthorship reporter reported_at $
-      BuildResults.BreakageEnd
-        (DbHelpers.WithId commit_index $ Builds.RawCommit sha1)
-        cause_id
-        affected_jobs
-
+  let breakage_ends = map f rows
   return $ Safe.headMay breakage_ends
 
   where
-    f (job, reporter, reported_at) = DbHelpers.WithAuthorship reporter reported_at job
+    f (commit_index, resolution_id, sha1, reporter, reported_at) = DbHelpers.WithId resolution_id $ DbHelpers.WithAuthorship reporter reported_at $
+      BuildResults.BreakageEnd
+        (DbHelpers.WithId commit_index $ Builds.RawCommit sha1)
+        cause_id
 
     resolutions_sql = "SELECT ordered_master_commits.id AS commit_index, code_breakage_resolution.id AS resolution_id, code_breakage_resolution.sha1, reporter, reported_at FROM code_breakage_resolution JOIN ordered_master_commits ON code_breakage_resolution.sha1 = ordered_master_commits.sha1 WHERE cause = ? ORDER BY resolution_id DESC LIMIT 1;"
-
-    affected_cause_jobs_sql = "SELECT job, reporter, reported_at FROM code_breakage_resolved_jobs WHERE resolution = ?;"
-
 
 
 -- | TODO: replace usages of the "get_code_breakage_ranges" function below with this
@@ -726,7 +754,7 @@ api_all_code_breakages conn_data = do
   return $ map f rows
 
   where
-    f (cause_id, cause_commit_index, cause_sha1, description, cause_reporter, cause_reported_at, cause_jobs_delimited, resolution_jobs_delimited, maybe_resolution_id, maybe_resolved_commit_index, maybe_resolution_sha1, maybe_resolution_reporter, maybe_resolution_reported_at) =
+    f (cause_id, cause_commit_index, cause_sha1, description, cause_reporter, cause_reported_at, cause_jobs_delimited, maybe_resolution_id, maybe_resolved_commit_index, maybe_resolution_sha1, maybe_resolution_reporter, maybe_resolution_reported_at) =
 
       BuildResults.BreakageSpan cause maybe_resolution
 
@@ -745,9 +773,9 @@ api_all_code_breakages conn_data = do
           resolution_reported_at <- maybe_resolution_reported_at
 
           return $ DbHelpers.WithId resolution_id $ DbHelpers.WithAuthorship resolution_reporter resolution_reported_at $ BuildResults.BreakageEnd
-            (DbHelpers.WithId resolved_commit_index $ Builds.RawCommit resolution_sha1) resolution_id (map T.pack $ splitAggText resolution_jobs_delimited)
+            (DbHelpers.WithId resolved_commit_index $ Builds.RawCommit resolution_sha1) resolution_id
 
-    sql = "SELECT cause_id, cause_commit_index, cause_sha1, description, cause_reporter, cause_reported_at, COALESCE(foo.jobs, '') AS cause_jobs, COALESCE(bar.jobs, '') AS resolution_jobs, resolution_id, resolved_commit_index, resolution_sha1, resolution_reporter, resolution_reported_at FROM code_breakage_spans LEFT JOIN (SELECT cause, string_agg(job, ';') AS jobs FROM code_breakage_affected_jobs GROUP BY code_breakage_affected_jobs.cause) foo ON foo.cause = cause_id LEFT JOIN (SELECT resolution, string_agg(job, ';') AS jobs FROM code_breakage_resolved_jobs GROUP BY code_breakage_resolved_jobs.resolution) bar ON bar.resolution = resolution_id"
+    sql = "SELECT cause_id, cause_commit_index, cause_sha1, description, cause_reporter, cause_reported_at, COALESCE(foo.jobs, '') AS cause_jobs, COALESCE(bar.jobs, '') AS resolution_jobs, resolution_id, resolved_commit_index, resolution_sha1, resolution_reporter, resolution_reported_at FROM code_breakage_spans LEFT JOIN (SELECT cause, string_agg(job, ';') AS jobs FROM code_breakage_affected_jobs GROUP BY code_breakage_affected_jobs.cause) foo ON foo.cause = cause_id LEFT JOIN (SELECT resolution FROM code_breakage_resolved_jobs GROUP BY code_breakage_resolved_jobs.resolution) bar ON bar.resolution = resolution_id"
 
 
 -- | TODO replace with a query from the view "code_breakage_spans"
@@ -778,6 +806,17 @@ get_code_breakage_ranges conn = do
     causes_sql = "SELECT ordered_master_commits.id AS commit_index, code_breakage_cause.id AS cause_id, code_breakage_cause.sha1, description, reporter, reported_at FROM code_breakage_cause JOIN ordered_master_commits ON code_breakage_cause.sha1 = ordered_master_commits.sha1;"
 
     affected_cause_jobs_sql = "SELECT job, reporter, reported_at FROM code_breakage_affected_jobs WHERE cause = ?;"
+
+
+get_latest_master_commit_with_metadata ::
+     DbHelpers.DbConnectionData
+  -> IO (Either Text Builds.RawCommit)
+get_latest_master_commit_with_metadata conn_data = do
+  conn <- DbHelpers.get_connection conn_data
+  rows <- query_ conn sql
+  return $ maybeToEither "No commit has metdata" $ Safe.headMay $ map (\(Only x) -> Builds.RawCommit x) rows
+  where
+    sql = "SELECT ordered_master_commits.sha1 FROM ordered_master_commits LEFT JOIN commit_metadata ON ordered_master_commits.sha1 = commit_metadata.sha1 WHERE commit_metadata.sha1 IS NOT NULL ORDER BY ordered_master_commits.id DESC LIMIT 1"
 
 
 data ScanTestResponse = ScanTestResponse {

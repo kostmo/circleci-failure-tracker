@@ -909,10 +909,52 @@ SELECT
     NULL::bigint AS timeout,
     NULL::bigint AS known_broken,
     NULL::bigint AS pattern_matched,
-    NULL::bigint AS flaky;
+    NULL::bigint AS flaky,
+    NULL::integer AS commit_index;
 
 
 ALTER TABLE public.master_failures_by_commit OWNER TO postgres;
+
+--
+-- Name: master_failures_weekly_aggregation; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_failures_weekly_aggregation WITH (security_barrier='false') AS
+ SELECT sum(foo.has_failure) AS had_failure,
+    sum(foo.has_idiopathic) AS had_idiopathic,
+    sum(foo.has_timeout) AS had_timeout,
+    sum(foo.has_known_broken) AS had_known_broken,
+    sum(foo.has_pattern_matched) AS had_pattern_matched,
+    sum(foo.has_flaky) AS had_flaky,
+    date_trunc('week'::text, foo.committer_date) AS week,
+    count(*) AS commit_count,
+    sum(foo.failure_count) AS failure_count,
+    sum(foo.idiopathic_count) AS idiopathic_count,
+    sum(foo.timeout_count) AS timeout_count,
+    sum(foo.known_broken_count) AS known_broken_count,
+    sum(foo.pattern_matched_count) AS pattern_matched_count,
+    sum(foo.flaky_count) AS flaky_count
+   FROM ( SELECT ((master_failures_by_commit.total > 0))::integer AS has_failure,
+            ((master_failures_by_commit.idiopathic > 0))::integer AS has_idiopathic,
+            ((master_failures_by_commit.timeout > 0))::integer AS has_timeout,
+            ((master_failures_by_commit.known_broken > 0))::integer AS has_known_broken,
+            ((master_failures_by_commit.pattern_matched > 0))::integer AS has_pattern_matched,
+            ((master_failures_by_commit.flaky > 0))::integer AS has_flaky,
+            master_failures_by_commit.total AS failure_count,
+            master_failures_by_commit.idiopathic AS idiopathic_count,
+            master_failures_by_commit.timeout AS timeout_count,
+            master_failures_by_commit.known_broken AS known_broken_count,
+            master_failures_by_commit.pattern_matched AS pattern_matched_count,
+            master_failures_by_commit.flaky AS flaky_count,
+            commit_metadata.committer_date
+           FROM (public.master_failures_by_commit
+             JOIN public.commit_metadata ON ((master_failures_by_commit.sha1 = commit_metadata.sha1)))
+          ORDER BY master_failures_by_commit.commit_index DESC) foo
+  GROUP BY (date_trunc('week'::text, foo.committer_date))
+  ORDER BY (date_trunc('week'::text, foo.committer_date)) DESC;
+
+
+ALTER TABLE public.master_failures_weekly_aggregation OWNER TO postgres;
 
 --
 -- Name: match_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
@@ -1586,14 +1628,15 @@ CREATE INDEX fki_fk_scan ON public.scanned_patterns USING btree (scan);
 -- Name: master_failures_by_commit _RETURN; Type: RULE; Schema: public; Owner: postgres
 --
 
-CREATE OR REPLACE VIEW public.master_failures_by_commit AS
+CREATE OR REPLACE VIEW public.master_failures_by_commit WITH (security_barrier='false') AS
  SELECT ordered_master_commits.sha1,
     count(build_failure_causes.vcs_revision) AS total,
-    sum((build_failure_causes.is_idiopathic)::integer) AS idiopathic,
-    sum((build_failure_causes.is_timeout)::integer) AS timeout,
-    sum((build_failure_causes.is_known_broken)::integer) AS known_broken,
-    sum(((NOT build_failure_causes.is_unmatched))::integer) AS pattern_matched,
-    sum((build_failure_causes.is_flaky)::integer) AS flaky
+    COALESCE(sum((build_failure_causes.is_idiopathic)::integer), (0)::bigint) AS idiopathic,
+    COALESCE(sum((build_failure_causes.is_timeout)::integer), (0)::bigint) AS timeout,
+    COALESCE(sum((build_failure_causes.is_known_broken)::integer), (0)::bigint) AS known_broken,
+    COALESCE(sum(((NOT build_failure_causes.is_unmatched))::integer), (0)::bigint) AS pattern_matched,
+    COALESCE(sum((build_failure_causes.is_flaky)::integer), (0)::bigint) AS flaky,
+    ordered_master_commits.id AS commit_index
    FROM (public.ordered_master_commits
      LEFT JOIN public.build_failure_causes ON ((build_failure_causes.vcs_revision = ordered_master_commits.sha1)))
   GROUP BY ordered_master_commits.id
@@ -2051,6 +2094,20 @@ GRANT ALL ON TABLE public.idiopathic_build_failures TO logan;
 --
 
 GRANT ALL ON TABLE public.job_failure_frequencies TO logan;
+
+
+--
+-- Name: TABLE master_failures_by_commit; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_failures_by_commit TO logan;
+
+
+--
+-- Name: TABLE master_failures_weekly_aggregation; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_failures_weekly_aggregation TO logan;
 
 
 --

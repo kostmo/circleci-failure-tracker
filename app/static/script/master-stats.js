@@ -3,12 +3,34 @@ function timeline_highchart(series_list) {
 
       Highcharts.chart('container-pattern-occurrences-by-week', {
 
-           chart: {
-                type: 'line'
-            },
-            title: {
-                text: 'Failure Modes by Week'
-            },
+		chart: {
+			type: 'line'
+		},
+		title: {
+			text: 'Failure Modes by Week'
+		},
+		subtitle: {
+			text: 'Showing only full weeks, starting on labeled day'
+		},
+
+
+		annotations: [{
+			labelOptions: {
+				backgroundColor: 'rgba(255,255,255,0.5)',
+				verticalAlign: 'top',
+				y: 15
+			},
+			labels: [{
+				point: {
+					xAxis: 0,
+					yAxis: 0,
+					x: new Date('2019-06-10T00:00:00Z'),
+					y: 400,
+				},
+				text: 'Start data collection',
+			}],
+		}],
+
             xAxis: {
                 type: 'datetime',
                 dateTimeLabelFormats: { // don't display the dummy year
@@ -31,11 +53,7 @@ function timeline_highchart(series_list) {
 			pointerEvents: 'auto'
 		},
 		pointFormatter: function() {
-			var pattern_id = parseInt(this.series.name.slice(0, this.series.name.indexOf(":")));
-	                var headerFormat = '<a href="/pattern-details.html?pattern_id=' + pattern_id + '">' + this.series.name + '</a></b><br/>';
-	                var pointFormat = this.y;
-
-			return headerFormat + pointFormat;
+			return this.y;
 		},
             },
 		plotOptions: {
@@ -73,7 +91,7 @@ function breakdown() {
 			var week_val = Date.parse(datum["week"]);
 
 			for (var key in datum) {
-				if (key != "week") {
+				if (key != "week" && key.endsWith("_count")) {
 
 					var pointlist = setDefault(series_points, key, []);
 					pointlist.push([week_val, datum[key]])
