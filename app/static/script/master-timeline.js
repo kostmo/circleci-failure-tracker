@@ -243,6 +243,10 @@ function define_column(col) {
 
 					return failure_mode_obj["step_failure"]["contents"]["line_text"];
 
+				} else if (failure_mode_obj["tag"] == "FailedStep" && failure_mode_obj["step_failure"]["tag"] == "Timeout") {
+
+					return "Timeout on step \"" + failure_mode_obj["step_name"] + "\"";
+
 				} else {
 					return false;
 				}
