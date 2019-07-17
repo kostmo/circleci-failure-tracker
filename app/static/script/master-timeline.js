@@ -42,9 +42,14 @@ function get_timeline_data(offset, count) {
 		sha1 = url_sha1;
 		use_sha1_offset = true;
 
-	} else if (min_commit_index != null && max_commit_index != null) {
+	}
 
+
+	if (min_commit_index != null && max_commit_index != null) {
 		use_commit_index_bounds = true;
+	} else {
+		min_commit_index = 0;
+		max_commit_index = 0;
 	}
 
 	var parms = {
@@ -286,7 +291,8 @@ function define_column(col) {
 							: cell_value.failure_mode["tag"] == "NoLog" ? "gray-diamond.svg"
 								: cell_value.failure_mode["tag"] == "Success" ? "green-dot.svg" : "red-x.svg";
 
-				return '<img src="/images/' + img_path + '" style="width: 100%; top: 50%;"/>';
+				var build_id = cell_value["build"]["build_id"];
+				return link('<img src="/images/' + img_path + '" style="width: 100%; top: 50%;"/>', "/build-details.html?build_id=" + build_id);
 			} else {
 				return "";
 			}
@@ -314,15 +320,6 @@ function define_column(col) {
 */
 
 
-		},
-		cellClick: function(e, cell) {
-
-			var cell_value = get_cell_value_indirect(cell);
-
-			if (cell_value != null) {
-				var build_id = cell_value["build"]["build_id"];
-				window.location.href = "/build-details.html?build_id=" + build_id;
-			}
 		},
 		cellContext: function(e, cell) {
 
@@ -520,6 +517,42 @@ function init_fields() {
 	if (count != null) {
 		$('#count-input').val(count);
 	}
+
+
+	var commit_index_min = urlParams.get('min_commit_index');
+	if (commit_index_min != null) {
+		$('#commit-index-min').val(commit_index_min);
+	}
+
+	var commit_index_max = urlParams.get('max_commit_index');
+	if (commit_index_max != null) {
+		$('#commit-index-max').val(commit_index_max);
+	}
+
+
+
+	var starting_sha1 = urlParams.get('sha1');
+	if (starting_sha1 != null) {
+		$('#sha1-input').val(starting_sha1);
+	}
+
+
+
+	var radios = $('input:radio[name=pagination-mode]');
+
+	if (commit_index_min != null && commit_index_max != null) {
+
+		radios.filter('[value=start-by-commit-index]').prop('checked', true);
+
+	} else if (starting_sha1 != null) {
+
+		radios.filter('[value=start-by-sha1]').prop('checked', true);
+
+	} else {
+
+		radios.filter('[value=start-by-offset]').prop('checked', true);
+	}
+
 }
 
 

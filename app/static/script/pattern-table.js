@@ -111,7 +111,7 @@ function gen_patterns_table(pattern_id, used_presumed_stable_branches, filtered_
 					$("#tag-add-button-" + pattern_id).hide();
 				},
 			},
-			{title:"Steps", field:"steps", sorter:"string"},
+			{title:"Applicable Steps", field:"steps", sorter:"string"},
 			{title:"Regex?", field:"is_regex", align:"center", formatter:"tickCross", sorter:"boolean", formatterParams: {crossElement: false}, width: 75},
 			{title:"Pattern", field:"pattern", sorter:"string", widthGrow: 3,
 				cssClass: "pattern-expression",

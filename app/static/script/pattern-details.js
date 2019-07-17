@@ -37,10 +37,9 @@ function gen_step_failures_chart(container_id, pattern_id) {
         series: [{
             name: 'Steps',
             colorByPoint: true,
-            data: data.rows,
+            data: data,
          }]
       });
-
    });
 }
 

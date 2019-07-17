@@ -848,6 +848,41 @@ ALTER SEQUENCE public.build_steps_id_seq OWNED BY public.build_steps.id;
 
 
 --
+-- Name: ci_providers; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.ci_providers (
+    id integer NOT NULL,
+    hostname text NOT NULL,
+    label text
+);
+
+
+ALTER TABLE public.ci_providers OWNER TO postgres;
+
+--
+-- Name: ci_providers_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.ci_providers_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.ci_providers_id_seq OWNER TO postgres;
+
+--
+-- Name: ci_providers_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.ci_providers_id_seq OWNED BY public.ci_providers.id;
+
+
+--
 -- Name: code_breakage_cause_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
 --
 
@@ -1307,8 +1342,8 @@ ALTER TABLE public.unattributed_failed_builds OWNER TO postgres;
 CREATE TABLE public.universal_builds (
     id integer NOT NULL,
     build_number integer,
-    ci_provider text,
-    build_namespace text
+    build_namespace text,
+    provider integer
 );
 
 
@@ -1380,6 +1415,13 @@ ALTER TABLE ONLY public.broken_build_reports ALTER COLUMN id SET DEFAULT nextval
 --
 
 ALTER TABLE ONLY public.build_steps ALTER COLUMN id SET DEFAULT nextval('public.build_steps_id_seq'::regclass);
+
+
+--
+-- Name: ci_providers id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ci_providers ALTER COLUMN id SET DEFAULT nextval('public.ci_providers_id_seq'::regclass);
 
 
 --
@@ -1475,6 +1517,14 @@ ALTER TABLE ONLY public.build_steps
 
 ALTER TABLE ONLY public.build_steps
     ADD CONSTRAINT build_steps_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: ci_providers ci_providers_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ci_providers
+    ADD CONSTRAINT ci_providers_pkey PRIMARY KEY (id);
 
 
 --
@@ -1638,14 +1688,6 @@ ALTER TABLE ONLY public.scans
 
 
 --
--- Name: universal_builds universal_builds_build_number_ci_provider_build_namespace_key; Type: CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.universal_builds
-    ADD CONSTRAINT universal_builds_build_number_ci_provider_build_namespace_key UNIQUE (build_number, ci_provider, build_namespace);
-
-
---
 -- Name: universal_builds universal_builds_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -1693,6 +1735,13 @@ CREATE INDEX fk_build_step_build ON public.build_steps USING btree (build);
 --
 
 CREATE INDEX fk_build_step_id ON public.matches USING btree (build_step);
+
+
+--
+-- Name: fk_ci_provider; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX fk_ci_provider ON public.universal_builds USING btree (provider);
 
 
 --
@@ -1934,6 +1983,14 @@ ALTER TABLE ONLY public.scanned_patterns
 
 ALTER TABLE ONLY public.scans
     ADD CONSTRAINT scans_latest_pattern_id_fkey FOREIGN KEY (latest_pattern_id) REFERENCES public.patterns(id);
+
+
+--
+-- Name: universal_builds universal_builds_provider_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.universal_builds
+    ADD CONSTRAINT universal_builds_provider_fkey FOREIGN KEY (provider) REFERENCES public.ci_providers(id) ON DELETE CASCADE;
 
 
 --
@@ -2200,6 +2257,13 @@ GRANT ALL ON TABLE public.build_failure_causes_mutual_exclusion_known_broken TO 
 --
 
 GRANT ALL ON SEQUENCE public.build_steps_id_seq TO logan;
+
+
+--
+-- Name: TABLE ci_providers; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.ci_providers TO logan;
 
 
 --

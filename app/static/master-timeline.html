@@ -36,17 +36,30 @@
 <span style="float: right"><a href="/code-breakages.html">List known breakages</a></span>
 
 <form onsubmit="return false;">
-<label>
-Offset:
-<input id="offset-input" type="number" value="0" min="0" size="3"/>
-</label>
 
 <label>
 count:
 <input id="count-input" type="number" value="40" min="1" max="100" size="3"/>
 </label>
 
-<button onclick="render_table();">Go</button>
+<p>Start position: <button onclick="render_table();">Go</button></p>
+<label><input type="radio" name="pagination-mode" value="start-by-offset" checked="true"/> by offset:</label>
+<label>
+<input id="offset-input" type="number" value="0" min="0" size="3"/>
+commits
+</label>
+
+
+<br/>
+
+<label><input type="radio" name="pagination-mode" value="start-by-sha1"/> by SHA1:</label>
+<input id="sha1-input" type="text" size="40"/>
+
+<br/>
+
+<label><input type="radio" name="pagination-mode" value="start-by-commit-index"/> by index:</label>
+<label>from <input id="commit-index-max" type="number" min="0" size="5"/></label> <label>down to <input id="commit-index-min" type="number" min="0" size="5"/></label>
+
 </form>
 
 <div id="master-timeline-table"></div>

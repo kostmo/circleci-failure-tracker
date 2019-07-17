@@ -225,12 +225,12 @@ apiTestFailures conn_data test_failure_pattern_id = do
         maybe_first_match_group = ScanUtils.getFirstMatchGroup extracted_chunk pattern_text
 
 
-patternBuildStepOccurrences :: DbHelpers.DbConnectionData -> ScanPatterns.PatternId -> IO [(Text, Int)]
+patternBuildStepOccurrences :: DbHelpers.DbConnectionData -> ScanPatterns.PatternId -> IO [WebApi.PieSliceApiRecord]
 patternBuildStepOccurrences conn_data (ScanPatterns.PatternId patt) = do
   conn <- DbHelpers.get_connection conn_data
-  query conn sql (Only patt)
+  map (uncurry WebApi.PieSliceApiRecord) <$> query conn sql (Only patt)
   where
-    sql = "SELECT occurrence_count, name FROM pattern_build_step_occurrences WHERE pattern = ? ORDER BY occurrence_count DESC, name ASC;"
+    sql = "SELECT name, occurrence_count FROM pattern_build_step_occurrences WHERE pattern = ? ORDER BY occurrence_count DESC, name ASC;"
 
 
 apiLineCountHistogram :: DbHelpers.DbConnectionData -> IO [(Text, Int)]
