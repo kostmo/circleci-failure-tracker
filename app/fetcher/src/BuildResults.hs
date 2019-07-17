@@ -30,20 +30,34 @@ instance ToJSON CommitAndMetadata where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
+data StepFailure =
+    Timeout
+  | NoMatch -- ^ no pattern match
+  | PatternMatch MatchOccurrences.MatchOccurrencesForBuild
+  deriving Generic
+
+instance ToJSON StepFailure
+
+
 data FailureMode =
    Success
- | Timeout
  | NoLog
- | PatternMatch MatchOccurrences.MatchOccurrencesForBuild
+ | FailedStep {
+       _step_name    :: Text
+     , _step_failure :: StepFailure
+     }
+ | Unknown -- ^ this should never happen
  deriving Generic
 
-instance ToJSON FailureMode
+instance ToJSON FailureMode where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
 data SimpleBuildStatus = SimpleBuildStatus {
-    _build        :: Builds.Build
-  , _failure_mode :: FailureMode
-  , _is_flaky     :: Bool
+    _build           :: Builds.Build
+  , _failure_mode    :: FailureMode
+  , _is_flaky        :: Bool
+  , _is_known_broken :: Bool
   } deriving Generic
 
 instance ToJSON SimpleBuildStatus where

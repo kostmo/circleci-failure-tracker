@@ -28,7 +28,6 @@ githubRepoApiPrefix (DbHelpers.OwnerAndRepo repo_owner repo_name) = intercalate 
       ]
 
 
-
 data WithAuthorship a = WithAuthorship {
     author  :: Text
   , created :: UTCTime

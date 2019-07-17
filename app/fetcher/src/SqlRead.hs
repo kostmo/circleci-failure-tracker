@@ -636,59 +636,90 @@ get_revision_builds conn_data git_revision = do
     sql = "SELECT step_name, match_id, build, vcs_revision, queued_at, job_name, branch, pattern_id, line_number, line_count, line_text, span_start, span_end, specificity, is_broken, reporter, report_timestamp FROM best_pattern_match_augmented_builds WHERE vcs_revision = ?;"
 
 
+data InclusiveNumericBounds a = InclusiveNumericBounds {
+    min_bound :: a
+  , max_bound :: a
+  }
+
+
 get_master_commits ::
      Connection
   -> Pagination.OffsetLimit
-  -> IO (Either Text [BuildResults.IndexedRichCommit])
+  -> IO (Either Text (InclusiveNumericBounds Int64, [BuildResults.IndexedRichCommit]))
 get_master_commits conn (Pagination.OffsetLimit offset_mode commit_count) = runExceptT $ do
 
-  starting_id <- ExceptT $ case offset_mode of
-    Pagination.Count _offset_count -> do
-      xs <- query_ conn sql_first_commit_id
+  latest_id <- ExceptT $ case offset_mode of
+    Pagination.Count offset_count -> do
+      xs <- query conn sql_first_commit_id $ Only offset_count
       return $ maybeToEither "No master commits!" $ Safe.headMay $ map (\(Only x) -> x) xs
     Pagination.Commit (Builds.RawCommit sha1) -> do
       xs <- query conn sql_associated_commit_id $ Only sha1
       return $ maybeToEither (T.unwords ["No commit with sha1", sha1]) $
         Safe.headMay $ map (\(Only x) -> x) xs
 
-  rows <- liftIO $ query conn sql_sha1_offset (starting_id :: Int, commit_count)
+  rows <- liftIO $ query conn sql_sha1_offset (latest_id :: Int64, commit_count)
 
-  return $ map f rows
+  let mapped_rows = map f rows
+      maybe_first_commit_index = DbHelpers.db_id <$> Safe.lastMay mapped_rows
+
+  first_commit_index <- except $ maybeToEither "No commits found!" maybe_first_commit_index
+
+  return (InclusiveNumericBounds first_commit_index latest_id, mapped_rows)
+
   where
-    f (commit_id, commit_sha1, maybe_message, maybe_tree_sha1, maybe_author_name, maybe_author_email, maybe_author_date, maybe_committer_name, maybe_committer_email, maybe_committer_date) = DbHelpers.WithId commit_id $ BuildResults.CommitAndMetadata
-      wrapped_sha1
-      maybe_metadata
+    f (commit_id, commit_sha1, maybe_message, maybe_tree_sha1, maybe_author_name, maybe_author_email, maybe_author_date, maybe_committer_name, maybe_committer_email, maybe_committer_date) =
+      DbHelpers.WithId commit_id $ BuildResults.CommitAndMetadata
+        wrapped_sha1
+        maybe_metadata
       where
         wrapped_sha1 = Builds.RawCommit commit_sha1
         maybe_metadata = Commits.CommitMetadata wrapped_sha1 <$>
-            maybe_message <*>
-            maybe_tree_sha1 <*>
-            maybe_author_name <*>
-            maybe_author_email <*>
-            maybe_author_date <*>
-            maybe_committer_name <*>
-            maybe_committer_email <*>
-            maybe_committer_date
+          maybe_message <*>
+          maybe_tree_sha1 <*>
+          maybe_author_name <*>
+          maybe_author_email <*>
+          maybe_author_date <*>
+          maybe_committer_name <*>
+          maybe_committer_email <*>
+          maybe_committer_date
 
-    sql_first_commit_id = "SELECT id FROM ordered_master_commits ORDER BY id DESC LIMIT 1"
+    sql_first_commit_id = "SELECT id FROM ordered_master_commits ORDER BY id DESC LIMIT 1 OFFSET ?"
     sql_associated_commit_id = "SELECT id FROM ordered_master_commits WHERE sha1 = ?"
 
     sql_sha1_offset = "SELECT ordered_master_commits.id, ordered_master_commits.sha1, message, tree_sha1, author_name, author_email, author_date, committer_name, committer_email, committer_date FROM ordered_master_commits LEFT JOIN commit_metadata ON commit_metadata.sha1 = ordered_master_commits.sha1 WHERE id <= ? ORDER BY id DESC LIMIT ?"
 
 
-convert_failure_modes (sha1, build_id, queued_at, job_name, branch, step_name, match_id, pattern_id, line_number, line_count, line_text, span_start, span_end, specificity, is_flaky) = BuildResults.SimpleBuildStatus
-  build_obj
-  (BuildResults.PatternMatch match_obj)
-  is_flaky
+convert_failure_modes (sha1, succeeded, is_idiopathic, is_flaky, is_timeout, is_matched, is_known_broken, build_num, queued_at, job_name, branch, step_name, pattern_id, match_id, line_number, line_count, line_text, span_start, span_end, specificity) = BuildResults.SimpleBuildStatus
+    build_obj
+    failure_mode
+    is_flaky
+    is_known_broken
   where
+
+    failure_mode
+      | succeeded = BuildResults.Success
+      | is_idiopathic = BuildResults.NoLog
+      | is_timeout = BuildResults.FailedStep step_name BuildResults.Timeout
+      | is_matched = BuildResults.FailedStep step_name $ BuildResults.PatternMatch match_obj
+      | otherwise = BuildResults.FailedStep step_name BuildResults.NoMatch
+
     build_obj = Builds.NewBuild
-      (Builds.NewBuildNumber build_id)
+      (Builds.NewBuildNumber build_num)
       (Builds.RawCommit sha1)
       queued_at
       job_name
       branch
 
-    match_obj = MatchOccurrences.MatchOccurrencesForBuild step_name (ScanPatterns.PatternId pattern_id) (MatchOccurrences.MatchId match_id) line_number line_count line_text span_start span_end specificity
+    match_obj = MatchOccurrences.MatchOccurrencesForBuild
+      step_name
+      (ScanPatterns.PatternId pattern_id)
+      (MatchOccurrences.MatchId match_id)
+      line_number
+      line_count
+      line_text
+      span_start
+      span_end
+      specificity
 
 
 -- | Gets last N commits in one query,
@@ -702,15 +733,14 @@ api_master_builds conn_data offset_limit = runExceptT $ do
 
   conn <- liftIO $ DbHelpers.get_connection conn_data
 
-  master_commits <- ExceptT $ get_master_commits conn offset_limit
-  let last_row_id = maybe 0 DbHelpers.db_id $ Safe.lastMay master_commits
-
-  failure_rows <- liftIO $ query conn failures_sql $ Only last_row_id
-
-  code_breakage_ranges <- liftIO $ get_code_breakage_ranges conn
+  (commit_id_bounds, master_commits) <- ExceptT $ get_master_commits conn offset_limit
+  let query_bounds = (min_bound commit_id_bounds, max_bound commit_id_bounds)
+  failure_rows <- liftIO $ query conn failures_sql query_bounds
 
   let failed_builds = map convert_failure_modes failure_rows
       job_names = Set.fromList $ map (Builds.job_name . BuildResults._build) failed_builds
+
+  code_breakage_ranges <- liftIO $ get_code_breakage_ranges conn
 
   return $ BuildResults.MasterBuildsResponse
     job_names
@@ -719,7 +749,13 @@ api_master_builds conn_data offset_limit = runExceptT $ do
     code_breakage_ranges
 
   where
-    failures_sql = "SELECT ordered_master_commits.sha1, build, queued_at, job_name, branch, step_name, match_id, pattern_id, line_number, line_count, line_text, span_start, span_end, specificity, is_flaky FROM ordered_master_commits JOIN best_pattern_match_augmented_builds ON ordered_master_commits.sha1 = best_pattern_match_augmented_builds.vcs_revision WHERE ordered_master_commits.id >= ?;"
+    -- Sometimes a few of the columns are null. Those column values are conditionally extracted (and placed into records)
+    -- only when a boolean designator column indicates they should be. Therefore, one would think that "Maybe" types
+    -- are not needed to represent the columns, since that lazy code branch will only be excuted when they are non-null.
+    -- However, it seems the postgres-simple library eagerly evaluates the entire row and attempts to apply
+    -- the inferred type, even when some of the columns do not eventually get used.
+    -- Therefore, we coalesce *all* all of the values to a nonsense value instead of allowing them to be null.
+    failures_sql = "SELECT ordered_master_commits.sha1, build_failure_causes.succeeded, build_failure_causes.is_idiopathic, build_failure_causes.is_flaky, build_failure_causes.is_timeout, build_failure_causes.is_matched, build_failure_causes.is_known_broken, build_failure_causes.build_num, build_failure_causes.queued_at, build_failure_causes.job_name, build_failure_causes.branch, COALESCE(build_failure_causes.step_name, ''), COALESCE(build_failure_causes.pattern_id, -1), COALESCE(match_id, -1), COALESCE(line_number, -1), COALESCE(line_count, -1), COALESCE(line_text, ''), COALESCE(span_start, -1), COALESCE(span_end, -1), COALESCE(specificity, -1) FROM ordered_master_commits JOIN build_failure_causes ON build_failure_causes.vcs_revision = ordered_master_commits.sha1 LEFT JOIN best_pattern_match_augmented_builds ON build_failure_causes.build_num = best_pattern_match_augmented_builds.build WHERE ordered_master_commits.id >= ? AND ordered_master_commits.id <= ?;"
 
 
 -- | TODO What to do when multiple resolutions are assigned to the same cause?

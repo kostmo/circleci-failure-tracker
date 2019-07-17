@@ -67,7 +67,7 @@ function get_context_menu_items_for_cell(cell) {
 
 	var context_menu_items = [];
 
-	var cell_value = cell.getValue();
+	var cell_value = get_cell_value_indirect(cell);
 	if (cell_value != null) {
 		var node = document.createElement("span");
 		var textnode = document.createTextNode("Mark failure start");
@@ -212,6 +212,18 @@ function mark_failure_cause(commit_sha1, clicked_job_name) {
 }
 
 
+function get_cell_value_indirect(cell) {
+	// XXX Some of the column names can contain periods, which inadvertently
+	// indicates a nested JSON object (see http://tabulator.info/docs/4.0/columns#field-nesting)
+	// There's not an obvious way to turn off this interpretation, so we access the data
+	// in a different, more indirect way:
+//	var cell_value = cell.getValue();
+
+	var cell_value = cell.getRow().getData()[cell.getColumn().getField()];
+	return cell_value;
+}
+
+
 function define_column(col) {
 	var col_dict = {
 		title: col,
@@ -224,9 +236,16 @@ function define_column(col) {
 		cssClass: "smallish",
 		tooltip: function(cell) {
 
-			var cell_value = cell.getValue();
+			var cell_value = get_cell_value_indirect(cell);
 			if (cell_value != null) {
-				return cell_value["failure_mode"]["contents"]["line_text"];
+				var failure_mode_obj = cell_value["failure_mode"];
+				if (failure_mode_obj["tag"] == "FailedStep" && failure_mode_obj["step_failure"]["tag"] == "PatternMatch") {
+
+					return failure_mode_obj["step_failure"]["contents"]["line_text"];
+
+				} else {
+					return false;
+				}
 			} else {
 				return false;
 			}
@@ -243,15 +262,18 @@ function define_column(col) {
 				cell.getElement().style.cursor = "context-menu";
 			}
 
-			var cell_value = cell.getValue();
+			var cell_value = get_cell_value_indirect(cell);
+
 			if (cell_value != null) {
-				var img_path = cell_value.is_flaky ? "yellow-x.svg" : "red-x.svg";
+				var img_path = cell_value.is_flaky ? "yellow-triangle.svg"
+					: cell_value.failure_mode["tag"] == "FailedStep" && cell_value.failure_mode["step_failure"]["tag"] == "Timeout" ? "purple-circle.svg"
+						: cell_value.failure_mode["tag"] == "FailedStep" && cell_value.failure_mode["step_failure"]["tag"] == "NoMatch" ? "blue-square.svg" : "red-x.svg";
+
 				return '<img src="/images/' + img_path + '" style="width: 100%; top: 50%;"/>';
 			} else {
 				return "";
 			}
 		},
-
 
 		headerClick: function(e, column){
 			//e - the click event object
@@ -278,8 +300,7 @@ function define_column(col) {
 		},
 		cellClick: function(e, cell) {
 
-			var cell_value = cell.getValue()
-			console.log("cell: " + cell_value + "; commit: " + cell.getRow().getData()["commit"]);
+			var cell_value = get_cell_value_indirect(cell);
 
 			if (cell_value != null) {
 				var build_id = cell_value["build"]["build_id"];
@@ -287,8 +308,6 @@ function define_column(col) {
 			}
 		},
 		cellContext: function(e, cell) {
-
-			var cell_value = cell.getValue();
 
 			var dropdown_element = document.getElementById("myDropdown");
 
@@ -320,7 +339,7 @@ function define_column(col) {
 function get_column_definitions(raw_column_list) {
 
 	var commit_column_definition = {
-		title: "Commit",
+		title: 'Commit<br/><table style="vertical-align: bottom;"><caption>Legend</caption><tbody><tr><th>Symbol</th><th>Meaning</th></tr><tr><td><img src="/images/yellow-triangle.svg" style="width: 24px"/></td><td>flaky</td></tr><tr><td><img src="/images/red-x.svg" style="width: 24px"/></td><td>other match</td></tr><tr><td><img src="/images/blue-square.svg" style="width: 24px"/></td><td>no pattern match</td></tr><tr><td><img src="/images/purple-circle.svg" style="width: 24px"/></td><td>timeout</td></tr></tbody></table>',
 		field: "commit",
 		headerVertical: false,
 		formatter: function(cell, formatterParams, onRendered) {
@@ -347,7 +366,8 @@ function get_column_definitions(raw_column_list) {
 		frozen: true,
 	};
 
-	var filtered_column_names = raw_column_list.filter(x => !x.startsWith("binary"));
+//	var filtered_column_names = raw_column_list.filter(x => !x.startsWith("binary"));
+	var filtered_column_names = raw_column_list;
 	filtered_column_names.sort();
 
 	var column_list = [commit_column_definition].concat(generate_column_tree(filtered_column_names));
@@ -398,7 +418,6 @@ function generate_column_tree(column_names) {
 
 	return column_list;
 }
-
 
 
 function gen_timeline_table(element_id, fetched_data) {
@@ -496,8 +515,7 @@ function main() {
 	window.onclick = function(event) {
 		if (!event.target.matches('.dropbtn')) {
 			var dropdowns = document.getElementsByClassName("dropdown-content");
-			var i;
-			for (i = 0; i < dropdowns.length; i++) {
+			for (var i = 0; i < dropdowns.length; i++) {
 				var openDropdown = dropdowns[i];
 				if (openDropdown.classList.contains('show')) {
 					openDropdown.classList.remove('show');

@@ -1,7 +1,7 @@
 
 function timeline_highchart(series_list) {
 
-      Highcharts.chart('container-pattern-occurrences-by-week', {
+	Highcharts.chart('container-pattern-occurrences-by-week', {
 
 		chart: {
 			type: 'line'
@@ -12,8 +12,6 @@ function timeline_highchart(series_list) {
 		subtitle: {
 			text: 'Showing only full weeks, starting on labeled day'
 		},
-
-
 		annotations: [{
 			labelOptions: {
 				backgroundColor: 'rgba(255,255,255,0.5)',
@@ -30,32 +28,31 @@ function timeline_highchart(series_list) {
 				text: 'Start data collection',
 			}],
 		}],
-
-            xAxis: {
-                type: 'datetime',
-                dateTimeLabelFormats: { // don't display the dummy year
-                    month: '%e. %b',
-                    year: '%b'
-                },
-                title: {
-                    text: 'Date'
-                }
-            },
-            yAxis: {
-                title: {
-                    text: 'count'
-                },
-                min: 0
-            },
-            tooltip: {
-		useHTML: true,
-		style: {
-			pointerEvents: 'auto'
+		xAxis: {
+			type: 'datetime',
+			dateTimeLabelFormats: { // don't display the dummy year
+				month: '%e. %b',
+				year: '%b'
+			},
+			title: {
+				text: 'Date'
+			}
 		},
-		pointFormatter: function() {
-			return this.y;
+		yAxis: {
+			title: {
+				text: 'count'
+			},
+			min: 0
 		},
-            },
+		tooltip: {
+			useHTML: true,
+			style: {
+				pointerEvents: 'auto'
+			},
+			pointFormatter: function() {
+				return this.y;
+			},
+		},
 		plotOptions: {
 			line: {
 				marker: {
@@ -68,18 +65,12 @@ function timeline_highchart(series_list) {
 			enabled: false
 		},
 		series: series_list,
-      });
+	});
 
 }
 
 
 function breakdown() {
-
-	/*
-	$.getJSON('/api/master-build-stats', function (data) {
-		console.log(JSON.stringify(data));
-	});
-	*/
 
 	$.getJSON('/api/master-weekly-failure-stats', {"weeks": 6}, function (data) {
 
@@ -108,9 +99,7 @@ function breakdown() {
 			    });
 		}
 
-
 		timeline_highchart(series_list);
-
 	});
 }
 
