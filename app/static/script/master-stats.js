@@ -1,10 +1,12 @@
+// global
+var ranges_by_week = {};
 
 function timeline_highchart(series_list) {
 
 	Highcharts.chart('container-pattern-occurrences-by-week', {
 
 		chart: {
-			type: 'line'
+			type: 'area'
 		},
 		title: {
 			text: 'Failure Modes by Week'
@@ -50,7 +52,9 @@ function timeline_highchart(series_list) {
 				pointerEvents: 'auto'
 			},
 			pointFormatter: function() {
-				return this.y;
+				var commit_id_bounds = ranges_by_week[this.x];
+				var content = this.y + "<br/>" + link("(details)", "/master-timeline.html?min_commit_index=" + commit_id_bounds["min_bound"] + "&max_commit_index=" + commit_id_bounds["max_bound"]);
+				return content;
 			},
 		},
 		plotOptions: {
@@ -58,15 +62,16 @@ function timeline_highchart(series_list) {
 				marker: {
 					enabled: true
 				}
-			}
+			},
+			area: {
+			    stacking: 'normal',
+			},
 		},
-
 		credits: {
 			enabled: false
 		},
 		series: series_list,
 	});
-
 }
 
 
@@ -80,9 +85,10 @@ function breakdown() {
 		for (var datum of data) {
 
 			var week_val = Date.parse(datum["week"]);
+			ranges_by_week[week_val] = datum["commit_id_bound"];
 
 			for (var key in datum) {
-				if (key != "week" && key.endsWith("_count")) {
+				if (key != "week" && key.endsWith("_count") && !["commit_count", "failure_count", "pattern_matched_count"].includes(key)) {
 
 					var pointlist = setDefault(series_points, key, []);
 					pointlist.push([week_val, datum[key]])

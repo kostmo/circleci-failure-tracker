@@ -1,3 +1,50 @@
+function gen_step_failures_chart(container_id, pattern_id) {
+
+   $.getJSON('/api/pattern-step-occurrences', {"pattern_id": pattern_id}, function (data) {
+
+      Highcharts.chart(container_id, {
+        chart: {
+            plotBackgroundColor: null,
+            plotBorderWidth: null,
+            plotShadow: false,
+            type: 'pie'
+        },
+        title: {
+            text: 'Failures by step name'
+        },
+	subtitle: {
+	    text: 'for pattern ' + pattern_id
+	},
+        tooltip: {
+            pointFormat: '{series.name}: <b>{point.percentage:.1f}%</b>'
+        },
+        plotOptions: {
+            pie: {
+                allowPointSelect: true,
+                cursor: 'pointer',
+                dataLabels: {
+                    enabled: true,
+                    format: '<b>{point.name}</b>: {point.percentage:.1f} %',
+                    style: {
+                        color: (Highcharts.theme && Highcharts.theme.contrastTextColor) || 'black'
+                    }
+                }
+            }
+        },
+        credits: {
+            enabled: false
+        },
+        series: [{
+            name: 'Steps',
+            colorByPoint: true,
+            data: data.rows,
+         }]
+      });
+
+   });
+}
+
+
 function gen_matches_table(element_id, data_url) {
 
 	var table = new Tabulator("#" + element_id, {
@@ -59,5 +106,6 @@ function main() {
         gen_best_matches_table(pattern_id);
         gen_all_matches_table(pattern_id);
 
+	gen_step_failures_chart('container-step-failures', pattern_id);
 }
 

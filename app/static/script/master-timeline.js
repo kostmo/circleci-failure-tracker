@@ -31,19 +31,30 @@ function get_timeline_data(offset, count) {
 
 	var sha1 = "nothing";
 	var use_sha1_offset = false;
+	var use_commit_index_bounds = false;
 
 	var url_sha1 = urlParams.get('sha1');
+
+	var min_commit_index = urlParams.get('min_commit_index');
+	var max_commit_index = urlParams.get('max_commit_index');
 
 	if (url_sha1 != null) {
 		sha1 = url_sha1;
 		use_sha1_offset = true;
+
+	} else if (min_commit_index != null && max_commit_index != null) {
+
+		use_commit_index_bounds = true;
 	}
 
 	var parms = {
 		"offset": offset,
 		"sha1": sha1,
-		"use_sha1_offset": use_sha1_offset,
 		"count": count,
+		"use_sha1_offset": use_sha1_offset,
+		"use_commit_index_bounds": use_commit_index_bounds,
+		"min_commit_index": min_commit_index,
+		"max_commit_index": max_commit_index,
 	}
 
 
@@ -271,7 +282,9 @@ function define_column(col) {
 			if (cell_value != null) {
 				var img_path = cell_value.is_flaky ? "yellow-triangle.svg"
 					: cell_value.failure_mode["tag"] == "FailedStep" && cell_value.failure_mode["step_failure"]["tag"] == "Timeout" ? "purple-circle.svg"
-						: cell_value.failure_mode["tag"] == "FailedStep" && cell_value.failure_mode["step_failure"]["tag"] == "NoMatch" ? "blue-square.svg" : "red-x.svg";
+						: cell_value.failure_mode["tag"] == "FailedStep" && cell_value.failure_mode["step_failure"]["tag"] == "NoMatch" ? "blue-square.svg"
+							: cell_value.failure_mode["tag"] == "NoLog" ? "gray-diamond.svg"
+								: cell_value.failure_mode["tag"] == "Success" ? "green-dot.svg" : "red-x.svg";
 
 				return '<img src="/images/' + img_path + '" style="width: 100%; top: 50%;"/>';
 			} else {
@@ -343,7 +356,7 @@ function define_column(col) {
 function get_column_definitions(raw_column_list) {
 
 	var commit_column_definition = {
-		title: 'Commit<br/><table style="vertical-align: bottom;"><caption>Legend</caption><tbody><tr><th>Symbol</th><th>Meaning</th></tr><tr><td><img src="/images/yellow-triangle.svg" style="width: 24px"/></td><td>flaky</td></tr><tr><td><img src="/images/red-x.svg" style="width: 24px"/></td><td>other match</td></tr><tr><td><img src="/images/blue-square.svg" style="width: 24px"/></td><td>no pattern match</td></tr><tr><td><img src="/images/purple-circle.svg" style="width: 24px"/></td><td>timeout</td></tr></tbody></table>',
+		title: 'Commit<br/><table style="vertical-align: bottom;"><caption>Legend</caption><tbody><tr><th>Symbol</th><th>Meaning</th></tr><tr><td><img src="/images/yellow-triangle.svg" style="width: 20px"/></td><td>flaky</td></tr><tr><td><img src="/images/red-x.svg" style="width: 20px"/></td><td>other match</td></tr><tr><td><img src="/images/blue-square.svg" style="width: 20px"/></td><td>no pattern match</td></tr><tr><td><img src="/images/purple-circle.svg" style="width: 20px"/></td><td>timeout</td></tr><tr><td><img src="/images/gray-diamond.svg" style="width: 20px"/></td><td>idiopathic</td></tr><tr><td><img src="/images/green-dot.svg" style="width: 20px"/></td><td>success</td></tr></tbody></table>',
 		field: "commit",
 		headerVertical: false,
 		formatter: function(cell, formatterParams, onRendered) {

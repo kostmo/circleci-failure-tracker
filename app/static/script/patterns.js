@@ -1,4 +1,3 @@
-
 function setup_autocomplete() {
 
 	$( "#branch-name-input" ).autocomplete({

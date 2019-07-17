@@ -156,6 +156,13 @@ CREATE VIEW public.match_positions WITH (security_barrier='false') AS
 ALTER TABLE public.match_positions OWNER TO postgres;
 
 --
+-- Name: VIEW match_positions; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.match_positions IS 'Each row of this table represents statistics across the (potential multiple) pattern matches for a given *pattern* on a given *build log*.  That is, there is no aggregation across builds or patterns.';
+
+
+--
 -- Name: match_last_position_frequencies; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -483,6 +490,13 @@ CREATE VIEW public.latest_broken_build_reports AS
 ALTER TABLE public.latest_broken_build_reports OWNER TO postgres;
 
 --
+-- Name: VIEW latest_broken_build_reports; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.latest_broken_build_reports IS 'This view is DEPRECATED';
+
+
+--
 -- Name: builds_with_reports; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -735,6 +749,13 @@ CREATE VIEW public.known_broken_builds AS
 ALTER TABLE public.known_broken_builds OWNER TO postgres;
 
 --
+-- Name: VIEW known_broken_builds; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.known_broken_builds IS 'These are only known broken *master* builds.';
+
+
+--
 -- Name: build_failure_causes; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -753,7 +774,8 @@ CREATE VIEW public.build_failure_causes WITH (security_barrier='false') AS
     best_pattern_match_for_builds.pattern_id,
     COALESCE(best_pattern_match_for_builds.is_flaky, false) AS is_flaky,
     (known_broken_builds.build_num IS NOT NULL) AS is_known_broken,
-    known_broken_builds.causes AS known_cause_ids
+    known_broken_builds.causes AS known_cause_ids,
+    (best_pattern_match_for_builds.pattern_id IS NOT NULL) AS is_matched
    FROM (((public.builds
      LEFT JOIN public.build_steps ON ((build_steps.build = builds.build_num)))
      LEFT JOIN public.best_pattern_match_for_builds ON ((best_pattern_match_for_builds.build = builds.build_num)))
@@ -761,6 +783,47 @@ CREATE VIEW public.build_failure_causes WITH (security_barrier='false') AS
 
 
 ALTER TABLE public.build_failure_causes OWNER TO postgres;
+
+--
+-- Name: VIEW build_failure_causes; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.build_failure_causes IS 'TODO: remove deprecated "is_unmatched" field';
+
+
+--
+-- Name: build_failure_causes_mutual_exclusion_known_broken; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.build_failure_causes_mutual_exclusion_known_broken WITH (security_barrier='false') AS
+ SELECT build_failure_causes.build_num,
+    build_failure_causes.succeeded,
+    (build_failure_causes.is_idiopathic AND (NOT build_failure_causes.is_known_broken)) AS is_idiopathic,
+    build_failure_causes.step_id,
+    build_failure_causes.step_name,
+    (build_failure_causes.is_timeout AND (NOT build_failure_causes.is_known_broken)) AS is_timeout,
+    (build_failure_causes.is_unmatched AND (NOT build_failure_causes.is_known_broken)) AS is_unmatched,
+    build_failure_causes.pattern_id,
+    (build_failure_causes.is_flaky AND (NOT build_failure_causes.is_known_broken)) AS is_flaky,
+    build_failure_causes.vcs_revision,
+    build_failure_causes.queued_at,
+    build_failure_causes.job_name,
+    build_failure_causes.branch,
+    build_failure_causes.is_known_broken,
+    (build_failure_causes.is_matched AND (NOT build_failure_causes.is_known_broken)) AS is_matched
+   FROM public.build_failure_causes;
+
+
+ALTER TABLE public.build_failure_causes_mutual_exclusion_known_broken OWNER TO postgres;
+
+--
+-- Name: VIEW build_failure_causes_mutual_exclusion_known_broken; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.build_failure_causes_mutual_exclusion_known_broken IS 'TODO: remove deprecated "is_unmatched" field
+
+The "known broken" cause shall dominate; it is made mutually-exclusive with all other causes for a given build failure because a known broken build is unreliable for other statistics collection.';
+
 
 --
 -- Name: build_steps_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
@@ -933,7 +996,9 @@ CREATE VIEW public.master_failures_weekly_aggregation WITH (security_barrier='fa
     sum(foo.timeout_count) AS timeout_count,
     sum(foo.known_broken_count) AS known_broken_count,
     sum(foo.pattern_matched_count) AS pattern_matched_count,
-    sum(foo.flaky_count) AS flaky_count
+    sum(foo.flaky_count) AS flaky_count,
+    min(foo.commit_index) AS earliest_commit_index,
+    max(foo.commit_index) AS latest_commit_index
    FROM ( SELECT ((master_failures_by_commit.total > 0))::integer AS has_failure,
             ((master_failures_by_commit.idiopathic > 0))::integer AS has_idiopathic,
             ((master_failures_by_commit.timeout > 0))::integer AS has_timeout,
@@ -946,7 +1011,8 @@ CREATE VIEW public.master_failures_weekly_aggregation WITH (security_barrier='fa
             master_failures_by_commit.known_broken AS known_broken_count,
             master_failures_by_commit.pattern_matched AS pattern_matched_count,
             master_failures_by_commit.flaky AS flaky_count,
-            commit_metadata.committer_date
+            commit_metadata.committer_date,
+            master_failures_by_commit.commit_index
            FROM (public.master_failures_by_commit
              JOIN public.commit_metadata ON ((master_failures_by_commit.sha1 = commit_metadata.sha1)))
           ORDER BY master_failures_by_commit.commit_index DESC) foo
@@ -1062,6 +1128,22 @@ ALTER TABLE public.ordered_master_commits_id_seq OWNER TO postgres;
 
 ALTER SEQUENCE public.ordered_master_commits_id_seq OWNED BY public.ordered_master_commits.id;
 
+
+--
+-- Name: pattern_build_step_occurrences; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.pattern_build_step_occurrences AS
+ SELECT count(*) AS occurrence_count,
+    build_steps.name,
+    matches.pattern
+   FROM (public.matches
+     JOIN public.build_steps ON ((build_steps.id = matches.build_step)))
+  GROUP BY build_steps.name, matches.pattern
+  ORDER BY (count(*)) DESC, matches.pattern DESC;
+
+
+ALTER TABLE public.pattern_build_step_occurrences OWNER TO postgres;
 
 --
 -- Name: pattern_frequency_summary; Type: VIEW; Schema: public; Owner: postgres
@@ -1219,6 +1301,42 @@ CREATE VIEW public.unattributed_failed_builds WITH (security_barrier='false') AS
 ALTER TABLE public.unattributed_failed_builds OWNER TO postgres;
 
 --
+-- Name: universal_builds; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.universal_builds (
+    id integer NOT NULL,
+    build_number integer,
+    ci_provider text,
+    build_namespace text
+);
+
+
+ALTER TABLE public.universal_builds OWNER TO postgres;
+
+--
+-- Name: universal_builds_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.universal_builds_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.universal_builds_id_seq OWNER TO postgres;
+
+--
+-- Name: universal_builds_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.universal_builds_id_seq OWNED BY public.universal_builds.id;
+
+
+--
 -- Name: unscanned_patterns; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -1318,6 +1436,13 @@ ALTER TABLE ONLY public.patterns ALTER COLUMN id SET DEFAULT nextval('public.pat
 --
 
 ALTER TABLE ONLY public.scans ALTER COLUMN id SET DEFAULT nextval('public.scans_id_seq'::regclass);
+
+
+--
+-- Name: universal_builds id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.universal_builds ALTER COLUMN id SET DEFAULT nextval('public.universal_builds_id_seq'::regclass);
 
 
 --
@@ -1513,6 +1638,22 @@ ALTER TABLE ONLY public.scans
 
 
 --
+-- Name: universal_builds universal_builds_build_number_ci_provider_build_namespace_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.universal_builds
+    ADD CONSTRAINT universal_builds_build_number_ci_provider_build_namespace_key UNIQUE (build_number, ci_provider, build_namespace);
+
+
+--
+-- Name: universal_builds universal_builds_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.universal_builds
+    ADD CONSTRAINT universal_builds_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: blah; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -1630,15 +1771,15 @@ CREATE INDEX fki_fk_scan ON public.scanned_patterns USING btree (scan);
 
 CREATE OR REPLACE VIEW public.master_failures_by_commit WITH (security_barrier='false') AS
  SELECT ordered_master_commits.sha1,
-    count(build_failure_causes.vcs_revision) AS total,
-    COALESCE(sum((build_failure_causes.is_idiopathic)::integer), (0)::bigint) AS idiopathic,
-    COALESCE(sum((build_failure_causes.is_timeout)::integer), (0)::bigint) AS timeout,
-    COALESCE(sum((build_failure_causes.is_known_broken)::integer), (0)::bigint) AS known_broken,
-    COALESCE(sum(((NOT build_failure_causes.is_unmatched))::integer), (0)::bigint) AS pattern_matched,
-    COALESCE(sum((build_failure_causes.is_flaky)::integer), (0)::bigint) AS flaky,
+    count(build_failure_causes_mutual_exclusion_known_broken.vcs_revision) AS total,
+    COALESCE(sum((build_failure_causes_mutual_exclusion_known_broken.is_idiopathic)::integer), (0)::bigint) AS idiopathic,
+    COALESCE(sum((build_failure_causes_mutual_exclusion_known_broken.is_timeout)::integer), (0)::bigint) AS timeout,
+    COALESCE(sum((build_failure_causes_mutual_exclusion_known_broken.is_known_broken)::integer), (0)::bigint) AS known_broken,
+    COALESCE(sum((build_failure_causes_mutual_exclusion_known_broken.is_matched)::integer), (0)::bigint) AS pattern_matched,
+    COALESCE(sum((build_failure_causes_mutual_exclusion_known_broken.is_flaky)::integer), (0)::bigint) AS flaky,
     ordered_master_commits.id AS commit_index
    FROM (public.ordered_master_commits
-     LEFT JOIN public.build_failure_causes ON ((build_failure_causes.vcs_revision = ordered_master_commits.sha1)))
+     LEFT JOIN public.build_failure_causes_mutual_exclusion_known_broken ON ((build_failure_causes_mutual_exclusion_known_broken.vcs_revision = ordered_master_commits.sha1)))
   GROUP BY ordered_master_commits.id
   ORDER BY ordered_master_commits.id DESC;
 
@@ -2048,6 +2189,13 @@ GRANT ALL ON TABLE public.build_failure_causes TO logan;
 
 
 --
+-- Name: TABLE build_failure_causes_mutual_exclusion_known_broken; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.build_failure_causes_mutual_exclusion_known_broken TO logan;
+
+
+--
 -- Name: SEQUENCE build_steps_id_seq; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -2146,6 +2294,13 @@ GRANT ALL ON SEQUENCE public.ordered_master_commits_id_seq TO logan;
 
 
 --
+-- Name: TABLE pattern_build_step_occurrences; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.pattern_build_step_occurrences TO logan;
+
+
+--
 -- Name: TABLE pattern_frequency_summary; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -2199,6 +2354,13 @@ GRANT ALL ON SEQUENCE public.scans_id_seq TO logan;
 --
 
 GRANT ALL ON TABLE public.unattributed_failed_builds TO logan;
+
+
+--
+-- Name: TABLE universal_builds; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.universal_builds TO logan;
 
 
 --

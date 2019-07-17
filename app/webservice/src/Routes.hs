@@ -48,6 +48,7 @@ import qualified SqlWrite
 import qualified StatusUpdate
 import qualified Types
 import qualified WebApi
+import qualified WeeklyStats
 
 
 data SetupData = SetupData {
@@ -422,18 +423,28 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
     S.get "/api/log-lines-histogram" $
       S.json =<< liftIO (SqlRead.apiLineCountHistogram connection_data)
 
+
+    S.get "/api/pattern-step-occurrences" $ do
+      pattern_id <- S.param "pattern_id"
+      vals <- liftIO (SqlRead.patternBuildStepOccurrences connection_data $ ScanPatterns.PatternId pattern_id)
+      S.json vals
+
+
     S.get "/api/master-timeline" $ do
       offset_count <- S.param "offset"
       starting_commit <- S.param "sha1"
       use_sha1_offset <- S.param "use_sha1_offset"
-
-      let offset_mode = if checkboxIsTrue use_sha1_offset
-            then Pagination.Commit $ Builds.RawCommit starting_commit
-            else Pagination.Count offset_count
-
+      use_commit_index_bounds <- S.param "use_commit_index_bounds"
+      min_commit_index <- S.param "min_commit_index"
+      max_commit_index <- S.param "max_commit_index"
       commit_count <- S.param "count"
 
-      json_result <- liftIO $ SqlRead.api_master_builds connection_data $ Pagination.OffsetLimit offset_mode commit_count
+      let offset_mode
+            | checkboxIsTrue use_sha1_offset = Pagination.FixedAndOffset $ Pagination.OffsetLimit (Pagination.Commit $ Builds.RawCommit starting_commit) commit_count
+            | checkboxIsTrue use_commit_index_bounds = Pagination.CommitIndices $ WeeklyStats.InclusiveNumericBounds min_commit_index max_commit_index
+            | otherwise = Pagination.FixedAndOffset $ Pagination.OffsetLimit (Pagination.Count offset_count) commit_count
+
+      json_result <- liftIO $ SqlRead.api_master_builds connection_data offset_mode
       S.json $ WebApi.toJsonEither json_result
 
     S.get "/api/step" $

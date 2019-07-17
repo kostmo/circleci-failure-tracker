@@ -48,7 +48,7 @@ import qualified ScanPatterns
 import qualified ScanUtils
 import qualified StoredBreakageReports
 import qualified WebApi
-
+import qualified WeeklyStats
 
 splitAggText :: String -> [String]
 splitAggText = filter (not . null) . splitOn ";"
@@ -223,6 +223,14 @@ apiTestFailures conn_data test_failure_pattern_id = do
 
         pattern_text = _pattern test_failure_pattern
         maybe_first_match_group = ScanUtils.getFirstMatchGroup extracted_chunk pattern_text
+
+
+patternBuildStepOccurrences :: DbHelpers.DbConnectionData -> ScanPatterns.PatternId -> IO [(Text, Int)]
+patternBuildStepOccurrences conn_data (ScanPatterns.PatternId patt) = do
+  conn <- DbHelpers.get_connection conn_data
+  query conn sql (Only patt)
+  where
+    sql = "SELECT occurrence_count, name FROM pattern_build_step_occurrences WHERE pattern = ? ORDER BY occurrence_count DESC, name ASC;"
 
 
 apiLineCountHistogram :: DbHelpers.DbConnectionData -> IO [(Text, Int)]
@@ -422,46 +430,18 @@ masterBuildFailureStats conn_data = do
     sql = "SELECT count(*) AS total, sum(is_idiopathic::int) AS idiopathic, sum(is_timeout::int) AS timeout, sum(is_known_broken::int) AS known_broken, sum((NOT is_unmatched)::int) AS pattern_matched, sum(is_flaky::int) AS flaky FROM build_failure_causes JOIN ordered_master_commits ON build_failure_causes.vcs_revision = ordered_master_commits.sha1"
 
 
--- | This holds two types of aggregations:
--- 1) whether each commit had *any* failure of the given type
--- 2) How *many* jobs experienced the failure of the given type for each commit.
---
--- Both of the above aggregations are then again summed by week.
-data MasterWeeklyStats = MasterWeeklyStats {
-    _commit_count          :: Int
-  , _had_failure           :: Int
-  , _had_idiopathic        :: Int
-  , _had_timeout           :: Int
-  , _had_known_broken      :: Int
-  , _had_pattern_matched   :: Int
-  , _had_flaky             :: Int
-
-  , _failure_count         :: Int
-  , _idiopathic_count      :: Int
-  , _timeout_count         :: Int
-  , _known_broken_count    :: Int
-  , _pattern_matched_count :: Int
-  , _flaky_count           :: Int
-
-  , _week                  :: UTCTime
-  } deriving Generic
-
-instance ToJSON MasterWeeklyStats where
-  toJSON = genericToJSON JsonUtils.dropUnderscore
-
-
--- | Use OFFSET 1 so we only ever show full weeks
-masterWeeklyFailureStats :: DbHelpers.DbConnectionData -> Int -> IO [MasterWeeklyStats]
+-- | Uses OFFSET 1 so we only ever show full weeks
+masterWeeklyFailureStats :: DbHelpers.DbConnectionData -> Int -> IO [WeeklyStats.MasterWeeklyStats]
 masterWeeklyFailureStats conn_data week_count = do
 
   conn <- DbHelpers.get_connection conn_data
   xs <- query conn sql $ Only week_count
   return $ reverse $ map f xs
   where
-    sql = "SELECT commit_count, had_failure, had_idiopathic, had_timeout, had_known_broken, had_pattern_matched, had_flaky, failure_count::int, idiopathic_count::int, timeout_count::int, known_broken_count::int, pattern_matched_count::int, flaky_count::int, week FROM master_failures_weekly_aggregation ORDER BY week DESC LIMIT ? OFFSET 1"
+    sql = "SELECT commit_count, had_failure, had_idiopathic, had_timeout, had_known_broken, had_pattern_matched, had_flaky, failure_count::int, idiopathic_count::int, timeout_count::int, known_broken_count::int, pattern_matched_count::int, flaky_count::int, earliest_commit_index, latest_commit_index, week FROM master_failures_weekly_aggregation ORDER BY week DESC LIMIT ? OFFSET 1"
 
-    f (commit_count, had_failure, had_idiopathic, had_timeout, had_known_broken, had_pattern_matched, had_flaky, failure_count, idiopathic_count, timeout_count, known_broken_count, pattern_matched_count, flaky_count, week) =
-      MasterWeeklyStats commit_count had_failure had_idiopathic had_timeout had_known_broken had_pattern_matched had_flaky failure_count idiopathic_count timeout_count known_broken_count pattern_matched_count flaky_count week
+    f (commit_count, had_failure, had_idiopathic, had_timeout, had_known_broken, had_pattern_matched, had_flaky, failure_count, idiopathic_count, timeout_count, known_broken_count, pattern_matched_count, flaky_count, earliest_commit_index, latest_commit_index, week) =
+      WeeklyStats.MasterWeeklyStats commit_count had_failure had_idiopathic had_timeout had_known_broken had_pattern_matched had_flaky failure_count idiopathic_count timeout_count known_broken_count pattern_matched_count flaky_count week $ WeeklyStats.InclusiveNumericBounds earliest_commit_index latest_commit_index
 
 
 get_latest_known_master_commit :: Connection -> IO (Maybe Text)
@@ -636,35 +616,37 @@ get_revision_builds conn_data git_revision = do
     sql = "SELECT step_name, match_id, build, vcs_revision, queued_at, job_name, branch, pattern_id, line_number, line_count, line_text, span_start, span_end, specificity, is_broken, reporter, report_timestamp FROM best_pattern_match_augmented_builds WHERE vcs_revision = ?;"
 
 
-data InclusiveNumericBounds a = InclusiveNumericBounds {
-    min_bound :: a
-  , max_bound :: a
-  }
-
-
 get_master_commits ::
      Connection
-  -> Pagination.OffsetLimit
-  -> IO (Either Text (InclusiveNumericBounds Int64, [BuildResults.IndexedRichCommit]))
-get_master_commits conn (Pagination.OffsetLimit offset_mode commit_count) = runExceptT $ do
+  -> Pagination.ParentOffsetMode
+  -> IO (Either Text (WeeklyStats.InclusiveNumericBounds Int64, [BuildResults.IndexedRichCommit]))
+get_master_commits conn parent_offset_mode =
 
-  latest_id <- ExceptT $ case offset_mode of
-    Pagination.Count offset_count -> do
-      xs <- query conn sql_first_commit_id $ Only offset_count
-      return $ maybeToEither "No master commits!" $ Safe.headMay $ map (\(Only x) -> x) xs
-    Pagination.Commit (Builds.RawCommit sha1) -> do
-      xs <- query conn sql_associated_commit_id $ Only sha1
-      return $ maybeToEither (T.unwords ["No commit with sha1", sha1]) $
-        Safe.headMay $ map (\(Only x) -> x) xs
+  case parent_offset_mode of
+    Pagination.CommitIndices bounds@(WeeklyStats.InclusiveNumericBounds minbound maxbound) -> do
 
-  rows <- liftIO $ query conn sql_sha1_offset (latest_id :: Int64, commit_count)
+      rows <- liftIO $ query conn sql_commit_id_bounds (minbound, maxbound)
+      let mapped_rows = map f rows
+      return $ pure (bounds, mapped_rows)
 
-  let mapped_rows = map f rows
-      maybe_first_commit_index = DbHelpers.db_id <$> Safe.lastMay mapped_rows
+    Pagination.FixedAndOffset (Pagination.OffsetLimit offset_mode commit_count) -> runExceptT $ do
+      latest_id <- ExceptT $ case offset_mode of
+        Pagination.Count offset_count -> do
+          xs <- query conn sql_first_commit_id $ Only offset_count
+          return $ maybeToEither "No master commits!" $ Safe.headMay $ map (\(Only x) -> x) xs
+        Pagination.Commit (Builds.RawCommit sha1) -> do
+          xs <- query conn sql_associated_commit_id $ Only sha1
+          return $ maybeToEither (T.unwords ["No commit with sha1", sha1]) $
+            Safe.headMay $ map (\(Only x) -> x) xs
 
-  first_commit_index <- except $ maybeToEither "No commits found!" maybe_first_commit_index
+      rows <- liftIO $ query conn sql_commit_id_and_offset (latest_id :: Int64, commit_count)
 
-  return (InclusiveNumericBounds first_commit_index latest_id, mapped_rows)
+      let mapped_rows = map f rows
+          maybe_first_commit_index = DbHelpers.db_id <$> Safe.lastMay mapped_rows
+
+      first_commit_index <- except $ maybeToEither "No commits found!" maybe_first_commit_index
+
+      return (WeeklyStats.InclusiveNumericBounds first_commit_index latest_id, mapped_rows)
 
   where
     f (commit_id, commit_sha1, maybe_message, maybe_tree_sha1, maybe_author_name, maybe_author_email, maybe_author_date, maybe_committer_name, maybe_committer_email, maybe_committer_date) =
@@ -686,7 +668,9 @@ get_master_commits conn (Pagination.OffsetLimit offset_mode commit_count) = runE
     sql_first_commit_id = "SELECT id FROM ordered_master_commits ORDER BY id DESC LIMIT 1 OFFSET ?"
     sql_associated_commit_id = "SELECT id FROM ordered_master_commits WHERE sha1 = ?"
 
-    sql_sha1_offset = "SELECT ordered_master_commits.id, ordered_master_commits.sha1, message, tree_sha1, author_name, author_email, author_date, committer_name, committer_email, committer_date FROM ordered_master_commits LEFT JOIN commit_metadata ON commit_metadata.sha1 = ordered_master_commits.sha1 WHERE id <= ? ORDER BY id DESC LIMIT ?"
+    sql_commit_id_and_offset = "SELECT ordered_master_commits.id, ordered_master_commits.sha1, message, tree_sha1, author_name, author_email, author_date, committer_name, committer_email, committer_date FROM ordered_master_commits LEFT JOIN commit_metadata ON commit_metadata.sha1 = ordered_master_commits.sha1 WHERE id <= ? ORDER BY id DESC LIMIT ?"
+
+    sql_commit_id_bounds = "SELECT ordered_master_commits.id, ordered_master_commits.sha1, message, tree_sha1, author_name, author_email, author_date, committer_name, committer_email, committer_date FROM ordered_master_commits LEFT JOIN commit_metadata ON commit_metadata.sha1 = ordered_master_commits.sha1 WHERE id >= ? AND id <= ? ORDER BY id DESC"
 
 
 convert_failure_modes (sha1, succeeded, is_idiopathic, is_flaky, is_timeout, is_matched, is_known_broken, build_num, queued_at, job_name, branch, step_name, pattern_id, match_id, line_number, line_count, line_text, span_start, span_end, specificity) = BuildResults.SimpleBuildStatus
@@ -727,14 +711,14 @@ convert_failure_modes (sha1, succeeded, is_idiopathic, is_flaky, is_timeout, is_
 -- then gets the associated builds
 api_master_builds ::
      DbHelpers.DbConnectionData
-  -> Pagination.OffsetLimit
+  -> Pagination.ParentOffsetMode
   -> IO (Either Text BuildResults.MasterBuildsResponse)
 api_master_builds conn_data offset_limit = runExceptT $ do
 
   conn <- liftIO $ DbHelpers.get_connection conn_data
 
   (commit_id_bounds, master_commits) <- ExceptT $ get_master_commits conn offset_limit
-  let query_bounds = (min_bound commit_id_bounds, max_bound commit_id_bounds)
+  let query_bounds = (WeeklyStats.min_bound commit_id_bounds, WeeklyStats.max_bound commit_id_bounds)
   failure_rows <- liftIO $ query conn failures_sql query_bounds
 
   let failed_builds = map convert_failure_modes failure_rows
