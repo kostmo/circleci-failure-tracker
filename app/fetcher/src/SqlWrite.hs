@@ -187,16 +187,27 @@ remove_pattern_tag conn_data (ScanPatterns.PatternId pattern_id) tag = do
     sql = "DELETE FROM pattern_tags WHERE pattern = ? AND tag = ?;"
 
 
-delete_code_breakage ::
+deleteCodeBreakage ::
      DbHelpers.DbConnectionData
   -> Int64
   -> IO (Either Text Int64)
-delete_code_breakage conn_data cause_id = do
+deleteCodeBreakage conn_data cause_id = do
   conn <- DbHelpers.get_connection conn_data
   Right <$> execute conn sql (Only cause_id)
   where
     sql = "DELETE FROM code_breakage_cause WHERE id = ?;"
 
+
+deleteCodeBreakageJob ::
+     DbHelpers.DbConnectionData
+  -> Int64
+  -> Text
+  -> IO (Either Text Int64)
+deleteCodeBreakageJob conn_data cause_id job = do
+  conn <- DbHelpers.get_connection conn_data
+  Right <$> execute conn sql (cause_id, job)
+  where
+    sql = "DELETE FROM code_breakage_affected_jobs WHERE cause = ? AND job = ?;"
 
 
 update_code_breakage_description ::

@@ -97,14 +97,38 @@ function get_context_menu_items_for_cell(cell) {
 	var open_breakages = get_open_breakages(cell);
 	if (open_breakages.length > 0) {
 
-		var node = document.createElement("span");
+		{
+			var node = document.createElement("span");
 
-		var textnode = document.createTextNode("Mark failure end");
-		node.appendChild(textnode);
+			var textnode = document.createTextNode("Mark failure end");
+			node.appendChild(textnode);
 
-		node.addEventListener("click", function () {mark_failure_resolution(commit_sha1, open_breakages);});
+			node.addEventListener("click", function () {mark_failure_resolution(commit_sha1, open_breakages);});
 
-		context_menu_items.push(node);
+			context_menu_items.push(node);
+		}
+
+		{
+			var node = document.createElement("span");
+
+			var first_breakage_id = open_breakages[0]["start"]["db_id"];
+
+			var linknode = document.createElement("a");
+			linknode.setAttribute("href", "/breakage-details.html?cause=" + first_breakage_id);
+			linknode.setAttribute("target", "_blank");
+
+			var textnode = document.createTextNode("View cause details");
+			linknode.appendChild(textnode);
+
+
+			node.appendChild(linknode);
+
+
+
+//			node.addEventListener("click", function () {mark_failure_resolution(commit_sha1, open_breakages);});
+
+			context_menu_items.push(node);
+		}
 	}
 
 	return context_menu_items;

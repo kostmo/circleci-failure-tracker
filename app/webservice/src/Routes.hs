@@ -424,6 +424,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       S.json =<< liftIO (SqlRead.apiLineCountHistogram connection_data)
 
 
+
     S.get "/api/pattern-step-occurrences" $ do
       pattern_id <- S.param "pattern_id"
       vals <- liftIO (SqlRead.patternBuildStepOccurrences connection_data $ ScanPatterns.PatternId pattern_id)
@@ -605,6 +606,25 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
     S.get "/api/code-breakages" $
       S.json =<< liftIO (SqlRead.api_all_code_breakages connection_data)
 
+
+    S.get "/api/known-breakage-affected-jobs" $ do
+      cause_id <- S.param "cause_id"
+      vals <- liftIO (SqlRead.knownBreakageAffectedJobs connection_data cause_id)
+      S.json vals
+
+
+    S.post "/api/code-breakage-job-delete" $ do
+      cause_id <- S.param "cause_id"
+      job <- S.param "job"
+
+      let callback_func _user_alias = SqlWrite.deleteCodeBreakageJob connection_data cause_id job
+
+      rq <- S.request
+      insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
+      S.json $ WebApi.toJsonEither insertion_result
+
+
+
     S.post "/api/code-breakage-description-update" $ do
       item_id <- S.param "cause_id"
       description <- S.param "description"
@@ -614,9 +634,13 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
       S.json $ WebApi.toJsonEither insertion_result
 
+
+
+
+
     S.post "/api/code-breakage-delete" $ do
       item_id <- S.param "cause_id"
-      let callback_func _user_alias = SqlWrite.delete_code_breakage connection_data item_id
+      let callback_func _user_alias = SqlWrite.deleteCodeBreakage connection_data item_id
 
       rq <- S.request
       insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func

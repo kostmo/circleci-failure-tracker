@@ -498,6 +498,19 @@ get_master_commit_index conn (Builds.RawCommit sha1) = do
     sql = "SELECT id FROM ordered_master_commits WHERE sha1 = ?;"
 
 
+knownBreakageAffectedJobs ::
+     DbHelpers.DbConnectionData
+  -> Int
+  -> IO [DbHelpers.WithAuthorship Text]
+knownBreakageAffectedJobs conn_data cause_id = do
+
+  conn <- DbHelpers.get_connection conn_data
+  map f <$> query conn sql (Only cause_id)
+  where
+    f (job, reporter, reported_at) = DbHelpers.WithAuthorship reporter reported_at job
+    sql = "SELECT job, reporter, reported_at FROM code_breakage_affected_jobs WHERE cause = ? ORDER BY job ASC"
+
+
 -- | This only works for commits from the master branch.
 -- Commits from other branches must use
 -- StatusUpdate.findKnownBuildBreakages
@@ -795,7 +808,7 @@ api_all_code_breakages conn_data = do
           return $ DbHelpers.WithId resolution_id $ DbHelpers.WithAuthorship resolution_reporter resolution_reported_at $ BuildResults.BreakageEnd
             (DbHelpers.WithId resolved_commit_index $ Builds.RawCommit resolution_sha1) resolution_id
 
-    sql = "SELECT cause_id, cause_commit_index, cause_sha1, description, cause_reporter, cause_reported_at, COALESCE(foo.jobs, '') AS cause_jobs, COALESCE(bar.jobs, '') AS resolution_jobs, resolution_id, resolved_commit_index, resolution_sha1, resolution_reporter, resolution_reported_at FROM code_breakage_spans LEFT JOIN (SELECT cause, string_agg(job, ';') AS jobs FROM code_breakage_affected_jobs GROUP BY code_breakage_affected_jobs.cause) foo ON foo.cause = cause_id LEFT JOIN (SELECT resolution FROM code_breakage_resolved_jobs GROUP BY code_breakage_resolved_jobs.resolution) bar ON bar.resolution = resolution_id"
+    sql = "SELECT cause_id, cause_commit_index, cause_sha1, description, cause_reporter, cause_reported_at, COALESCE(foo.jobs, '') AS cause_jobs, resolution_id, resolved_commit_index, resolution_sha1, resolution_reporter, resolution_reported_at FROM code_breakage_spans LEFT JOIN (SELECT cause, string_agg(job, ';') AS jobs FROM code_breakage_affected_jobs GROUP BY code_breakage_affected_jobs.cause) foo ON foo.cause = cause_id LEFT JOIN (SELECT resolution FROM code_breakage_resolved_jobs GROUP BY code_breakage_resolved_jobs.resolution) bar ON bar.resolution = resolution_id"
 
 
 -- | TODO replace with a query from the view "code_breakage_spans"

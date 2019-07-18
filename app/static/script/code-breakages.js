@@ -9,7 +9,7 @@ function gen_breakages_table(element_id, data_url) {
 			{title: "Action", columns: [
 				{title:"X",
 					headerSort: false,
-					formatter: function(cell, formatterParams, onRendered){ //plain text value
+					formatter: function(cell, formatterParams, onRendered){
 					    return "<img src='/images/trash-icon.png' style='width: 16;'/>";
 					},
 					width:40,
@@ -25,15 +25,12 @@ function gen_breakages_table(element_id, data_url) {
 				},
 				{title:"?",
 					headerSort: false,
-					formatter: function(cell, formatterParams, onRendered){ //plain text value
-					    return "<img src='/images/view-icon.png' style='width: 16;'/>";
+					formatter: function(cell, formatterParams, onRendered) {
+						var cause_id = cell.getRow().getData()["start"]["db_id"];
+						return link("<img src='/images/view-icon.png' style='width: 16;'/>", "/breakage-details.html?cause=" + cause_id);
 					},
 					width:40,
 					align:"center",
-					cellClick:function(e, cell) {
-						var cause_id = cell.getRow().getData()["start"]["db_id"];
-						window.location.href = "/breakage-details.html?cause=" + cause_id;
-					},
 				},
 			]},
 			{title: "Description", width: 250, field: "start.record.payload.description",
