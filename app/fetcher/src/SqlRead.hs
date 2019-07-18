@@ -739,7 +739,7 @@ api_master_builds conn_data offset_limit = runExceptT $ do
   let failed_builds = map convert_failure_modes failure_rows
       job_names = Set.fromList $ map (Builds.job_name . BuildResults._build) failed_builds
 
-  code_breakage_ranges <- liftIO $ api_all_code_breakages conn_data
+  code_breakage_ranges <- liftIO $ apiAllCodeBreakages conn_data
 
   return $ BuildResults.MasterBuildsResponse
     job_names
@@ -757,10 +757,10 @@ api_master_builds conn_data offset_limit = runExceptT $ do
     failures_sql = "SELECT ordered_master_commits.sha1, build_failure_causes.succeeded, build_failure_causes.is_idiopathic, build_failure_causes.is_flaky, build_failure_causes.is_timeout, build_failure_causes.is_matched, build_failure_causes.is_known_broken, build_failure_causes.build_num, build_failure_causes.queued_at, build_failure_causes.job_name, build_failure_causes.branch, COALESCE(build_failure_causes.step_name, ''), COALESCE(build_failure_causes.pattern_id, -1), COALESCE(match_id, -1), COALESCE(line_number, -1), COALESCE(line_count, -1), COALESCE(line_text, ''), COALESCE(span_start, -1), COALESCE(span_end, -1), COALESCE(specificity, -1) FROM ordered_master_commits JOIN build_failure_causes ON build_failure_causes.vcs_revision = ordered_master_commits.sha1 LEFT JOIN best_pattern_match_augmented_builds ON build_failure_causes.build_num = best_pattern_match_augmented_builds.build WHERE ordered_master_commits.id >= ? AND ordered_master_commits.id <= ?;"
 
 
-api_all_code_breakages ::
+apiAllCodeBreakages ::
      DbHelpers.DbConnectionData
   -> IO [BuildResults.BreakageSpan Text]
-api_all_code_breakages conn_data = do
+apiAllCodeBreakages conn_data = do
 
   conn <- DbHelpers.get_connection conn_data
 
@@ -793,7 +793,7 @@ api_all_code_breakages conn_data = do
 
           return end_record
 
-    sql = "SELECT cause_id, cause_commit_index, cause_sha1, description, cause_reporter, cause_reported_at, cause_jobs, resolution_id, resolved_commit_index, resolution_sha1, resolution_reporter, resolution_reported_at, breakage_commit_author, breakage_commit_message, resolution_commit_author, resolution_commit_message, breakage_commit_date, resolution_commit_date FROM known_breakage_summaries;"
+    sql = "SELECT cause_id, cause_commit_index, cause_sha1, description, cause_reporter, cause_reported_at, cause_jobs, resolution_id, resolved_commit_index, resolution_sha1, resolution_reporter, resolution_reported_at, breakage_commit_author, breakage_commit_message, resolution_commit_author, resolution_commit_message, breakage_commit_date, resolution_commit_date FROM known_breakage_summaries ORDER BY cause_commit_index DESC;"
 
 
 get_latest_master_commit_with_metadata ::

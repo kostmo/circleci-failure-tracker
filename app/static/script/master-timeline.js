@@ -35,43 +35,7 @@ function gen_broken_jobs_table(element_id, data_url) {
 }
 
 
-function get_timeline_data(offset, count) {
-
-	var urlParams = new URLSearchParams(window.location.search);
-
-	var sha1 = "nothing";
-	var use_sha1_offset = false;
-	var use_commit_index_bounds = false;
-
-	var url_sha1 = urlParams.get('sha1');
-
-	var min_commit_index = urlParams.get('min_commit_index');
-	var max_commit_index = urlParams.get('max_commit_index');
-
-	if (url_sha1 != null) {
-		sha1 = url_sha1;
-		use_sha1_offset = true;
-
-	}
-
-
-	if (min_commit_index != null && max_commit_index != null) {
-		use_commit_index_bounds = true;
-	} else {
-		min_commit_index = 0;
-		max_commit_index = 0;
-	}
-
-	var parms = {
-		"offset": offset,
-		"sha1": sha1,
-		"count": count,
-		"use_sha1_offset": use_sha1_offset,
-		"use_commit_index_bounds": use_commit_index_bounds,
-		"min_commit_index": min_commit_index,
-		"max_commit_index": max_commit_index,
-	}
-
+function get_timeline_data(parms) {
 
 	$("#scan-throbber").show();
 	$.getJSON('/api/master-timeline', parms, function (mydata) {
@@ -154,10 +118,11 @@ function get_open_breakages(cell) {
 		for (var job_breakage_span of breakage_starts_by_job_name[job_name]) {
 
 			var is_after_breakage_start = current_commit_index >= job_breakage_span.start.record.payload.breakage_commit.db_id;
-			var is_before_breakage_end = !("end" in job_breakage_span) || job_breakage_span.end == null || current_commit_index < job_breakage_span.end.record.payload.resolution_commit.db_id;
+			var is_before_breakage_end = !("end" in job_breakage_span)
+			                             || job_breakage_span.end == null
+			                             || current_commit_index < job_breakage_span.end.record.payload.resolution_commit.db_id;
 
 			if (is_after_breakage_start && is_before_breakage_end) {
-
 				open_breakages.push(job_breakage_span);
 			}
 		}
@@ -217,9 +182,6 @@ function mark_failure_cause(commit_sha1, clicked_job_name) {
 		console.log("Selected count: " + selectedData.length);
 		var selected_job_names = [];
 		for (var datum of selectedData) {
-
-			console.log("Row: " + JSON.stringify(datum));
-
 			selected_job_names.push(datum["job"]);
 		}
 
@@ -531,10 +493,39 @@ function showContextMenu() {
 
 function render_table() {
 
+
 	var offset = $('#offset-input').val();
 	var count = $('#count-input').val();
 
-	get_timeline_data(offset, count);
+	var use_sha1_offset = false;
+	var use_commit_index_bounds = false;
+
+	var sha1 = $('#sha1-input').val() || "nothing";
+	var min_commit_index = $('#commit-index-min').val() || 0;
+	var max_commit_index = $('#commit-index-max').val() || 0;
+
+
+	var pagination_mode = document.querySelector('input[name="pagination-mode"]:checked').value;
+
+	if (pagination_mode == "start-by-sha1") {
+		use_sha1_offset = true;
+	}
+
+	if (pagination_mode == "start-by-commit-index") {
+		use_commit_index_bounds = true;
+	}
+
+	var parms = {
+		"offset": offset,
+		"sha1": sha1,
+		"count": count,
+		"use_sha1_offset": use_sha1_offset,
+		"use_commit_index_bounds": use_commit_index_bounds,
+		"min_commit_index": min_commit_index,
+		"max_commit_index": max_commit_index,
+	}
+
+	get_timeline_data(parms);
 }
 
 
@@ -563,13 +554,10 @@ function populate_form_from_url() {
 		$('#commit-index-max').val(commit_index_max);
 	}
 
-
-
 	var starting_sha1 = urlParams.get('sha1');
 	if (starting_sha1 != null) {
 		$('#sha1-input').val(starting_sha1);
 	}
-
 
 
 	var radios = $('input:radio[name=pagination-mode]');
@@ -583,10 +571,8 @@ function populate_form_from_url() {
 		radios.filter('[value=start-by-sha1]').prop('checked', true);
 
 	} else {
-
 		radios.filter('[value=start-by-offset]').prop('checked', true);
 	}
-
 }
 
 

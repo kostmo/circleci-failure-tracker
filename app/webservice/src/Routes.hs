@@ -604,7 +604,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       S.json $ WebApi.toJsonEither insertion_result
 
     S.get "/api/code-breakages" $
-      S.json =<< liftIO (SqlRead.api_all_code_breakages connection_data)
+      S.json =<< liftIO (SqlRead.apiAllCodeBreakages connection_data)
 
 
     S.get "/api/known-breakage-affected-jobs" $ do
