@@ -10,6 +10,7 @@ function gen_broken_jobs_table(element_id, data_url) {
 			formatterParams: {urlPrefix: "/build-details.html?build_id="},
 			width: 75,
 		},
+		{title: "Flaky", field: "flaky", formatter:"tickCross", sorter:"boolean", width: 80},
 	];
 
 	var table = new Tabulator("#" + element_id, {

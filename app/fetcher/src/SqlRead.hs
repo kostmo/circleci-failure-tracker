@@ -256,12 +256,14 @@ apiByteCountHistogram conn_data = do
 data JobBuild = JobBuild {
     _job   :: Text
   , _build :: Builds.BuildNumber
+  , _flaky :: Bool
   } deriving Generic
 
 instance ToJSON JobBuild where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
+-- | Lists jobs affected by failure cause
 apiCommitJobs ::
      DbHelpers.DbConnectionData
   -> Builds.RawCommit
@@ -271,8 +273,8 @@ apiCommitJobs conn_data (Builds.RawCommit sha1) = do
   xs <- query conn sql $ Only sha1
   return $ map f xs
   where
-    f (job, build_num) = JobBuild job $ Builds.NewBuildNumber build_num
-    sql = "SELECT DISTINCT job_name, build_num FROM builds WHERE vcs_revision = ?;"
+    f (job, build_num, flaky) = JobBuild job (Builds.NewBuildNumber build_num) flaky
+    sql = "SELECT DISTINCT ON (is_flaky, job_name) job_name, build_num, is_flaky FROM build_failure_causes WHERE vcs_revision = ? ORDER BY is_flaky, job_name;"
 
 
 apiJobs :: DbHelpers.DbConnectionData -> IO (WebApi.ApiResponse WebApi.JobApiRecord)

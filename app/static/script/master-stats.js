@@ -198,7 +198,7 @@ function render() {
 		for (var key in separated_causes_series_points) {
 			var pointlist = separated_causes_series_points[key]
 			separated_causes_series_list.push({
-				name: key,
+				name: key.replace(new RegExp("_", 'g'), " "),
 				data: pointlist,
 			});
 		}
