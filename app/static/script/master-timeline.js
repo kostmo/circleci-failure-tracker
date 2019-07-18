@@ -63,8 +63,10 @@ function get_timeline_data(offset, count) {
 	}
 
 
+	$("#scan-throbber").show();
 	$.getJSON('/api/master-timeline', parms, function (mydata) {
 
+		$("#scan-throbber").hide();
 		if (mydata.success) {
 
 			gen_timeline_table("master-timeline-table", mydata.payload);

@@ -4,13 +4,13 @@ var ranges_by_week = {};
 function normalized_failure_count_highchart(series_list) {
 
 	Highcharts.chart('container-normalized-failures-by-week', {
-
 		chart: {
 			type: 'line'
 		},
 		title: {
 			text: 'Failures by Week'
 		},
+		colors: ["#f08080", "#b0b0b0"],
 		subtitle: {
 			text: 'Showing only full weeks, starting on labeled day'
 		},
@@ -61,7 +61,7 @@ function normalized_failure_count_highchart(series_list) {
 				pointerEvents: 'auto'
 			},
 			pointFormatter: function() {
-				var commit_id_bounds = ranges_by_week[this.x];
+				var commit_id_bounds = ranges_by_week[this.x]["commit_id_bound"];
 				var content = this.y + "<br/>" + link("(details)", "/master-timeline.html?min_commit_index=" + commit_id_bounds["min_bound"] + "&max_commit_index=" + commit_id_bounds["max_bound"]);
 				return content;
 			},
@@ -84,7 +84,6 @@ function normalized_failure_count_highchart(series_list) {
 function separated_causes_timeline_highchart(series_list) {
 
 	Highcharts.chart('container-pattern-occurrences-by-week', {
-
 		chart: {
 			type: 'area'
 		},
@@ -132,7 +131,7 @@ function separated_causes_timeline_highchart(series_list) {
 				pointerEvents: 'auto'
 			},
 			pointFormatter: function() {
-				var commit_id_bounds = ranges_by_week[this.x];
+				var commit_id_bounds = ranges_by_week[this.x]["commit_id_bound"];
 				var content = this.y + "<br/>" + link("(details)", "/master-timeline.html?min_commit_index=" + commit_id_bounds["min_bound"] + "&max_commit_index=" + commit_id_bounds["max_bound"]);
 				return content;
 			},
@@ -170,7 +169,7 @@ function render() {
 		for (var datum of data) {
 
 			var week_val = Date.parse(datum["week"]);
-			ranges_by_week[week_val] = datum["commit_id_bound"];
+			ranges_by_week[week_val] = datum;
 
 			for (var key in datum) {
 				if (key != "week" && key.endsWith("_count") && !["commit_count", "failure_count", "pattern_matched_count"].includes(key)) {
@@ -189,9 +188,9 @@ function render() {
 		for (var key in separated_causes_series_points) {
 			var pointlist = separated_causes_series_points[key]
 			separated_causes_series_list.push({
-			    name: key,
-			    data: pointlist,
-			    });
+				name: key,
+				data: pointlist,
+			});
 		}
 
 		separated_causes_timeline_highchart(separated_causes_series_list);
@@ -201,15 +200,15 @@ function render() {
 
 	        var my_series = [
 			{
+				name: "Failures per commit",
+				data: general_failures_series,
+				yAxis: 1,
+			},
+			{
 				name: "Commit count",
 				data: commit_count_series,
 				yAxis: 0,
 				dashStyle: 'shortdot',
-			},
-			{
-				name: "Failures per commit",
-				data: general_failures_series,
-				yAxis: 1,
 			},
 		];
 
