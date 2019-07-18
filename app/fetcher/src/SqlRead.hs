@@ -438,10 +438,10 @@ masterWeeklyFailureStats conn_data week_count = do
   xs <- query conn sql $ Only week_count
   return $ reverse $ map f xs
   where
-    sql = "SELECT commit_count, had_failure, had_idiopathic, had_timeout, had_known_broken, had_pattern_matched, had_flaky, failure_count::int, idiopathic_count::int, timeout_count::int, known_broken_count::int, pattern_matched_count::int, flaky_count::int, earliest_commit_index, latest_commit_index, week FROM master_failures_weekly_aggregation ORDER BY week DESC LIMIT ? OFFSET 1"
+    sql = "SELECT commit_count, had_failure, had_idiopathic, had_timeout, had_known_broken, had_pattern_matched, had_flaky, failure_count::int, idiopathic_count::int, timeout_count::int, known_broken_count::int, pattern_matched_count::int, pattern_unmatched_count::int, flaky_count::int, earliest_commit_index, latest_commit_index, week FROM master_failures_weekly_aggregation ORDER BY week DESC LIMIT ? OFFSET 1"
 
-    f (commit_count, had_failure, had_idiopathic, had_timeout, had_known_broken, had_pattern_matched, had_flaky, failure_count, idiopathic_count, timeout_count, known_broken_count, pattern_matched_count, flaky_count, earliest_commit_index, latest_commit_index, week) =
-      WeeklyStats.MasterWeeklyStats commit_count had_failure had_idiopathic had_timeout had_known_broken had_pattern_matched had_flaky failure_count idiopathic_count timeout_count known_broken_count pattern_matched_count flaky_count week $ WeeklyStats.InclusiveNumericBounds earliest_commit_index latest_commit_index
+    f (commit_count, had_failure, had_idiopathic, had_timeout, had_known_broken, had_pattern_matched, had_flaky, failure_count, idiopathic_count, timeout_count, known_broken_count, pattern_matched_count, pattern_unmatched_count, flaky_count, earliest_commit_index, latest_commit_index, week) =
+      WeeklyStats.MasterWeeklyStats commit_count had_failure had_idiopathic had_timeout had_known_broken had_pattern_matched had_flaky failure_count idiopathic_count timeout_count known_broken_count pattern_matched_count pattern_unmatched_count flaky_count week $ WeeklyStats.InclusiveNumericBounds earliest_commit_index latest_commit_index
 
 
 get_latest_known_master_commit :: Connection -> IO (Maybe Text)

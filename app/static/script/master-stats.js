@@ -62,7 +62,10 @@ function normalized_failure_count_highchart(series_list) {
 			},
 			pointFormatter: function() {
 				var commit_id_bounds = ranges_by_week[this.x]["commit_id_bound"];
-				var content = this.y + "<br/>" + link("(details)", "/master-timeline.html?min_commit_index=" + commit_id_bounds["min_bound"] + "&max_commit_index=" + commit_id_bounds["max_bound"]);
+				var link_url = "/master-timeline.html?min_commit_index=" + commit_id_bounds["min_bound"] + "&max_commit_index=" + commit_id_bounds["max_bound"];
+
+				var y_val = this.series.name == "Commit count" ? this.y : this.y.toFixed(2);
+				var content = y_val + "<br/>" + link("(details)", link_url);
 				return content;
 			},
 		},
@@ -88,7 +91,7 @@ function separated_causes_timeline_highchart(series_list) {
 			type: 'area'
 		},
 		title: {
-			text: 'Failure Modes by Week'
+			text: 'Failure Modes by Week (per commit)'
 		},
 		subtitle: {
 			text: 'Showing only full weeks, starting on labeled day'
@@ -121,7 +124,7 @@ function separated_causes_timeline_highchart(series_list) {
 		},
 		yAxis: {
 			title: {
-				text: 'count'
+				text: 'count per commit'
 			},
 			min: 0
 		},
@@ -132,7 +135,11 @@ function separated_causes_timeline_highchart(series_list) {
 			},
 			pointFormatter: function() {
 				var commit_id_bounds = ranges_by_week[this.x]["commit_id_bound"];
-				var content = this.y + "<br/>" + link("(details)", "/master-timeline.html?min_commit_index=" + commit_id_bounds["min_bound"] + "&max_commit_index=" + commit_id_bounds["max_bound"]);
+
+				var unnormalized_val = ranges_by_week[this.x][this.series.name];
+
+				var link_url = "/master-timeline.html?min_commit_index=" + commit_id_bounds["min_bound"] + "&max_commit_index=" + commit_id_bounds["max_bound"];
+				var content = this.y.toFixed(2) + " (" + unnormalized_val + ")<br/>" + link("(details)", link_url);
 				return content;
 			},
 		},
@@ -158,9 +165,11 @@ function render() {
 
 	var weeks_count = $('#weeks-count-input').val();
 
+	$("#scan-throbber").show();
 	$.getJSON('/api/master-weekly-failure-stats', {"weeks": weeks_count}, function (data) {
 
-		// keyed by pattern ID
+		$("#scan-throbber").hide();
+
 		var separated_causes_series_points = {};
 
 		var general_failures_series = [];
@@ -169,19 +178,20 @@ function render() {
 		for (var datum of data) {
 
 			var week_val = Date.parse(datum["week"]);
+			var commit_count = datum["commit_count"];
+
 			ranges_by_week[week_val] = datum;
 
 			for (var key in datum) {
-				if (key != "week" && key.endsWith("_count") && !["commit_count", "failure_count", "pattern_matched_count"].includes(key)) {
+				if (key != "week" && key.endsWith("_count") && !["commit_count", "failure_count"].includes(key)) {
 
 					var pointlist = setDefault(separated_causes_series_points, key, []);
-					pointlist.push([week_val, datum[key]])
+					pointlist.push([week_val, 1.0 * datum[key] / commit_count])
 				}
-
 			}
 
-			commit_count_series.push([week_val, datum["commit_count"]]);
-			general_failures_series.push([week_val, 1.0 * datum["failure_count"] / datum["commit_count"]]);
+			commit_count_series.push([week_val, commit_count]);
+			general_failures_series.push([week_val, 1.0 * datum["failure_count"] / commit_count]);
 		}
 
 		var separated_causes_series_list = [];
@@ -193,9 +203,17 @@ function render() {
 			});
 		}
 
+
+		// Sort series by volume
+		separated_causes_series_list.sort(function(a, b) {
+
+			const add = (a, b) => a + b;
+			var get_area = z => z.data.map(x => x[1]).reduce(add);
+
+			// in descending order
+			return get_area(b) - get_area(a);
+		});
 		separated_causes_timeline_highchart(separated_causes_series_list);
-
-
 
 
 	        var my_series = [
@@ -211,7 +229,6 @@ function render() {
 				dashStyle: 'shortdot',
 			},
 		];
-
 
 		normalized_failure_count_highchart(my_series);
 	});
@@ -229,6 +246,7 @@ function populate_form_from_url() {
 
 
 function main() {
+	populate_form_from_url();
 	render();
 }
 
