@@ -737,7 +737,7 @@ api_master_builds conn_data offset_limit = runExceptT $ do
   let failed_builds = map convert_failure_modes failure_rows
       job_names = Set.fromList $ map (Builds.job_name . BuildResults._build) failed_builds
 
-  code_breakage_ranges <- liftIO $ get_code_breakage_ranges conn
+  code_breakage_ranges <- liftIO $ api_all_code_breakages conn_data
 
   return $ BuildResults.MasterBuildsResponse
     job_names
@@ -755,27 +755,6 @@ api_master_builds conn_data offset_limit = runExceptT $ do
     failures_sql = "SELECT ordered_master_commits.sha1, build_failure_causes.succeeded, build_failure_causes.is_idiopathic, build_failure_causes.is_flaky, build_failure_causes.is_timeout, build_failure_causes.is_matched, build_failure_causes.is_known_broken, build_failure_causes.build_num, build_failure_causes.queued_at, build_failure_causes.job_name, build_failure_causes.branch, COALESCE(build_failure_causes.step_name, ''), COALESCE(build_failure_causes.pattern_id, -1), COALESCE(match_id, -1), COALESCE(line_number, -1), COALESCE(line_count, -1), COALESCE(line_text, ''), COALESCE(span_start, -1), COALESCE(span_end, -1), COALESCE(specificity, -1) FROM ordered_master_commits JOIN build_failure_causes ON build_failure_causes.vcs_revision = ordered_master_commits.sha1 LEFT JOIN best_pattern_match_augmented_builds ON build_failure_causes.build_num = best_pattern_match_augmented_builds.build WHERE ordered_master_commits.id >= ? AND ordered_master_commits.id <= ?;"
 
 
--- | TODO What to do when multiple resolutions are assigned to the same cause?
-get_code_breakage_span_end ::
-     Connection
-  -> Int64
-  -> IO (Maybe BuildResults.BreakageEndRecord)
-get_code_breakage_span_end conn cause_id = do
-
-  rows <- query conn resolutions_sql $ Only cause_id
-  let breakage_ends = map f rows
-  return $ Safe.headMay breakage_ends
-
-  where
-    f (commit_index, resolution_id, sha1, reporter, reported_at) = DbHelpers.WithId resolution_id $ DbHelpers.WithAuthorship reporter reported_at $
-      BuildResults.BreakageEnd
-        (DbHelpers.WithId commit_index $ Builds.RawCommit sha1)
-        cause_id
-
-    resolutions_sql = "SELECT ordered_master_commits.id AS commit_index, code_breakage_resolution.id AS resolution_id, code_breakage_resolution.sha1, reporter, reported_at FROM code_breakage_resolution JOIN ordered_master_commits ON code_breakage_resolution.sha1 = ordered_master_commits.sha1 WHERE cause = ? ORDER BY resolution_id DESC LIMIT 1;"
-
-
--- | TODO: replace usages of the "get_code_breakage_ranges" function below with this
 api_all_code_breakages ::
      DbHelpers.DbConnectionData
   -> IO [BuildResults.BreakageSpan Text]
@@ -787,16 +766,18 @@ api_all_code_breakages conn_data = do
   return $ map f rows
 
   where
-    f (cause_id, cause_commit_index, cause_sha1, description, cause_reporter, cause_reported_at, cause_jobs_delimited, maybe_resolution_id, maybe_resolved_commit_index, maybe_resolution_sha1, maybe_resolution_reporter, maybe_resolution_reported_at) =
+    f (cause_id, cause_commit_index, cause_sha1, description, cause_reporter, cause_reported_at, cause_jobs_delimited, maybe_resolution_id, maybe_resolved_commit_index, maybe_resolution_sha1, maybe_resolution_reporter, maybe_resolution_reported_at, breakage_commit_author, breakage_commit_message, resolution_commit_author, resolution_commit_message, breakage_commit_date, resolution_commit_date) =
 
       BuildResults.BreakageSpan cause maybe_resolution
 
       where
+        cause_commit_metadata = DbHelpers.WithAuthorship breakage_commit_author breakage_commit_date breakage_commit_message
         cause = DbHelpers.WithId cause_id $ DbHelpers.WithAuthorship cause_reporter cause_reported_at $
           BuildResults.BreakageStart
             (DbHelpers.WithId cause_commit_index $ Builds.RawCommit cause_sha1)
             description
             (map T.pack $ splitAggText cause_jobs_delimited)
+            cause_commit_metadata
 
         maybe_resolution = do
           resolution_id <- maybe_resolution_id
@@ -805,40 +786,12 @@ api_all_code_breakages conn_data = do
           resolution_reporter <- maybe_resolution_reporter
           resolution_reported_at <- maybe_resolution_reported_at
 
-          return $ DbHelpers.WithId resolution_id $ DbHelpers.WithAuthorship resolution_reporter resolution_reported_at $ BuildResults.BreakageEnd
-            (DbHelpers.WithId resolved_commit_index $ Builds.RawCommit resolution_sha1) resolution_id
+          let end_commit = DbHelpers.WithId resolved_commit_index $ Builds.RawCommit resolution_sha1
+              end_record = DbHelpers.WithId resolution_id $ DbHelpers.WithAuthorship resolution_reporter resolution_reported_at $ BuildResults.BreakageEnd end_commit resolution_id $ DbHelpers.WithAuthorship resolution_commit_author resolution_commit_date resolution_commit_message
 
-    sql = "SELECT cause_id, cause_commit_index, cause_sha1, description, cause_reporter, cause_reported_at, COALESCE(foo.jobs, '') AS cause_jobs, resolution_id, resolved_commit_index, resolution_sha1, resolution_reporter, resolution_reported_at FROM code_breakage_spans LEFT JOIN (SELECT cause, string_agg(job, ';') AS jobs FROM code_breakage_affected_jobs GROUP BY code_breakage_affected_jobs.cause) foo ON foo.cause = cause_id LEFT JOIN (SELECT resolution FROM code_breakage_resolved_jobs GROUP BY code_breakage_resolved_jobs.resolution) bar ON bar.resolution = resolution_id"
+          return end_record
 
-
--- | TODO replace with a query from the view "code_breakage_spans"
-get_code_breakage_ranges ::
-     Connection
-  -> IO [BuildResults.BreakageSpan (DbHelpers.WithAuthorship Text)]
-get_code_breakage_ranges conn = do
-
-  rows <- query_ conn causes_sql
-
-  forM rows $ \(commit_index, cause_id, sha1, description, reporter, reported_at) -> do
-
-    affected_jobs <- map f <$> query conn affected_cause_jobs_sql (Only cause_id)
-
-    let span_start = DbHelpers.WithId cause_id $ DbHelpers.WithAuthorship reporter reported_at $
-          BuildResults.BreakageStart
-            (DbHelpers.WithId commit_index $ Builds.RawCommit sha1)
-            description
-            affected_jobs
-
-    maybe_span_end <- get_code_breakage_span_end conn cause_id
-
-    return $ BuildResults.BreakageSpan span_start maybe_span_end
-
-  where
-    f (job, reporter, reported_at) = DbHelpers.WithAuthorship reporter reported_at job
-
-    causes_sql = "SELECT ordered_master_commits.id AS commit_index, code_breakage_cause.id AS cause_id, code_breakage_cause.sha1, description, reporter, reported_at FROM code_breakage_cause JOIN ordered_master_commits ON code_breakage_cause.sha1 = ordered_master_commits.sha1;"
-
-    affected_cause_jobs_sql = "SELECT job, reporter, reported_at FROM code_breakage_affected_jobs WHERE cause = ?;"
+    sql = "SELECT cause_id, cause_commit_index, cause_sha1, description, cause_reporter, cause_reported_at, cause_jobs, resolution_id, resolved_commit_index, resolution_sha1, resolution_reporter, resolution_reported_at, breakage_commit_author, breakage_commit_message, resolution_commit_author, resolution_commit_message, breakage_commit_date, resolution_commit_date FROM known_breakage_summaries;"
 
 
 get_latest_master_commit_with_metadata ::

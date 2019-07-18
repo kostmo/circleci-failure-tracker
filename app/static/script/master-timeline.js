@@ -120,12 +120,7 @@ function get_context_menu_items_for_cell(cell) {
 			var textnode = document.createTextNode("View cause details");
 			linknode.appendChild(textnode);
 
-
 			node.appendChild(linknode);
-
-
-
-//			node.addEventListener("click", function () {mark_failure_resolution(commit_sha1, open_breakages);});
 
 			context_menu_items.push(node);
 		}
@@ -470,7 +465,7 @@ function gen_timeline_table(element_id, fetched_data) {
 		var breakage_start_obj = breakage_span_obj.start;
 		for (var affected_job_obj of breakage_start_obj.record.payload.affected_jobs) {
 
-			var breakage_starts_for_job = setDefault(breakage_starts_by_job_name, affected_job_obj.payload, []);
+			var breakage_starts_for_job = setDefault(breakage_starts_by_job_name, affected_job_obj, []);
 			breakage_starts_for_job.push(breakage_span_obj);
 		}
 	}
@@ -515,6 +510,10 @@ function gen_timeline_table(element_id, fetched_data) {
 /* When the user clicks on the button, 
 toggle between hiding and showing the dropdown content */
 function showContextMenu() {
+	// FIXME somehow the callbacks accumulate in this dropdown
+	// and result in multiple and irrelevant actions being triggered,
+	// if the same cell is later clicked again.
+
 	document.getElementById("myDropdown").classList.toggle("show");
 }
 

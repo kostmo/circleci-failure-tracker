@@ -68,6 +68,7 @@ data BreakageStart a = BreakageStart {
     _breakage_commit :: IndexedCommit
   , _description     :: Text
   , _affected_jobs   :: [a]
+  , _metadata        :: DbHelpers.WithAuthorship Text
   } deriving Generic
 
 instance (ToJSON a) => ToJSON (BreakageStart a) where
@@ -77,6 +78,7 @@ instance (ToJSON a) => ToJSON (BreakageStart a) where
 data BreakageEnd = BreakageEnd {
     _resolution_commit :: IndexedCommit
   , _cause_id          :: Int64
+  , _metadata          :: DbHelpers.WithAuthorship Text
   } deriving Generic
 
 instance ToJSON BreakageEnd where
@@ -98,7 +100,7 @@ data MasterBuildsResponse = MasterBuildsResponse {
     _columns        :: Set Text
   , _commits        :: [IndexedRichCommit]
   , _failures       :: [SimpleBuildStatus]
-  , _breakage_spans :: [BreakageSpan (DbHelpers.WithAuthorship Text)]
+  , _breakage_spans :: [BreakageSpan Text]
   } deriving Generic
 
 instance ToJSON MasterBuildsResponse where
