@@ -20,6 +20,15 @@ function gen_broken_jobs_table(element_id, data_url) {
 		placeholder: "No Data Set",
 		columns: column_list,
 		ajaxURL: data_url,
+		dataLoaded: function(data) {
+
+			var rows = this.getRows();
+			rows.forEach(function(row) {
+				if (!row.getData()["flaky"]) {
+					row.toggleSelect();
+				}
+			});
+		},
 	});
 
 	return table;
@@ -195,7 +204,6 @@ function mark_failure_cause(commit_sha1, clicked_job_name) {
 	});
 
 	$('#dialog-select-all-button').click(function(e) {
-
 		var rows = tabulator.getRows();
 		rows.forEach(function(row) {
 			row.toggleSelect();
