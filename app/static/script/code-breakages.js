@@ -1,3 +1,12 @@
+function render_commit_cell(cell, position) {
+	var cell_val = cell.getValue();
+	var authorship_metadata = cell.getRow().getData()[position]["record"]["payload"]["metadata"];
+	var msg_subject = get_commit_subject(authorship_metadata["payload"]);
+	var author_firstname = authorship_metadata["author"].split(" ")[0];
+
+	return cell_val == null ? "" : sha1_link(cell_val) + " <b>" + author_firstname + ":</b> " + msg_subject;
+}
+
 
 function gen_breakages_table(element_id, data_url) {
 
@@ -72,8 +81,7 @@ function gen_breakages_table(element_id, data_url) {
 			{title: "Start", columns: [
 				{title: "commit", width: 300, field: "start.record.payload.breakage_commit.record",
 					formatter: function(cell, formatterParams, onRendered) {
-						var cell_val = cell.getValue();
-						return cell_val == null ? "" : sha1_link(cell_val);
+						return render_commit_cell(cell, "start");
 					},
 				},
 				{title: "reported", width: 250, field: "start.record.created",
@@ -87,8 +95,7 @@ function gen_breakages_table(element_id, data_url) {
 			{title: "End", columns: [
 				{title: "commit", width: 300, field: "end.record.payload.resolution_commit.record",
 					formatter: function(cell, formatterParams, onRendered) {
-						var cell_val = cell.getValue();
-						return cell_val == null ? "" : sha1_link(cell_val);
+						return render_commit_cell(cell, "end");
 					},
 				},
 				{title: "reported", width: 250, field: "end.record.created",

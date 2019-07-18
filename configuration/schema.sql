@@ -996,6 +996,43 @@ CREATE VIEW public.job_failure_frequencies AS
 ALTER TABLE public.job_failure_frequencies OWNER TO postgres;
 
 --
+-- Name: known_breakage_summaries; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.known_breakage_summaries WITH (security_barrier='false') AS
+ SELECT code_breakage_spans.cause_id,
+    code_breakage_spans.cause_commit_index,
+    code_breakage_spans.cause_sha1,
+    code_breakage_spans.description,
+    code_breakage_spans.cause_reporter,
+    code_breakage_spans.cause_reported_at,
+    COALESCE(foo.jobs, ''::text) AS cause_jobs,
+    code_breakage_spans.resolution_id,
+    code_breakage_spans.resolved_commit_index,
+    code_breakage_spans.resolution_sha1,
+    code_breakage_spans.resolution_reporter,
+    code_breakage_spans.resolution_reported_at,
+    COALESCE(meta1.author_name, ''::text) AS breakage_commit_author,
+    COALESCE(meta1.message, ''::text) AS breakage_commit_message,
+    COALESCE(meta2.author_name, ''::text) AS resolution_commit_author,
+    COALESCE(meta2.message, ''::text) AS resolution_commit_message,
+    COALESCE(meta1.committer_date, now()) AS breakage_commit_date,
+    COALESCE(meta2.committer_date, now()) AS resolution_commit_date
+   FROM ((((public.code_breakage_spans
+     LEFT JOIN ( SELECT code_breakage_affected_jobs.cause,
+            string_agg(code_breakage_affected_jobs.job, ';'::text) AS jobs
+           FROM public.code_breakage_affected_jobs
+          GROUP BY code_breakage_affected_jobs.cause) foo ON ((foo.cause = code_breakage_spans.cause_id)))
+     LEFT JOIN ( SELECT code_breakage_resolved_jobs.resolution
+           FROM public.code_breakage_resolved_jobs
+          GROUP BY code_breakage_resolved_jobs.resolution) bar ON ((bar.resolution = code_breakage_spans.resolution_id)))
+     LEFT JOIN public.commit_metadata meta1 ON ((meta1.sha1 = code_breakage_spans.cause_sha1)))
+     LEFT JOIN public.commit_metadata meta2 ON ((meta2.sha1 = code_breakage_spans.resolution_sha1)));
+
+
+ALTER TABLE public.known_breakage_summaries OWNER TO postgres;
+
+--
 -- Name: master_failures_by_commit; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -2306,6 +2343,13 @@ GRANT ALL ON TABLE public.idiopathic_build_failures TO logan;
 --
 
 GRANT ALL ON TABLE public.job_failure_frequencies TO logan;
+
+
+--
+-- Name: TABLE known_breakage_summaries; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.known_breakage_summaries TO logan;
 
 
 --

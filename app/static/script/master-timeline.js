@@ -379,7 +379,7 @@ function get_column_definitions(raw_column_list) {
 
 			var commit_metadata = cell.getRow().getData()["commit_metadata"];
 
-			var message_suffix = commit_metadata ? ": " + commit_metadata["message"].split(/\r?\n/)[0] : "";
+			var message_suffix = commit_metadata ? ": " + get_commit_subject(commit_metadata["message"]) : "";
 			return sha1_link(cell.getValue()) + message_suffix;
 		},
 		tooltip: function(cell) {
@@ -527,7 +527,7 @@ function render_table() {
 }
 
 
-function init_fields() {
+function populate_form_from_url() {
 
 	var urlParams = new URLSearchParams(window.location.search);
 
@@ -581,7 +581,7 @@ function init_fields() {
 
 function main() {
 
-	init_fields();
+	populate_form_from_url();
 
 
 	// Close the dropdown menu if the user clicks outside of it

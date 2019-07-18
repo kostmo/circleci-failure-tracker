@@ -75,9 +75,11 @@ function timeline_highchart(series_list) {
 }
 
 
-function breakdown() {
+function render() {
 
-	$.getJSON('/api/master-weekly-failure-stats', {"weeks": 6}, function (data) {
+	var weeks_count = $('#weeks-count-input').val();
+
+	$.getJSON('/api/master-weekly-failure-stats', {"weeks": weeks_count}, function (data) {
 
 		// keyed by pattern ID
 		var series_points = {};
@@ -109,7 +111,18 @@ function breakdown() {
 	});
 }
 
+function populate_form_from_url() {
+
+	var urlParams = new URLSearchParams(window.location.search);
+
+	var weeks_count = urlParams.get('weeks_count');
+	if (weeks_count != null) {
+		$('#weeks-count-input').val(weeks_count);
+	}
+}
+
+
 function main() {
-	breakdown();
+	render();
 }
 

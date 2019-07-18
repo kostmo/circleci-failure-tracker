@@ -21,6 +21,12 @@ function post_modification(api_endpoint, data_dict) {
 	});
 }
 
+
+function get_commit_subject(msg) {
+	return msg.split(/\r?\n/)[0];
+}
+
+
 function render_tag(tag, content, attributes) {
 
 	var attributes = attributes || {};
