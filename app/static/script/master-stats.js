@@ -83,10 +83,58 @@ function normalized_failure_count_highchart(series_list) {
 	});
 }
 
+function separated_causes_column_highchart(columns, column_chart_series) {
+
+	var series_list = [];
+	for (var key in column_chart_series) {
+		var points = column_chart_series[key];
+
+		series_list.push({name: key.replace(new RegExp("_", 'g'), " "), data: points});
+	}
+
+
+	Highcharts.chart('container-column-separated-occurrences-by-week', {
+		chart: {
+			type: 'column'
+		},
+		title: {
+			text: 'Failure Modes by Week (per commit)'
+		},
+		subtitle: {
+			text: 'Showing only full weeks, starting on labeled day'
+		},
+		xAxis: {
+			categories: columns,
+			crosshair: true
+		},
+		yAxis: {
+			min: 0,
+			title: {
+				text: 'count per commit'
+			}
+		},
+		tooltip: {
+			headerFormat: '<span style="font-size:10px">{point.key}</span><table>',
+			pointFormat: '<tr><td style="color:{series.color};padding:0">{series.name}: </td>' +
+				'<td style="padding:0"><b>{point.y:.2f}</b></td></tr>',
+			footerFormat: '</table>',
+			shared: true,
+			useHTML: true
+		},
+		plotOptions: {
+			column: {
+				pointPadding: 0.2,
+				borderWidth: 0
+			}
+		},
+		series: series_list,
+	});
+}
+
 
 function separated_causes_timeline_highchart(series_list) {
 
-	Highcharts.chart('container-pattern-occurrences-by-week', {
+	Highcharts.chart('container-stacked-timeline-separated-occurrences-by-week', {
 		chart: {
 			type: 'area'
 		},
@@ -175,6 +223,9 @@ function render() {
 		var general_failures_series = [];
 		var commit_count_series = [];
 
+		var column_chart_series = {};
+		var column_chart_timestamp_categories = [];
+
 		for (var datum of data) {
 
 			var week_val = Date.parse(datum["week"]);
@@ -182,11 +233,21 @@ function render() {
 
 			ranges_by_week[week_val] = datum;
 
+			var weeks_ago_count = moment().diff(week_val, "weeks");
+			var weeks_ago_string = weeks_ago_count + " week" + (weeks_ago_count != 1 ? "s" : "") + " ago"
+			column_chart_timestamp_categories.push(weeks_ago_string);
+
 			for (var key in datum) {
 				if (key != "week" && key.endsWith("_count") && !["commit_count", "failure_count"].includes(key)) {
 
+					var normalized_value = 1.0 * datum[key] / commit_count;
+
 					var pointlist = setDefault(separated_causes_series_points, key, []);
-					pointlist.push([week_val, 1.0 * datum[key] / commit_count])
+					pointlist.push([week_val, normalized_value])
+
+
+					var column_chart_pointlist = setDefault(column_chart_series, key, []);
+					column_chart_pointlist.push(normalized_value)
 				}
 			}
 
@@ -213,7 +274,12 @@ function render() {
 			// in descending order
 			return get_area(b) - get_area(a);
 		});
+
 		separated_causes_timeline_highchart(separated_causes_series_list);
+
+
+		separated_causes_column_highchart(column_chart_timestamp_categories, column_chart_series);
+
 
 
 	        var my_series = [

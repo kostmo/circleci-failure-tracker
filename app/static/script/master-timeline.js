@@ -11,6 +11,7 @@ function gen_broken_jobs_table(element_id, data_url) {
 			width: 75,
 		},
 		{title: "Flaky", field: "flaky", formatter:"tickCross", sorter:"boolean", width: 80},
+		{title: "Broken", field: "known_broken", formatter:"tickCross", sorter:"boolean", width: 80},
 	];
 
 	var table = new Tabulator("#" + element_id, {
@@ -24,7 +25,8 @@ function gen_broken_jobs_table(element_id, data_url) {
 
 			var rows = this.getRows();
 			rows.forEach(function(row) {
-				if (!row.getData()["flaky"]) {
+				var row_data = row.getData();
+				if (!(row_data["flaky"] || row_data["known_broken"])) {
 					row.toggleSelect();
 				}
 			});
@@ -284,7 +286,7 @@ function define_column(col) {
 								: cell_value.failure_mode["tag"] == "Success" ? "green-dot.svg" : "red-x.svg";
 
 				var build_id = cell_value["build"]["build_id"];
-				return link('<img src="/images/' + img_path + '" style="width: 100%; top: 50%;"/>', "/build-details.html?build_id=" + build_id);
+				return link('<img src="/images/build-status-indicators/' + img_path + '" style="width: 100%; top: 50%;"/>', "/build-details.html?build_id=" + build_id);
 			} else {
 				return "";
 			}
@@ -345,7 +347,7 @@ function define_column(col) {
 function get_column_definitions(raw_column_list) {
 
 	var commit_column_definition = {
-		title: 'Commit<br/><table style="vertical-align: bottom;"><caption>Legend</caption><tbody><tr><th>Symbol</th><th>Meaning</th></tr><tr><td><img src="/images/yellow-triangle.svg" style="width: 20px"/></td><td>flaky</td></tr><tr><td><img src="/images/red-x.svg" style="width: 20px"/></td><td>other match</td></tr><tr><td><img src="/images/blue-square.svg" style="width: 20px"/></td><td>no pattern match</td></tr><tr><td><img src="/images/purple-circle.svg" style="width: 20px"/></td><td>timeout</td></tr><tr><td><img src="/images/gray-diamond.svg" style="width: 20px"/></td><td>idiopathic</td></tr><tr><td><img src="/images/green-dot.svg" style="width: 20px"/></td><td>success</td></tr></tbody></table>',
+		title: 'Commit<br/><table style="vertical-align: bottom;"><caption>Legend</caption><tbody><tr><th>Symbol</th><th>Meaning</th></tr><tr><td><img src="/images/build-status-indicators/yellow-triangle.svg" style="width: 20px"/></td><td>flaky</td></tr><tr><td><img src="/images/build-status-indicators/red-x.svg" style="width: 20px"/></td><td>other match</td></tr><tr><td><img src="/images/build-status-indicators/blue-square.svg" style="width: 20px"/></td><td>no pattern match</td></tr><tr><td><img src="/images/build-status-indicators/purple-circle.svg" style="width: 20px"/></td><td>timeout</td></tr><tr><td><img src="/images/build-status-indicators/gray-diamond.svg" style="width: 20px"/></td><td>no log</td></tr><tr><td><img src="/images/build-status-indicators/green-dot.svg" style="width: 20px"/></td><td>success</td></tr></tbody></table>',
 		field: "commit",
 		headerVertical: false,
 		formatter: function(cell, formatterParams, onRendered) {
@@ -491,8 +493,7 @@ function showContextMenu() {
 }
 
 
-function render_table() {
-
+function get_query_parms() {
 
 	var offset = $('#offset-input').val();
 	var count = $('#count-input').val();
@@ -525,6 +526,13 @@ function render_table() {
 		"max_commit_index": max_commit_index,
 	}
 
+	return parms;
+}
+
+
+function render_table() {
+
+	const parms = get_query_parms();
 	get_timeline_data(parms);
 }
 
@@ -563,13 +571,9 @@ function populate_form_from_url() {
 	var radios = $('input:radio[name=pagination-mode]');
 
 	if (commit_index_min != null && commit_index_max != null) {
-
 		radios.filter('[value=start-by-commit-index]').prop('checked', true);
-
 	} else if (starting_sha1 != null) {
-
 		radios.filter('[value=start-by-sha1]').prop('checked', true);
-
 	} else {
 		radios.filter('[value=start-by-offset]').prop('checked', true);
 	}

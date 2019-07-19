@@ -33,11 +33,11 @@ data MasterWeeklyStats = MasterWeeklyStats {
   , _had_flaky                      :: Int
 
   , _failure_count                  :: Int
-  , _idiopathic_count               :: Int
+  , _no_logs_count                  :: Int
   , _timeout_count                  :: Int
   , _known_broken_count             :: Int
   , _nonflaky_pattern_matched_count :: Int
-  , _unmatched_count                :: Int
+  , _undiagnosed_count              :: Int
   , _flaky_count                    :: Int
 
   , _week                           :: UTCTime

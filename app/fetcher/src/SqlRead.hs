@@ -254,9 +254,10 @@ apiByteCountHistogram conn_data = do
 
 
 data JobBuild = JobBuild {
-    _job   :: Text
-  , _build :: Builds.BuildNumber
-  , _flaky :: Bool
+    _job          :: Text
+  , _build        :: Builds.BuildNumber
+  , _flaky        :: Bool
+  , _known_broken :: Bool
   } deriving Generic
 
 instance ToJSON JobBuild where
@@ -273,8 +274,8 @@ apiCommitJobs conn_data (Builds.RawCommit sha1) = do
   xs <- query conn sql $ Only sha1
   return $ map f xs
   where
-    f (job, build_num, flaky) = JobBuild job (Builds.NewBuildNumber build_num) flaky
-    sql = "SELECT DISTINCT ON (is_flaky, job_name) job_name, build_num, is_flaky FROM build_failure_causes WHERE vcs_revision = ? ORDER BY is_flaky, job_name;"
+    f (job, build_num, flaky, is_known_broken) = JobBuild job (Builds.NewBuildNumber build_num) flaky is_known_broken
+    sql = "SELECT job_name, build_num, is_flaky, is_known_broken FROM build_failure_causes WHERE vcs_revision = ? ORDER BY job_name;"
 
 
 apiJobs :: DbHelpers.DbConnectionData -> IO (WebApi.ApiResponse WebApi.JobApiRecord)

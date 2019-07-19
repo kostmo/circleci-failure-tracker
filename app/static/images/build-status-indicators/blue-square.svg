@@ -13,7 +13,7 @@
    width="100"
    height="100"
    id="svg8978"
-   sodipodi:docname="yellow-triangle.svg"
+   sodipodi:docname="black-square.svg"
    inkscape:version="0.92.3 (2405546, 2018-03-11)">
   <metadata
      id="metadata9">
@@ -49,21 +49,11 @@
      inkscape:current-layer="svg8978" />
   <defs
      id="defs8980" />
-  <path
-     sodipodi:type="star"
-     style="fill:none;stroke:#ddcc1c;stroke-width:18.60000038;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
-     id="path4543"
-     sodipodi:sides="3"
-     sodipodi:cx="51.271187"
-     sodipodi:cy="63.559322"
-     sodipodi:r1="44.42691"
-     sodipodi:r2="22.213455"
-     sodipodi:arg1="0.52359878"
-     sodipodi:arg2="1.5707963"
-     inkscape:flatsided="false"
-     inkscape:rounded="0"
-     inkscape:randomized="0"
-     d="m 89.74602,85.772778 -38.474833,0 -38.474833,-10e-7 L 32.03377,52.452595 51.271187,19.132412 70.508603,52.452594 Z"
-     inkscape:transform-center-y="-11.698144"
-     transform="matrix(0.8935825,0,0,1.0532483,3.4561514,-0.54540819)" />
+  <rect
+     style="fill:none;stroke:#7cb5ec;stroke-width:20.05135345;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+     id="rect4568"
+     width="79.946915"
+     height="79.519363"
+     x="9.9314089"
+     y="10.664046" />
 </svg>

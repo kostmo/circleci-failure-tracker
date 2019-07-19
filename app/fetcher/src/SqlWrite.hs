@@ -420,30 +420,16 @@ api_code_breakage_resolution_insert
 
   conn <- DbHelpers.get_connection conn_data
 
-  jobs_for_cause_id_rows <- query conn affected_cause_jobs_sql $ Only cause_id
-
-  let jobs_for_cause_id :: [Text]
-      jobs_for_cause_id = map (\(Only x) -> x) jobs_for_cause_id_rows
-
-
   -- TODO: Ensure that the commit index of the resolution is strictly higher
   -- than the commit index of the cause
 
   catchViolation catcher $ do
 
     [Only report_id] <- query conn insertion_sql (sha1, cause_id, author_username)
-
-    for_ jobs_for_cause_id $ \job ->
-      execute conn job_insertion_sql (job, report_id, author_username)
-
     return $ Right report_id
 
   where
-    affected_cause_jobs_sql = "SELECT job FROM code_breakage_affected_jobs WHERE cause = ?;"
-
     insertion_sql = "INSERT INTO code_breakage_resolution(sha1, cause, reporter) VALUES(?,?,?) RETURNING id;"
-
-    job_insertion_sql = "INSERT INTO code_breakage_resolved_jobs(job, resolution, reporter) VALUES(?,?,?);"
 
     catcher _ (UniqueViolation some_error) = return $ Left $ "Insertion error: " <> T.pack (BS.unpack some_error)
     catcher e _                                  = throwIO e
