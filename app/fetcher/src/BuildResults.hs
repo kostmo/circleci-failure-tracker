@@ -70,6 +70,7 @@ instance ToJSON SimpleBuildStatus where
 data BreakageStart a = BreakageStart {
     _breakage_commit :: IndexedCommit
   , _description     :: Text
+  , _failure_mode    :: DbHelpers.WithId Text
   , _affected_jobs   :: [a]
   , _metadata        :: DbHelpers.WithAuthorship Text
   } deriving Generic

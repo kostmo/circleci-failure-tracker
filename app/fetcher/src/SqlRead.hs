@@ -822,7 +822,7 @@ apiAnnotatedCodeBreakages conn_data = do
   return $ map f rows
 
   where
-    f (cause_id, cause_commit_index, cause_sha1, description, cause_reporter, cause_reported_at, cause_jobs_delimited, maybe_resolution_id, maybe_resolved_commit_index, maybe_resolution_sha1, maybe_resolution_reporter, maybe_resolution_reported_at, breakage_commit_author, breakage_commit_message, resolution_commit_author, resolution_commit_message, breakage_commit_date, resolution_commit_date) =
+    f (cause_id, cause_commit_index, cause_sha1, description, failure_mode_id, failure_mode, cause_reporter, cause_reported_at, cause_jobs_delimited, maybe_resolution_id, maybe_resolved_commit_index, maybe_resolution_sha1, maybe_resolution_reporter, maybe_resolution_reported_at, breakage_commit_author, breakage_commit_message, resolution_commit_author, resolution_commit_message, breakage_commit_date, resolution_commit_date) =
 
       BuildResults.BreakageSpan cause maybe_resolution
 
@@ -832,6 +832,7 @@ apiAnnotatedCodeBreakages conn_data = do
           BuildResults.BreakageStart
             (DbHelpers.WithId cause_commit_index $ Builds.RawCommit cause_sha1)
             description
+            (DbHelpers.WithId failure_mode_id $ failure_mode <> "-")
             (map T.pack $ splitAggText cause_jobs_delimited)
             cause_commit_metadata
 
@@ -847,7 +848,7 @@ apiAnnotatedCodeBreakages conn_data = do
 
           return end_record
 
-    sql = "SELECT cause_id, cause_commit_index, cause_sha1, description, cause_reporter, cause_reported_at, cause_jobs, resolution_id, resolved_commit_index, resolution_sha1, resolution_reporter, resolution_reported_at, breakage_commit_author, breakage_commit_message, resolution_commit_author, resolution_commit_message, breakage_commit_date, resolution_commit_date FROM known_breakage_summaries ORDER BY cause_commit_index DESC;"
+    sql = "SELECT cause_id, cause_commit_index, cause_sha1, description, failure_mode_id, failure_mode, cause_reporter, cause_reported_at, cause_jobs, resolution_id, resolved_commit_index, resolution_sha1, resolution_reporter, resolution_reported_at, breakage_commit_author, breakage_commit_message, resolution_commit_author, resolution_commit_message, breakage_commit_date, resolution_commit_date FROM known_breakage_summaries ORDER BY cause_commit_index DESC;"
 
 
 get_latest_master_commit_with_metadata ::

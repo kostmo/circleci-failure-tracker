@@ -43,10 +43,10 @@ data MasterWeeklyStats = MasterWeeklyStats {
 
   , _no_logs_count                  :: Int -- ^ #434348 (gray)
   , _timeout_count                  :: Int -- ^ #8085e9 (purple)
-  , _known_broken_count             :: Int -- ^ #e4d354 (gold)
+  , _known_broken_count             :: Int -- ^ #f7a35c (orange)
   , _nonflaky_pattern_matched_count :: Int -- ^ #f15c80 (red)
   , _undiagnosed_count              :: Int -- ^ #7cb5ec (blue)
-  , _flaky_count                    :: Int -- ^ #f7a35c (orange)
+  , _flaky_count                    :: Int -- ^ #e4d354 (gold)
 
   , _week                           :: UTCTime
   , _commit_id_bound                :: InclusiveNumericBounds Int64

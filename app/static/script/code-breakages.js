@@ -8,8 +8,6 @@ function render_commit_cell(cell, position) {
 }
 
 
-
-
 function gen_detected_breakages_table(element_id, data_url) {
 
 	var table = new Tabulator("#" + element_id, {
@@ -36,13 +34,8 @@ function gen_detected_breakages_table(element_id, data_url) {
 			},
 		],
 		ajaxURL: data_url,
-/*		ajaxResponse: function(url, params, response) {
-			return response.payload;
-		},
-*/
 	});
 }
-
 
 
 function gen_breakages_table(element_id, data_url) {
@@ -89,6 +82,8 @@ function gen_breakages_table(element_id, data_url) {
 					var data_dict = {"cause_id": cause_id, "description": new_description};
 					post_modification("/api/code-breakage-description-update", data_dict);
 				},
+			},
+			{title: "Mode", width: 250, field: "start.record.payload.failure_mode.record",
 			},
 			{title: "Affected jobs", columns: [
 				{title: "Count",

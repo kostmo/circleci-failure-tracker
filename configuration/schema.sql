@@ -364,9 +364,9 @@ ALTER TABLE public.best_pattern_match_for_builds OWNER TO postgres;
 
 CREATE TABLE public.builds (
     build_num integer NOT NULL,
-    vcs_revision character(40),
+    vcs_revision character(40) NOT NULL,
     queued_at timestamp with time zone,
-    job_name text,
+    job_name text NOT NULL,
     branch character varying,
     succeeded boolean,
     started_at timestamp with time zone,
@@ -674,7 +674,8 @@ CREATE TABLE public.code_breakage_cause (
     sha1 character(40) NOT NULL,
     description text,
     reporter text,
-    reported_at timestamp with time zone DEFAULT now()
+    reported_at timestamp with time zone DEFAULT now(),
+    failure_mode integer
 );
 
 
@@ -718,7 +719,7 @@ COMMENT ON TABLE public.ordered_master_commits IS 'Warning: the "id" column may 
 -- Name: code_breakage_spans; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.code_breakage_spans AS
+CREATE VIEW public.code_breakage_spans WITH (security_barrier='false') AS
  SELECT DISTINCT ON (foo.cause_id) foo.cause_id,
     foo.commit_index AS cause_commit_index,
     foo.sha1 AS cause_sha1,
@@ -729,13 +730,15 @@ CREATE VIEW public.code_breakage_spans AS
     bar.commit_index AS resolved_commit_index,
     bar.sha1 AS resolution_sha1,
     bar.reporter AS resolution_reporter,
-    bar.reported_at AS resolution_reported_at
+    bar.reported_at AS resolution_reported_at,
+    foo.failure_mode
    FROM (( SELECT code_breakage_cause.reporter,
             code_breakage_cause.reported_at,
             code_breakage_cause.id AS cause_id,
             ordered_master_commits.id AS commit_index,
             code_breakage_cause.description,
-            code_breakage_cause.sha1
+            code_breakage_cause.sha1,
+            code_breakage_cause.failure_mode
            FROM (public.code_breakage_cause
              JOIN public.ordered_master_commits ON ((ordered_master_commits.sha1 = code_breakage_cause.sha1)))) foo
      LEFT JOIN ( SELECT code_breakage_resolution.reporter,
@@ -1014,6 +1017,18 @@ CREATE VIEW public.job_failure_frequencies AS
 ALTER TABLE public.job_failure_frequencies OWNER TO postgres;
 
 --
+-- Name: master_failure_modes; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.master_failure_modes (
+    id integer NOT NULL,
+    name text NOT NULL
+);
+
+
+ALTER TABLE public.master_failure_modes OWNER TO postgres;
+
+--
 -- Name: known_breakage_summaries; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -1035,12 +1050,15 @@ CREATE VIEW public.known_breakage_summaries WITH (security_barrier='false') AS
     COALESCE(meta2.author_name, ''::text) AS resolution_commit_author,
     COALESCE(meta2.message, ''::text) AS resolution_commit_message,
     COALESCE(meta1.committer_date, now()) AS breakage_commit_date,
-    COALESCE(meta2.committer_date, now()) AS resolution_commit_date
-   FROM (((public.code_breakage_spans
+    COALESCE(meta2.committer_date, now()) AS resolution_commit_date,
+    COALESCE(master_failure_modes.name, ''::text) AS failure_mode,
+    COALESCE(code_breakage_spans.failure_mode, '-1'::integer) AS failure_mode_id
+   FROM ((((public.code_breakage_spans
      LEFT JOIN ( SELECT code_breakage_affected_jobs.cause,
             string_agg(code_breakage_affected_jobs.job, ';'::text) AS jobs
            FROM public.code_breakage_affected_jobs
           GROUP BY code_breakage_affected_jobs.cause) foo ON ((foo.cause = code_breakage_spans.cause_id)))
+     LEFT JOIN public.master_failure_modes ON ((code_breakage_spans.failure_mode = master_failure_modes.id)))
      LEFT JOIN public.commit_metadata meta1 ON ((meta1.sha1 = code_breakage_spans.cause_sha1)))
      LEFT JOIN public.commit_metadata meta2 ON ((meta2.sha1 = code_breakage_spans.resolution_sha1)));
 
@@ -1162,6 +1180,28 @@ CREATE VIEW public.master_contiguous_failure_blocks_with_commits AS
 
 
 ALTER TABLE public.master_contiguous_failure_blocks_with_commits OWNER TO postgres;
+
+--
+-- Name: master_failure_modes_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.master_failure_modes_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.master_failure_modes_id_seq OWNER TO postgres;
+
+--
+-- Name: master_failure_modes_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.master_failure_modes_id_seq OWNED BY public.master_failure_modes.id;
+
 
 --
 -- Name: master_failures_by_commit; Type: VIEW; Schema: public; Owner: postgres
@@ -1688,6 +1728,13 @@ ALTER TABLE ONLY public.code_breakage_resolution ALTER COLUMN id SET DEFAULT nex
 
 
 --
+-- Name: master_failure_modes id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.master_failure_modes ALTER COLUMN id SET DEFAULT nextval('public.master_failure_modes_id_seq'::regclass);
+
+
+--
 -- Name: matches id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
@@ -1825,6 +1872,14 @@ ALTER TABLE ONLY public.log_metadata
 
 
 --
+-- Name: master_failure_modes master_failure_modes_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.master_failure_modes
+    ADD CONSTRAINT master_failure_modes_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: matches match_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -1951,6 +2006,20 @@ CREATE INDEX breakage_sha1 ON public.code_breakage_cause USING btree (sha1);
 
 
 --
+-- Name: builds_job_name_idx; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX builds_job_name_idx ON public.builds USING btree (job_name);
+
+
+--
+-- Name: builds_vcs_revision_idx; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX builds_vcs_revision_idx ON public.builds USING btree (vcs_revision);
+
+
+--
 -- Name: cause_fk; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -2049,6 +2118,13 @@ CREATE INDEX fki_fk_scan ON public.scanned_patterns USING btree (scan);
 
 
 --
+-- Name: fki_master_failure_mode_fk; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX fki_master_failure_mode_fk ON public.code_breakage_cause USING btree (failure_mode);
+
+
+--
 -- Name: master_failures_by_commit _RETURN; Type: RULE; Schema: public; Owner: postgres
 --
 
@@ -2138,6 +2214,14 @@ ALTER TABLE ONLY public.scanned_patterns
 
 ALTER TABLE ONLY public.log_metadata
     ADD CONSTRAINT log_metadata_step_fkey FOREIGN KEY (step) REFERENCES public.build_steps(id) ON DELETE CASCADE;
+
+
+--
+-- Name: code_breakage_cause master_failure_mode_fk; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.code_breakage_cause
+    ADD CONSTRAINT master_failure_mode_fk FOREIGN KEY (failure_mode) REFERENCES public.master_failure_modes(id) ON DELETE CASCADE;
 
 
 --

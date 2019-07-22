@@ -1,14 +1,100 @@
 // global
 var ranges_by_week = {};
 
-function normalized_failure_count_highchart(series_list) {
+function normalized_build_failure_count_highchart(series_list) {
 
-	Highcharts.chart('container-normalized-failures-by-week', {
+	Highcharts.chart('container-normalized-build-failures-by-week', {
 		chart: {
 			type: 'line'
 		},
 		title: {
-			text: 'Failures by Week'
+			text: 'Build failures by Week'
+		},
+		colors: ["#8085e9", "#b0b0b0"],
+		subtitle: {
+			text: 'Showing only full weeks, starting on labeled day'
+		},
+		annotations: [{
+			labelOptions: {
+				backgroundColor: 'rgba(255,255,255,0.5)',
+				verticalAlign: 'top',
+				y: 15
+			},
+			labels: [{
+				point: {
+					xAxis: 0,
+					yAxis: 0,
+					x: new Date('2019-06-10T00:00:00Z'),
+					y: 400,
+				},
+				text: 'Start data collection',
+			}],
+		}],
+		xAxis: {
+			type: 'datetime',
+			dateTimeLabelFormats: { // don't display the dummy year
+				month: '%e. %b',
+				year: '%b'
+			},
+			title: {
+				text: 'Date'
+			}
+		},
+		yAxis: [
+			{
+				title: {
+					text: 'commits',
+				},
+				opposite: true,
+				min: 0,
+			},
+			{
+				title: {
+					text: 'build failure rate'
+				},
+				min: 0,
+			},
+		],
+		tooltip: {
+			useHTML: true,
+			style: {
+				pointerEvents: 'auto'
+			},
+			pointFormatter: function() {
+				var commit_id_bounds = ranges_by_week[this.x]["commit_id_bound"];
+				var link_url = "/master-timeline.html?min_commit_index=" + commit_id_bounds["min_bound"] + "&max_commit_index=" + commit_id_bounds["max_bound"];
+
+				var y_val = this.series.name == "Commit count" ? this.y : this.y.toFixed(2);
+				var content = y_val + "<br/>" + link("(details)", link_url);
+				return content;
+			},
+		},
+		plotOptions: {
+			line: {
+				marker: {
+					enabled: true
+				}
+			},
+		},
+		credits: {
+			enabled: false
+		},
+		series: series_list,
+	});
+}
+
+
+
+
+
+function normalized_commit_failure_count_highchart(series_list) {
+
+	Highcharts.chart('container-normalized-commit-failures-by-week', {
+		chart: {
+			type: 'line'
+		},
+		title: {
+			text: 'Commits with failures by Week'
 		},
 		colors: ["#f08080", "#b0b0b0"],
 		subtitle: {
@@ -50,7 +136,7 @@ function normalized_failure_count_highchart(series_list) {
 			},
 			{
 				title: {
-					text: 'failures'
+					text: 'commit failure rate'
 				},
 				min: 0,
 			},
@@ -82,6 +168,10 @@ function normalized_failure_count_highchart(series_list) {
 		series: series_list,
 	});
 }
+
+
+
+
 
 function separated_causes_column_highchart(columns, column_chart_series) {
 
@@ -220,8 +310,10 @@ function render() {
 
 		var separated_causes_series_points = {};
 
-		var general_failures_series = [];
-		var commit_count_series = [];
+		var undifferentiated_build_failures_series_points = [];
+		var undifferentiated_commit_failures_series_points = [];
+
+		var commit_count_series_points = [];
 
 		var column_chart_series = {};
 		var column_chart_timestamp_categories = [];
@@ -251,8 +343,11 @@ function render() {
 				}
 			}
 
-			commit_count_series.push([week_val, commit_count]);
-			general_failures_series.push([week_val, 1.0 * datum["failure_count"] / commit_count]);
+			commit_count_series_points.push([week_val, commit_count]);
+
+			undifferentiated_build_failures_series_points.push([week_val, 1.0 * datum["failure_count"] / commit_count]);
+
+			undifferentiated_commit_failures_series_points.push([week_val, 1.0 * datum["had_failure"] / commit_count]);
 		}
 
 		var separated_causes_series_list = [];
@@ -282,21 +377,35 @@ function render() {
 
 
 
-	        var my_series = [
+		var commit_count_series_points = {
+			name: "Commit count",
+			data: commit_count_series_points,
+			yAxis: 0,
+			dashStyle: 'shortdot',
+		};
+
+	        var undifferentiated_build_failures_series = [
 			{
-				name: "Failures per commit",
-				data: general_failures_series,
+				name: "Build failures per commit",
+				data: undifferentiated_build_failures_series_points,
 				yAxis: 1,
 			},
-			{
-				name: "Commit count",
-				data: commit_count_series,
-				yAxis: 0,
-				dashStyle: 'shortdot',
-			},
+			commit_count_series_points,
 		];
 
-		normalized_failure_count_highchart(my_series);
+
+	        var undifferentiated_commit_failures_series = [
+			{
+				name: "Failed commits",
+				data: undifferentiated_commit_failures_series_points,
+				yAxis: 1,
+			},
+			commit_count_series_points,
+		];
+
+
+		normalized_commit_failure_count_highchart(undifferentiated_commit_failures_series);
+		normalized_build_failure_count_highchart(undifferentiated_build_failures_series);
 	});
 }
 
