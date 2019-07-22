@@ -273,15 +273,14 @@ function define_column(col) {
 
 			const detected_contiguous_breakage = cell_value && cell_value.contiguous_breakage != null;
 
-			if (has_open_breakage && detected_contiguous_breakage) {
-				cell.getElement().style.backgroundColor = "#f6f4";
 
-			} else if (has_open_breakage) {
+			if (has_open_breakage) {
 				cell.getElement().style.backgroundColor = "#f664";
+			}
 
-			} else if (detected_contiguous_breakage) {
-				cell.getElement().style.backgroundColor = "#66f4";
-
+			if (detected_contiguous_breakage) {
+				cell.getElement().style.backgroundSize = "33.3%";
+				cell.getElement().style.backgroundImage = "url(\"data:image/svg+xml,%3Csvg width='40' height='1' viewBox='0 0 40 1' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0h20v1H0z' fill='%230000FF' fill-opacity='0.6' fill-rule='evenodd'/%3E%3C/svg%3E\")";
 			}
 
 			var context_menu_items = get_context_menu_items_for_cell(cell);
@@ -291,7 +290,7 @@ function define_column(col) {
 
 
 			if (cell_value != null) {
-				var img_path = cell_value.is_flaky ? "orange-triangle.svg"
+				var img_path = cell_value.is_flaky ? "yellow-triangle.svg"
 					: cell_value.failure_mode["tag"] == "FailedStep" && cell_value.failure_mode["step_failure"]["tag"] == "Timeout" ? "purple-circle.svg"
 						: cell_value.failure_mode["tag"] == "FailedStep" && cell_value.failure_mode["step_failure"]["tag"] == "NoMatch" ? "blue-square.svg"
 							: cell_value.failure_mode["tag"] == "NoLog" ? "gray-diamond.svg"
@@ -359,7 +358,7 @@ function define_column(col) {
 function get_column_definitions(raw_column_list) {
 
 	var commit_column_definition = {
-		title: 'Commit<br/><table style="vertical-align: bottom;"><caption>Legend</caption><tbody><tr><th>Symbol</th><th>Meaning</th></tr><tr><td><img src="/images/build-status-indicators/orange-triangle.svg" style="width: 20px"/></td><td>flaky</td></tr><tr><td><img src="/images/build-status-indicators/red-x.svg" style="width: 20px"/></td><td>other match</td></tr><tr><td><img src="/images/build-status-indicators/blue-square.svg" style="width: 20px"/></td><td>no pattern match</td></tr><tr><td><img src="/images/build-status-indicators/purple-circle.svg" style="width: 20px"/></td><td>timeout</td></tr><tr><td><img src="/images/build-status-indicators/gray-diamond.svg" style="width: 20px"/></td><td>no log</td></tr><tr><td><img src="/images/build-status-indicators/green-dot.svg" style="width: 20px"/></td><td>success</td></tr></tbody></table>',
+		title: 'Commit<br/><table style="vertical-align: bottom;"><caption>Legend</caption><tbody><tr><th>Symbol</th><th>Meaning</th></tr><tr><td><img src="/images/build-status-indicators/yellow-triangle.svg" style="width: 20px"/></td><td>flaky</td></tr><tr><td><img src="/images/build-status-indicators/red-x.svg" style="width: 20px"/></td><td>other match</td></tr><tr><td><img src="/images/build-status-indicators/blue-square.svg" style="width: 20px"/></td><td>no pattern match</td></tr><tr><td><img src="/images/build-status-indicators/purple-circle.svg" style="width: 20px"/></td><td>timeout</td></tr><tr><td><img src="/images/build-status-indicators/gray-diamond.svg" style="width: 20px"/></td><td>no log</td></tr><tr><td><img src="/images/build-status-indicators/green-dot.svg" style="width: 20px"/></td><td>success</td></tr></tbody></table>',
 		field: "commit",
 		headerVertical: false,
 		formatter: function(cell, formatterParams, onRendered) {
