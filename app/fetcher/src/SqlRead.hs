@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveAnyClass        #-}
 {-# LANGUAGE DeriveGeneric         #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE OverloadedStrings     #-}
@@ -25,6 +26,7 @@ import           Data.Time.Calendar                   (Day)
 import           Data.Tuple                           (swap)
 import           Database.PostgreSQL.Simple
 import           Database.PostgreSQL.Simple.FromField (FromField)
+import           Database.PostgreSQL.Simple.FromRow   (field, fromRow)
 import           Database.PostgreSQL.Simple.ToField   (ToField)
 import           GHC.Generics
 import           GHC.Int                              (Int64)
@@ -231,6 +233,14 @@ patternBuildStepOccurrences conn_data (ScanPatterns.PatternId patt) = do
   map (uncurry WebApi.PieSliceApiRecord) <$> query conn sql (Only patt)
   where
     sql = "SELECT name, occurrence_count FROM pattern_build_step_occurrences WHERE pattern = ? ORDER BY occurrence_count DESC, name ASC;"
+
+
+patternBuildJobOccurrences :: DbHelpers.DbConnectionData -> ScanPatterns.PatternId -> IO [WebApi.PieSliceApiRecord]
+patternBuildJobOccurrences conn_data (ScanPatterns.PatternId patt) = do
+  conn <- DbHelpers.get_connection conn_data
+  map (uncurry WebApi.PieSliceApiRecord) <$> query conn sql (Only patt)
+  where
+    sql = "SELECT job_name, occurrence_count FROM pattern_build_job_occurrences WHERE pattern = ? ORDER BY occurrence_count DESC, job_name ASC;"
 
 
 apiLineCountHistogram :: DbHelpers.DbConnectionData -> IO [(Text, Int)]
@@ -562,8 +572,7 @@ data TagUsage = TagUsage {
     _tag           :: Text
   , _pattern_count :: Integer
   , _build_count   :: Integer
-  } deriving Generic
-
+  } deriving (Generic, FromRow)
 
 instance ToJSON TagUsage where
   toJSON = genericToJSON JsonUtils.dropUnderscore
@@ -572,7 +581,7 @@ instance ToJSON TagUsage where
 api_tags_histogram :: DbHelpers.DbConnectionData -> IO [TagUsage]
 api_tags_histogram conn_data = do
   conn <- DbHelpers.get_connection conn_data
-  map (\(x, y, z) -> TagUsage x y z) <$> query_ conn sql
+  query_ conn sql
   where
     sql = "SELECT tag, COUNT(*) AS pattern_count, SUM(matching_build_count)::bigint AS build_matches FROM pattern_tags LEFT JOIN pattern_frequency_summary ON pattern_frequency_summary.id = pattern_tags.pattern GROUP BY tag ORDER BY pattern_count DESC, build_matches DESC;"
 
@@ -689,28 +698,61 @@ get_master_commits conn parent_offset_mode =
     sql_commit_id_bounds = "SELECT ordered_master_commits.id, ordered_master_commits.sha1, message, tree_sha1, author_name, author_email, author_date, committer_name, committer_email, committer_date FROM ordered_master_commits LEFT JOIN commit_metadata ON commit_metadata.sha1 = ordered_master_commits.sha1 WHERE id >= ? AND id <= ? ORDER BY id DESC"
 
 
-convert_failure_modes (sha1, succeeded, is_idiopathic, is_flaky, is_timeout, is_matched, is_known_broken, build_num, queued_at, job_name, branch, step_name, pattern_id, match_id, line_number, line_count, line_text, span_start, span_end, specificity) = BuildResults.SimpleBuildStatus
-    build_obj
-    failure_mode
-    is_flaky
-    is_known_broken
-  where
+instance FromRow BuildResults.SimpleBuildStatus where
+ fromRow = do
+  sha1 <- field
+  succeeded <- field
+  is_idiopathic <- field
+  is_flaky <-field
+  is_timeout <- field
+  is_matched <- field
+  is_known_broken <- field
+  build_num <- field
+  queued_at <- field
+  job_name <- field
+  branch <- field
+  step_name <- field
+  pattern_id <- field
+  match_id <- field
+  line_number <- field
+  line_count <- field
+  line_text <- field
+  span_start <- field
+  span_end <- field
+  specificity <- field
+  is_serially_isolated <- field
+  contiguous_run_count <- field
+  contiguous_group_index <- field
+  contiguous_start_commit_index <- field
+  contiguous_end_commit_index <- field
+  contiguous_length <- field
 
-    failure_mode
+  let
+
+   failure_mode
       | succeeded = BuildResults.Success
       | is_idiopathic = BuildResults.NoLog
       | is_timeout = BuildResults.FailedStep step_name BuildResults.Timeout
       | is_matched = BuildResults.FailedStep step_name $ BuildResults.PatternMatch match_obj
       | otherwise = BuildResults.FailedStep step_name BuildResults.NoMatch
 
-    build_obj = Builds.NewBuild
+   maybe_contiguous_member = if is_serially_isolated
+      then Nothing
+      else Just $ BuildResults.ContiguousBreakageMember
+        contiguous_run_count
+        contiguous_group_index
+        contiguous_start_commit_index
+        contiguous_end_commit_index
+        contiguous_length
+
+   build_obj = Builds.NewBuild
       (Builds.NewBuildNumber build_num)
       (Builds.RawCommit sha1)
       queued_at
       job_name
       branch
 
-    match_obj = MatchOccurrences.MatchOccurrencesForBuild
+   match_obj = MatchOccurrences.MatchOccurrencesForBuild
       step_name
       (ScanPatterns.PatternId pattern_id)
       (MatchOccurrences.MatchId match_id)
@@ -720,6 +762,13 @@ convert_failure_modes (sha1, succeeded, is_idiopathic, is_flaky, is_timeout, is_
       span_start
       span_end
       specificity
+
+   in return $ BuildResults.SimpleBuildStatus
+      build_obj
+      failure_mode
+      is_flaky
+      is_known_broken
+      maybe_contiguous_member
 
 
 -- | Gets last N commits in one query,
@@ -737,10 +786,10 @@ api_master_builds conn_data offset_limit = runExceptT $ do
   let query_bounds = (WeeklyStats.min_bound commit_id_bounds, WeeklyStats.max_bound commit_id_bounds)
   failure_rows <- liftIO $ query conn failures_sql query_bounds
 
-  let failed_builds = map convert_failure_modes failure_rows
+  let failed_builds = failure_rows
       job_names = Set.fromList $ map (Builds.job_name . BuildResults._build) failed_builds
 
-  code_breakage_ranges <- liftIO $ apiAllCodeBreakages conn_data
+  code_breakage_ranges <- liftIO $ apiAnnotatedCodeBreakages conn_data
 
   return $ BuildResults.MasterBuildsResponse
     job_names
@@ -749,19 +798,23 @@ api_master_builds conn_data offset_limit = runExceptT $ do
     code_breakage_ranges
 
   where
-    -- Sometimes a few of the columns are null. Those column values are conditionally extracted (and placed into records)
-    -- only when a boolean designator column indicates they should be. Therefore, one would think that "Maybe" types
-    -- are not needed to represent the columns, since that lazy code branch will only be excuted when they are non-null.
-    -- However, it seems the postgres-simple library eagerly evaluates the entire row and attempts to apply
-    -- the inferred type, even when some of the columns do not eventually get used.
-    -- Therefore, we coalesce *all* all of the values to a nonsense value instead of allowing them to be null.
-    failures_sql = "SELECT ordered_master_commits.sha1, build_failure_causes.succeeded, build_failure_causes.is_idiopathic, build_failure_causes.is_flaky, build_failure_causes.is_timeout, build_failure_causes.is_matched, build_failure_causes.is_known_broken, build_failure_causes.build_num, build_failure_causes.queued_at, build_failure_causes.job_name, build_failure_causes.branch, COALESCE(build_failure_causes.step_name, ''), COALESCE(build_failure_causes.pattern_id, -1), COALESCE(match_id, -1), COALESCE(line_number, -1), COALESCE(line_count, -1), COALESCE(line_text, ''), COALESCE(span_start, -1), COALESCE(span_end, -1), COALESCE(specificity, -1) FROM ordered_master_commits JOIN build_failure_causes ON build_failure_causes.vcs_revision = ordered_master_commits.sha1 LEFT JOIN best_pattern_match_augmented_builds ON build_failure_causes.build_num = best_pattern_match_augmented_builds.build WHERE ordered_master_commits.id >= ? AND ordered_master_commits.id <= ?;"
+    failures_sql = "SELECT sha1, succeeded, is_idiopathic, is_flaky, is_timeout, is_matched, is_known_broken, build_num, queued_at, job_name, branch, step_name, pattern_id, match_id, line_number, line_count, line_text, span_start, span_end, specificity, is_serially_isolated, contiguous_run_count, contiguous_group_index, contiguous_start_commit_index, contiguous_end_commit_index, contiguous_length FROM master_failures_raw_causes WHERE commit_index >= ? AND commit_index <= ?;"
 
 
-apiAllCodeBreakages ::
+apiDetectedCodeBreakages ::
+     DbHelpers.DbConnectionData
+  -> IO [BuildResults.DetectedBreakageSpan]
+apiDetectedCodeBreakages conn_data = do
+  conn <- DbHelpers.get_connection conn_data
+  query_ conn sql
+  where
+    sql = "SELECT first_commit_id, jobs, job_count, min_run_length, max_run_length, modal_run_length, min_last_commit_id, max_last_commit_id, modal_last_commit_id, first_commit, min_last_commit, max_last_commit, modal_last_commit FROM master_contiguous_failure_blocks_with_commits ORDER BY first_commit_id DESC"
+
+
+apiAnnotatedCodeBreakages ::
      DbHelpers.DbConnectionData
   -> IO [BuildResults.BreakageSpan Text]
-apiAllCodeBreakages conn_data = do
+apiAnnotatedCodeBreakages conn_data = do
 
   conn <- DbHelpers.get_connection conn_data
 

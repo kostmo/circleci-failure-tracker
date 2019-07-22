@@ -8,6 +8,43 @@ function render_commit_cell(cell, position) {
 }
 
 
+
+
+function gen_detected_breakages_table(element_id, data_url) {
+
+	var table = new Tabulator("#" + element_id, {
+		height:"300px",
+		layout:"fitColumns",
+		placeholder:"No Data Set",
+		columns:[
+			{title: "Job count", field: "job_count",
+				width: 75,
+			},
+			{title: "Length", field: "modal_run_length",
+			},
+			{title: "Jobs", field: "jobs_delimited",
+			},
+			{title: "First commit", field: "first_commit",
+				formatter: function(cell, formatterParams, onRendered) {
+					return sha1_link(cell.getValue());
+				},
+			},
+			{title: "Last commit", field: "modal_last_commit",
+				formatter: function(cell, formatterParams, onRendered) {
+					return sha1_link(cell.getValue());
+				},
+			},
+		],
+		ajaxURL: data_url,
+/*		ajaxResponse: function(url, params, response) {
+			return response.payload;
+		},
+*/
+	});
+}
+
+
+
 function gen_breakages_table(element_id, data_url) {
 
 	var table = new Tabulator("#" + element_id, {
@@ -138,6 +175,7 @@ function gen_breakages_table(element_id, data_url) {
 
 
 function main() {
-	gen_breakages_table("code-breakages-table", "/api/code-breakages");
+	gen_breakages_table("annotated-breakages-table", "/api/code-breakages-annotated");
+	gen_detected_breakages_table("detected-breakages-table", "/api/code-breakages-detected");
 }
 

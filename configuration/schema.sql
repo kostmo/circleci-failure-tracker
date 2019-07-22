@@ -368,7 +368,9 @@ CREATE TABLE public.builds (
     queued_at timestamp with time zone,
     job_name text,
     branch character varying,
-    succeeded boolean
+    succeeded boolean,
+    started_at timestamp with time zone,
+    finished_at timestamp with time zone
 );
 
 
@@ -615,6 +617,41 @@ CREATE SEQUENCE public.broken_revisions_id_seq
 ALTER TABLE public.broken_revisions_id_seq OWNER TO postgres;
 
 --
+-- Name: rebuilds; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.rebuilds AS
+ SELECT max(builds.build_num) AS latest_build_num,
+    builds.vcs_revision,
+    builds.job_name,
+    count(*) AS rebuild_count
+   FROM public.builds
+  GROUP BY builds.vcs_revision, builds.job_name;
+
+
+ALTER TABLE public.rebuilds OWNER TO postgres;
+
+--
+-- Name: builds_deduped; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.builds_deduped AS
+ SELECT builds.build_num,
+    builds.vcs_revision,
+    builds.queued_at,
+    builds.job_name,
+    builds.branch,
+    builds.succeeded,
+    builds.started_at,
+    builds.finished_at,
+    rebuilds.rebuild_count
+   FROM (public.builds
+     JOIN public.rebuilds ON ((rebuilds.latest_build_num = builds.build_num)));
+
+
+ALTER TABLE public.builds_deduped OWNER TO postgres;
+
+--
 -- Name: code_breakage_affected_jobs; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -669,6 +706,13 @@ CREATE TABLE public.ordered_master_commits (
 
 
 ALTER TABLE public.ordered_master_commits OWNER TO postgres;
+
+--
+-- Name: TABLE ordered_master_commits; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.ordered_master_commits IS 'Warning: the "id" column may not be contiguous.';
+
 
 --
 -- Name: code_breakage_spans; Type: VIEW; Schema: public; Owner: postgres
@@ -760,12 +804,12 @@ COMMENT ON VIEW public.known_broken_builds IS 'These are only known broken *mast
 --
 
 CREATE VIEW public.build_failure_causes WITH (security_barrier='false') AS
- SELECT builds.build_num,
-    builds.vcs_revision,
-    builds.queued_at,
-    builds.job_name,
-    builds.branch,
-    COALESCE(builds.succeeded, false) AS succeeded,
+ SELECT builds_deduped.build_num,
+    builds_deduped.vcs_revision,
+    builds_deduped.queued_at,
+    builds_deduped.job_name,
+    builds_deduped.branch,
+    COALESCE(builds_deduped.succeeded, false) AS succeeded,
     (build_steps.build IS NULL) AS is_idiopathic,
     build_steps.id AS step_id,
     build_steps.name AS step_name,
@@ -775,21 +819,15 @@ CREATE VIEW public.build_failure_causes WITH (security_barrier='false') AS
     COALESCE(best_pattern_match_for_builds.is_flaky, false) AS is_flaky,
     (known_broken_builds.build_num IS NOT NULL) AS is_known_broken,
     known_broken_builds.causes AS known_cause_ids,
-    (best_pattern_match_for_builds.pattern_id IS NOT NULL) AS is_matched
-   FROM (((public.builds
-     LEFT JOIN public.build_steps ON ((build_steps.build = builds.build_num)))
-     LEFT JOIN public.best_pattern_match_for_builds ON ((best_pattern_match_for_builds.build = builds.build_num)))
-     LEFT JOIN public.known_broken_builds ON ((known_broken_builds.build_num = builds.build_num)));
+    (best_pattern_match_for_builds.pattern_id IS NOT NULL) AS is_matched,
+    builds_deduped.rebuild_count
+   FROM (((public.builds_deduped
+     LEFT JOIN public.build_steps ON ((build_steps.build = builds_deduped.build_num)))
+     LEFT JOIN public.best_pattern_match_for_builds ON ((best_pattern_match_for_builds.build = builds_deduped.build_num)))
+     LEFT JOIN public.known_broken_builds ON ((known_broken_builds.build_num = builds_deduped.build_num)));
 
 
 ALTER TABLE public.build_failure_causes OWNER TO postgres;
-
---
--- Name: VIEW build_failure_causes; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON VIEW public.build_failure_causes IS 'TODO: remove deprecated "is_unmatched" field';
-
 
 --
 -- Name: build_failure_causes_mutual_exclusion_known_broken; Type: VIEW; Schema: public; Owner: postgres
@@ -802,7 +840,7 @@ CREATE VIEW public.build_failure_causes_mutual_exclusion_known_broken WITH (secu
     build_failure_causes.step_id,
     build_failure_causes.step_name,
     (build_failure_causes.is_timeout AND (NOT build_failure_causes.is_known_broken)) AS is_timeout,
-    (build_failure_causes.is_unmatched AND (NOT build_failure_causes.is_known_broken)) AS is_unmatched,
+    (build_failure_causes.is_unmatched AND (NOT build_failure_causes.is_known_broken) AND (NOT build_failure_causes.is_timeout) AND (NOT build_failure_causes.is_idiopathic)) AS is_unmatched,
     build_failure_causes.pattern_id,
     (build_failure_causes.is_flaky AND (NOT build_failure_causes.is_known_broken)) AS is_flaky,
     build_failure_causes.vcs_revision,
@@ -810,7 +848,8 @@ CREATE VIEW public.build_failure_causes_mutual_exclusion_known_broken WITH (secu
     build_failure_causes.job_name,
     build_failure_causes.branch,
     build_failure_causes.is_known_broken,
-    (build_failure_causes.is_matched AND (NOT build_failure_causes.is_known_broken)) AS is_matched
+    (build_failure_causes.is_matched AND (NOT build_failure_causes.is_known_broken) AND (NOT build_failure_causes.is_flaky)) AS is_matched,
+    build_failure_causes.rebuild_count
    FROM public.build_failure_causes;
 
 
@@ -820,9 +859,9 @@ ALTER TABLE public.build_failure_causes_mutual_exclusion_known_broken OWNER TO p
 -- Name: VIEW build_failure_causes_mutual_exclusion_known_broken; Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON VIEW public.build_failure_causes_mutual_exclusion_known_broken IS 'TODO: remove deprecated "is_unmatched" field
+COMMENT ON VIEW public.build_failure_causes_mutual_exclusion_known_broken IS 'The "known broken" cause shall dominate; it is made mutually-exclusive with all other causes for a given build failure because a known broken build is unreliable for other statistics collection.
 
-The "known broken" cause shall dominate; it is made mutually-exclusive with all other causes for a given build failure because a known broken build is unreliable for other statistics collection.';
+Additionally, the "is_matched" field excludes "is_flaky", while the "is_unmatched" field excludes "is_timeout" and "is_idiopathic".  This means that the sum of all "is_flaky" + "is_matched" + "is_timeout" + "is_unmatched" + "is_known_broken" should be equal to the total failure count.';
 
 
 --
@@ -927,27 +966,6 @@ ALTER SEQUENCE public.code_breakage_resolution_id_seq OWNED BY public.code_break
 
 
 --
--- Name: code_breakage_resolved_jobs; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.code_breakage_resolved_jobs (
-    job text NOT NULL,
-    resolution integer NOT NULL,
-    reporter text,
-    reported_at timestamp with time zone DEFAULT now()
-);
-
-
-ALTER TABLE public.code_breakage_resolved_jobs OWNER TO postgres;
-
---
--- Name: TABLE code_breakage_resolved_jobs; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON TABLE public.code_breakage_resolved_jobs IS 'This is deprecated; have decided to use only "code_breakage_affected_jobs".';
-
-
---
 -- Name: commit_metadata; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -1018,19 +1036,132 @@ CREATE VIEW public.known_breakage_summaries WITH (security_barrier='false') AS
     COALESCE(meta2.message, ''::text) AS resolution_commit_message,
     COALESCE(meta1.committer_date, now()) AS breakage_commit_date,
     COALESCE(meta2.committer_date, now()) AS resolution_commit_date
-   FROM ((((public.code_breakage_spans
+   FROM (((public.code_breakage_spans
      LEFT JOIN ( SELECT code_breakage_affected_jobs.cause,
             string_agg(code_breakage_affected_jobs.job, ';'::text) AS jobs
            FROM public.code_breakage_affected_jobs
           GROUP BY code_breakage_affected_jobs.cause) foo ON ((foo.cause = code_breakage_spans.cause_id)))
-     LEFT JOIN ( SELECT code_breakage_resolved_jobs.resolution
-           FROM public.code_breakage_resolved_jobs
-          GROUP BY code_breakage_resolved_jobs.resolution) bar ON ((bar.resolution = code_breakage_spans.resolution_id)))
      LEFT JOIN public.commit_metadata meta1 ON ((meta1.sha1 = code_breakage_spans.cause_sha1)))
      LEFT JOIN public.commit_metadata meta2 ON ((meta2.sha1 = code_breakage_spans.resolution_sha1)));
 
 
 ALTER TABLE public.known_breakage_summaries OWNER TO postgres;
+
+--
+-- Name: master_contiguous_failures; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_contiguous_failures WITH (security_barrier='false') AS
+ SELECT row_number() OVER (PARTITION BY quux.group_index, quux.job_name ORDER BY quux.commit_number DESC) AS run_length,
+    quux.group_index,
+    quux.build_num,
+    quux.job_name,
+    quux.sha1,
+    quux.id,
+    first_value(quux.id) OVER (PARTITION BY quux.group_index, quux.job_name ORDER BY quux.commit_number DESC) AS start_commit_index,
+    last_value(quux.id) OVER (PARTITION BY quux.group_index, quux.job_name ORDER BY quux.commit_number DESC) AS end_commit_index
+   FROM ( SELECT ((bar.delta_next = 1) OR (bar.delta_prev = 1)) AS contiguous_failure,
+            COALESCE(sum((((bar.delta_next = 1) AND (bar.delta_prev <> 1)))::integer) OVER (PARTITION BY bar.job_name ORDER BY bar.commit_number DESC, bar.job_name), (0)::bigint) AS group_index,
+            bar.delta_next,
+            bar.delta_prev,
+            bar.prev_commit_number,
+            bar.next_commit_number,
+            bar.commit_number,
+            bar.build_num,
+            bar.job_name,
+            bar.sha1,
+            bar.id
+           FROM ( SELECT (foo.commit_number - foo.next_commit_number) AS delta_next,
+                    (foo.prev_commit_number - foo.commit_number) AS delta_prev,
+                    foo.prev_commit_number,
+                    foo.next_commit_number,
+                    foo.commit_number,
+                    foo.build_num,
+                    foo.job_name,
+                    foo.sha1,
+                    foo.id
+                   FROM ( SELECT lag(blah.commit_number) OVER (PARTITION BY build_failure_causes_mutual_exclusion_known_broken.job_name ORDER BY blah.commit_number DESC, build_failure_causes_mutual_exclusion_known_broken.job_name) AS prev_commit_number,
+                            lead(blah.commit_number) OVER (PARTITION BY build_failure_causes_mutual_exclusion_known_broken.job_name ORDER BY blah.commit_number DESC, build_failure_causes_mutual_exclusion_known_broken.job_name) AS next_commit_number,
+                            blah.commit_number,
+                            build_failure_causes_mutual_exclusion_known_broken.build_num,
+                            build_failure_causes_mutual_exclusion_known_broken.job_name,
+                            blah.sha1,
+                            blah.id
+                           FROM (( SELECT ordered_master_commits.id,
+                                    ordered_master_commits.sha1,
+                                    row_number() OVER (ORDER BY ordered_master_commits.id DESC) AS commit_number
+                                   FROM public.ordered_master_commits) blah
+                             JOIN public.build_failure_causes_mutual_exclusion_known_broken ON ((build_failure_causes_mutual_exclusion_known_broken.vcs_revision = blah.sha1)))) foo) bar) quux
+  WHERE quux.contiguous_failure
+  ORDER BY quux.job_name, quux.commit_number;
+
+
+ALTER TABLE public.master_contiguous_failures OWNER TO postgres;
+
+--
+-- Name: master_contiguous_failure_job_groups; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_contiguous_failure_job_groups AS
+ SELECT min(master_contiguous_failures.id) AS first_commit_id,
+    max(master_contiguous_failures.end_commit_index) AS last_commit_id,
+    max(master_contiguous_failures.run_length) AS run_length,
+    master_contiguous_failures.job_name,
+    master_contiguous_failures.group_index
+   FROM public.master_contiguous_failures
+  GROUP BY master_contiguous_failures.job_name, master_contiguous_failures.group_index
+  ORDER BY (min(master_contiguous_failures.id)) DESC;
+
+
+ALTER TABLE public.master_contiguous_failure_job_groups OWNER TO postgres;
+
+--
+-- Name: master_contiguous_failure_blocks; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_contiguous_failure_blocks AS
+ SELECT master_contiguous_failure_job_groups.first_commit_id,
+    string_agg(master_contiguous_failure_job_groups.job_name, ';'::text) AS jobs,
+    count(*) AS job_count,
+    min(master_contiguous_failure_job_groups.run_length) AS min_run_length,
+    max(master_contiguous_failure_job_groups.run_length) AS max_run_length,
+    min(master_contiguous_failure_job_groups.last_commit_id) AS min_last_commit_id,
+    max(master_contiguous_failure_job_groups.last_commit_id) AS max_last_commit_id,
+    mode() WITHIN GROUP (ORDER BY master_contiguous_failure_job_groups.run_length DESC) AS modal_run_length,
+    mode() WITHIN GROUP (ORDER BY master_contiguous_failure_job_groups.last_commit_id DESC) AS modal_last_commit_id
+   FROM public.master_contiguous_failure_job_groups
+  GROUP BY master_contiguous_failure_job_groups.first_commit_id
+  ORDER BY master_contiguous_failure_job_groups.first_commit_id DESC;
+
+
+ALTER TABLE public.master_contiguous_failure_blocks OWNER TO postgres;
+
+--
+-- Name: master_contiguous_failure_blocks_with_commits; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_contiguous_failure_blocks_with_commits AS
+ SELECT master_contiguous_failure_blocks.first_commit_id,
+    master_contiguous_failure_blocks.jobs,
+    master_contiguous_failure_blocks.job_count,
+    master_contiguous_failure_blocks.min_run_length,
+    master_contiguous_failure_blocks.max_run_length,
+    master_contiguous_failure_blocks.min_last_commit_id,
+    master_contiguous_failure_blocks.max_last_commit_id,
+    omc1.sha1 AS first_commit,
+    omc2.sha1 AS min_last_commit,
+    omc3.sha1 AS max_last_commit,
+    omc4.sha1 AS modal_last_commit,
+    master_contiguous_failure_blocks.modal_run_length,
+    master_contiguous_failure_blocks.modal_last_commit_id
+   FROM ((((public.master_contiguous_failure_blocks
+     JOIN public.ordered_master_commits omc1 ON ((omc1.id = master_contiguous_failure_blocks.first_commit_id)))
+     JOIN public.ordered_master_commits omc2 ON ((omc2.id = master_contiguous_failure_blocks.min_last_commit_id)))
+     JOIN public.ordered_master_commits omc3 ON ((omc3.id = master_contiguous_failure_blocks.max_last_commit_id)))
+     JOIN public.ordered_master_commits omc4 ON ((omc4.id = master_contiguous_failure_blocks.modal_last_commit_id)));
+
+
+ALTER TABLE public.master_contiguous_failure_blocks_with_commits OWNER TO postgres;
 
 --
 -- Name: master_failures_by_commit; Type: VIEW; Schema: public; Owner: postgres
@@ -1045,10 +1176,66 @@ SELECT
     NULL::bigint AS known_broken,
     NULL::bigint AS pattern_matched,
     NULL::bigint AS flaky,
-    NULL::integer AS commit_index;
+    NULL::integer AS commit_index,
+    NULL::bigint AS pattern_unmatched;
 
 
 ALTER TABLE public.master_failures_by_commit OWNER TO postgres;
+
+--
+-- Name: master_failures_raw_causes; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_failures_raw_causes WITH (security_barrier='false') AS
+ SELECT ordered_master_commits.sha1,
+    build_failure_causes.succeeded,
+    build_failure_causes.is_idiopathic,
+    build_failure_causes.is_flaky,
+    build_failure_causes.is_timeout,
+    build_failure_causes.is_matched,
+    build_failure_causes.is_known_broken,
+    build_failure_causes.build_num,
+    build_failure_causes.queued_at,
+    build_failure_causes.job_name,
+    build_failure_causes.branch,
+    COALESCE(build_failure_causes.step_name, ''::text) AS step_name,
+    COALESCE(build_failure_causes.pattern_id, '-1'::integer) AS pattern_id,
+    COALESCE(best_pattern_match_augmented_builds.match_id, '-1'::integer) AS match_id,
+    COALESCE(best_pattern_match_augmented_builds.line_number, '-1'::integer) AS line_number,
+    COALESCE(best_pattern_match_augmented_builds.line_count, '-1'::integer) AS line_count,
+    COALESCE(best_pattern_match_augmented_builds.line_text, ''::text) AS line_text,
+    COALESCE(best_pattern_match_augmented_builds.span_start, '-1'::integer) AS span_start,
+    COALESCE(best_pattern_match_augmented_builds.span_end, '-1'::integer) AS span_end,
+    COALESCE(best_pattern_match_augmented_builds.specificity, '-1'::integer) AS specificity,
+    (master_contiguous_failures.build_num IS NULL) AS is_serially_isolated,
+    COALESCE(master_contiguous_failures.run_length, (1)::bigint) AS contiguous_run_count,
+    COALESCE(master_contiguous_failures.group_index, ('-1'::integer)::bigint) AS contiguous_group_index,
+    COALESCE(master_contiguous_failures.start_commit_index, '-1'::integer) AS contiguous_start_commit_index,
+    COALESCE(master_contiguous_failures.end_commit_index, '-1'::integer) AS contiguous_end_commit_index,
+    ordered_master_commits.id AS commit_index,
+    COALESCE(master_contiguous_failure_job_groups.run_length, (1)::bigint) AS contiguous_length
+   FROM ((((public.ordered_master_commits
+     JOIN public.build_failure_causes ON ((build_failure_causes.vcs_revision = ordered_master_commits.sha1)))
+     LEFT JOIN public.best_pattern_match_augmented_builds ON ((build_failure_causes.build_num = best_pattern_match_augmented_builds.build)))
+     LEFT JOIN public.master_contiguous_failures ON ((build_failure_causes.build_num = master_contiguous_failures.build_num)))
+     LEFT JOIN public.master_contiguous_failure_job_groups ON (((build_failure_causes.job_name = master_contiguous_failure_job_groups.job_name) AND (master_contiguous_failures.group_index = master_contiguous_failure_job_groups.group_index))));
+
+
+ALTER TABLE public.master_failures_raw_causes OWNER TO postgres;
+
+--
+-- Name: VIEW master_failures_raw_causes; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.master_failures_raw_causes IS 'This uses the raw "build_failure_causes" table rather than the mutually-exclusive causes table.
+
+Sometimes a few of the columns are null. Those column values are conditionally extracted (and placed into Haskell records)                                              
+only when a boolean designator column indicates they should be. Therefore, one would think that Haskell "Maybe" types                                                   
+are not needed to represent the columns, since that lazy code branch will only be excuted when they are non-null.                                               
+However, it seems the postgres-simple library eagerly evaluates the entire row and attempts to apply                                                            
+the inferred type, even when some of the columns do not eventually get used.                                                                                    
+Therefore, we coalesce *all* all of the values to a nonsense value instead of allowing them to be null. ';
+
 
 --
 -- Name: master_failures_weekly_aggregation; Type: VIEW; Schema: public; Owner: postgres
@@ -1070,7 +1257,8 @@ CREATE VIEW public.master_failures_weekly_aggregation WITH (security_barrier='fa
     sum(foo.pattern_matched_count) AS pattern_matched_count,
     sum(foo.flaky_count) AS flaky_count,
     min(foo.commit_index) AS earliest_commit_index,
-    max(foo.commit_index) AS latest_commit_index
+    max(foo.commit_index) AS latest_commit_index,
+    sum(foo.pattern_unmatched_count) AS pattern_unmatched_count
    FROM ( SELECT ((master_failures_by_commit.total > 0))::integer AS has_failure,
             ((master_failures_by_commit.idiopathic > 0))::integer AS has_idiopathic,
             ((master_failures_by_commit.timeout > 0))::integer AS has_timeout,
@@ -1082,6 +1270,7 @@ CREATE VIEW public.master_failures_weekly_aggregation WITH (security_barrier='fa
             master_failures_by_commit.timeout AS timeout_count,
             master_failures_by_commit.known_broken AS known_broken_count,
             master_failures_by_commit.pattern_matched AS pattern_matched_count,
+            master_failures_by_commit.pattern_unmatched AS pattern_unmatched_count,
             master_failures_by_commit.flaky AS flaky_count,
             commit_metadata.committer_date,
             master_failures_by_commit.commit_index
@@ -1093,6 +1282,13 @@ CREATE VIEW public.master_failures_weekly_aggregation WITH (security_barrier='fa
 
 
 ALTER TABLE public.master_failures_weekly_aggregation OWNER TO postgres;
+
+--
+-- Name: VIEW master_failures_weekly_aggregation; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.master_failures_weekly_aggregation IS 'NOTE: "pattern_matched_count" excludes "flaky" builds';
+
 
 --
 -- Name: match_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
@@ -1202,10 +1398,26 @@ ALTER SEQUENCE public.ordered_master_commits_id_seq OWNED BY public.ordered_mast
 
 
 --
+-- Name: pattern_build_job_occurrences; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.pattern_build_job_occurrences AS
+ SELECT count(*) AS occurrence_count,
+    builds_join_steps.job_name,
+    matches.pattern
+   FROM (public.matches
+     JOIN public.builds_join_steps ON ((builds_join_steps.step_id = matches.build_step)))
+  GROUP BY builds_join_steps.job_name, matches.pattern
+  ORDER BY (count(*)) DESC, matches.pattern DESC;
+
+
+ALTER TABLE public.pattern_build_job_occurrences OWNER TO postgres;
+
+--
 -- Name: pattern_build_step_occurrences; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.pattern_build_step_occurrences AS
+CREATE VIEW public.pattern_build_step_occurrences WITH (security_barrier='false') AS
  SELECT count(*) AS occurrence_count,
     build_steps.name,
     matches.pattern
@@ -1589,14 +1801,6 @@ ALTER TABLE ONLY public.code_breakage_resolution
 
 
 --
--- Name: code_breakage_resolved_jobs code_breakage_resolved_jobs_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.code_breakage_resolved_jobs
-    ADD CONSTRAINT code_breakage_resolved_jobs_pkey PRIMARY KEY (job, resolution);
-
-
---
 -- Name: commit_metadata commit_metadata_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -1740,13 +1944,6 @@ CREATE INDEX blah ON public.code_breakage_affected_jobs USING btree (cause);
 
 
 --
--- Name: blah2; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX blah2 ON public.code_breakage_resolved_jobs USING btree (resolution);
-
-
---
 -- Name: breakage_sha1; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -1863,7 +2060,8 @@ CREATE OR REPLACE VIEW public.master_failures_by_commit WITH (security_barrier='
     COALESCE(sum((build_failure_causes_mutual_exclusion_known_broken.is_known_broken)::integer), (0)::bigint) AS known_broken,
     COALESCE(sum((build_failure_causes_mutual_exclusion_known_broken.is_matched)::integer), (0)::bigint) AS pattern_matched,
     COALESCE(sum((build_failure_causes_mutual_exclusion_known_broken.is_flaky)::integer), (0)::bigint) AS flaky,
-    ordered_master_commits.id AS commit_index
+    ordered_master_commits.id AS commit_index,
+    COALESCE(sum((build_failure_causes_mutual_exclusion_known_broken.is_unmatched)::integer), (0)::bigint) AS pattern_unmatched
    FROM (public.ordered_master_commits
      LEFT JOIN public.build_failure_causes_mutual_exclusion_known_broken ON ((build_failure_causes_mutual_exclusion_known_broken.vcs_revision = ordered_master_commits.sha1)))
   GROUP BY ordered_master_commits.id
@@ -1916,14 +2114,6 @@ ALTER TABLE ONLY public.code_breakage_resolution
 
 ALTER TABLE ONLY public.code_breakage_resolution
     ADD CONSTRAINT code_breakage_resolution_sha1_fkey FOREIGN KEY (sha1) REFERENCES public.ordered_master_commits(sha1);
-
-
---
--- Name: code_breakage_resolved_jobs code_breakage_resolved_jobs_resolution_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.code_breakage_resolved_jobs
-    ADD CONSTRAINT code_breakage_resolved_jobs_resolution_fkey FOREIGN KEY (resolution) REFERENCES public.code_breakage_resolution(id) ON DELETE CASCADE;
 
 
 --
@@ -2227,6 +2417,20 @@ GRANT ALL ON SEQUENCE public.broken_revisions_id_seq TO logan;
 
 
 --
+-- Name: TABLE rebuilds; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.rebuilds TO logan;
+
+
+--
+-- Name: TABLE builds_deduped; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.builds_deduped TO logan;
+
+
+--
 -- Name: TABLE code_breakage_affected_jobs; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -2318,13 +2522,6 @@ GRANT ALL ON SEQUENCE public.code_breakage_resolution_id_seq TO logan;
 
 
 --
--- Name: TABLE code_breakage_resolved_jobs; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.code_breakage_resolved_jobs TO logan;
-
-
---
 -- Name: TABLE commit_metadata; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -2353,10 +2550,45 @@ GRANT ALL ON TABLE public.known_breakage_summaries TO logan;
 
 
 --
+-- Name: TABLE master_contiguous_failures; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_contiguous_failures TO logan;
+
+
+--
+-- Name: TABLE master_contiguous_failure_job_groups; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_contiguous_failure_job_groups TO logan;
+
+
+--
+-- Name: TABLE master_contiguous_failure_blocks; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_contiguous_failure_blocks TO logan;
+
+
+--
+-- Name: TABLE master_contiguous_failure_blocks_with_commits; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_contiguous_failure_blocks_with_commits TO logan;
+
+
+--
 -- Name: TABLE master_failures_by_commit; Type: ACL; Schema: public; Owner: postgres
 --
 
 GRANT ALL ON TABLE public.master_failures_by_commit TO logan;
+
+
+--
+-- Name: TABLE master_failures_raw_causes; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_failures_raw_causes TO logan;
 
 
 --
@@ -2399,6 +2631,13 @@ GRANT ALL ON SEQUENCE public.mitigations_id_seq TO logan;
 --
 
 GRANT ALL ON SEQUENCE public.ordered_master_commits_id_seq TO logan;
+
+
+--
+-- Name: TABLE pattern_build_job_occurrences; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.pattern_build_job_occurrences TO logan;
 
 
 --

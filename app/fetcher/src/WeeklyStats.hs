@@ -23,6 +23,13 @@ instance (ToJSON a) => ToJSON (InclusiveNumericBounds a)
 -- 2) How *many* jobs experienced the failure of the given type for each commit.
 --
 -- Both of the above aggregations are then again summed by week.
+
+
+
+newtype NoLogsCount = NoLogsCount Int deriving Generic
+
+
+
 data MasterWeeklyStats = MasterWeeklyStats {
     _commit_count                   :: Int
   , _had_failure                    :: Int
@@ -33,12 +40,13 @@ data MasterWeeklyStats = MasterWeeklyStats {
   , _had_flaky                      :: Int
 
   , _failure_count                  :: Int
-  , _no_logs_count                  :: Int
-  , _timeout_count                  :: Int
-  , _known_broken_count             :: Int
-  , _nonflaky_pattern_matched_count :: Int
-  , _undiagnosed_count              :: Int
-  , _flaky_count                    :: Int
+
+  , _no_logs_count                  :: Int -- ^ #434348 (gray)
+  , _timeout_count                  :: Int -- ^ #8085e9 (purple)
+  , _known_broken_count             :: Int -- ^ #e4d354 (gold)
+  , _nonflaky_pattern_matched_count :: Int -- ^ #f15c80 (red)
+  , _undiagnosed_count              :: Int -- ^ #7cb5ec (blue)
+  , _flaky_count                    :: Int -- ^ #f7a35c (orange)
 
   , _week                           :: UTCTime
   , _commit_id_bound                :: InclusiveNumericBounds Int64

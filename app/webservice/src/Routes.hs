@@ -430,6 +430,11 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       vals <- liftIO (SqlRead.patternBuildStepOccurrences connection_data $ ScanPatterns.PatternId pattern_id)
       S.json vals
 
+    S.get "/api/pattern-job-occurrences" $ do
+      pattern_id <- S.param "pattern_id"
+      vals <- liftIO (SqlRead.patternBuildJobOccurrences connection_data $ ScanPatterns.PatternId pattern_id)
+      S.json vals
+
 
     S.get "/api/master-timeline" $ do
       offset_count <- S.param "offset"
@@ -603,9 +608,11 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
       S.json $ WebApi.toJsonEither insertion_result
 
-    S.get "/api/code-breakages" $
-      S.json =<< liftIO (SqlRead.apiAllCodeBreakages connection_data)
+    S.get "/api/code-breakages-detected" $
+      S.json =<< liftIO (SqlRead.apiDetectedCodeBreakages connection_data)
 
+    S.get "/api/code-breakages-annotated" $
+      S.json =<< liftIO (SqlRead.apiAnnotatedCodeBreakages connection_data)
 
     S.get "/api/known-breakage-affected-jobs" $ do
       cause_id <- S.param "cause_id"

@@ -3,7 +3,6 @@ import           Options.Applicative
 import           System.IO
 
 import qualified BuildRetrieval
-import qualified Builds
 import qualified Constants
 import qualified DbHelpers
 import qualified DbPreparation

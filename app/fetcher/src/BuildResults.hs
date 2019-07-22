@@ -1,13 +1,15 @@
+{-# LANGUAGE DeriveAnyClass        #-}
 {-# LANGUAGE DeriveGeneric         #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 
 module BuildResults where
 
 import           Data.Aeson
-import           Data.Set         (Set)
-import           Data.Text        (Text)
+import           Data.Set                   (Set)
+import           Data.Text                  (Text)
+import           Database.PostgreSQL.Simple (FromRow)
 import           GHC.Generics
-import           GHC.Int          (Int64)
+import           GHC.Int                    (Int64)
 
 import qualified Builds
 import qualified Commits
@@ -54,10 +56,11 @@ instance ToJSON FailureMode where
 
 
 data SimpleBuildStatus = SimpleBuildStatus {
-    _build           :: Builds.Build
-  , _failure_mode    :: FailureMode
-  , _is_flaky        :: Bool
-  , _is_known_broken :: Bool
+    _build               :: Builds.Build
+  , _failure_mode        :: FailureMode
+  , _is_flaky            :: Bool
+  , _is_known_broken     :: Bool
+  , _contiguous_breakage :: Maybe ContiguousBreakageMember
   } deriving Generic
 
 instance ToJSON SimpleBuildStatus where
@@ -104,4 +107,36 @@ data MasterBuildsResponse = MasterBuildsResponse {
   } deriving Generic
 
 instance ToJSON MasterBuildsResponse where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+data ContiguousBreakageMember = ContiguousBreakageMember {
+    _contiguous_run_count          :: Int
+  , _contiguous_group_index        :: Int
+  , _contiguous_start_commit_index :: Int
+  , _contiguous_end_commit_index   :: Int
+  , _contiguous_length             :: Int
+  } deriving Generic
+
+instance ToJSON ContiguousBreakageMember where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+data DetectedBreakageSpan = DetectedBreakageSpan {
+    _first_commit_id      :: Int
+  , _jobs_delimited       :: Text
+  , _job_count            :: Int
+  , _min_run_length       :: Int
+  , _max_run_length       :: Int
+  , _modal_run_length     :: Int
+  , _min_last_commit_id   :: Int
+  , _max_last_commit_id   :: Int
+  , _modal_last_commit_id :: Int
+  , _first_commit         :: Text
+  , _min_last_commit      :: Text
+  , _max_last_commit      :: Text
+  , _modal_last_commit    :: Text
+  } deriving (Generic, FromRow)
+
+instance ToJSON DetectedBreakageSpan where
   toJSON = genericToJSON JsonUtils.dropUnderscore

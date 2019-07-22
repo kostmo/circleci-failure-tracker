@@ -1,6 +1,6 @@
-function gen_step_failures_chart(container_id, pattern_id) {
+function gen_step_failures_chart(container_id, pattern_id, source) {
 
-   $.getJSON('/api/pattern-step-occurrences', {"pattern_id": pattern_id}, function (data) {
+   $.getJSON('/api/pattern-' + source + '-occurrences', {"pattern_id": pattern_id}, function (data) {
 
       Highcharts.chart(container_id, {
         chart: {
@@ -10,7 +10,7 @@ function gen_step_failures_chart(container_id, pattern_id) {
             type: 'pie'
         },
         title: {
-            text: 'Failures by step name'
+            text: 'Failures by ' + source + ' name'
         },
 	subtitle: {
 	    text: 'for pattern ' + pattern_id
@@ -35,7 +35,7 @@ function gen_step_failures_chart(container_id, pattern_id) {
             enabled: false
         },
         series: [{
-            name: 'Steps',
+            name: source + 's',
             colorByPoint: true,
             data: data,
          }]
@@ -105,6 +105,7 @@ function main() {
         gen_best_matches_table(pattern_id);
         gen_all_matches_table(pattern_id);
 
-	gen_step_failures_chart('container-step-failures', pattern_id);
+	gen_step_failures_chart('container-step-failures', pattern_id, 'step');
+	gen_step_failures_chart('container-job-failures', pattern_id, 'job');
 }
 
