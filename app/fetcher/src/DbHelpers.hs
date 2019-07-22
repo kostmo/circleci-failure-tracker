@@ -2,16 +2,17 @@
 
 module DbHelpers where
 
-import           Control.Arrow              ((&&&))
+import           Control.Arrow                      ((&&&))
 import           Data.Aeson
-import           Data.HashMap.Strict        (HashMap)
-import qualified Data.HashMap.Strict        as HashMap
-import           Data.List                  (intercalate)
-import           Data.Text                  (Text)
-import           Data.Time                  (UTCTime)
+import           Data.HashMap.Strict                (HashMap)
+import qualified Data.HashMap.Strict                as HashMap
+import           Data.List                          (intercalate)
+import           Data.Text                          (Text)
+import           Data.Time                          (UTCTime)
 import           Database.PostgreSQL.Simple
+import           Database.PostgreSQL.Simple.FromRow (field, fromRow)
 import           GHC.Generics
-import           GHC.Int                    (Int64)
+import           GHC.Int                            (Int64)
 
 
 data OwnerAndRepo = OwnerAndRepo {
@@ -22,10 +23,10 @@ data OwnerAndRepo = OwnerAndRepo {
 
 githubRepoApiPrefix :: DbHelpers.OwnerAndRepo -> String
 githubRepoApiPrefix (DbHelpers.OwnerAndRepo repo_owner repo_name) = intercalate "/" [
-        "https://api.github.com/repos"
-      , repo_owner
-      , repo_name
-      ]
+    "https://api.github.com/repos"
+  , repo_owner
+  , repo_name
+  ]
 
 
 data WithAuthorship a = WithAuthorship {
@@ -45,6 +46,10 @@ data WithId a = WithId {
 
 instance ToJSON a => ToJSON (WithId a)
 instance FromJSON a => FromJSON (WithId a)
+
+instance FromRow a => FromRow (WithId a) where
+  fromRow = WithId <$> field <*> fromRow
+
 
 
 data DbConnectionData = NewDbConnectionData {

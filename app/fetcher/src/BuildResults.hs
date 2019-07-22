@@ -67,6 +67,15 @@ instance ToJSON SimpleBuildStatus where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
+data MasterFailureModeDetails = MasterFailureModeDetails {
+    _label      :: Text
+  , _revertible :: Bool
+  } deriving (Generic, FromRow)
+
+instance ToJSON MasterFailureModeDetails where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
 data BreakageStart a = BreakageStart {
     _breakage_commit :: IndexedCommit
   , _description     :: Text
@@ -87,6 +96,7 @@ data BreakageEnd = BreakageEnd {
 
 instance ToJSON BreakageEnd where
   toJSON = genericToJSON JsonUtils.dropUnderscore
+
 
 type BreakageEndRecord = DbHelpers.WithId (DbHelpers.WithAuthorship BreakageEnd)
 

@@ -811,6 +811,16 @@ apiDetectedCodeBreakages conn_data = do
     sql = "SELECT first_commit_id, jobs, job_count, min_run_length, max_run_length, modal_run_length, min_last_commit_id, max_last_commit_id, modal_last_commit_id, first_commit, min_last_commit, max_last_commit, modal_last_commit FROM master_contiguous_failure_blocks_with_commits ORDER BY first_commit_id DESC"
 
 
+apiListFailureModes ::
+     DbHelpers.DbConnectionData
+  -> IO [DbHelpers.WithId BuildResults.MasterFailureModeDetails]
+apiListFailureModes conn_data = do
+  conn <- DbHelpers.get_connection conn_data
+  query_ conn sql
+  where
+    sql = "SELECT id, label, revertible FROM master_failure_modes ORDER BY id"
+
+
 apiAnnotatedCodeBreakages ::
      DbHelpers.DbConnectionData
   -> IO [BuildResults.BreakageSpan Text]

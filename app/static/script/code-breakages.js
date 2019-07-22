@@ -38,7 +38,7 @@ function gen_detected_breakages_table(element_id, data_url) {
 }
 
 
-function gen_breakages_table(element_id, data_url) {
+function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict) {
 
 	var table = new Tabulator("#" + element_id, {
 		height:"300px",
@@ -84,6 +84,10 @@ function gen_breakages_table(element_id, data_url) {
 				},
 			},
 			{title: "Mode", width: 250, field: "start.record.payload.failure_mode.record",
+				editor:"select",
+				editorParams: {
+					values: failure_modes_dict,
+				},
 			},
 			{title: "Affected jobs", columns: [
 				{title: "Count",
@@ -170,7 +174,18 @@ function gen_breakages_table(element_id, data_url) {
 
 
 function main() {
-	gen_breakages_table("annotated-breakages-table", "/api/code-breakages-annotated");
+
+	$.getJSON('/api/list-failure-modes', function (mydata) {
+
+		var failure_modes_dict = {};
+		for (var item of mydata) {
+			failure_modes_dict[item["db_id"]] = item["record"]["label"];
+		}
+
+		gen_annotated_breakages_table("annotated-breakages-table", "/api/code-breakages-annotated", failure_modes_dict);
+	});
+
+
 	gen_detected_breakages_table("detected-breakages-table", "/api/code-breakages-detected");
 }
 
