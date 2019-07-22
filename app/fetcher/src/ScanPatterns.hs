@@ -1,20 +1,20 @@
-{-# LANGUAGE DeriveGeneric     #-}
-{-# LANGUAGE LambdaCase        #-}
-{-# LANGUAGE OverloadedStrings #-}
-
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric  #-}
+{-# LANGUAGE LambdaCase     #-}
 
 module ScanPatterns where
 
 import           Data.Aeson
-import           Data.Text    (Text)
+import           Data.Text                  (Text)
+import           Database.PostgreSQL.Simple (FromRow)
 import           GHC.Generics
-import           GHC.Int      (Int64)
+import           GHC.Int                    (Int64)
 
 import qualified DbHelpers
 
 
 newtype PatternId = PatternId Int64
-  deriving (Show, Generic)
+  deriving (Show, Generic, FromRow)
 
 instance ToJSON PatternId
 instance FromJSON PatternId
@@ -33,8 +33,8 @@ instance FromJSON MatchExpression
 
 toMatchExpression :: Bool -> Text -> Bool -> MatchExpression
 toMatchExpression is_regex expression is_deterministic = if is_regex
-        then ScanPatterns.RegularExpression expression is_deterministic
-        else ScanPatterns.LiteralExpression expression
+  then ScanPatterns.RegularExpression expression is_deterministic
+  else ScanPatterns.LiteralExpression expression
 
 
 is_regex :: MatchExpression -> Bool

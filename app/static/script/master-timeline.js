@@ -355,6 +355,17 @@ function define_column(col) {
 }
 
 
+function next_page() {
+
+	var count = parseInt($('#count-input').val());
+	var old_offset = parseInt($('#offset-input').val());
+
+	$('#offset-input').val(old_offset + count);
+
+	render_table();
+}
+
+
 function get_column_definitions(raw_column_list) {
 
 	var commit_column_definition = {

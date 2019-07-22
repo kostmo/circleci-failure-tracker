@@ -72,7 +72,17 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 					align:"center",
 				},
 			]},
-			{title: "Description", width: 250, field: "start.record.payload.description",
+			{title: "Mode", width: 250, field: "start.record.payload.failure_mode",
+				formatter: function(cell, formatterParams, onRendered) {
+					var value = cell.getValue();
+					return failure_modes_dict[value] || "//";
+				},
+				editor:"select",
+				editorParams: {
+					values: failure_modes_dict,
+				},
+			},
+			{title: "Notes", width: 250, field: "start.record.payload.description",
 				editor: "input",
 				cellEdited: function(cell) {
 					var cause_id = cell.getRow().getData()["start"]["db_id"];
@@ -81,12 +91,6 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 
 					var data_dict = {"cause_id": cause_id, "description": new_description};
 					post_modification("/api/code-breakage-description-update", data_dict);
-				},
-			},
-			{title: "Mode", width: 250, field: "start.record.payload.failure_mode.record",
-				editor:"select",
-				editorParams: {
-					values: failure_modes_dict,
 				},
 			},
 			{title: "Affected jobs", columns: [

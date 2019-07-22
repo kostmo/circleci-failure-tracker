@@ -1,12 +1,13 @@
+{-# LANGUAGE DeriveAnyClass        #-}
 {-# LANGUAGE DeriveGeneric         #-}
 {-# LANGUAGE DuplicateRecordFields #-}
-{-# LANGUAGE OverloadedStrings     #-}
 
 module WebApi where
 
 import           Data.Aeson
-import           Data.Text    (Text)
-import           Data.Time    (UTCTime)
+import           Data.Text                  (Text)
+import           Data.Time                  (UTCTime)
+import           Database.PostgreSQL.Simple (FromRow)
 import           GHC.Generics
 
 import qualified Builds
@@ -79,7 +80,7 @@ instance ToJSON JobApiRecord where
 data PieSliceApiRecord = PieSliceApiRecord {
     _name :: Text
   , _y    :: Integer
-  } deriving Generic
+  } deriving (Generic, FromRow)
 
 instance ToJSON PieSliceApiRecord where
   toJSON = genericToJSON JsonUtils.dropUnderscore

@@ -328,8 +328,6 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       S.json $ WebApi.toJsonEither insertion_result
 
 
-
-
     -- TODO FINISH ME
     {-
     S.post "/api/new-pattern-replace" $ do

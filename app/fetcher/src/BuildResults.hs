@@ -79,7 +79,7 @@ instance ToJSON MasterFailureModeDetails where
 data BreakageStart a = BreakageStart {
     _breakage_commit :: IndexedCommit
   , _description     :: Text
-  , _failure_mode    :: DbHelpers.WithId Text
+  , _failure_mode    :: Int64
   , _affected_jobs   :: [a]
   , _metadata        :: DbHelpers.WithAuthorship Text
   } deriving Generic

@@ -129,10 +129,10 @@ getRevisitableBuilds conn = do
     sql = "SELECT string_agg((patterns.id)::text, ';'), MAX(step_id) AS step_id, MAX(name) AS step_name, build_num FROM (SELECT COALESCE(scanned_patterns.newest_pattern, -1) AS latest_pattern, build_steps.build AS build_num, build_steps.name, build_steps.id AS step_id FROM build_steps LEFT JOIN scanned_patterns ON scanned_patterns.build = build_steps.build WHERE build_steps.name IS NOT NULL AND NOT build_steps.is_timeout) foo, patterns WHERE patterns.id > latest_pattern GROUP BY build_num;"
 
 
+-- | FIXME don't use partial "head"
 getLatestPatternId :: Connection -> IO ScanPatterns.PatternId
-getLatestPatternId conn = do
-  [Only pattern_id] <- query_ conn sql
-  return $ ScanPatterns.PatternId pattern_id
+getLatestPatternId conn =
+  head <$> query_ conn sql
   where
     sql = "SELECT id FROM patterns ORDER BY id DESC LIMIT 1;"
 
@@ -140,18 +140,16 @@ getLatestPatternId conn = do
 apiPostedStatuses :: DbHelpers.DbConnectionData -> Int -> IO [PostedStatuses.PostedStatus]
 apiPostedStatuses conn_data count = do
   conn <- DbHelpers.get_connection conn_data
-  map f <$> query conn sql (Only count)
+  query conn sql $ Only count
   where
-    f (sha1, description, state, created_at) = PostedStatuses.PostedStatus sha1 description state created_at
     sql = "SELECT sha1, description, state, created_at FROM created_github_statuses ORDER BY created_at DESC LIMIT ?;"
 
 
 apiAggregatePostedStatuses :: DbHelpers.DbConnectionData -> Int -> IO [PostedStatuses.PostedStatusAggregate]
 apiAggregatePostedStatuses conn_data count = do
   conn <- DbHelpers.get_connection conn_data
-  map f <$> query conn sql (Only count)
+  query conn sql $ Only count
   where
-    f (sha1, count, last_time, time_interval) = PostedStatuses.PostedStatusAggregate sha1 count last_time time_interval
     sql = "SELECT sha1, count, last_time, EXTRACT(SECONDS FROM time_interval) FROM aggregated_github_status_postings LIMIT ?;"
 
 
@@ -159,7 +157,7 @@ data PatternsTimelinePoint = PatternsTimelinePoint {
     _pattern_id :: Int64
   , _count      :: Int
   , _week       :: UTCTime
-  } deriving Generic
+  } deriving (Generic, FromRow)
 
 instance ToJSON PatternsTimelinePoint where
   toJSON = genericToJSON JsonUtils.dropUnderscore
@@ -177,14 +175,12 @@ instance ToJSON PatternsTimeline where
 apiPatternOccurrenceTimeline :: DbHelpers.DbConnectionData -> IO PatternsTimeline
 apiPatternOccurrenceTimeline conn_data = do
   conn <- DbHelpers.get_connection conn_data
-  points <- map f <$> query_ conn timeline_sql
+  points <- query_ conn timeline_sql
   patterns <- api_patterns conn_data
   let filtered_patterns = sortOn (negate . _frequency) $ filter ((> 0) . _frequency) patterns
   return $ PatternsTimeline filtered_patterns points
   where
-    f (pattern_id, week, count) = PatternsTimelinePoint pattern_id count week
-
-    timeline_sql = "SELECT pattern_id, date_trunc('week', queued_at) AS week, COUNT(*) AS occurrences FROM best_pattern_match_augmented_builds WHERE branch IN (SELECT branch FROM presumed_stable_branches) GROUP BY pattern_id, week"
+    timeline_sql = "SELECT pattern_id, COUNT(*) AS occurrences, date_trunc('week', queued_at) AS week FROM best_pattern_match_augmented_builds WHERE branch IN (SELECT branch FROM presumed_stable_branches) GROUP BY pattern_id, week"
 
 
 data TestFailure = TestFailure {
@@ -210,7 +206,6 @@ apiTestFailures conn_data test_failure_pattern_id = do
       return $ Right $ Maybe.mapMaybe (repackage test_failure_pattern) pattern_occurrences
 
   where
-
     repackage test_failure_pattern pattern_occurrence = do
       maybe_first_match <- maybe_first_match_group
       return $ TestFailure
@@ -227,10 +222,13 @@ apiTestFailures conn_data test_failure_pattern_id = do
         maybe_first_match_group = ScanUtils.getFirstMatchGroup extracted_chunk pattern_text
 
 
-patternBuildStepOccurrences :: DbHelpers.DbConnectionData -> ScanPatterns.PatternId -> IO [WebApi.PieSliceApiRecord]
+patternBuildStepOccurrences ::
+     DbHelpers.DbConnectionData
+  -> ScanPatterns.PatternId
+  -> IO [WebApi.PieSliceApiRecord]
 patternBuildStepOccurrences conn_data (ScanPatterns.PatternId patt) = do
   conn <- DbHelpers.get_connection conn_data
-  map (uncurry WebApi.PieSliceApiRecord) <$> query conn sql (Only patt)
+  query conn sql $ Only patt
   where
     sql = "SELECT name, occurrence_count FROM pattern_build_step_occurrences WHERE pattern = ? ORDER BY occurrence_count DESC, name ASC;"
 
@@ -238,7 +236,7 @@ patternBuildStepOccurrences conn_data (ScanPatterns.PatternId patt) = do
 patternBuildJobOccurrences :: DbHelpers.DbConnectionData -> ScanPatterns.PatternId -> IO [WebApi.PieSliceApiRecord]
 patternBuildJobOccurrences conn_data (ScanPatterns.PatternId patt) = do
   conn <- DbHelpers.get_connection conn_data
-  map (uncurry WebApi.PieSliceApiRecord) <$> query conn sql (Only patt)
+  query conn sql $ Only patt
   where
     sql = "SELECT job_name, occurrence_count FROM pattern_build_job_occurrences WHERE pattern = ? ORDER BY occurrence_count DESC, job_name ASC;"
 
@@ -301,9 +299,7 @@ apiJobs conn_data = do
 apiStep :: DbHelpers.DbConnectionData -> IO (WebApi.ApiResponse WebApi.PieSliceApiRecord)
 apiStep conn_data = do
   conn <- DbHelpers.get_connection conn_data
-
-  xs <- query_ conn sql
-  let inners = map (uncurry WebApi.PieSliceApiRecord) xs
+  inners <- query_ conn sql
   return $ WebApi.ApiResponse inners
 
   where
@@ -832,7 +828,7 @@ apiAnnotatedCodeBreakages conn_data = do
   return $ map f rows
 
   where
-    f (cause_id, cause_commit_index, cause_sha1, description, failure_mode_id, failure_mode, cause_reporter, cause_reported_at, cause_jobs_delimited, maybe_resolution_id, maybe_resolved_commit_index, maybe_resolution_sha1, maybe_resolution_reporter, maybe_resolution_reported_at, breakage_commit_author, breakage_commit_message, resolution_commit_author, resolution_commit_message, breakage_commit_date, resolution_commit_date) =
+    f (cause_id, cause_commit_index, cause_sha1, description, failure_mode_id, cause_reporter, cause_reported_at, cause_jobs_delimited, maybe_resolution_id, maybe_resolved_commit_index, maybe_resolution_sha1, maybe_resolution_reporter, maybe_resolution_reported_at, breakage_commit_author, breakage_commit_message, resolution_commit_author, resolution_commit_message, breakage_commit_date, resolution_commit_date) =
 
       BuildResults.BreakageSpan cause maybe_resolution
 
@@ -842,7 +838,7 @@ apiAnnotatedCodeBreakages conn_data = do
           BuildResults.BreakageStart
             (DbHelpers.WithId cause_commit_index $ Builds.RawCommit cause_sha1)
             description
-            (DbHelpers.WithId failure_mode_id $ failure_mode <> "-")
+            failure_mode_id
             (map T.pack $ splitAggText cause_jobs_delimited)
             cause_commit_metadata
 
@@ -858,7 +854,7 @@ apiAnnotatedCodeBreakages conn_data = do
 
           return end_record
 
-    sql = "SELECT cause_id, cause_commit_index, cause_sha1, description, failure_mode_id, failure_mode, cause_reporter, cause_reported_at, cause_jobs, resolution_id, resolved_commit_index, resolution_sha1, resolution_reporter, resolution_reported_at, breakage_commit_author, breakage_commit_message, resolution_commit_author, resolution_commit_message, breakage_commit_date, resolution_commit_date FROM known_breakage_summaries ORDER BY cause_commit_index DESC;"
+    sql = "SELECT cause_id, cause_commit_index, cause_sha1, description, failure_mode_id, cause_reporter, cause_reported_at, cause_jobs, resolution_id, resolved_commit_index, resolution_sha1, resolution_reporter, resolution_reported_at, breakage_commit_author, breakage_commit_message, resolution_commit_author, resolution_commit_message, breakage_commit_date, resolution_commit_date FROM known_breakage_summaries ORDER BY cause_commit_index DESC;"
 
 
 get_latest_master_commit_with_metadata ::

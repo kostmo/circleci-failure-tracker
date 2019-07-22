@@ -55,6 +55,10 @@ mainAppCode args = do
   when (AuthConfig.is_local github_config) $ do
     -- XXX FOR TESTING ONLY
 
+    conn <- DbHelpers.get_connection connection_data
+    latest_pattern_id <- SqlRead.getLatestPatternId conn
+    putStrLn $ unwords ["Latest pattern ID:", show latest_pattern_id]
+
     find_master_ancestor <- SqlRead.find_master_ancestor
       connection_data
       access_token
