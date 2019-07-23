@@ -266,7 +266,7 @@ data JobBuild = JobBuild {
   , _build        :: Builds.BuildNumber
   , _flaky        :: Bool
   , _known_broken :: Bool
-  } deriving Generic
+  } deriving (Generic, FromRow)
 
 instance ToJSON JobBuild where
   toJSON = genericToJSON JsonUtils.dropUnderscore
@@ -279,10 +279,8 @@ apiCommitJobs ::
   -> IO [JobBuild]
 apiCommitJobs conn_data (Builds.RawCommit sha1) = do
   conn <- DbHelpers.get_connection conn_data
-  xs <- query conn sql $ Only sha1
-  return $ map f xs
+  query conn sql $ Only sha1
   where
-    f (job, build_num, flaky, is_known_broken) = JobBuild job (Builds.NewBuildNumber build_num) flaky is_known_broken
     sql = "SELECT job_name, build_num, is_flaky, is_known_broken FROM build_failure_causes WHERE vcs_revision = ? ORDER BY job_name;"
 
 
@@ -367,9 +365,8 @@ api_commit_breakage_reports conn_data sha1 = do
 api_unmatched_commit_builds :: DbHelpers.DbConnectionData -> Text -> IO [WebApi.UnmatchedBuild]
 api_unmatched_commit_builds conn_data sha1 = do
   conn <- DbHelpers.get_connection conn_data
-  map f <$> query conn sql (Only sha1)
+  query conn sql $ Only sha1
   where
-    f (build, step_name, queued_at, job_name, branch, is_broken) = WebApi.UnmatchedBuild (Builds.NewBuildNumber build) step_name queued_at job_name branch is_broken
     sql = "SELECT build, step_name, queued_at, job_name, unattributed_failed_builds.branch, is_broken FROM unattributed_failed_builds LEFT JOIN builds_with_reports ON unattributed_failed_builds.build = builds_with_reports.build_num WHERE vcs_revision = ?"
 
 
@@ -392,17 +389,16 @@ api_idiopathic_commit_builds conn_data sha1 = do
 api_timeout_commit_builds :: DbHelpers.DbConnectionData -> Text -> IO [WebApi.UnmatchedBuild]
 api_timeout_commit_builds conn_data sha1 = do
   conn <- DbHelpers.get_connection conn_data
-  map f <$> query conn sql (Only sha1)
+  query conn sql $ Only sha1
   where
-    f (build, step_name, queued_at, job_name, branch, is_broken) = WebApi.UnmatchedBuild (Builds.NewBuildNumber build) step_name queued_at job_name branch is_broken
     sql = "SELECT build_num, step_name, queued_at, job_name, branch, NULL FROM builds_join_steps WHERE vcs_revision = ? AND is_timeout;"
 
 
+-- | TODO get rid of "partial" head function
 api_random_scannable_build :: DbHelpers.DbConnectionData -> IO WebApi.BuildNumberRecord
 api_random_scannable_build conn_data = do
   conn <- DbHelpers.get_connection conn_data
-  [Only buildnum] <- query_ conn sql
-  return $ WebApi.BuildNumberRecord $ Builds.NewBuildNumber buildnum
+  WebApi.BuildNumberRecord . head <$> query_ conn sql
   where
     sql = "SELECT build_num FROM scannable_build_steps OFFSET floor(random()*(SELECT COUNT(*) FROM scannable_build_steps)) LIMIT 1;"
 
@@ -423,18 +419,17 @@ data MasterBuildStats = MasterBuildStats {
   , _known_broken    :: Int
   , _pattern_matched :: Int
   , _flaky           :: Int
-  } deriving Generic
+  } deriving (Generic, FromRow)
 
 instance ToJSON MasterBuildStats where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
+-- | TODO head is partial
 masterBuildFailureStats :: DbHelpers.DbConnectionData -> IO MasterBuildStats
 masterBuildFailureStats conn_data = do
-
   conn <- DbHelpers.get_connection conn_data
-  [(total, idiopathic, timeout, known_broken, pattern_matched, flaky)] <- query_ conn sql
-  return $ MasterBuildStats total idiopathic timeout known_broken pattern_matched flaky
+  head <$> query_ conn sql
   where
     sql = "SELECT count(*) AS total, sum(is_idiopathic::int) AS idiopathic, sum(is_timeout::int) AS timeout, sum(is_known_broken::int) AS known_broken, sum((NOT is_unmatched)::int) AS pattern_matched, sum(is_flaky::int) AS flaky FROM build_failure_causes JOIN ordered_master_commits ON build_failure_causes.vcs_revision = ordered_master_commits.sha1"
 
@@ -516,8 +511,8 @@ knownBreakageAffectedJobs conn_data cause_id = do
   conn <- DbHelpers.get_connection conn_data
   map f <$> query conn sql (Only cause_id)
   where
-    f (job, reporter, reported_at) = DbHelpers.WithAuthorship reporter reported_at job
-    sql = "SELECT job, reporter, reported_at FROM code_breakage_affected_jobs WHERE cause = ? ORDER BY job ASC"
+    f (reporter, reported_at, job) = DbHelpers.WithAuthorship reporter reported_at job
+    sql = "SELECT reporter, reported_at, job FROM code_breakage_affected_jobs WHERE cause = ? ORDER BY job ASC"
 
 
 -- | This only works for commits from the master branch.
@@ -1050,14 +1045,8 @@ get_build_pattern_matches :: DbHelpers.DbConnectionData -> Builds.BuildNumber ->
 get_build_pattern_matches conn_data (Builds.NewBuildNumber build_id) = do
 
   conn <- DbHelpers.get_connection conn_data
-  xs <- query conn sql $ Only build_id
-  return $ map f xs
-
+  query conn sql $ Only build_id
   where
-    f (step_name, patt, match_id, line_number, line_count, line_text, span_start, span_end, specificity) =
-      MatchOccurrences.MatchOccurrencesForBuild
-        step_name (ScanPatterns.PatternId patt) (MatchOccurrences.MatchId match_id) line_number line_count line_text span_start span_end specificity
-
     sql = "SELECT step_name, pattern, matches_with_log_metadata.id, line_number, line_count, line_text, span_start, span_end, specificity FROM matches_with_log_metadata JOIN build_steps ON matches_with_log_metadata.build_step = build_steps.id JOIN patterns_augmented ON patterns_augmented.id = matches_with_log_metadata.pattern WHERE matches_with_log_metadata.build_num = ? ORDER BY specificity DESC, patterns_augmented.id ASC, line_number ASC;"
 
 
@@ -1065,17 +1054,17 @@ data StorageStats = StorageStats {
     _total_lines :: Integer
   , _total_bytes :: Integer
   , _log_count   :: Integer
-  } deriving Generic
+  } deriving (Generic, FromRow)
 
 instance ToJSON StorageStats where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
+-- | FIXME partial head
 api_storage_stats :: DbHelpers.DbConnectionData -> IO StorageStats
 api_storage_stats conn_data = do
   conn <- DbHelpers.get_connection conn_data
-  [(a, b, c)] <- query_ conn sql
-  return $ StorageStats a b c
+  head <$> query_ conn sql
   where
     sql = "SELECT SUM(line_count) AS total_lines, SUM(byte_count) AS total_bytes, COUNT(*) log_count FROM log_metadata"
 

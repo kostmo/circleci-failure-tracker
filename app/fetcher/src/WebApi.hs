@@ -53,7 +53,7 @@ data UnmatchedBuild = UnmatchedBuild {
   , _job_name  :: Text
   , _branch    :: Text
   , _is_broken :: Maybe Bool
-  } deriving Generic
+  } deriving (Generic, FromRow)
 
 instance ToJSON UnmatchedBuild where
   toJSON = genericToJSON JsonUtils.dropUnderscore

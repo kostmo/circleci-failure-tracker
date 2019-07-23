@@ -4,7 +4,8 @@
 module AuthStages where
 
 import           Data.Aeson
-import           Data.Text    (Text)
+import           Data.Text                            (Text)
+import           Database.PostgreSQL.Simple.FromField (FromField, fromField)
 import           GHC.Generics
 
 import qualified JsonUtils
@@ -13,6 +14,10 @@ newtype Username = Username Text deriving (Generic, Show)
 
 instance ToJSON Username
 instance FromJSON Username
+
+-- TODO do error handling: http://hackage.haskell.org/package/postgresql-simple-0.6.2/docs/Database-PostgreSQL-Simple-FromField.html
+instance FromField Username where
+  fromField f mdata = Username <$> fromField f mdata
 
 
 data BackendFailure a

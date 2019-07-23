@@ -1,13 +1,15 @@
-{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric  #-}
 
 module Builds where
 
 import           Data.Aeson
-import           Data.Text    (Text)
-import           Data.Time    (UTCTime)
+import           Data.Text                            (Text)
+import           Data.Time                            (UTCTime)
+import           Database.PostgreSQL.Simple           (FromRow)
+import           Database.PostgreSQL.Simple.FromField (FromField, fromField)
 import           GHC.Generics
-import           GHC.Int      (Int64)
-
+import           GHC.Int                              (Int64)
 
 newtype RawCommit = RawCommit Text
  deriving (Generic, Show)
@@ -16,10 +18,14 @@ instance ToJSON RawCommit
 instance FromJSON RawCommit
 
 newtype BuildNumber = NewBuildNumber Int64
-  deriving (Show, Generic, Eq, Ord)
+  deriving (Show, Generic, Eq, Ord, FromRow)
 
 instance ToJSON BuildNumber
 instance FromJSON BuildNumber
+
+-- TODO do error handling: http://hackage.haskell.org/package/postgresql-simple-0.6.2/docs/Database-PostgreSQL-Simple-FromField.html
+instance FromField BuildNumber where
+  fromField f mdata = NewBuildNumber <$> fromField f mdata
 
 
 newtype BuildStepId = NewBuildStepId Int64

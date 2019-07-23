@@ -132,6 +132,7 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 					},
 				},
 			]},
+/*
 			{title: "End", columns: [
 				{title: "commit", width: 300, field: "end.record.payload.resolution_commit.record",
 					formatter: function(cell, formatterParams, onRendered) {
@@ -150,6 +151,7 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 					},
 				},
 			]},
+*/
 			{title: "Span", width: 100,
 				headerSort: false,
 				formatter: function(cell, formatterParams, onRendered) {

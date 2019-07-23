@@ -5,10 +5,11 @@
 module ScanPatterns where
 
 import           Data.Aeson
-import           Data.Text                  (Text)
-import           Database.PostgreSQL.Simple (FromRow)
+import           Data.Text                            (Text)
+import           Database.PostgreSQL.Simple           (FromRow)
+import           Database.PostgreSQL.Simple.FromField (FromField, fromField)
 import           GHC.Generics
-import           GHC.Int                    (Int64)
+import           GHC.Int                              (Int64)
 
 import qualified DbHelpers
 
@@ -18,6 +19,10 @@ newtype PatternId = PatternId Int64
 
 instance ToJSON PatternId
 instance FromJSON PatternId
+
+-- TODO do error handling: http://hackage.haskell.org/package/postgresql-simple-0.6.2/docs/Database-PostgreSQL-Simple-FromField.html
+instance FromField PatternId where
+  fromField f mdata = PatternId <$> fromField f mdata
 
 
 data MatchExpression =

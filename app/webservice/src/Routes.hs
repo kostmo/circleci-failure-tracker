@@ -421,8 +421,6 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
     S.get "/api/log-lines-histogram" $
       S.json =<< liftIO (SqlRead.apiLineCountHistogram connection_data)
 
-
-
     S.get "/api/pattern-step-occurrences" $ do
       pattern_id <- S.param "pattern_id"
       vals <- liftIO (SqlRead.patternBuildStepOccurrences connection_data $ ScanPatterns.PatternId pattern_id)
@@ -432,7 +430,6 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       pattern_id <- S.param "pattern_id"
       vals <- liftIO (SqlRead.patternBuildJobOccurrences connection_data $ ScanPatterns.PatternId pattern_id)
       S.json vals
-
 
     S.get "/api/master-timeline" $ do
       offset_count <- S.param "offset"
