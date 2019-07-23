@@ -1,10 +1,19 @@
 function render_commit_cell(cell, position) {
+
 	var cell_val = cell.getValue();
 	var authorship_metadata = cell.getRow().getData()[position]["record"]["payload"]["metadata"];
-	var msg_subject = get_commit_subject(authorship_metadata["payload"]);
-	var author_firstname = authorship_metadata["author"].split(" ")[0];
 
-	return cell_val == null ? "" : sha1_link(cell_val) + " <b>" + author_firstname + ":</b> " + msg_subject;
+	if (cell_val && authorship_metadata) {
+		var msg_subject = get_commit_subject(authorship_metadata["payload"]);
+
+		var author_firstname = authorship_metadata["author"].split(" ")[0];
+
+		return sha1_link(cell_val) + " <b>" + author_firstname + ":</b> " + msg_subject;
+	} else {
+		return "";
+	}
+
+
 }
 
 
@@ -132,26 +141,34 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 					},
 				},
 			]},
-/*
+
 			{title: "End", columns: [
+
 				{title: "commit", width: 300, field: "end.record.payload.resolution_commit.record",
 					formatter: function(cell, formatterParams, onRendered) {
 						return render_commit_cell(cell, "end");
 					},
 				},
-				{title: "reported", width: 250, field: "end.record.created",
+
+
+				{title: "reported", width: 250,
 					formatter: function(cell, formatterParams, onRendered) {
 						var val = cell.getValue();
 
-						if (val) {
-							var end_obj = cell.getRow().getData()["end"];
-							return moment(val).fromNow() + " by " + end_obj["record"]["author"];
+						var end_obj = cell.getRow().getData()["end"];
+
+						if (end_obj && end_obj["record"]) {
+
+							var end_record = end_obj["record"];
+							return moment(end_record["created"]).fromNow() + " by " + end_record["author"];
 						}
+
 						return "";
 					},
 				},
+
 			]},
-*/
+
 			{title: "Span", width: 100,
 				headerSort: false,
 				formatter: function(cell, formatterParams, onRendered) {
@@ -159,8 +176,8 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 					var data_obj = cell.getRow().getData();
 					var start_index = data_obj["start"]["record"]["payload"]["breakage_commit"]["db_id"];
 
-					if (data_obj["end"]) {
-						var end_index = data_obj["end"]["record"]["payload"]["resolution_commit"]["db_id"];
+					var end_index = data_obj["end"]["record"]["payload"]["resolution_commit"]["db_id"];
+					if (end_index) {
 						var span_count = end_index - start_index;
 						return span_count;
 					} else {

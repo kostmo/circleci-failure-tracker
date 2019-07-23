@@ -1,15 +1,18 @@
 {-# LANGUAGE DeriveAnyClass        #-}
 {-# LANGUAGE DeriveGeneric         #-}
 {-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE FlexibleInstances     #-}
 
 module BuildResults where
 
 import           Data.Aeson
-import           Data.Set                   (Set)
-import           Data.Text                  (Text)
-import           Database.PostgreSQL.Simple (FromRow)
+import           Data.Set                           (Set)
+import           Data.Text                          (Text)
+import qualified Data.Text                          as T
+import           Database.PostgreSQL.Simple         (FromRow)
+import           Database.PostgreSQL.Simple.FromRow (field, fromRow)
 import           GHC.Generics
-import           GHC.Int                    (Int64)
+import           GHC.Int                            (Int64)
 
 import qualified Builds
 import qualified Commits
@@ -79,7 +82,7 @@ instance ToJSON MasterFailureModeDetails where
 data BreakageStart a = BreakageStart {
     _breakage_commit :: IndexedCommit
   , _description     :: Text
-  , _failure_mode    :: Int64
+  , _failure_mode    :: DbHelpers.WithAuthorship Int64
   , _affected_jobs   :: [a]
   , _metadata        :: DbHelpers.WithAuthorship Text
   } deriving Generic
@@ -108,6 +111,54 @@ data BreakageSpan a = BreakageSpan {
 
 instance (ToJSON a) => ToJSON (BreakageSpan a) where
   toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+instance FromRow (BreakageSpan Text) where
+  fromRow = do
+    cause_id <- field
+    cause_commit_index <- field
+    cause_sha1 <- field
+    description <- field
+    failure_mode_reporter <- field
+    failure_mode_reported_at <- field
+    failure_mode_id <- field
+    cause_reporter <- field
+    cause_reported_at <- field
+    cause_jobs_delimited <- field
+    maybe_resolution_id <- field
+    maybe_resolved_commit_index <- field
+    maybe_resolution_sha1 <- field
+    maybe_resolution_reporter <- field
+    maybe_resolution_reported_at <- field
+    breakage_commit_author <- field
+    breakage_commit_message <- field
+    resolution_commit_author <- field
+    resolution_commit_message <- field
+    breakage_commit_date <- field
+    resolution_commit_date <- field
+
+    let cause_commit_metadata = DbHelpers.WithAuthorship breakage_commit_author breakage_commit_date breakage_commit_message
+        cause = DbHelpers.WithId cause_id $ DbHelpers.WithAuthorship cause_reporter cause_reported_at $
+          BuildResults.BreakageStart
+            (DbHelpers.WithId cause_commit_index $ Builds.RawCommit cause_sha1)
+            description
+            (DbHelpers.WithAuthorship failure_mode_reporter failure_mode_reported_at failure_mode_id)
+            (map T.pack $ DbHelpers.splitAggText (cause_jobs_delimited :: String))
+            cause_commit_metadata
+
+        maybe_resolution = do
+          resolution_id <- maybe_resolution_id
+          resolved_commit_index <- maybe_resolved_commit_index
+          resolution_sha1 <- maybe_resolution_sha1
+          resolution_reporter <- maybe_resolution_reporter
+          resolution_reported_at <- maybe_resolution_reported_at
+
+          let end_commit = DbHelpers.WithId resolved_commit_index $ Builds.RawCommit resolution_sha1
+              end_record = DbHelpers.WithId resolution_id $ DbHelpers.WithAuthorship resolution_reporter resolution_reported_at $ BuildResults.BreakageEnd end_commit resolution_id $ DbHelpers.WithAuthorship resolution_commit_author resolution_commit_date resolution_commit_message
+
+          return end_record
+
+    return $ BuildResults.BreakageSpan cause maybe_resolution
 
 
 data MasterBuildsResponse = MasterBuildsResponse {

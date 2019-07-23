@@ -9,6 +9,7 @@ import           Control.Monad                        (forM)
 import           Control.Monad.IO.Class               (liftIO)
 import           Control.Monad.Trans.Except           (ExceptT (ExceptT),
                                                        except, runExceptT)
+import           Control.Monad.Trans.Reader           (ReaderT, ask)
 import           Data.Aeson
 import           Data.Bifunctor                       (first)
 import           Data.Either.Utils                    (maybeToEither)
@@ -52,8 +53,13 @@ import qualified StoredBreakageReports
 import qualified WebApi
 import qualified WeeklyStats
 
-splitAggText :: String -> [String]
-splitAggText = filter (not . null) . splitOn ";"
+
+type DbIO a = ReaderT Connection IO a
+
+
+runQuery sql = do
+  conn <- ask
+  liftIO $ query_ conn sql
 
 
 constructExpression :: Bool -> Text -> Bool -> ScanPatterns.MatchExpression
@@ -294,14 +300,9 @@ apiJobs conn_data = do
     sql = "SELECT job_name, freq FROM job_failure_frequencies;"
 
 
-apiStep :: DbHelpers.DbConnectionData -> IO (WebApi.ApiResponse WebApi.PieSliceApiRecord)
-apiStep conn_data = do
-  conn <- DbHelpers.get_connection conn_data
-  inners <- query_ conn sql
-  return $ WebApi.ApiResponse inners
-
-  where
-    sql = "SELECT step_name, COUNT(*) AS freq FROM builds_join_steps WHERE step_name IS NOT NULL AND branch IN (SELECT branch FROM presumed_stable_branches) GROUP BY step_name ORDER BY freq DESC;"
+apiStep :: DbIO (WebApi.ApiResponse WebApi.PieSliceApiRecord)
+apiStep = WebApi.ApiResponse <$> runQuery
+  "SELECT step_name, COUNT(*) AS freq FROM builds_join_steps WHERE step_name IS NOT NULL AND branch IN (SELECT branch FROM presumed_stable_branches) GROUP BY step_name ORDER BY freq DESC;"
 
 
 -- | Note that Highcharts expects the dates to be in ascending order
@@ -535,7 +536,7 @@ get_spanning_breakages conn_data sha1 = do
   where
     f (sha1, description, cause_id, jobs) = DbHelpers.WithId cause_id $
       CodeBreakage (Builds.RawCommit sha1) description $ Set.fromList $
-        map T.pack $ splitAggText jobs
+        map T.pack $ DbHelpers.splitAggText jobs
 
     sql = "SELECT code_breakage_cause.sha1, code_breakage_cause.description, cause_id, COALESCE(jobs, ''::text) AS jobs FROM (SELECT code_breakage_spans.cause_id, string_agg((code_breakage_affected_jobs.job)::text, ';'::text) AS jobs FROM code_breakage_spans LEFT JOIN code_breakage_affected_jobs ON code_breakage_affected_jobs.cause = code_breakage_spans.cause_id WHERE cause_commit_index <= ? AND (resolved_commit_index IS NULL OR ? < resolved_commit_index) GROUP BY code_breakage_spans.cause_id) foo JOIN code_breakage_cause ON foo.cause_id = code_breakage_cause.id"
 
@@ -765,13 +766,15 @@ instance FromRow BuildResults.SimpleBuildStatus where
 -- | Gets last N commits in one query,
 -- then gets the list of jobs that apply to those commits,
 -- then gets the associated builds
-api_master_builds ::
-     DbHelpers.DbConnectionData
-  -> Pagination.ParentOffsetMode
-  -> IO (Either Text BuildResults.MasterBuildsResponse)
-api_master_builds conn_data offset_limit = runExceptT $ do
+apiMasterBuilds ::
+     Pagination.ParentOffsetMode
+  -> DbIO (Either Text BuildResults.MasterBuildsResponse)
+apiMasterBuilds offset_limit = do
 
-  conn <- liftIO $ DbHelpers.get_connection conn_data
+ code_breakage_ranges <- apiAnnotatedCodeBreakages
+
+ conn <- ask
+ liftIO $ runExceptT $ do
 
   (commit_id_bounds, master_commits) <- ExceptT $ get_master_commits conn offset_limit
   let query_bounds = (WeeklyStats.min_bound commit_id_bounds, WeeklyStats.max_bound commit_id_bounds)
@@ -779,8 +782,6 @@ api_master_builds conn_data offset_limit = runExceptT $ do
 
   let failed_builds = failure_rows
       job_names = Set.fromList $ map (Builds.job_name . BuildResults._build) failed_builds
-
-  code_breakage_ranges <- liftIO $ apiAnnotatedCodeBreakages conn_data
 
   return $ BuildResults.MasterBuildsResponse
     job_names
@@ -792,64 +793,19 @@ api_master_builds conn_data offset_limit = runExceptT $ do
     failures_sql = "SELECT sha1, succeeded, is_idiopathic, is_flaky, is_timeout, is_matched, is_known_broken, build_num, queued_at, job_name, branch, step_name, pattern_id, match_id, line_number, line_count, line_text, span_start, span_end, specificity, is_serially_isolated, contiguous_run_count, contiguous_group_index, contiguous_start_commit_index, contiguous_end_commit_index, contiguous_length FROM master_failures_raw_causes WHERE commit_index >= ? AND commit_index <= ?;"
 
 
-apiDetectedCodeBreakages ::
-     DbHelpers.DbConnectionData
-  -> IO [BuildResults.DetectedBreakageSpan]
-apiDetectedCodeBreakages conn_data = do
-  conn <- DbHelpers.get_connection conn_data
-  query_ conn sql
-  where
-    sql = "SELECT first_commit_id, jobs, job_count, min_run_length, max_run_length, modal_run_length, min_last_commit_id, max_last_commit_id, modal_last_commit_id, first_commit, min_last_commit, max_last_commit, modal_last_commit FROM master_contiguous_failure_blocks_with_commits ORDER BY first_commit_id DESC"
+apiDetectedCodeBreakages :: DbIO [BuildResults.DetectedBreakageSpan]
+apiDetectedCodeBreakages = runQuery
+  "SELECT first_commit_id, jobs, job_count, min_run_length, max_run_length, modal_run_length, min_last_commit_id, max_last_commit_id, modal_last_commit_id, first_commit, min_last_commit, max_last_commit, modal_last_commit FROM master_contiguous_failure_blocks_with_commits ORDER BY first_commit_id DESC"
 
 
-apiListFailureModes ::
-     DbHelpers.DbConnectionData
-  -> IO [DbHelpers.WithId BuildResults.MasterFailureModeDetails]
-apiListFailureModes conn_data = do
-  conn <- DbHelpers.get_connection conn_data
-  query_ conn sql
-  where
-    sql = "SELECT id, label, revertible FROM master_failure_modes ORDER BY id"
+apiListFailureModes :: DbIO [DbHelpers.WithId BuildResults.MasterFailureModeDetails]
+apiListFailureModes = runQuery
+  "SELECT id, label, revertible FROM master_failure_modes ORDER BY id"
 
 
-apiAnnotatedCodeBreakages ::
-     DbHelpers.DbConnectionData
-  -> IO [BuildResults.BreakageSpan Text]
-apiAnnotatedCodeBreakages conn_data = do
-
-  conn <- DbHelpers.get_connection conn_data
-
-  rows <- query_ conn sql
-  return $ map f rows
-
-  where
-    f (cause_id, cause_commit_index, cause_sha1, description, failure_mode_id, cause_reporter, cause_reported_at, cause_jobs_delimited, maybe_resolution_id, maybe_resolved_commit_index, maybe_resolution_sha1, maybe_resolution_reporter, maybe_resolution_reported_at, breakage_commit_author, breakage_commit_message, resolution_commit_author, resolution_commit_message, breakage_commit_date, resolution_commit_date) =
-
-      BuildResults.BreakageSpan cause maybe_resolution
-
-      where
-        cause_commit_metadata = DbHelpers.WithAuthorship breakage_commit_author breakage_commit_date breakage_commit_message
-        cause = DbHelpers.WithId cause_id $ DbHelpers.WithAuthorship cause_reporter cause_reported_at $
-          BuildResults.BreakageStart
-            (DbHelpers.WithId cause_commit_index $ Builds.RawCommit cause_sha1)
-            description
-            failure_mode_id
-            (map T.pack $ splitAggText cause_jobs_delimited)
-            cause_commit_metadata
-
-        maybe_resolution = do
-          resolution_id <- maybe_resolution_id
-          resolved_commit_index <- maybe_resolved_commit_index
-          resolution_sha1 <- maybe_resolution_sha1
-          resolution_reporter <- maybe_resolution_reporter
-          resolution_reported_at <- maybe_resolution_reported_at
-
-          let end_commit = DbHelpers.WithId resolved_commit_index $ Builds.RawCommit resolution_sha1
-              end_record = DbHelpers.WithId resolution_id $ DbHelpers.WithAuthorship resolution_reporter resolution_reported_at $ BuildResults.BreakageEnd end_commit resolution_id $ DbHelpers.WithAuthorship resolution_commit_author resolution_commit_date resolution_commit_message
-
-          return end_record
-
-    sql = "SELECT cause_id, cause_commit_index, cause_sha1, description, failure_mode_id, cause_reporter, cause_reported_at, cause_jobs, resolution_id, resolved_commit_index, resolution_sha1, resolution_reporter, resolution_reported_at, breakage_commit_author, breakage_commit_message, resolution_commit_author, resolution_commit_message, breakage_commit_date, resolution_commit_date FROM known_breakage_summaries ORDER BY cause_commit_index DESC;"
+apiAnnotatedCodeBreakages :: DbIO [BuildResults.BreakageSpan Text]
+apiAnnotatedCodeBreakages = runQuery
+  "SELECT cause_id, cause_commit_index, cause_sha1, description, failure_mode_reporter, failure_mode_reported_at, failure_mode_id, cause_reporter, cause_reported_at, cause_jobs, resolution_id, resolved_commit_index, resolution_sha1, resolution_reporter, resolution_reported_at, breakage_commit_author, breakage_commit_message, resolution_commit_author, resolution_commit_message, breakage_commit_date, resolution_commit_date FROM known_breakage_summaries ORDER BY cause_commit_index DESC;"
 
 
 get_latest_master_commit_with_metadata ::
@@ -885,9 +841,10 @@ api_new_pattern_test conn_data build_number@(Builds.NewBuildNumber buildnum) new
   maybe_console_log <- SqlRead.read_log conn build_number
 
   return $ case maybe_console_log of
-            Just console_log -> Right $ ScanTestResponse (length $ T.lines console_log) $
-              Maybe.mapMaybe apply_pattern $ zip [0::Int ..] $ map T.stripEnd $ T.lines console_log
-            Nothing -> Left $ "No log found for build number " ++ show buildnum
+    Just console_log -> Right $ ScanTestResponse (length $ T.lines console_log) $
+      Maybe.mapMaybe apply_pattern $ zip [0::Int ..] $ map T.stripEnd $ T.lines console_log
+    Nothing -> Left $ "No log found for build number " ++ show buildnum
+
   where
     apply_pattern :: (Int, Text) -> Maybe ScanPatterns.ScanMatch
     apply_pattern line_tuple = ScanUtils.applySinglePattern line_tuple $ DbHelpers.WithId 0 new_pattern
@@ -943,7 +900,7 @@ instance ToJSON PatternRecord where
 
 make_pattern_records =
   map $ \(a, b, c, d, e, f, g, h, i, j, k) ->
-    PatternRecord a b c d e f g (splitAggText h) (splitAggText i) j k
+    PatternRecord a b c d e f g (DbHelpers.splitAggText h) (DbHelpers.splitAggText i) j k
 
 
 -- | Returns zero or one pattern.
@@ -979,8 +936,8 @@ dump_patterns conn_data = do
   where
     f (author, created, pattern_id, is_regex, expression, has_nondeterministic_values, description, tags, steps, specificity, is_retired, lines_from_end) =
       DbHelpers.WithAuthorship author created $ wrapPattern pattern_id is_regex expression has_nondeterministic_values description
-        (sort $ map T.pack $ splitAggText tags)
-        (sort $ map T.pack $ splitAggText steps)
+        (sort $ map T.pack $ DbHelpers.splitAggText tags)
+        (sort $ map T.pack $ DbHelpers.splitAggText steps)
         specificity
         is_retired
         lines_from_end

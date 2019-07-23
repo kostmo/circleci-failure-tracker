@@ -6,6 +6,7 @@ import           Control.Monad                   (unless, when)
 import           Control.Monad.IO.Class          (liftIO)
 import           Control.Monad.Trans.Except      (ExceptT (ExceptT), except,
                                                   runExceptT)
+import           Control.Monad.Trans.Reader      (runReaderT)
 import           Data.Bifunctor                  (first)
 import qualified Data.ByteString.Lazy.Char8      as LBSC
 import           Data.Default                    (def)
@@ -161,6 +162,13 @@ retrieveLogContext session github_config connection_data = do
   rq <- S.request
   either_log_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
   S.json $ WebApi.toJsonEither either_log_result
+
+
+jsonDbGet connection_data endpoint_path f =
+  S.get endpoint_path $ do
+    conn <- liftIO $ DbHelpers.get_connection connection_data
+    x <- liftIO $ runReaderT f conn
+    S.json x
 
 
 scottyApp :: PersistenceData -> SetupData -> ScottyTypes.ScottyT LT.Text IO ()
@@ -432,6 +440,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       S.json vals
 
     S.get "/api/master-timeline" $ do
+
       offset_count <- S.param "offset"
       starting_commit <- S.param "sha1"
       use_sha1_offset <- S.param "use_sha1_offset"
@@ -445,11 +454,14 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
             | checkboxIsTrue use_commit_index_bounds = Pagination.CommitIndices $ WeeklyStats.InclusiveNumericBounds min_commit_index max_commit_index
             | otherwise = Pagination.FixedAndOffset $ Pagination.OffsetLimit (Pagination.Count offset_count) commit_count
 
-      json_result <- liftIO $ SqlRead.api_master_builds connection_data offset_mode
+
+      json_result <- liftIO $ do
+        conn <- DbHelpers.get_connection connection_data
+        runReaderT (SqlRead.apiMasterBuilds offset_mode) conn
+
       S.json $ WebApi.toJsonEither json_result
 
-    S.get "/api/step" $
-      S.json =<< liftIO (SqlRead.apiStep connection_data)
+    jsonDbGet connection_data "/api/step" SqlRead.apiStep
 
     S.get "/api/commit-info" $ do
       commit_sha1_text <- S.param "sha1"
@@ -603,11 +615,9 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
       S.json $ WebApi.toJsonEither insertion_result
 
-    S.get "/api/code-breakages-detected" $
-      S.json =<< liftIO (SqlRead.apiDetectedCodeBreakages connection_data)
+    jsonDbGet connection_data "/api/code-breakages-detected" SqlRead.apiDetectedCodeBreakages
 
-    S.get "/api/code-breakages-annotated" $
-      S.json =<< liftIO (SqlRead.apiAnnotatedCodeBreakages connection_data)
+    jsonDbGet connection_data "/api/code-breakages-annotated" SqlRead.apiAnnotatedCodeBreakages
 
     S.get "/api/known-breakage-affected-jobs" $ do
       cause_id <- S.param "cause_id"
@@ -624,7 +634,6 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       rq <- S.request
       insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
       S.json $ WebApi.toJsonEither insertion_result
-
 
 
     S.post "/api/code-breakage-description-update" $ do
@@ -660,8 +669,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
     S.get "/api/patterns" $
       S.json =<< liftIO (SqlRead.api_patterns connection_data)
 
-    S.get "/api/list-failure-modes" $
-      S.json =<< liftIO (SqlRead.apiListFailureModes connection_data)
+    jsonDbGet connection_data "/api/list-failure-modes" SqlRead.apiListFailureModes
 
     S.get "/api/patterns-presumed-stable-branches" $
       S.json =<< liftIO (SqlRead.api_patterns_presumed_stable_branches connection_data)

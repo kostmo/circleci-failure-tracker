@@ -7,6 +7,7 @@ import           Data.Aeson
 import           Data.HashMap.Strict                (HashMap)
 import qualified Data.HashMap.Strict                as HashMap
 import           Data.List                          (intercalate)
+import           Data.List.Split                    (splitOn)
 import           Data.Text                          (Text)
 import           Data.Time                          (UTCTime)
 import           Database.PostgreSQL.Simple
@@ -19,6 +20,10 @@ data OwnerAndRepo = OwnerAndRepo {
     owner :: String
   , repo  :: String
   }
+
+
+splitAggText :: String -> [String]
+splitAggText = filter (not . null) . splitOn ";"
 
 
 githubRepoApiPrefix :: DbHelpers.OwnerAndRepo -> String

@@ -54,7 +54,7 @@ function gen_log_size_histogram() {
 		    }]
 		});
 
-    });
+	});
 
 
 
