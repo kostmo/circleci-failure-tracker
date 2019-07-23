@@ -416,14 +416,11 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     jsonDbGet connection_data "/api/job" SqlRead.apiJobs
 
-    S.get "/api/log-storage-stats" $
-      S.json =<< liftIO (SqlRead.api_storage_stats connection_data)
+    jsonDbGet connection_data "/api/log-storage-stats" SqlRead.api_storage_stats
 
-    S.get "/api/log-size-histogram" $
-      S.json =<< liftIO (SqlRead.apiByteCountHistogram connection_data)
+    jsonDbGet connection_data "/api/log-size-histogram" SqlRead.apiByteCountHistogram
 
-    S.get "/api/log-lines-histogram" $
-      S.json =<< liftIO (SqlRead.apiLineCountHistogram connection_data)
+    jsonDbGet connection_data "/api/log-lines-histogram" SqlRead.apiLineCountHistogram
 
     S.get "/api/pattern-step-occurrences" $ do
       pattern_id <- S.param "pattern_id"
@@ -509,15 +506,13 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       weeks <- S.param "weeks"
       S.json =<< liftIO (SqlRead.masterWeeklyFailureStats connection_data weeks)
 
-    S.get "/api/unmatched-builds" $
-      S.json =<< liftIO (SqlRead.api_unmatched_builds connection_data)
+    jsonDbGet connection_data "/api/unmatched-builds" SqlRead.api_unmatched_builds
 
     S.get "/api/unmatched-builds-for-commit" $ do
       commit_sha1_text <- S.param "sha1"
       S.json =<< liftIO (SqlRead.api_unmatched_commit_builds connection_data commit_sha1_text)
 
-    S.get "/api/idiopathic-failed-builds" $
-      S.json =<< liftIO (SqlRead.api_idiopathic_builds connection_data)
+    jsonDbGet connection_data "/api/idiopathic-failed-builds" SqlRead.api_idiopathic_builds
 
     S.get "/api/idiopathic-failed-builds-for-commit" $ do
       commit_sha1_text <- S.param "sha1"
@@ -551,8 +546,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       pattern_id <- S.param "pattern_id"
       S.json =<< liftIO (SqlRead.api_single_pattern connection_data $ ScanPatterns.PatternId pattern_id)
 
-    S.get "/api/patterns-dump" $
-      S.json =<< liftIO (SqlRead.dump_patterns connection_data)
+    jsonDbGet connection_data "/api/patterns-dump" SqlRead.dumpPatterns
 
     -- XXX This is the deprecated kind of breakage report
     S.get "/api/breakages-dump" $
@@ -653,11 +647,9 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       commit_sha1_text <- S.param "sha1"
       S.json =<< liftIO (SqlRead.api_commit_breakage_reports connection_data commit_sha1_text)
 
-    S.get "/api/patterns-timeline" $
-      S.json =<< liftIO (SqlRead.apiPatternOccurrenceTimeline connection_data)
+    jsonDbGet connection_data "/api/patterns-timeline" SqlRead.apiPatternOccurrenceTimeline
 
-    S.get "/api/patterns" $
-      S.json =<< liftIO (SqlRead.api_patterns connection_data)
+    jsonDbGet connection_data "/api/patterns" SqlRead.apiPatterns
 
     jsonDbGet connection_data "/api/list-failure-modes" SqlRead.apiListFailureModes
 

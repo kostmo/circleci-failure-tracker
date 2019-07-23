@@ -178,13 +178,15 @@ instance ToJSON PatternsTimeline where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
-apiPatternOccurrenceTimeline :: DbHelpers.DbConnectionData -> IO PatternsTimeline
-apiPatternOccurrenceTimeline conn_data = do
-  conn <- DbHelpers.get_connection conn_data
-  points <- query_ conn timeline_sql
-  patterns <- api_patterns conn_data
-  let filtered_patterns = sortOn (negate . _frequency) $ filter ((> 0) . _frequency) patterns
-  return $ PatternsTimeline filtered_patterns points
+apiPatternOccurrenceTimeline :: DbIO PatternsTimeline
+apiPatternOccurrenceTimeline = do
+  conn <- ask
+  patterns <- apiPatterns
+  liftIO $ do
+    points <- query_ conn timeline_sql
+
+    let filtered_patterns = sortOn (negate . _frequency) $ filter ((> 0) . _frequency) patterns
+    return $ PatternsTimeline filtered_patterns points
   where
     timeline_sql = "SELECT pattern_id, COUNT(*) AS occurrences, date_trunc('week', queued_at) AS week FROM best_pattern_match_augmented_builds WHERE branch IN (SELECT branch FROM presumed_stable_branches) GROUP BY pattern_id, week"
 
@@ -247,24 +249,18 @@ patternBuildJobOccurrences conn_data (ScanPatterns.PatternId patt) = do
     sql = "SELECT job_name, occurrence_count FROM pattern_build_job_occurrences WHERE pattern = ? ORDER BY occurrence_count DESC, job_name ASC;"
 
 
-apiLineCountHistogram :: DbHelpers.DbConnectionData -> IO [(Text, Int)]
-apiLineCountHistogram conn_data = do
-  conn <- DbHelpers.get_connection conn_data
-  xs <- query_ conn sql
-  return $ map (swap . f) xs
+apiLineCountHistogram :: DbIO [(Text, Int)]
+apiLineCountHistogram = map (swap . f) <$> runQuery
+  "select count(*) as qty, pow(10, floor(ln(line_count) / ln(10)))::numeric::integer as bin from log_metadata WHERE line_count > 0 group by bin ORDER BY bin ASC;"
   where
     f = fmap $ \size -> T.pack $ show (size :: Int)
-    sql = "select count(*) as qty, pow(10, floor(ln(line_count) / ln(10)))::numeric::integer as bin from log_metadata WHERE line_count > 0 group by bin ORDER BY bin ASC;"
 
 
-apiByteCountHistogram :: DbHelpers.DbConnectionData -> IO [(Text, Int)]
-apiByteCountHistogram conn_data = do
-  conn <- DbHelpers.get_connection conn_data
-  xs <- query_ conn sql
-  return $ map (swap . f) xs
+apiByteCountHistogram :: DbIO [(Text, Int)]
+apiByteCountHistogram = map (swap . f) <$> runQuery
+  "select count(*) as qty, pow(10, floor(ln(byte_count) / ln(10)))::numeric::integer as bin from log_metadata WHERE byte_count > 0 group by bin ORDER BY bin ASC;"
   where
     f = fmap $ \size -> T.pack $ show (size :: Int)
-    sql = "select count(*) as qty, pow(10, floor(ln(byte_count) / ln(10)))::numeric::integer as bin from log_metadata WHERE byte_count > 0 group by bin ORDER BY bin ASC;"
 
 
 data JobBuild = JobBuild {
@@ -328,13 +324,13 @@ get_flaky_pattern_ids conn = do
     sql = "SELECT id FROM flaky_patterns_augmented;"
 
 
-list_builds :: Query -> DbHelpers.DbConnectionData -> IO [WebApi.BuildBranchRecord]
-list_builds sql conn_data = do
-  conn <- DbHelpers.get_connection conn_data
-  query_ conn sql
+list_builds :: Query -> DbIO [WebApi.BuildBranchRecord]
+list_builds sql = do
+  conn <- ask
+  liftIO $ query_ conn sql
 
 
-api_unmatched_builds :: DbHelpers.DbConnectionData -> IO [WebApi.BuildBranchRecord]
+api_unmatched_builds :: DbIO [WebApi.BuildBranchRecord]
 api_unmatched_builds = list_builds
   "SELECT build, branch FROM unattributed_failed_builds ORDER BY build DESC;"
 
@@ -356,7 +352,7 @@ api_unmatched_commit_builds conn_data sha1 = do
     sql = "SELECT build, step_name, queued_at, job_name, unattributed_failed_builds.branch, is_broken FROM unattributed_failed_builds LEFT JOIN builds_with_reports ON unattributed_failed_builds.build = builds_with_reports.build_num WHERE vcs_revision = ?"
 
 
-api_idiopathic_builds :: DbHelpers.DbConnectionData -> IO [WebApi.BuildBranchRecord]
+api_idiopathic_builds :: DbIO [WebApi.BuildBranchRecord]
 api_idiopathic_builds = list_builds
   "SELECT build, branch FROM idiopathic_build_failures ORDER BY build DESC;"
 
@@ -882,12 +878,9 @@ api_single_pattern conn_data (ScanPatterns.PatternId pattern_id) = do
     sql = "SELECT id, regex, expression, description, matching_build_count, most_recent, earliest, tags, steps, specificity, CAST((scanned_count * 100 / total_scanned_builds) AS DECIMAL(6, 1)) AS percent_scanned FROM pattern_frequency_summary WHERE id = ?;"
 
 
-api_patterns :: DbHelpers.DbConnectionData -> IO [PatternRecord]
-api_patterns conn_data = do
-  conn <- DbHelpers.get_connection conn_data
-  make_pattern_records <$> query_ conn sql
-  where
-    sql = "SELECT id, regex, expression, description, matching_build_count, most_recent, earliest, tags, steps, specificity, CAST((scanned_count * 100 / total_scanned_builds) AS DECIMAL(6, 1)) AS percent_scanned FROM pattern_frequency_summary ORDER BY most_recent DESC NULLS LAST;"
+apiPatterns :: DbIO [PatternRecord]
+apiPatterns = make_pattern_records <$> runQuery
+  "SELECT id, regex, expression, description, matching_build_count, most_recent, earliest, tags, steps, specificity, CAST((scanned_count * 100 / total_scanned_builds) AS DECIMAL(6, 1)) AS percent_scanned FROM pattern_frequency_summary ORDER BY most_recent DESC NULLS LAST;"
 
 
 -- | For the purpose of database upgrades
@@ -897,11 +890,9 @@ dump_presumed_stable_branches = listFlat
 
 
 -- | For the purpose of database upgrades
-dump_patterns :: DbHelpers.DbConnectionData -> IO [DbHelpers.WithAuthorship ScanPatterns.DbPattern]
-dump_patterns conn_data = do
-  conn <- DbHelpers.get_connection conn_data
-  map f <$> query_ conn sql
-
+dumpPatterns :: DbIO [DbHelpers.WithAuthorship ScanPatterns.DbPattern]
+dumpPatterns = map f <$> runQuery
+  "SELECT author, created, id, regex, expression, has_nondeterministic_values, description, tags, steps, specificity, is_retired, lines_from_end FROM patterns_augmented ORDER BY id;"
   where
     f (author, created, pattern_id, is_regex, expression, has_nondeterministic_values, description, tags, steps, specificity, is_retired, lines_from_end) =
       DbHelpers.WithAuthorship author created $ wrapPattern pattern_id is_regex expression has_nondeterministic_values description
@@ -910,8 +901,6 @@ dump_patterns conn_data = do
         specificity
         is_retired
         lines_from_end
-
-    sql = "SELECT author, created, id, regex, expression, has_nondeterministic_values, description, tags, steps, specificity, is_retired, lines_from_end FROM patterns_augmented ORDER BY id;"
 
 
 -- | For the purpose of database upgrades
@@ -986,12 +975,9 @@ instance ToJSON StorageStats where
 
 
 -- | FIXME partial head
-api_storage_stats :: DbHelpers.DbConnectionData -> IO StorageStats
-api_storage_stats conn_data = do
-  conn <- DbHelpers.get_connection conn_data
-  head <$> query_ conn sql
-  where
-    sql = "SELECT SUM(line_count) AS total_lines, SUM(byte_count) AS total_bytes, COUNT(*) log_count FROM log_metadata"
+api_storage_stats :: DbIO StorageStats
+api_storage_stats = head <$> runQuery
+  "SELECT SUM(line_count) AS total_lines, SUM(byte_count) AS total_bytes, COUNT(*) log_count FROM log_metadata"
 
 
 pattern_occurrence_txform pattern_id = txform . f
