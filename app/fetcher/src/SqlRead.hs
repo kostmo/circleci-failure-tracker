@@ -291,10 +291,10 @@ apiCommitJobs conn_data (Builds.RawCommit sha1) = do
 
 
 apiJobs :: DbIO (WebApi.ApiResponse WebApi.JobApiRecord)
-apiJobs = WebApi.ApiResponse . map f <$> runQuery sql
+apiJobs = WebApi.ApiResponse . map f <$> runQuery
+  "SELECT job_name, freq FROM job_failure_frequencies;"
   where
     f (jobname, freq) = WebApi.JobApiRecord jobname [freq]
-    sql = "SELECT job_name, freq FROM job_failure_frequencies;"
 
 
 apiStep :: DbIO (WebApi.ApiResponse WebApi.PieSliceApiRecord)
@@ -335,9 +335,8 @@ list_builds sql conn_data = do
 
 
 api_unmatched_builds :: DbHelpers.DbConnectionData -> IO [WebApi.BuildBranchRecord]
-api_unmatched_builds = list_builds sql
-  where
-    sql = "SELECT build, branch FROM unattributed_failed_builds ORDER BY build DESC;"
+api_unmatched_builds = list_builds
+  "SELECT build, branch FROM unattributed_failed_builds ORDER BY build DESC;"
 
 
 api_commit_breakage_reports :: DbHelpers.DbConnectionData -> Text -> IO [StoredBreakageReports.BreakageReport]
@@ -358,9 +357,8 @@ api_unmatched_commit_builds conn_data sha1 = do
 
 
 api_idiopathic_builds :: DbHelpers.DbConnectionData -> IO [WebApi.BuildBranchRecord]
-api_idiopathic_builds = list_builds sql
-  where
-    sql = "SELECT build, branch FROM idiopathic_build_failures ORDER BY build DESC;"
+api_idiopathic_builds = list_builds
+  "SELECT build, branch FROM idiopathic_build_failures ORDER BY build DESC;"
 
 
 api_idiopathic_commit_builds :: DbHelpers.DbConnectionData -> Text -> IO [WebApi.UnmatchedBuild]
@@ -382,12 +380,10 @@ api_timeout_commit_builds conn_data sha1 = do
 
 
 -- | TODO get rid of "partial" head function
-api_random_scannable_build :: DbHelpers.DbConnectionData -> IO WebApi.BuildNumberRecord
-api_random_scannable_build conn_data = do
-  conn <- DbHelpers.get_connection conn_data
-  WebApi.BuildNumberRecord . head <$> query_ conn sql
-  where
-    sql = "SELECT build_num FROM scannable_build_steps OFFSET floor(random()*(SELECT COUNT(*) FROM scannable_build_steps)) LIMIT 1;"
+api_random_scannable_build :: DbIO WebApi.BuildNumberRecord
+api_random_scannable_build =
+  WebApi.BuildNumberRecord . head <$> runQuery
+  "SELECT build_num FROM scannable_build_steps OFFSET floor(random()*(SELECT COUNT(*) FROM scannable_build_steps)) LIMIT 1;"
 
 
 -- | Obtains the console log from database
@@ -413,12 +409,9 @@ instance ToJSON MasterBuildStats where
 
 
 -- | TODO head is partial
-masterBuildFailureStats :: DbHelpers.DbConnectionData -> IO MasterBuildStats
-masterBuildFailureStats conn_data = do
-  conn <- DbHelpers.get_connection conn_data
-  head <$> query_ conn sql
-  where
-    sql = "SELECT count(*) AS total, sum(is_idiopathic::int) AS idiopathic, sum(is_timeout::int) AS timeout, sum(is_known_broken::int) AS known_broken, sum((NOT is_unmatched)::int) AS pattern_matched, sum(is_flaky::int) AS flaky FROM build_failure_causes JOIN ordered_master_commits ON build_failure_causes.vcs_revision = ordered_master_commits.sha1"
+masterBuildFailureStats :: DbIO MasterBuildStats
+masterBuildFailureStats = head <$> runQuery
+  "SELECT count(*) AS total, sum(is_idiopathic::int) AS idiopathic, sum(is_timeout::int) AS timeout, sum(is_known_broken::int) AS known_broken, sum((NOT is_unmatched)::int) AS pattern_matched, sum(is_flaky::int) AS flaky FROM build_failure_causes JOIN ordered_master_commits ON build_failure_causes.vcs_revision = ordered_master_commits.sha1"
 
 
 -- | Uses OFFSET 1 so we only ever show full weeks
@@ -539,11 +532,10 @@ listFlat1 sql conn_data t = do
 
 listFlat :: FromField a =>
      Query
-  -> DbHelpers.DbConnectionData
-  -> IO [a]
-listFlat sql conn_data = do
-  conn <- DbHelpers.get_connection conn_data
-  map (\(Only x) -> x) <$> query_ conn sql
+  -> DbIO [a]
+listFlat sql = do
+  conn <- ask
+  liftIO $ map (\(Only x) -> x) <$> query_ conn sql
 
 
 data TagUsage = TagUsage {
@@ -556,43 +548,35 @@ instance ToJSON TagUsage where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
-api_tags_histogram :: DbHelpers.DbConnectionData -> IO [TagUsage]
-api_tags_histogram conn_data = do
-  conn <- DbHelpers.get_connection conn_data
-  query_ conn sql
-  where
-    sql = "SELECT tag, COUNT(*) AS pattern_count, SUM(matching_build_count)::bigint AS build_matches FROM pattern_tags LEFT JOIN pattern_frequency_summary ON pattern_frequency_summary.id = pattern_tags.pattern GROUP BY tag ORDER BY pattern_count DESC, build_matches DESC;"
+apiTagsHistogram :: DbIO [TagUsage]
+apiTagsHistogram = runQuery
+  "SELECT tag, COUNT(*) AS pattern_count, SUM(matching_build_count)::bigint AS build_matches FROM pattern_tags LEFT JOIN pattern_frequency_summary ON pattern_frequency_summary.id = pattern_tags.pattern GROUP BY tag ORDER BY pattern_count DESC, build_matches DESC;"
 
 
 api_autocomplete_tags :: DbHelpers.DbConnectionData -> Text -> IO [Text]
-api_autocomplete_tags = listFlat1 sql
-  where
-    sql = "SELECT tag FROM (SELECT tag, COUNT(*) AS freq FROM pattern_tags GROUP BY tag ORDER BY freq DESC, tag ASC) foo WHERE tag ILIKE CONCAT(?,'%');"
+api_autocomplete_tags = listFlat1
+  "SELECT tag FROM (SELECT tag, COUNT(*) AS freq FROM pattern_tags GROUP BY tag ORDER BY freq DESC, tag ASC) foo WHERE tag ILIKE CONCAT(?,'%');"
 
 
 api_autocomplete_steps :: DbHelpers.DbConnectionData -> Text -> IO [Text]
-api_autocomplete_steps = listFlat1 sql
-  where
-    sql = "SELECT name FROM (SELECT name, COUNT(*) AS freq FROM build_steps where name IS NOT NULL GROUP BY name ORDER BY freq DESC, name ASC) foo WHERE name ILIKE CONCAT(?,'%');"
+api_autocomplete_steps = listFlat1
+  "SELECT name FROM (SELECT name, COUNT(*) AS freq FROM build_steps where name IS NOT NULL GROUP BY name ORDER BY freq DESC, name ASC) foo WHERE name ILIKE CONCAT(?,'%');"
 
 
-api_list_steps :: DbHelpers.DbConnectionData -> IO [Text]
-api_list_steps = listFlat sql
-  where
-    sql = "SELECT name FROM build_steps WHERE name IS NOT NULL GROUP BY name ORDER BY COUNT(*) DESC, name ASC;"
+api_list_steps :: DbIO [Text]
+api_list_steps = listFlat
+  "SELECT name FROM build_steps WHERE name IS NOT NULL GROUP BY name ORDER BY COUNT(*) DESC, name ASC;"
 
 
 api_autocomplete_branches :: DbHelpers.DbConnectionData -> Text -> IO [Text]
-api_autocomplete_branches = listFlat1 sql
-  where
-    sql = "SELECT branch FROM builds WHERE branch ILIKE CONCAT(?,'%') GROUP BY branch ORDER BY COUNT(*) DESC;"
+api_autocomplete_branches = listFlat1
+  "SELECT branch FROM builds WHERE branch ILIKE CONCAT(?,'%') GROUP BY branch ORDER BY COUNT(*) DESC;"
 
 
 -- Not used yet
-api_list_branches :: DbHelpers.DbConnectionData -> IO [Text]
-api_list_branches = listFlat sql
-  where
-    sql = "SELECT branch, COUNT(*) AS count FROM builds GROUP BY branch ORDER BY count DESC;"
+api_list_branches :: DbIO [Text]
+api_list_branches = listFlat
+  "SELECT branch, COUNT(*) AS count FROM builds GROUP BY branch ORDER BY count DESC;"
 
 
 get_revision_builds :: DbHelpers.DbConnectionData -> GitRev.GitSha1 -> IO [CommitBuilds.CommitBuild]
@@ -852,10 +836,10 @@ instance ToJSON SummaryStats where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
-api_summary_stats :: DbHelpers.DbConnectionData -> IO SummaryStats
-api_summary_stats conn_data = do
-  conn <- DbHelpers.get_connection conn_data
-
+api_summary_stats :: DbIO SummaryStats
+api_summary_stats = do
+ conn <- ask
+ liftIO $ do
   [Only build_count] <- query_ conn "SELECT COUNT(*) FROM builds"
   [Only visited_count] <- query_ conn "SELECT COUNT(*) FROM build_steps"
   [Only explained_count] <- query_ conn "SELECT COUNT(*) FROM build_steps WHERE name IS NOT NULL"
@@ -907,10 +891,9 @@ api_patterns conn_data = do
 
 
 -- | For the purpose of database upgrades
-dump_presumed_stable_branches :: DbHelpers.DbConnectionData -> IO [Text]
-dump_presumed_stable_branches = listFlat sql
-  where
-    sql = "SELECT branch FROM presumed_stable_branches ORDER BY branch;"
+dump_presumed_stable_branches :: DbIO [Text]
+dump_presumed_stable_branches = listFlat
+  "SELECT branch FROM presumed_stable_branches ORDER BY branch;"
 
 
 -- | For the purpose of database upgrades
@@ -943,25 +926,24 @@ dump_breakages conn_data = do
 
 -- | Note that this SQL is from decomposing the "pattern_frequency_summary" and "aggregated_build_matches" view
 -- to parameterize the latter by branch.
-api_patterns_branch_filtered :: DbHelpers.DbConnectionData -> [Text] -> IO [PatternRecord]
-api_patterns_branch_filtered conn_data branches = do
-  conn <- DbHelpers.get_connection conn_data
-  fmap make_pattern_records $ query conn sql $ Only $ In branches
+api_patterns_branch_filtered :: [Text] -> DbIO [PatternRecord]
+api_patterns_branch_filtered branches = do
+  conn <- ask
+  liftIO $ fmap make_pattern_records $ query conn sql $ Only $ In branches
 
   where
     sql = "SELECT patterns_augmented.id, patterns_augmented.regex, patterns_augmented.expression, patterns_augmented.description, COALESCE(aggregated_build_matches.matching_build_count, 0::int) AS matching_build_count, aggregated_build_matches.most_recent, aggregated_build_matches.earliest, patterns_augmented.tags, patterns_augmented.steps, patterns_augmented.specificity, CAST((patterns_augmented.scanned_count * 100 / patterns_augmented.total_scanned_builds) AS DECIMAL(6, 1)) AS percent_scanned FROM patterns_augmented LEFT JOIN (SELECT best_pattern_match_for_builds.pattern_id AS pat, count(best_pattern_match_for_builds.build) AS matching_build_count, max(builds.queued_at) AS most_recent, min(builds.queued_at) AS earliest FROM best_pattern_match_for_builds JOIN builds ON builds.build_num = best_pattern_match_for_builds.build WHERE builds.branch IN ? GROUP BY best_pattern_match_for_builds.pattern_id) aggregated_build_matches ON patterns_augmented.id = aggregated_build_matches.pat ORDER BY matching_build_count DESC;"
 
 
-get_presumed_stable_branches :: DbHelpers.DbConnectionData -> IO [Text]
-get_presumed_stable_branches = listFlat sql
-  where
-    sql = "SELECT branch FROM presumed_stable_branches;"
+get_presumed_stable_branches :: DbIO [Text]
+get_presumed_stable_branches = listFlat
+  "SELECT branch FROM presumed_stable_branches;"
 
 
-api_patterns_presumed_stable_branches :: DbHelpers.DbConnectionData -> IO [PatternRecord]
-api_patterns_presumed_stable_branches conn_data = do
-  branches <- get_presumed_stable_branches conn_data
-  api_patterns_branch_filtered conn_data branches
+api_patterns_presumed_stable_branches :: DbIO [PatternRecord]
+api_patterns_presumed_stable_branches = do
+  branches <- get_presumed_stable_branches
+  api_patterns_branch_filtered branches
 
 
 data PatternOccurrence = NewPatternOccurrence {

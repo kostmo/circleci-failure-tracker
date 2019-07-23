@@ -483,8 +483,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
         foo <- SqlRead.api_new_pattern_test connection_data (Builds.NewBuildNumber buildnum) new_pattern
         return $ WebApi.toJsonEither foo)
 
-    S.get "/api/tags" $
-      S.json =<< liftIO (SqlRead.api_tags_histogram connection_data)
+    jsonDbGet connection_data "/api/tags" SqlRead.apiTagsHistogram
 
     S.get "/api/tag-suggest" $ do
       term <- S.param "term"
@@ -494,21 +493,17 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       term <- S.param "term"
       S.json =<< liftIO (SqlRead.api_autocomplete_steps connection_data term)
 
-    S.get "/api/step-list" $
-      S.json =<< liftIO (SqlRead.api_list_steps connection_data)
+    jsonDbGet connection_data "/api/step-list" SqlRead.api_list_steps
 
     S.get "/api/branch-suggest" $ do
       term <- S.param "term"
       S.json =<< liftIO (SqlRead.api_autocomplete_branches connection_data term)
 
-    S.get "/api/random-scannable-build" $
-      S.json =<< liftIO (SqlRead.api_random_scannable_build connection_data)
+    jsonDbGet connection_data "/api/random-scannable-build" SqlRead.api_random_scannable_build
 
-    S.get "/api/summary" $
-      S.json =<< liftIO (SqlRead.api_summary_stats connection_data)
+    jsonDbGet connection_data "/api/summary" SqlRead.api_summary_stats
 
-    S.get "/api/master-build-stats" $
-      S.json =<< liftIO (SqlRead.masterBuildFailureStats connection_data)
+    jsonDbGet connection_data "/api/master-build-stats" SqlRead.masterBuildFailureStats
 
     S.get "/api/master-weekly-failure-stats" $ do
       weeks <- S.param "weeks"
@@ -563,8 +558,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
     S.get "/api/breakages-dump" $
       S.json =<< liftIO (SqlRead.dump_breakages connection_data)
 
-    S.get "/api/presumed-stable-branches-dump" $
-      S.json =<< liftIO (SqlRead.dump_presumed_stable_branches connection_data)
+    jsonDbGet connection_data "/api/presumed-stable-branches-dump" SqlRead.dump_presumed_stable_branches
 
     S.post "/api/pattern-specificity-update" $ do
       pattern_id <- S.param "pattern_id"
@@ -667,13 +661,15 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     jsonDbGet connection_data "/api/list-failure-modes" SqlRead.apiListFailureModes
 
-    S.get "/api/patterns-presumed-stable-branches" $
-      S.json =<< liftIO (SqlRead.api_patterns_presumed_stable_branches connection_data)
+    jsonDbGet connection_data "/api/patterns-presumed-stable-branches" SqlRead.api_patterns_presumed_stable_branches
 
     S.get "/api/patterns-branch-filtered" $ do
       branches <- S.param "branches"
       liftIO $ putStrLn $ "Got branch list: " ++ show branches
-      S.json =<< liftIO (SqlRead.api_patterns_branch_filtered connection_data branches)
+
+      conn <- liftIO $ DbHelpers.get_connection connection_data
+      x <- liftIO $ runReaderT (SqlRead.api_patterns_branch_filtered  branches) conn
+      S.json x
 
     S.get "/api/single-build-info" $ do
       build_id <- S.param "build_id"
