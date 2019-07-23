@@ -62,7 +62,7 @@ instance ToJSON UnmatchedBuild where
 data BuildBranchRecord = BuildBranchRecord {
     _build_number :: Builds.BuildNumber
   , _branch       :: Text
-  } deriving Generic
+  } deriving (Generic, FromRow)
 
 instance ToJSON BuildBranchRecord where
   toJSON = genericToJSON JsonUtils.dropUnderscore

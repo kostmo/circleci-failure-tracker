@@ -382,14 +382,11 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       either_items <- liftIO (SqlRead.get_latest_master_commit_with_metadata connection_data)
       S.json $ WebApi.toJsonEither either_items
 
-    S.get "/api/status-posted-commits-by-day" $
-      S.json =<< liftIO (SqlRead.api_status_posted_commits_by_day connection_data)
+    jsonDbGet connection_data "/api/status-posted-commits-by-day" SqlRead.api_status_posted_commits_by_day
 
-    S.get "/api/status-postings-by-day" $
-      S.json =<< liftIO (SqlRead.api_status_postings_by_day connection_data)
+    jsonDbGet connection_data "/api/status-postings-by-day" SqlRead.api_status_postings_by_day
 
-    S.get "/api/failed-commits-by-day" $
-      S.json =<< liftIO (SqlRead.api_failed_commits_by_day connection_data)
+    jsonDbGet connection_data "/api/failed-commits-by-day" SqlRead.api_failed_commits_by_day
 
     {-
     S.get "/api/is-ancestor" $ do
@@ -417,8 +414,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       sha1 <- S.param "sha1"
       S.json =<< liftIO (SqlRead.apiCommitJobs connection_data $ Builds.RawCommit sha1)
 
-    S.get "/api/job" $
-      S.json =<< liftIO (SqlRead.apiJobs connection_data)
+    jsonDbGet connection_data "/api/job" SqlRead.apiJobs
 
     S.get "/api/log-storage-stats" $
       S.json =<< liftIO (SqlRead.api_storage_stats connection_data)

@@ -290,11 +290,8 @@ apiCommitJobs conn_data (Builds.RawCommit sha1) = do
     sql = "SELECT job_name, build_num, is_flaky, is_known_broken FROM build_failure_causes WHERE vcs_revision = ? ORDER BY job_name;"
 
 
-apiJobs :: DbHelpers.DbConnectionData -> IO (WebApi.ApiResponse WebApi.JobApiRecord)
-apiJobs conn_data = do
-  conn <- DbHelpers.get_connection conn_data
-  xs <- query_ conn sql
-  return $ WebApi.ApiResponse $ map f xs
+apiJobs :: DbIO (WebApi.ApiResponse WebApi.JobApiRecord)
+apiJobs = WebApi.ApiResponse . map f <$> runQuery sql
   where
     f (jobname, freq) = WebApi.JobApiRecord jobname [freq]
     sql = "SELECT job_name, freq FROM job_failure_frequencies;"
@@ -306,30 +303,21 @@ apiStep = WebApi.ApiResponse <$> runQuery
 
 
 -- | Note that Highcharts expects the dates to be in ascending order
-api_failed_commits_by_day :: DbHelpers.DbConnectionData -> IO (WebApi.ApiResponse (Day, Int))
-api_failed_commits_by_day conn_data = do
-  conn <- DbHelpers.get_connection conn_data
-  WebApi.ApiResponse <$> query_ conn sql
-  where
-    sql = "SELECT queued_at::date AS date, COUNT(*) FROM (SELECT vcs_revision, MAX(queued_at) queued_at FROM builds GROUP BY vcs_revision) foo GROUP BY date ORDER BY date ASC;"
+api_failed_commits_by_day :: DbIO (WebApi.ApiResponse (Day, Int))
+api_failed_commits_by_day = WebApi.ApiResponse <$> runQuery
+  "SELECT queued_at::date AS date, COUNT(*) FROM (SELECT vcs_revision, MAX(queued_at) queued_at FROM builds GROUP BY vcs_revision) foo GROUP BY date ORDER BY date ASC;"
 
 
 -- | Note that Highcharts expects the dates to be in ascending order
-api_status_posted_commits_by_day :: DbHelpers.DbConnectionData -> IO (WebApi.ApiResponse (Day, Int))
-api_status_posted_commits_by_day conn_data = do
-  conn <- DbHelpers.get_connection conn_data
-  WebApi.ApiResponse <$> query_ conn sql
-  where
-    sql = "SELECT last_time::date AS date, COUNT(*) FROM aggregated_github_status_postings GROUP BY date ORDER BY date ASC;"
+api_status_posted_commits_by_day :: DbIO (WebApi.ApiResponse (Day, Int))
+api_status_posted_commits_by_day = WebApi.ApiResponse <$> runQuery
+  "SELECT last_time::date AS date, COUNT(*) FROM aggregated_github_status_postings GROUP BY date ORDER BY date ASC;"
 
 
 -- | Note that Highcharts expects the dates to be in ascending order
-api_status_postings_by_day :: DbHelpers.DbConnectionData -> IO (WebApi.ApiResponse (Day, Int))
-api_status_postings_by_day conn_data = do
-  conn <- DbHelpers.get_connection conn_data
-  WebApi.ApiResponse <$> query_ conn sql
-  where
-    sql = "SELECT created_at::date AS date, COUNT(*) FROM created_github_statuses GROUP BY date ORDER BY date ASC;"
+api_status_postings_by_day :: DbIO (WebApi.ApiResponse (Day, Int))
+api_status_postings_by_day = WebApi.ApiResponse <$> runQuery
+  "SELECT created_at::date AS date, COUNT(*) FROM created_github_statuses GROUP BY date ORDER BY date ASC;"
 
 
 get_flaky_pattern_ids :: Connection -> IO (Set Int64)
@@ -343,9 +331,7 @@ get_flaky_pattern_ids conn = do
 list_builds :: Query -> DbHelpers.DbConnectionData -> IO [WebApi.BuildBranchRecord]
 list_builds sql conn_data = do
   conn <- DbHelpers.get_connection conn_data
-  map f <$> query_ conn sql
-  where
-    f (buildnum, branch) = WebApi.BuildBranchRecord (Builds.NewBuildNumber buildnum) branch
+  query_ conn sql
 
 
 api_unmatched_builds :: DbHelpers.DbConnectionData -> IO [WebApi.BuildBranchRecord]
