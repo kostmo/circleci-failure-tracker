@@ -60,7 +60,7 @@ mainAppCode args = do
     putStrLn $ unwords ["Latest pattern ID:", show latest_pattern_id]
 
     find_master_ancestor <- SqlRead.find_master_ancestor
-      connection_data
+      conn
       access_token
       (DbHelpers.OwnerAndRepo Constants.project_name Constants.repo_name)
       (Builds.RawCommit "058beae4115afb76ee5f45dfa42c6ab4ee01895c")
@@ -100,7 +100,7 @@ mainAppCode args = do
 
 myCliParser :: Parser CommandLineArgs
 myCliParser = NewCommandLineArgs
-  <$> option auto (long "port"       <> value 3001           <> metavar "PORT"
+  <$> option auto (long "port"      <> value 3001           <> metavar "PORT"
     <> help "Webserver port")
   <*> strOption   (long "data-path" <> value "/data/static" <> metavar "STATIC_DATA"
     <> help "Path to static data files")

@@ -7,6 +7,8 @@ import           Control.Monad.IO.Class          (liftIO)
 import           Control.Monad.Trans.Except      (ExceptT (ExceptT), except,
                                                   runExceptT)
 import           Control.Monad.Trans.Reader      (runReaderT)
+import           Control.Monad.Trans.Reader      (ReaderT)
+import           Data.Aeson                      (ToJSON)
 import           Data.Bifunctor                  (first)
 import qualified Data.ByteString.Lazy.Char8      as LBSC
 import           Data.Default                    (def)
@@ -19,6 +21,7 @@ import           Data.Text                       (Text)
 import qualified Data.Text                       as T
 import qualified Data.Text.Lazy                  as LT
 import qualified Data.Vault.Lazy                 as Vault
+import           Database.PostgreSQL.Simple      (Connection)
 import           Network.Wai
 import           Network.Wai.Middleware.ForceSSL (forceSSL)
 import           Network.Wai.Middleware.Static   hiding ((<|>))
@@ -164,11 +167,34 @@ retrieveLogContext session github_config connection_data = do
   S.json $ WebApi.toJsonEither either_log_result
 
 
+jsonDbGet :: ToJSON a =>
+     DbHelpers.DbConnectionData
+  -> ScottyTypes.RoutePattern
+  -> ReaderT Connection IO a
+  -> S.ScottyM ()
 jsonDbGet connection_data endpoint_path f =
   S.get endpoint_path $ do
     conn <- liftIO $ DbHelpers.get_connection connection_data
     x <- liftIO $ runReaderT f conn
     S.json x
+
+
+jsonDbGet1 connection_data endpoint_path parm_name f =
+  S.get endpoint_path $ do
+    parm1 <- S.param parm_name
+
+    conn <- liftIO $ DbHelpers.get_connection connection_data
+    x <- liftIO $ runReaderT (f parm1) conn
+    S.json x
+
+
+jsonDbGet1Either connection_data endpoint_path parm_name f =
+  S.get endpoint_path $ do
+    parm1 <- S.param parm_name
+
+    conn <- liftIO $ DbHelpers.get_connection connection_data
+    x <- liftIO $ runReaderT (f parm1) conn
+    S.json $ WebApi.toJsonEither x
 
 
 scottyApp :: PersistenceData -> SetupData -> ScottyTypes.ScottyT LT.Text IO ()
@@ -317,10 +343,12 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
           auth_token <- except $ maybeToEither (T.pack "Need \"token\" header!") maybe_auth_header
           when (LT.toStrict auth_token /= AuthConfig.admin_password github_config) $
             except $ Left $ T.pack "Incorrect admin password"
-          ExceptT $ SqlWrite.storeMasterCommits connection_data body_json
+
+          ExceptT $ do
+            conn <- liftIO $ DbHelpers.get_connection connection_data
+            SqlWrite.storeMasterCommits conn body_json
 
       S.json $ WebApi.toJsonEither insertion_result
-
 
 
     S.post "/api/populate-master-commit-metadata" $ do
@@ -378,9 +406,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     S.get "/logout" $ Auth.logoutH cache
 
-    S.get "/api/latest-master-commit-with-metadata" $ do
-      either_items <- liftIO (SqlRead.get_latest_master_commit_with_metadata connection_data)
-      S.json $ WebApi.toJsonEither either_items
+    jsonDbGet connection_data "/api/latest-master-commit-with-metadata" (WebApi.toJsonEither <$> SqlRead.get_latest_master_commit_with_metadata)
 
     jsonDbGet connection_data "/api/status-posted-commits-by-day" SqlRead.api_status_posted_commits_by_day
 
@@ -388,31 +414,13 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     jsonDbGet connection_data "/api/failed-commits-by-day" SqlRead.api_failed_commits_by_day
 
-    {-
-    S.get "/api/is-ancestor" $ do
-      ancestor_sha1_text <- S.param "ancestor"
-      ancestor_sha1_text <- S.param "descendent"
+    jsonDbGet1Either connection_data "/api/test-failures" "pattern_id" $ SqlRead.apiTestFailures . ScanPatterns.PatternId
 
-      S.json =<< liftIO (SqlRead.api_jobs connection_data)
-    -}
+    jsonDbGet1 connection_data "/api/posted-statuses" "count" SqlRead.apiPostedStatuses
 
-    S.get "/api/test-failures" $ do
-      pattern_id <- S.param "pattern_id"
-      S.json =<< liftIO (do
-        either_items <- SqlRead.apiTestFailures connection_data $ ScanPatterns.PatternId pattern_id
-        return $ WebApi.toJsonEither either_items)
+    jsonDbGet1 connection_data "/api/aggregate-posted-statuses" "count" SqlRead.apiAggregatePostedStatuses
 
-    S.get "/api/posted-statuses" $ do
-      count <- S.param "count"
-      S.json =<< liftIO (SqlRead.apiPostedStatuses connection_data count)
-
-    S.get "/api/aggregate-posted-statuses" $ do
-      count <- S.param "count"
-      S.json =<< liftIO (SqlRead.apiAggregatePostedStatuses connection_data count)
-
-    S.get "/api/list-commit-jobs" $ do
-      sha1 <- S.param "sha1"
-      S.json =<< liftIO (SqlRead.apiCommitJobs connection_data $ Builds.RawCommit sha1)
+    jsonDbGet1 connection_data "/api/list-commit-jobs" "sha1" $ SqlRead.apiCommitJobs . Builds.RawCommit
 
     jsonDbGet connection_data "/api/job" SqlRead.apiJobs
 
@@ -422,15 +430,9 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     jsonDbGet connection_data "/api/log-lines-histogram" SqlRead.apiLineCountHistogram
 
-    S.get "/api/pattern-step-occurrences" $ do
-      pattern_id <- S.param "pattern_id"
-      vals <- liftIO (SqlRead.patternBuildStepOccurrences connection_data $ ScanPatterns.PatternId pattern_id)
-      S.json vals
+    jsonDbGet1 connection_data "/api/pattern-step-occurrences" "pattern_id" $ SqlRead.patternBuildStepOccurrences . ScanPatterns.PatternId
 
-    S.get "/api/pattern-job-occurrences" $ do
-      pattern_id <- S.param "pattern_id"
-      vals <- liftIO (SqlRead.patternBuildJobOccurrences connection_data $ ScanPatterns.PatternId pattern_id)
-      S.json vals
+    jsonDbGet1 connection_data "/api/pattern-job-occurrences" "pattern_id" $ SqlRead.patternBuildJobOccurrences . ScanPatterns.PatternId
 
     S.get "/api/master-timeline" $ do
 
@@ -482,19 +484,13 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     jsonDbGet connection_data "/api/tags" SqlRead.apiTagsHistogram
 
-    S.get "/api/tag-suggest" $ do
-      term <- S.param "term"
-      S.json =<< liftIO (SqlRead.api_autocomplete_tags connection_data term)
+    jsonDbGet1 connection_data "/api/tag-suggest" "term" SqlRead.api_autocomplete_tags
 
-    S.get "/api/step-suggest" $ do
-      term <- S.param "term"
-      S.json =<< liftIO (SqlRead.api_autocomplete_steps connection_data term)
+    jsonDbGet1 connection_data "/api/step-suggest" "term" SqlRead.api_autocomplete_steps
 
     jsonDbGet connection_data "/api/step-list" SqlRead.api_list_steps
 
-    S.get "/api/branch-suggest" $ do
-      term <- S.param "term"
-      S.json =<< liftIO (SqlRead.api_autocomplete_branches connection_data term)
+    jsonDbGet1 connection_data "/api/branch-suggest" "term" SqlRead.api_autocomplete_branches
 
     jsonDbGet connection_data "/api/random-scannable-build" SqlRead.api_random_scannable_build
 
@@ -502,25 +498,17 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     jsonDbGet connection_data "/api/master-build-stats" SqlRead.masterBuildFailureStats
 
-    S.get "/api/master-weekly-failure-stats" $ do
-      weeks <- S.param "weeks"
-      S.json =<< liftIO (SqlRead.masterWeeklyFailureStats connection_data weeks)
+    jsonDbGet1 connection_data "/api/master-weekly-failure-stats" "weeks" SqlRead.masterWeeklyFailureStats
 
     jsonDbGet connection_data "/api/unmatched-builds" SqlRead.api_unmatched_builds
 
-    S.get "/api/unmatched-builds-for-commit" $ do
-      commit_sha1_text <- S.param "sha1"
-      S.json =<< liftIO (SqlRead.api_unmatched_commit_builds connection_data commit_sha1_text)
+    jsonDbGet1 connection_data "/api/unmatched-builds-for-commit" "sha1" SqlRead.api_unmatched_commit_builds
 
     jsonDbGet connection_data "/api/idiopathic-failed-builds" SqlRead.api_idiopathic_builds
 
-    S.get "/api/idiopathic-failed-builds-for-commit" $ do
-      commit_sha1_text <- S.param "sha1"
-      S.json =<< liftIO (SqlRead.api_idiopathic_commit_builds connection_data commit_sha1_text)
+    jsonDbGet1 connection_data "/api/idiopathic-failed-builds-for-commit" "sha1" SqlRead.api_idiopathic_commit_builds
 
-    S.get "/api/timed-out-builds-for-commit" $ do
-      commit_sha1_text <- S.param "sha1"
-      S.json =<< liftIO (SqlRead.api_timeout_commit_builds connection_data commit_sha1_text)
+    jsonDbGet1 connection_data "/api/timed-out-builds-for-commit" "sha1" SqlRead.api_timeout_commit_builds
 
     -- Access-controlled endpoint
     S.get "/api/view-log-context" $ retrieveLogContext session github_config connection_data
@@ -542,9 +530,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
         Left errors -> S.html $ LT.fromStrict $ JsonUtils._message $ JsonUtils.getDetails errors
 
 
-    S.get "/api/pattern" $ do
-      pattern_id <- S.param "pattern_id"
-      S.json =<< liftIO (SqlRead.api_single_pattern connection_data $ ScanPatterns.PatternId pattern_id)
+    jsonDbGet1 connection_data "/api/pattern" "pattern_id" $ SqlRead.api_single_pattern . ScanPatterns.PatternId
 
     jsonDbGet connection_data "/api/patterns-dump" SqlRead.dumpPatterns
 
@@ -603,11 +589,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     jsonDbGet connection_data "/api/code-breakages-annotated" SqlRead.apiAnnotatedCodeBreakages
 
-    S.get "/api/known-breakage-affected-jobs" $ do
-      cause_id <- S.param "cause_id"
-      vals <- liftIO (SqlRead.knownBreakageAffectedJobs connection_data cause_id)
-      S.json vals
-
+    jsonDbGet1 connection_data "/api/known-breakage-affected-jobs" "cause_id" SqlRead.knownBreakageAffectedJobs
 
     S.post "/api/code-breakage-job-delete" $ do
       cause_id <- S.param "cause_id"
@@ -628,9 +610,6 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       rq <- S.request
       insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
       S.json $ WebApi.toJsonEither insertion_result
-
-
-
 
 
     S.post "/api/code-breakage-delete" $ do
@@ -655,34 +634,19 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     jsonDbGet connection_data "/api/patterns-presumed-stable-branches" SqlRead.api_patterns_presumed_stable_branches
 
-    S.get "/api/patterns-branch-filtered" $ do
-      branches <- S.param "branches"
-      liftIO $ putStrLn $ "Got branch list: " ++ show branches
+    jsonDbGet1 connection_data "/api/patterns-presumed-stable-branches" "branches" SqlRead.api_patterns_branch_filtered
 
-      conn <- liftIO $ DbHelpers.get_connection connection_data
-      x <- liftIO $ runReaderT (SqlRead.api_patterns_branch_filtered  branches) conn
-      S.json x
-
-    S.get "/api/single-build-info" $ do
-      build_id <- S.param "build_id"
-      result <- liftIO (SqlUpdate.get_build_info connection_data (AuthConfig.personal_access_token github_config) $ Builds.NewBuildNumber build_id)
-      S.json $ WebApi.toJsonEither result
+    jsonDbGet1Either connection_data "/api/single-build-info" "build_id" $ SqlUpdate.get_build_info (AuthConfig.personal_access_token github_config) . Builds.NewBuildNumber
 
     S.get "/api/best-build-match" $ do
       build_id <- S.param "build_id"
       S.json =<< liftIO (SqlRead.get_best_build_match connection_data $ Builds.NewBuildNumber build_id)
 
-    S.get "/api/build-pattern-matches" $ do
-      build_id <- S.param "build_id"
-      S.json =<< liftIO (SqlRead.get_build_pattern_matches connection_data $ Builds.NewBuildNumber build_id)
+    jsonDbGet1 connection_data "/api/build-pattern-matches" "build_id" $ SqlRead.get_build_pattern_matches . Builds.NewBuildNumber
 
-    S.get "/api/best-pattern-matches" $ do
-      pattern_id <- S.param "pattern_id"
-      S.json =<< liftIO (SqlRead.get_best_pattern_matches connection_data $ ScanPatterns.PatternId pattern_id)
+    jsonDbGet1 connection_data "/api/best-pattern-matches" "pattern_id" $ SqlRead.get_best_pattern_matches . ScanPatterns.PatternId
 
-    S.get "/api/pattern-matches" $ do
-      pattern_id <- S.param "pattern_id"
-      S.json =<< liftIO (SqlRead.get_pattern_matches connection_data $ ScanPatterns.PatternId pattern_id)
+    jsonDbGet1 connection_data "/api/pattern-matches" "pattern_id" $ SqlRead.get_pattern_matches . ScanPatterns.PatternId
 
     S.get "/favicon.ico" $ do
       S.setHeader "Content-Type" "image/x-icon"

@@ -36,6 +36,7 @@ executables:
     - MissingH
     - vault
     - http-client-tls
+    - postgresql-simple
     - http-client
     - wai-session
     - wai-session-clientsession

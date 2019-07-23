@@ -137,7 +137,10 @@ handleFailedStatuses
   liftIO $ putStrLn $ "Failed CircleCI build count: " ++ show circleci_failcount
 
 
-  known_breakages <- ExceptT $ first LT.fromStrict <$> SqlUpdate.findKnownBuildBreakages db_connection_data access_token owned_repo (Builds.RawCommit sha1)
+  known_breakages <- ExceptT $ do
+    conn <- liftIO $ DbHelpers.get_connection db_connection_data
+    first LT.fromStrict <$> SqlUpdate.findKnownBuildBreakages conn access_token owned_repo (Builds.RawCommit sha1)
+
   let all_broken_jobs = Set.unions $ map (SqlRead._jobs . DbHelpers.record) known_breakages
       known_broken_circle_builds = filter ((`Set.member` all_broken_jobs) . Builds.job_name) circleci_failed_builds
       known_broken_circle_build_count = length known_broken_circle_builds

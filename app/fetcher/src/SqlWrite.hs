@@ -67,13 +67,11 @@ storeCommitMetadata conn_data commit_list = do
 
 
 populateLatestMasterCommits ::
-     DbHelpers.DbConnectionData
+     Connection
   -> OAuth2.AccessToken
   -> DbHelpers.OwnerAndRepo
   -> IO (Either Text Int64)
-populateLatestMasterCommits conn_data access_token owned_repo = do
-
-  conn <- DbHelpers.get_connection conn_data
+populateLatestMasterCommits conn access_token owned_repo = do
 
   maybe_latest_known_commit <- SqlRead.get_latest_known_master_commit conn
 
@@ -92,14 +90,13 @@ populateLatestMasterCommits conn_data access_token owned_repo = do
     let fetched_commits_oldest_first = reverse fetched_commits_newest_first
 
     ExceptT $ do
-      insertion_count <- storeMasterCommits conn_data $ map GitHubRecords._sha fetched_commits_oldest_first
+      insertion_count <- storeMasterCommits conn $ map GitHubRecords._sha fetched_commits_oldest_first
       putStrLn $ "Inserted " ++ show insertion_count ++ " commits"
       return insertion_count
 
 
-storeMasterCommits :: DbHelpers.DbConnectionData -> [Text] -> IO (Either Text Int64)
-storeMasterCommits conn_data commit_list = do
-  conn <- DbHelpers.get_connection conn_data
+storeMasterCommits :: Connection -> [Text] -> IO (Either Text Int64)
+storeMasterCommits conn commit_list =
 
   catchViolation catcher $ do
     count <- executeMany conn insertion_sql $ map Only commit_list

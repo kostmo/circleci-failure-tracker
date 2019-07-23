@@ -7,6 +7,7 @@ module SqlUpdate where
 import           Control.Monad.IO.Class     (liftIO)
 import           Control.Monad.Trans.Except (ExceptT (ExceptT), except,
                                              runExceptT)
+import           Control.Monad.Trans.Reader (ask)
 import           Data.Aeson
 import           Data.Coerce                (coerce)
 import           Data.Either.Utils          (maybeToEither)
@@ -72,28 +73,30 @@ instance ToJSON SingleBuildInfo where
 
 
 get_build_info ::
-     DbHelpers.DbConnectionData
-  -> OAuth2.AccessToken
+     OAuth2.AccessToken
   -> Builds.BuildNumber
-  -> IO (Either Text SingleBuildInfo)
-get_build_info conn_data access_token build@(Builds.NewBuildNumber build_id) = do
+  -> SqlRead.DbIO (Either Text SingleBuildInfo)
+get_build_info access_token build@(Builds.NewBuildNumber build_id) = do
 
-  conn <- DbHelpers.get_connection conn_data
-  xs <- query conn sql $ Only build_id
+  conn <- ask
 
   -- TODO Replace this with SQL COUNT()
-  matches <- SqlRead.get_build_pattern_matches conn_data build
+  matches <- SqlRead.get_build_pattern_matches build
 
-  let either_tuple = f (length matches) <$> maybeToEither (T.pack $ "Build with ID " ++ show build_id ++ " not found!") (Safe.headMay xs)
+  liftIO $ do
+    xs <- query conn sql $ Only build_id
 
-  runExceptT $ do
-    (multi_match_count, step_container) <- except either_tuple
 
-    let sha1 = Builds.vcs_revision $ BuildSteps.build step_container
-        job_name = Builds.job_name $ BuildSteps.build step_container
-    breakages <- ExceptT $ findKnownBuildBreakages conn_data access_token pytorchRepoOwner sha1
-    let applicable_breakages = filter (Set.member job_name . SqlRead._jobs . DbHelpers.record) breakages
-    return $ SingleBuildInfo multi_match_count step_container applicable_breakages
+    let either_tuple = f (length matches) <$> maybeToEither (T.pack $ "Build with ID " ++ show build_id ++ " not found!") (Safe.headMay xs)
+
+    runExceptT $ do
+      (multi_match_count, step_container) <- except either_tuple
+
+      let sha1 = Builds.vcs_revision $ BuildSteps.build step_container
+          job_name = Builds.job_name $ BuildSteps.build step_container
+      breakages <- ExceptT $ findKnownBuildBreakages conn access_token pytorchRepoOwner sha1
+      let applicable_breakages = filter (Set.member job_name . SqlRead._jobs . DbHelpers.record) breakages
+      return $ SingleBuildInfo multi_match_count step_container applicable_breakages
 
   where
     f multi_match_count (step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch, maybe_implicated_revision, maybe_is_broken, maybe_notes, maybe_reporter) = (multi_match_count, step_container)
@@ -131,7 +134,7 @@ count_revision_builds conn_data access_token git_revision = do
 
   runExceptT $ do
 
-    breakages <- ExceptT $ findKnownBuildBreakages conn_data access_token pytorchRepoOwner $ Builds.RawCommit sha1
+    breakages <- ExceptT $ findKnownBuildBreakages conn access_token pytorchRepoOwner $ Builds.RawCommit sha1
     let all_broken_jobs = Set.unions $ map (SqlRead._jobs . DbHelpers.record) breakages
 
     [Only known_broken_count] <- liftIO $ query conn known_broken_count_sql (sha1, In $ Set.toAscList all_broken_jobs)
@@ -157,23 +160,23 @@ count_revision_builds conn_data access_token git_revision = do
 -- | Find known build breakages applicable to the merge base
 -- of this PR commit
 findKnownBuildBreakages ::
-     DbHelpers.DbConnectionData
+     Connection
   -> OAuth2.AccessToken
   -> DbHelpers.OwnerAndRepo
   -> Builds.RawCommit
   -> IO (Either Text [DbHelpers.WithId SqlRead.CodeBreakage])
-findKnownBuildBreakages db_connection_data access_token owned_repo sha1 =
+findKnownBuildBreakages conn access_token owned_repo sha1 =
 
   runExceptT $ do
 
     -- First, ensure knowledge of "master" branch lineage
     -- is up-to-date
-    ExceptT $ SqlWrite.populateLatestMasterCommits db_connection_data access_token owned_repo
+    ExceptT $ SqlWrite.populateLatestMasterCommits conn access_token owned_repo
 
     -- Second, find which "master" commit is the most recent
     -- ancestor of the given PR commit.
-    nearest_ancestor <- ExceptT $ SqlRead.find_master_ancestor db_connection_data access_token owned_repo sha1
+    nearest_ancestor <- ExceptT $ SqlRead.find_master_ancestor conn access_token owned_repo sha1
 
     -- Third, find whether that commit is within the
     -- [start, end) span of any known breakages
-    ExceptT $ SqlRead.get_spanning_breakages db_connection_data nearest_ancestor
+    ExceptT $ SqlRead.get_spanning_breakages conn nearest_ancestor
