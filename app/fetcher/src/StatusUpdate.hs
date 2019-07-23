@@ -28,13 +28,13 @@ import           Text.Read                     (readMaybe)
 import qualified Web.Scotty                    as S
 import           Web.Scotty.Internal.Types     (ActionT)
 
-
 import qualified ApiPost
 import qualified AuthConfig
 import qualified AuthStages
 import qualified Builds
 import qualified DbHelpers
 import qualified GithubApiFetch
+import qualified PushWebhooks
 import qualified Scanning
 import qualified ScanPatterns
 import qualified SqlRead
@@ -190,13 +190,38 @@ handleFailedStatuses
     is_not_my_own_context = (/= myAppStatusContext) . LT.toStrict . StatusEventQuery._context
 
 
+handlePushWebhook ::
+     DbHelpers.DbConnectionData
+  -> OAuth2.AccessToken
+  -> Maybe AuthStages.Username
+  -> PushWebhooks.GitHubPushEvent
+  -> IO (Either LT.Text ())
+handlePushWebhook
+    _db_connection_data
+    _access_token
+    _maybe_initiator
+    push_event = do
+
+  putStrLn $ unwords [
+      "Got repo push event; ref:"
+    , LT.unpack $ PushWebhooks.ref push_event
+    , "; head:"
+    , LT.unpack $ PushWebhooks.head push_event
+    ]
+  return $ Right ()
+
+
 handleStatusWebhook ::
      DbHelpers.DbConnectionData
   -> OAuth2.AccessToken
   -> Maybe AuthStages.Username
   -> Webhooks.GitHubStatusEvent
   -> IO (Either LT.Text ())
-handleStatusWebhook db_connection_data access_token maybe_initiator status_event =
+handleStatusWebhook
+    db_connection_data
+    access_token
+    maybe_initiator
+    status_event =
 
   runExceptT $ do
 
@@ -295,10 +320,13 @@ github_event_endpoint connection_data github_config = do
       Nothing -> return ()
       Just event_type -> if not is_signature_valid
         then return ()
-        else if event_type /= "status"
-          then do
-            S.json =<< return ["hello" :: String] -- XXX Do I even need to send a response?
-          else do
+        else case event_type of
+          "status" -> do
             body_json <- S.jsonData
             liftIO $ handleStatusWebhook connection_data (AuthConfig.personal_access_token github_config) Nothing body_json
             S.json =<< return ["hello" :: String]
+          "push" -> do
+            body_json <- S.jsonData
+            liftIO $ handlePushWebhook connection_data (AuthConfig.personal_access_token github_config) Nothing body_json
+            S.json =<< return ["hello" :: String]
+          _ -> S.json =<< return ["hello" :: String] -- XXX Do I even need to send a response?

@@ -95,7 +95,10 @@ populateLatestMasterCommits conn access_token owned_repo = do
       return insertion_count
 
 
-storeMasterCommits :: Connection -> [Text] -> IO (Either Text Int64)
+storeMasterCommits ::
+     Connection
+  -> [Text]
+  -> IO (Either Text Int64)
 storeMasterCommits conn commit_list =
 
   catchViolation catcher $ do
@@ -219,8 +222,6 @@ update_code_breakage_description conn_data cause_id description = do
     sql = "UPDATE code_breakage_cause SET description = ? WHERE id = ?;"
 
 
-
-
 update_pattern_description ::
      DbHelpers.DbConnectionData
   -> ScanPatterns.PatternId
@@ -275,7 +276,6 @@ insert_single_pattern conn either_pattern = do
 
     (pattern_obj, AuthStages.Username author, maybe_timestamp, maybe_id) = case either_pattern of
       Left (patt_obj, username) -> (patt_obj, username, Nothing, Nothing)
---      Right (DbHelpers.WithAuthorship auth created_time (DbHelpers.WithId record_id patt_obj)) -> (patt_obj, AuthStages.Username auth, Just created_time, Just record_id)
       Right (DbHelpers.WithAuthorship auth created_time (DbHelpers.WithId _record_id patt_obj)) -> (patt_obj, AuthStages.Username auth, Just created_time, Nothing)
 
     has_nondeterminisic_values = case expression_obj of
@@ -304,7 +304,9 @@ restore_patterns conn_data pattern_list = do
   return $ sequenceA eithers
 
 
-step_failure_to_tuple :: (Builds.BuildNumber, Either Builds.BuildWithStepFailure ScanRecords.UnidentifiedBuildFailure) -> (Int64, Maybe Text, Bool)
+step_failure_to_tuple ::
+     (Builds.BuildNumber, Either Builds.BuildWithStepFailure ScanRecords.UnidentifiedBuildFailure)
+  -> (Int64, Maybe Text, Bool)
 step_failure_to_tuple (Builds.NewBuildNumber buildnum, visitation_result) = case visitation_result of
   Right _ -> (buildnum, Nothing, False)
   Left (Builds.BuildWithStepFailure _build_obj (Builds.NewBuildStepFailure stepname mode)) -> let
@@ -329,7 +331,11 @@ store_log_info scan_resources (Builds.NewBuildStepId step_id) (ScanRecords.LogIn
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
 
 
-insert_latest_pattern_build_scan :: ScanRecords.ScanCatchupResources -> Builds.BuildNumber -> Int64 -> IO ()
+insert_latest_pattern_build_scan ::
+     ScanRecords.ScanCatchupResources
+  -> Builds.BuildNumber
+  -> Int64
+  -> IO ()
 insert_latest_pattern_build_scan scan_resources (Builds.NewBuildNumber build_number) pattern_id = do
 
   execute conn sql (ScanRecords.scan_id scan_resources, build_number, pattern_id)
@@ -340,7 +346,10 @@ insert_latest_pattern_build_scan scan_resources (Builds.NewBuildNumber build_num
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
 
 
-insert_build_visitation :: ScanRecords.ScanCatchupResources -> (Builds.BuildNumber, Either Builds.BuildWithStepFailure ScanRecords.UnidentifiedBuildFailure) -> IO Builds.BuildStepId
+insert_build_visitation ::
+     ScanRecords.ScanCatchupResources
+  -> (Builds.BuildNumber, Either Builds.BuildWithStepFailure ScanRecords.UnidentifiedBuildFailure)
+  -> IO Builds.BuildStepId
 insert_build_visitation scan_resources visitation = do
 
   [Only step_id] <- query conn sql $ step_failure_to_tuple visitation
@@ -350,7 +359,11 @@ insert_build_visitation scan_resources visitation = do
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
 
 
-insert_scan_id :: Connection -> Maybe AuthStages.Username -> ScanPatterns.PatternId -> IO Int64
+insert_scan_id ::
+     Connection
+  -> Maybe AuthStages.Username
+  -> ScanPatterns.PatternId
+  -> IO Int64
 insert_scan_id conn maybe_initiator (ScanPatterns.PatternId pattern_id)  = do
   [Only pattern_id] <- query conn sql (pattern_id, inititator)
   return pattern_id

@@ -333,10 +333,10 @@ api_unmatched_builds = list_builds
   "SELECT build, branch FROM unattributed_failed_builds ORDER BY build DESC;"
 
 
-api_commit_breakage_reports :: DbHelpers.DbConnectionData -> Text -> IO [StoredBreakageReports.BreakageReport]
-api_commit_breakage_reports conn_data sha1 = do
-  conn <- DbHelpers.get_connection conn_data
-  map f <$> query conn sql (Only sha1)
+api_commit_breakage_reports :: Text -> DbIO [StoredBreakageReports.BreakageReport]
+api_commit_breakage_reports sha1 = do
+  conn <- ask
+  liftIO $ map f <$> query conn sql (Only sha1)
   where
     f (build_num, step_name, job_name, is_broken, reporter, report_timestamp, breakage_notes, implicated_revision) = StoredBreakageReports.BreakageReport (Builds.NewBuildNumber build_num) step_name job_name is_broken (AuthStages.Username reporter) report_timestamp breakage_notes implicated_revision
     sql = "SELECT build_num, step_name, job_name, is_broken, reporter, report_timestamp, breakage_notes, implicated_revision FROM builds_with_reports WHERE vcs_revision = ? AND is_broken IS NOT NULL"
@@ -350,8 +350,8 @@ api_unmatched_commit_builds sha1 = do
     sql = "SELECT build, step_name, queued_at, job_name, unattributed_failed_builds.branch, is_broken FROM unattributed_failed_builds LEFT JOIN builds_with_reports ON unattributed_failed_builds.build = builds_with_reports.build_num WHERE vcs_revision = ?"
 
 
-api_idiopathic_builds :: DbIO [WebApi.BuildBranchRecord]
-api_idiopathic_builds = list_builds
+apiIdiopathicBuilds :: DbIO [WebApi.BuildBranchRecord]
+apiIdiopathicBuilds = list_builds
   "SELECT build, branch FROM idiopathic_build_failures ORDER BY build DESC;"
 
 
@@ -561,8 +561,8 @@ api_autocomplete_steps = listFlat1X
   "SELECT name FROM (SELECT name, COUNT(*) AS freq FROM build_steps where name IS NOT NULL GROUP BY name ORDER BY freq DESC, name ASC) foo WHERE name ILIKE CONCAT(?,'%');"
 
 
-api_list_steps :: DbIO [Text]
-api_list_steps = listFlat
+apiListSteps :: DbIO [Text]
+apiListSteps = listFlat
   "SELECT name FROM build_steps WHERE name IS NOT NULL GROUP BY name ORDER BY COUNT(*) DESC, name ASC;"
 
 
@@ -601,11 +601,11 @@ get_revision_builds conn_data git_revision = do
     sql = "SELECT step_name, match_id, build, vcs_revision, queued_at, job_name, branch, pattern_id, line_number, line_count, line_text, span_start, span_end, specificity, is_broken, reporter, report_timestamp FROM best_pattern_match_augmented_builds WHERE vcs_revision = ?;"
 
 
-get_master_commits ::
+getMasterCommits ::
      Connection
   -> Pagination.ParentOffsetMode
   -> IO (Either Text (WeeklyStats.InclusiveNumericBounds Int64, [BuildResults.IndexedRichCommit]))
-get_master_commits conn parent_offset_mode =
+getMasterCommits conn parent_offset_mode =
 
   case parent_offset_mode of
     Pagination.CommitIndices bounds@(WeeklyStats.InclusiveNumericBounds minbound maxbound) -> do
@@ -744,7 +744,7 @@ apiMasterBuilds offset_limit = do
  conn <- ask
  liftIO $ runExceptT $ do
 
-  (commit_id_bounds, master_commits) <- ExceptT $ get_master_commits conn offset_limit
+  (commit_id_bounds, master_commits) <- ExceptT $ getMasterCommits conn offset_limit
   let query_bounds = (WeeklyStats.min_bound commit_id_bounds, WeeklyStats.max_bound commit_id_bounds)
   failure_rows <- liftIO $ query conn failures_sql query_bounds
 
@@ -795,12 +795,12 @@ instance ToJSON ScanTestResponse where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
-api_new_pattern_test ::
+apiNewPatternTest ::
      DbHelpers.DbConnectionData
   -> Builds.BuildNumber
   -> ScanPatterns.Pattern
   -> IO (Either String ScanTestResponse)
-api_new_pattern_test conn_data build_number@(Builds.NewBuildNumber buildnum) new_pattern = do
+apiNewPatternTest conn_data build_number@(Builds.NewBuildNumber buildnum) new_pattern = do
 
   conn <- DbHelpers.get_connection conn_data
 
@@ -833,8 +833,8 @@ instance ToJSON SummaryStats where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
-api_summary_stats :: DbIO SummaryStats
-api_summary_stats = do
+apiSummaryStats :: DbIO SummaryStats
+apiSummaryStats = do
  conn <- ask
  liftIO $ do
   [Only build_count] <- query_ conn "SELECT COUNT(*) FROM builds"
@@ -885,8 +885,8 @@ apiPatterns = make_pattern_records <$> runQuery
 
 
 -- | For the purpose of database upgrades
-dump_presumed_stable_branches :: DbIO [Text]
-dump_presumed_stable_branches = listFlat
+dumpPresumedStableBranches :: DbIO [Text]
+dumpPresumedStableBranches = listFlat
   "SELECT branch FROM presumed_stable_branches ORDER BY branch;"
 
 
@@ -905,10 +905,10 @@ dumpPatterns = map f <$> runQuery
 
 
 -- | For the purpose of database upgrades
-dump_breakages :: DbHelpers.DbConnectionData -> IO [DbHelpers.WithId BreakageReportsBackup.DbBreakageReport]
-dump_breakages conn_data = do
-  conn <- DbHelpers.get_connection conn_data
-  map f <$> query_ conn sql
+dump_breakages :: DbIO [DbHelpers.WithId BreakageReportsBackup.DbBreakageReport]
+dump_breakages = do
+  conn <- ask
+  liftIO $ map f <$> query_ conn sql
   where
     f (id, reporter, reported_at, build_step, is_broken, implicated_revision, notes) = DbHelpers.WithId id $ BreakageReportsBackup.DbBreakageReport (AuthStages.Username reporter) reported_at (Builds.NewBuildStepId build_step) is_broken implicated_revision notes
     sql = "SELECT id, reporter, reported_at, build_step, is_broken, implicated_revision, notes FROM broken_build_reports ORDER BY id;"
@@ -925,14 +925,14 @@ api_patterns_branch_filtered branches = do
     sql = "SELECT patterns_augmented.id, patterns_augmented.regex, patterns_augmented.expression, patterns_augmented.description, COALESCE(aggregated_build_matches.matching_build_count, 0::int) AS matching_build_count, aggregated_build_matches.most_recent, aggregated_build_matches.earliest, patterns_augmented.tags, patterns_augmented.steps, patterns_augmented.specificity, CAST((patterns_augmented.scanned_count * 100 / patterns_augmented.total_scanned_builds) AS DECIMAL(6, 1)) AS percent_scanned FROM patterns_augmented LEFT JOIN (SELECT best_pattern_match_for_builds.pattern_id AS pat, count(best_pattern_match_for_builds.build) AS matching_build_count, max(builds.queued_at) AS most_recent, min(builds.queued_at) AS earliest FROM best_pattern_match_for_builds JOIN builds ON builds.build_num = best_pattern_match_for_builds.build WHERE builds.branch IN ? GROUP BY best_pattern_match_for_builds.pattern_id) aggregated_build_matches ON patterns_augmented.id = aggregated_build_matches.pat ORDER BY matching_build_count DESC;"
 
 
-get_presumed_stable_branches :: DbIO [Text]
-get_presumed_stable_branches = listFlat
+getPresumedStableBranches :: DbIO [Text]
+getPresumedStableBranches = listFlat
   "SELECT branch FROM presumed_stable_branches;"
 
 
 api_patterns_presumed_stable_branches :: DbIO [PatternRecord]
 api_patterns_presumed_stable_branches = do
-  branches <- get_presumed_stable_branches
+  branches <- getPresumedStableBranches
   api_patterns_branch_filtered branches
 
 
@@ -975,8 +975,8 @@ instance ToJSON StorageStats where
 
 
 -- | FIXME partial head
-api_storage_stats :: DbIO StorageStats
-api_storage_stats = head <$> runQuery
+apiStorageStats :: DbIO StorageStats
+apiStorageStats = head <$> runQuery
   "SELECT SUM(line_count) AS total_lines, SUM(byte_count) AS total_bytes, COUNT(*) log_count FROM log_metadata"
 
 
@@ -1022,12 +1022,11 @@ get_posted_github_status conn_data (DbHelpers.OwnerAndRepo project repo) sha1 = 
 -- We use a list instead of a Maybe so that
 -- the javascript table renderer code can be reused
 -- for multi-item lists.
-get_best_build_match :: DbHelpers.DbConnectionData -> Builds.BuildNumber -> IO [PatternOccurrence]
-get_best_build_match conn_data (Builds.NewBuildNumber build_id) = do
+get_best_build_match :: Builds.BuildNumber -> DbIO [PatternOccurrence]
+get_best_build_match (Builds.NewBuildNumber build_id) = do
 
-  conn <- DbHelpers.get_connection conn_data
-  xs <- query conn sql $ Only build_id
-  return $ map f xs
+  conn <- ask
+  liftIO $ map f <$> query conn sql (Only build_id)
 
   where
     f (pattern_id, build, step_name, match_id, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch) = pattern_occurrence_txform (ScanPatterns.PatternId pattern_id) (build, step_name, match_id, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch)

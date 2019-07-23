@@ -241,7 +241,6 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       S.json $ WebApi.toJsonEither insertion_result
 
 
-
     S.post "/api/code-breakage-resolution-report" $ do
 
       sha1 <- S.param "sha1"
@@ -275,7 +274,6 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       let clean_list = filter (not . T.null) . map (T.strip . T.pack) . splitOn ";"
           jobs_list = clean_list jobs_delimited
 
-
       rq <- S.request
       insertion_result <- liftIO $ runExceptT $ do
 
@@ -288,7 +286,6 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
         ExceptT $ Auth.getAuthenticatedUser rq session github_config callback_func
       S.json $ WebApi.toJsonEither insertion_result
-
 
 
     S.post "/api/rescan-build" $ do
@@ -406,33 +403,107 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     S.get "/logout" $ Auth.logoutH cache
 
-    jsonDbGet connection_data "/api/latest-master-commit-with-metadata" (WebApi.toJsonEither <$> SqlRead.get_latest_master_commit_with_metadata)
 
-    jsonDbGet connection_data "/api/status-posted-commits-by-day" SqlRead.api_status_posted_commits_by_day
+    let get x y = jsonDbGet connection_data x y
+        get1 x y = jsonDbGet1 connection_data x y
 
-    jsonDbGet connection_data "/api/status-postings-by-day" SqlRead.api_status_postings_by_day
+    get "/api/latest-master-commit-with-metadata" $ WebApi.toJsonEither <$> SqlRead.get_latest_master_commit_with_metadata
 
-    jsonDbGet connection_data "/api/failed-commits-by-day" SqlRead.api_failed_commits_by_day
+    get "/api/status-posted-commits-by-day" SqlRead.api_status_posted_commits_by_day
+
+    get "/api/status-postings-by-day" SqlRead.api_status_postings_by_day
+
+    get "/api/failed-commits-by-day" SqlRead.api_failed_commits_by_day
+
+    -- XXX This is the deprecated kind of breakage report
+    get "/api/breakages-dump" SqlRead.dump_breakages
+
+    get "/api/code-breakages-detected" SqlRead.apiDetectedCodeBreakages
+
+    get "/api/code-breakages-annotated" SqlRead.apiAnnotatedCodeBreakages
+
+    get "/api/list-failure-modes" SqlRead.apiListFailureModes
+
+    get "/api/job" SqlRead.apiJobs
+
+    get "/api/log-storage-stats" SqlRead.apiStorageStats
+
+    get "/api/log-size-histogram" SqlRead.apiByteCountHistogram
+
+    get "/api/log-lines-histogram" SqlRead.apiLineCountHistogram
+
+    get "/api/master-build-stats" SqlRead.masterBuildFailureStats
+
+    get "/api/patterns-dump" SqlRead.dumpPatterns
+
+    get "/api/patterns-timeline" SqlRead.apiPatternOccurrenceTimeline
+
+    get "/api/patterns" SqlRead.apiPatterns
+
+    get "/api/presumed-stable-branches-dump" SqlRead.dumpPresumedStableBranches
+
+    get "/api/random-scannable-build" SqlRead.api_random_scannable_build
+
+    get "/api/step-list" SqlRead.apiListSteps
+
+    get "/api/step" SqlRead.apiStep
+
+    get "/api/summary" SqlRead.apiSummaryStats
+
+    get "/api/tags" SqlRead.apiTagsHistogram
+
+
+    get "/api/unmatched-builds" SqlRead.api_unmatched_builds
+
+    get "/api/idiopathic-failed-builds" SqlRead.apiIdiopathicBuilds
+
+    get "/api/patterns-presumed-stable-branches" SqlRead.api_patterns_presumed_stable_branches
+
+    get1 "/api/patterns-presumed-stable-branches" "branches" SqlRead.api_patterns_branch_filtered
+
+    get1 "/api/posted-statuses" "count" SqlRead.apiPostedStatuses
+
+    get1 "/api/aggregate-posted-statuses" "count" SqlRead.apiAggregatePostedStatuses
+
+    get1 "/api/known-breakage-affected-jobs" "cause_id" SqlRead.knownBreakageAffectedJobs
+
+    get1 "/api/tag-suggest" "term" SqlRead.api_autocomplete_tags
+
+    get1 "/api/step-suggest" "term" SqlRead.api_autocomplete_steps
+
+    get1 "/api/branch-suggest" "term" SqlRead.api_autocomplete_branches
+
+    get1 "/api/master-weekly-failure-stats" "weeks" SqlRead.masterWeeklyFailureStats
+
+    get1 "/api/unmatched-builds-for-commit" "sha1" SqlRead.api_unmatched_commit_builds
+
+    get1 "/api/idiopathic-failed-builds-for-commit" "sha1" SqlRead.api_idiopathic_commit_builds
+
+    get1 "/api/timed-out-builds-for-commit" "sha1" SqlRead.api_timeout_commit_builds
+
+    -- XXX This is the deprecated kind of breakage report
+    get1 "/api/commit-breakage-reports" "sha1" SqlRead.api_commit_breakage_reports
+
+    get1 "/api/pattern-step-occurrences" "pattern_id" $ SqlRead.patternBuildStepOccurrences . ScanPatterns.PatternId
+
+    get1 "/api/pattern-job-occurrences" "pattern_id" $ SqlRead.patternBuildJobOccurrences . ScanPatterns.PatternId
+
+    get1 "/api/list-commit-jobs" "sha1" $ SqlRead.apiCommitJobs . Builds.RawCommit
+
+    get1 "/api/build-pattern-matches" "build_id" $ SqlRead.get_build_pattern_matches . Builds.NewBuildNumber
+
+    get1 "/api/best-pattern-matches" "pattern_id" $ SqlRead.get_best_pattern_matches . ScanPatterns.PatternId
+
+    get1 "/api/pattern-matches" "pattern_id" $ SqlRead.get_pattern_matches . ScanPatterns.PatternId
+
+
+    get1 "/api/pattern" "pattern_id" $ SqlRead.api_single_pattern . ScanPatterns.PatternId
+
+    get1 "/api/best-build-match" "build_id" $ SqlRead.get_best_build_match . Builds.NewBuildNumber
 
     jsonDbGet1Either connection_data "/api/test-failures" "pattern_id" $ SqlRead.apiTestFailures . ScanPatterns.PatternId
 
-    jsonDbGet1 connection_data "/api/posted-statuses" "count" SqlRead.apiPostedStatuses
-
-    jsonDbGet1 connection_data "/api/aggregate-posted-statuses" "count" SqlRead.apiAggregatePostedStatuses
-
-    jsonDbGet1 connection_data "/api/list-commit-jobs" "sha1" $ SqlRead.apiCommitJobs . Builds.RawCommit
-
-    jsonDbGet connection_data "/api/job" SqlRead.apiJobs
-
-    jsonDbGet connection_data "/api/log-storage-stats" SqlRead.api_storage_stats
-
-    jsonDbGet connection_data "/api/log-size-histogram" SqlRead.apiByteCountHistogram
-
-    jsonDbGet connection_data "/api/log-lines-histogram" SqlRead.apiLineCountHistogram
-
-    jsonDbGet1 connection_data "/api/pattern-step-occurrences" "pattern_id" $ SqlRead.patternBuildStepOccurrences . ScanPatterns.PatternId
-
-    jsonDbGet1 connection_data "/api/pattern-job-occurrences" "pattern_id" $ SqlRead.patternBuildJobOccurrences . ScanPatterns.PatternId
+    jsonDbGet1Either connection_data "/api/single-build-info" "build_id" $ SqlUpdate.get_build_info (AuthConfig.personal_access_token github_config) . Builds.NewBuildNumber
 
     S.get "/api/master-timeline" $ do
 
@@ -456,7 +527,6 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
       S.json $ WebApi.toJsonEither json_result
 
-    jsonDbGet connection_data "/api/step" SqlRead.apiStep
 
     S.get "/api/commit-info" $ do
       commit_sha1_text <- S.param "sha1"
@@ -479,40 +549,12 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       buildnum <- S.param "build_num"
       new_pattern <- patternFromParms
       S.json =<< liftIO (do
-        foo <- SqlRead.api_new_pattern_test connection_data (Builds.NewBuildNumber buildnum) new_pattern
+        foo <- SqlRead.apiNewPatternTest connection_data (Builds.NewBuildNumber buildnum) new_pattern
         return $ WebApi.toJsonEither foo)
 
-    jsonDbGet connection_data "/api/tags" SqlRead.apiTagsHistogram
-
-    jsonDbGet1 connection_data "/api/tag-suggest" "term" SqlRead.api_autocomplete_tags
-
-    jsonDbGet1 connection_data "/api/step-suggest" "term" SqlRead.api_autocomplete_steps
-
-    jsonDbGet connection_data "/api/step-list" SqlRead.api_list_steps
-
-    jsonDbGet1 connection_data "/api/branch-suggest" "term" SqlRead.api_autocomplete_branches
-
-    jsonDbGet connection_data "/api/random-scannable-build" SqlRead.api_random_scannable_build
-
-    jsonDbGet connection_data "/api/summary" SqlRead.api_summary_stats
-
-    jsonDbGet connection_data "/api/master-build-stats" SqlRead.masterBuildFailureStats
-
-    jsonDbGet1 connection_data "/api/master-weekly-failure-stats" "weeks" SqlRead.masterWeeklyFailureStats
-
-    jsonDbGet connection_data "/api/unmatched-builds" SqlRead.api_unmatched_builds
-
-    jsonDbGet1 connection_data "/api/unmatched-builds-for-commit" "sha1" SqlRead.api_unmatched_commit_builds
-
-    jsonDbGet connection_data "/api/idiopathic-failed-builds" SqlRead.api_idiopathic_builds
-
-    jsonDbGet1 connection_data "/api/idiopathic-failed-builds-for-commit" "sha1" SqlRead.api_idiopathic_commit_builds
-
-    jsonDbGet1 connection_data "/api/timed-out-builds-for-commit" "sha1" SqlRead.api_timeout_commit_builds
 
     -- Access-controlled endpoint
     S.get "/api/view-log-context" $ retrieveLogContext session github_config connection_data
-
 
     S.get "/api/view-log-full" $ do
       build_id <- S.param "build_id"
@@ -529,16 +571,6 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
         Right logs  -> S.text $ LT.fromStrict logs
         Left errors -> S.html $ LT.fromStrict $ JsonUtils._message $ JsonUtils.getDetails errors
 
-
-    jsonDbGet1 connection_data "/api/pattern" "pattern_id" $ SqlRead.api_single_pattern . ScanPatterns.PatternId
-
-    jsonDbGet connection_data "/api/patterns-dump" SqlRead.dumpPatterns
-
-    -- XXX This is the deprecated kind of breakage report
-    S.get "/api/breakages-dump" $
-      S.json =<< liftIO (SqlRead.dump_breakages connection_data)
-
-    jsonDbGet connection_data "/api/presumed-stable-branches-dump" SqlRead.dump_presumed_stable_branches
 
     S.post "/api/pattern-specificity-update" $ do
       pattern_id <- S.param "pattern_id"
@@ -585,11 +617,6 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
       S.json $ WebApi.toJsonEither insertion_result
 
-    jsonDbGet connection_data "/api/code-breakages-detected" SqlRead.apiDetectedCodeBreakages
-
-    jsonDbGet connection_data "/api/code-breakages-annotated" SqlRead.apiAnnotatedCodeBreakages
-
-    jsonDbGet1 connection_data "/api/known-breakage-affected-jobs" "cause_id" SqlRead.knownBreakageAffectedJobs
 
     S.post "/api/code-breakage-job-delete" $ do
       cause_id <- S.param "cause_id"
@@ -621,33 +648,6 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       S.json $ WebApi.toJsonEither insertion_result
 
 
-    -- XXX This is the deprecated kind of breakage report
-    S.get "/api/commit-breakage-reports" $ do
-      commit_sha1_text <- S.param "sha1"
-      S.json =<< liftIO (SqlRead.api_commit_breakage_reports connection_data commit_sha1_text)
-
-    jsonDbGet connection_data "/api/patterns-timeline" SqlRead.apiPatternOccurrenceTimeline
-
-    jsonDbGet connection_data "/api/patterns" SqlRead.apiPatterns
-
-    jsonDbGet connection_data "/api/list-failure-modes" SqlRead.apiListFailureModes
-
-    jsonDbGet connection_data "/api/patterns-presumed-stable-branches" SqlRead.api_patterns_presumed_stable_branches
-
-    jsonDbGet1 connection_data "/api/patterns-presumed-stable-branches" "branches" SqlRead.api_patterns_branch_filtered
-
-    jsonDbGet1Either connection_data "/api/single-build-info" "build_id" $ SqlUpdate.get_build_info (AuthConfig.personal_access_token github_config) . Builds.NewBuildNumber
-
-    S.get "/api/best-build-match" $ do
-      build_id <- S.param "build_id"
-      S.json =<< liftIO (SqlRead.get_best_build_match connection_data $ Builds.NewBuildNumber build_id)
-
-    jsonDbGet1 connection_data "/api/build-pattern-matches" "build_id" $ SqlRead.get_build_pattern_matches . Builds.NewBuildNumber
-
-    jsonDbGet1 connection_data "/api/best-pattern-matches" "pattern_id" $ SqlRead.get_best_pattern_matches . ScanPatterns.PatternId
-
-    jsonDbGet1 connection_data "/api/pattern-matches" "pattern_id" $ SqlRead.get_pattern_matches . ScanPatterns.PatternId
-
     S.get "/favicon.ico" $ do
       S.setHeader "Content-Type" "image/x-icon"
       S.file $ static_base </> "images/favicon.ico"
@@ -659,8 +659,5 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
     S.get "/" $ do
       S.setHeader "Content-Type" "text/html; charset=utf-8"
       S.file $ static_base </> "index.html"
-
-
-
 
 
