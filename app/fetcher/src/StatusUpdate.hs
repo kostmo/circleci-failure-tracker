@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module StatusUpdate (
-    github_event_endpoint
+    githubEventEndpoint
   , handleFailedStatuses
   ) where
 
@@ -20,6 +20,7 @@ import           Data.Text                     (Text)
 import qualified Data.Text                     as T
 import qualified Data.Text.Lazy                as LT
 import qualified Data.Time.Clock               as Clock
+import           Data.Tuple                    (swap)
 import qualified GitHub.Data.Webhooks.Validate as GHValidate
 import qualified Network.OAuth.OAuth2          as OAuth2
 import qualified Network.URI                   as URI
@@ -34,6 +35,7 @@ import qualified AuthStages
 import qualified Builds
 import qualified DbHelpers
 import qualified GithubApiFetch
+import qualified MyUtils
 import qualified PushWebhooks
 import qualified Scanning
 import qualified ScanPatterns
@@ -43,6 +45,7 @@ import qualified SqlWrite
 import qualified StatusEvent
 import qualified StatusEventQuery
 import qualified Webhooks
+
 
 webserverBaseUrl :: LT.Text
 webserverBaseUrl = "https://circle.pytorch.org"
@@ -63,16 +66,25 @@ myAppStatusContext :: Text
 myAppStatusContext = "_dr.ci"
 
 
+groupStatusesByHostname ::
+     [StatusEventQuery.GitHubStatusEventGetter]
+  -> [(String, [StatusEventQuery.GitHubStatusEventGetter])]
+groupStatusesByHostname =
+  MyUtils.binTuplesByFirst . map swap . Maybe.mapMaybe (sequenceA . MyUtils.derivePair get_hostname)
+  where
+    get_hostname s = do
+      parsed_uri <- URI.parseURI $ LT.unpack $ StatusEventQuery._target_url s
+      authority <- URI.uriAuthority parsed_uri
+      return $ URI.uriRegName authority
+
+
 -- | XXX Note that we are obtaining the build metadata from an "unofficial"
 -- source; the queued_at time is inaccurate and the branch name is empty.
-get_circleci_failure :: Text -> StatusEventQuery.GitHubStatusEventGetter -> Maybe Builds.Build
-get_circleci_failure sha1 event_setter = do
+getCircleciFailure :: Text -> StatusEventQuery.GitHubStatusEventGetter -> Maybe Builds.Build
+getCircleciFailure sha1 event_setter = do
+
   guard $ circleCIContextPrefix `T.isPrefixOf` context_text
   parsed_uri <- URI.parseURI $ LT.unpack url_text
-
-  uri_authority <- URI.uriAuthority parsed_uri
-  let hostname = URI.uriRegName uri_authority
-  guard $ hostname == circleciDomain
 
   last_segment <- Safe.lastMay $ splitOn "/" $ URI.uriPath parsed_uri
   build_number <- readMaybe last_segment
@@ -90,8 +102,6 @@ get_circleci_failure sha1 event_setter = do
     current_time = StatusEventQuery._created_at event_setter
     context = StatusEventQuery._context event_setter
     url_text = StatusEventQuery._target_url event_setter
-
-
 
 
 -- | Operations:
@@ -129,7 +139,16 @@ handleFailedStatuses
       filter_failed = filter $ (== "failure") . StatusEventQuery._state
       failed_statuses_list_not_mine = filter_failed statuses_list_not_mine
 
-      circleci_failed_builds = Maybe.mapMaybe (get_circleci_failure sha1) failed_statuses_list_not_mine
+      failed_statuses_by_hostname = groupStatusesByHostname failed_statuses_list_not_mine
+
+  failed_statuses_by_providers <- liftIO $ SqlWrite.get_and_store_ci_providers db_connection_data failed_statuses_by_hostname
+
+  -- debug info:
+  let provider_keys = map (snd . snd) failed_statuses_by_providers
+  liftIO $ putStrLn $ unwords ["Provider DB keys:", show provider_keys]
+
+  let circleci_failed_statuses = filter ((== circleciDomain) . fst . snd) failed_statuses_by_providers
+      circleci_failed_builds = Maybe.mapMaybe (getCircleciFailure sha1) $ concatMap fst circleci_failed_statuses
       scannable_build_numbers = map Builds.build_id circleci_failed_builds
 
       circleci_failcount = length circleci_failed_builds
@@ -193,13 +212,11 @@ handleFailedStatuses
 handlePushWebhook ::
      DbHelpers.DbConnectionData
   -> OAuth2.AccessToken
-  -> Maybe AuthStages.Username
   -> PushWebhooks.GitHubPushEvent
   -> IO (Either LT.Text ())
 handlePushWebhook
     _db_connection_data
     _access_token
-    _maybe_initiator
     push_event = do
 
   putStrLn $ unwords [
@@ -216,23 +233,23 @@ handleStatusWebhook ::
   -> OAuth2.AccessToken
   -> Maybe AuthStages.Username
   -> Webhooks.GitHubStatusEvent
-  -> IO (Either LT.Text ())
+  -> IO (Either LT.Text Bool)
 handleStatusWebhook
     db_connection_data
     access_token
     maybe_initiator
-    status_event =
+    status_event = do
+
+  liftIO $ putStrLn $ "Notified status context was: " ++ notified_status_context_string
+
+  let notified_status_url_string = LT.unpack $ Webhooks.target_url status_event
+  when (circleCIContextPrefix `T.isPrefixOf` notified_status_context_text) $
+    liftIO $ putStrLn $ "CircleCI URL was: " ++ notified_status_url_string
+
+  let owner_repo_text = Webhooks.name status_event
+      splitted = splitOn "/" $ LT.unpack owner_repo_text
 
   runExceptT $ do
-
-    liftIO $ putStrLn $ "Notified status context was: " ++ notified_status_context_string
-
-    let notified_status_url_string = LT.unpack $ Webhooks.target_url status_event
-    when (circleCIContextPrefix `T.isPrefixOf` notified_status_context_text) $
-      liftIO $ putStrLn $ "CircleCI URL was: " ++ notified_status_url_string
-
-    let owner_repo_text = Webhooks.name status_event
-        splitted = splitOn "/" $ LT.unpack owner_repo_text
 
     owned_repo <- except $ case splitted of
       [org, repo] -> Right $ DbHelpers.OwnerAndRepo org repo
@@ -256,10 +273,12 @@ handleStatusWebhook
     --
     -- Also, if we haven't posted a summary status before, do not act unless the notification
     -- was for a failed build.
-    when (is_not_my_own_context && (is_failure_notification || not (null maybe_previously_posted_status))) $ do
+    let will_post = is_not_my_own_context && (is_failure_notification || not (null maybe_previously_posted_status))
+    when will_post $ do
       _thread_id <- liftIO $ forkIO computation
       return ()
 
+    return will_post
 
   where
     notified_status_state_string = LT.unpack $ Webhooks.state status_event
@@ -304,29 +323,43 @@ genFlakinessStatus sha1 flaky_count pre_broken_count total_failcount =
       else "failure"
 
 
-github_event_endpoint :: DbHelpers.DbConnectionData -> AuthConfig.GithubConfig -> ActionT LT.Text IO ()
-github_event_endpoint connection_data github_config = do
+githubEventEndpoint ::
+     DbHelpers.DbConnectionData
+  -> AuthConfig.GithubConfig
+  -> ActionT LT.Text IO ()
+githubEventEndpoint connection_data github_config = do
 
-    maybe_signature_header <- S.header "X-Hub-Signature"
-    rq_body <- S.body
+  maybe_signature_header <- S.header "X-Hub-Signature"
+  rq_body <- S.body
 
-    let is_signature_valid = GHValidate.isValidPayload
-          (AuthConfig.webhook_secret github_config)
-          (LT.toStrict <$> maybe_signature_header)
-          (LBS.toStrict rq_body)
+  let is_signature_valid = GHValidate.isValidPayload
+        (AuthConfig.webhook_secret github_config)
+        (LT.toStrict <$> maybe_signature_header)
+        (LBS.toStrict rq_body)
 
-    maybe_event_type <- S.header "X-GitHub-Event"
-    case maybe_event_type of
-      Nothing -> return ()
-      Just event_type -> if not is_signature_valid
-        then return ()
-        else case event_type of
-          "status" -> do
-            body_json <- S.jsonData
-            liftIO $ handleStatusWebhook connection_data (AuthConfig.personal_access_token github_config) Nothing body_json
-            S.json =<< return ["hello" :: String]
-          "push" -> do
-            body_json <- S.jsonData
-            liftIO $ handlePushWebhook connection_data (AuthConfig.personal_access_token github_config) Nothing body_json
-            S.json =<< return ["hello" :: String]
-          _ -> S.json =<< return ["hello" :: String] -- XXX Do I even need to send a response?
+  maybe_event_type <- S.header "X-GitHub-Event"
+
+
+  liftIO $ do
+    current_time <- Clock.getCurrentTime
+    putStrLn $ unwords [
+      "Received event at " ++ show current_time
+      , "; event type:"
+      , show maybe_event_type
+      , "; signature valid?"
+      , show is_signature_valid
+      ]
+
+  case maybe_event_type of
+    Nothing -> return ()
+    Just event_type -> when is_signature_valid $
+      case event_type of
+        "status" -> do
+          body_json <- S.jsonData
+          will_post <- liftIO $ handleStatusWebhook connection_data (AuthConfig.personal_access_token github_config) Nothing body_json
+          S.json =<< return ["Will post?" :: String, show will_post]
+        "push" -> do
+          body_json <- S.jsonData
+          liftIO $ handlePushWebhook connection_data (AuthConfig.personal_access_token github_config) body_json
+          S.json =<< return ["hello" :: String]
+        _ -> return ()

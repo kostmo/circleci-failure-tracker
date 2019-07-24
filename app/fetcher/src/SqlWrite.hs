@@ -18,6 +18,7 @@ import           Data.Time.Format                  (defaultTimeLocale,
                                                     formatTime,
                                                     rfc822DateFormat)
 import           Data.Traversable                  (for)
+import           Data.Tuple                        (swap)
 import           Database.PostgreSQL.Simple
 import           Database.PostgreSQL.Simple.Errors
 import           GHC.Int                           (Int64)
@@ -147,6 +148,29 @@ store_matches scan_resources (Builds.NewBuildStepId build_step_id) _build_num sc
         match_deets = ScanPatterns.match_details match
 
     insertion_sql = "INSERT INTO matches(scan_id, build_step, pattern, line_number, line_text, span_start, span_end) VALUES(?,?,?,?,?,?,?);"
+
+
+insert_single_ci_provider :: Connection -> String -> IO (String, Int64)
+insert_single_ci_provider conn hostname = do
+  rows <- query conn sql_query $ Only hostname
+  row_id <- case rows of
+    Only old_id:_ -> return old_id
+    []              -> do
+      [Only new_id] <- query conn sql_insert $ Only hostname
+      return new_id
+  return (hostname, row_id)
+  where
+    sql_query = "SELECT id FROM ci_providers WHERE hostname = ? LIMIT 1;"
+    sql_insert = "INSERT INTO ci_providers(hostname) VALUES(?) RETURNING id;"
+
+
+get_and_store_ci_providers ::
+     DbHelpers.DbConnectionData
+  -> [(String, a)]
+  -> IO [(a, (String, Int64))]
+get_and_store_ci_providers conn_data failed_statuses_by_hostname = do
+  conn <- DbHelpers.get_connection conn_data
+  mapM (traverse (insert_single_ci_provider conn) . swap) failed_statuses_by_hostname
 
 
 insert_posted_github_status ::

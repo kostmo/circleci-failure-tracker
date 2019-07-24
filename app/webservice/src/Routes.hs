@@ -212,8 +212,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
     when (AuthConfig.is_local github_config) echoEndpoint
 
 
-    S.post "/api/github-event" $ StatusUpdate.github_event_endpoint connection_data github_config
-
+    S.post "/api/github-event" $ StatusUpdate.githubEventEndpoint connection_data github_config
 
 
     -- Experimental

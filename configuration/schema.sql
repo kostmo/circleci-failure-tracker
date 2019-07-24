@@ -1017,22 +1017,25 @@ CREATE VIEW public.job_failure_frequencies AS
 ALTER TABLE public.job_failure_frequencies OWNER TO postgres;
 
 --
--- Name: master_failure_modes; Type: TABLE; Schema: public; Owner: postgres
+-- Name: master_failure_mode_attributions; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE TABLE public.master_failure_modes (
-    id integer NOT NULL,
-    name text NOT NULL
+CREATE TABLE public.master_failure_mode_attributions (
+    cause_id integer NOT NULL,
+    reporter text NOT NULL,
+    mode_id integer NOT NULL,
+    reported_at timestamp with time zone,
+    id integer NOT NULL
 );
 
 
-ALTER TABLE public.master_failure_modes OWNER TO postgres;
+ALTER TABLE public.master_failure_mode_attributions OWNER TO postgres;
 
 --
 -- Name: known_breakage_summaries; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.known_breakage_summaries WITH (security_barrier='false') AS
+CREATE VIEW public.known_breakage_summaries AS
  SELECT code_breakage_spans.cause_id,
     code_breakage_spans.cause_commit_index,
     code_breakage_spans.cause_sha1,
@@ -1051,16 +1054,22 @@ CREATE VIEW public.known_breakage_summaries WITH (security_barrier='false') AS
     COALESCE(meta2.message, ''::text) AS resolution_commit_message,
     COALESCE(meta1.committer_date, now()) AS breakage_commit_date,
     COALESCE(meta2.committer_date, now()) AS resolution_commit_date,
-    COALESCE(master_failure_modes.name, ''::text) AS failure_mode,
-    COALESCE(code_breakage_spans.failure_mode, '-1'::integer) AS failure_mode_id
+    COALESCE(bar.mode_id, '-1'::integer) AS failure_mode_id,
+    COALESCE(bar.reporter, ''::text) AS failure_mode_reporter,
+    COALESCE(bar.reported_at, now()) AS failure_mode_reported_at
    FROM ((((public.code_breakage_spans
      LEFT JOIN ( SELECT code_breakage_affected_jobs.cause,
             string_agg(code_breakage_affected_jobs.job, ';'::text) AS jobs
            FROM public.code_breakage_affected_jobs
           GROUP BY code_breakage_affected_jobs.cause) foo ON ((foo.cause = code_breakage_spans.cause_id)))
-     LEFT JOIN public.master_failure_modes ON ((code_breakage_spans.failure_mode = master_failure_modes.id)))
      LEFT JOIN public.commit_metadata meta1 ON ((meta1.sha1 = code_breakage_spans.cause_sha1)))
-     LEFT JOIN public.commit_metadata meta2 ON ((meta2.sha1 = code_breakage_spans.resolution_sha1)));
+     LEFT JOIN public.commit_metadata meta2 ON ((meta2.sha1 = code_breakage_spans.resolution_sha1)))
+     LEFT JOIN ( SELECT DISTINCT ON (master_failure_mode_attributions.cause_id) master_failure_mode_attributions.cause_id,
+            master_failure_mode_attributions.reporter,
+            master_failure_mode_attributions.reported_at,
+            master_failure_mode_attributions.mode_id
+           FROM public.master_failure_mode_attributions
+          ORDER BY master_failure_mode_attributions.cause_id, master_failure_mode_attributions.id DESC) bar ON ((bar.cause_id = code_breakage_spans.cause_id)));
 
 
 ALTER TABLE public.known_breakage_summaries OWNER TO postgres;
@@ -1180,6 +1189,41 @@ CREATE VIEW public.master_contiguous_failure_blocks_with_commits AS
 
 
 ALTER TABLE public.master_contiguous_failure_blocks_with_commits OWNER TO postgres;
+
+--
+-- Name: master_failure_mode_attributions_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.master_failure_mode_attributions_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.master_failure_mode_attributions_id_seq OWNER TO postgres;
+
+--
+-- Name: master_failure_mode_attributions_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.master_failure_mode_attributions_id_seq OWNED BY public.master_failure_mode_attributions.id;
+
+
+--
+-- Name: master_failure_modes; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.master_failure_modes (
+    id integer NOT NULL,
+    label text NOT NULL,
+    revertible boolean DEFAULT false NOT NULL
+);
+
+
+ALTER TABLE public.master_failure_modes OWNER TO postgres;
 
 --
 -- Name: master_failure_modes_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
@@ -1728,6 +1772,13 @@ ALTER TABLE ONLY public.code_breakage_resolution ALTER COLUMN id SET DEFAULT nex
 
 
 --
+-- Name: master_failure_mode_attributions id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.master_failure_mode_attributions ALTER COLUMN id SET DEFAULT nextval('public.master_failure_mode_attributions_id_seq'::regclass);
+
+
+--
 -- Name: master_failure_modes id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
@@ -1816,6 +1867,14 @@ ALTER TABLE ONLY public.build_steps
 
 
 --
+-- Name: ci_providers ci_providers_hostname_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ci_providers
+    ADD CONSTRAINT ci_providers_hostname_key UNIQUE (hostname);
+
+
+--
 -- Name: ci_providers ci_providers_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -1869,6 +1928,14 @@ ALTER TABLE ONLY public.created_github_statuses
 
 ALTER TABLE ONLY public.log_metadata
     ADD CONSTRAINT log_metadata_pkey PRIMARY KEY (step);
+
+
+--
+-- Name: master_failure_mode_attributions master_failure_mode_attributions_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.master_failure_mode_attributions
+    ADD CONSTRAINT master_failure_mode_attributions_pkey PRIMARY KEY (id);
 
 
 --
@@ -2097,10 +2164,24 @@ CREATE INDEX fk_tag_pattern ON public.pattern_tags USING btree (pattern);
 
 
 --
+-- Name: fki_bre; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX fki_bre ON public.master_failure_mode_attributions USING btree (cause_id);
+
+
+--
 -- Name: fki_fk_build; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE INDEX fki_fk_build ON public.scanned_patterns USING btree (build);
+
+
+--
+-- Name: fki_fk_mode_id; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX fki_fk_mode_id ON public.master_failure_mode_attributions USING btree (mode_id);
 
 
 --
@@ -2193,6 +2274,14 @@ ALTER TABLE ONLY public.code_breakage_resolution
 
 
 --
+-- Name: master_failure_mode_attributions fk_mode_id; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.master_failure_mode_attributions
+    ADD CONSTRAINT fk_mode_id FOREIGN KEY (mode_id) REFERENCES public.master_failure_modes(id) ON DELETE CASCADE;
+
+
+--
 -- Name: scanned_patterns fk_pattern; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -2254,6 +2343,14 @@ ALTER TABLE ONLY public.matches
 
 ALTER TABLE ONLY public.mitigations
     ADD CONSTRAINT mitigations_pattern_fkey FOREIGN KEY (pattern) REFERENCES public.patterns(id);
+
+
+--
+-- Name: master_failure_mode_attributions mode_cause_id_fk; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.master_failure_mode_attributions
+    ADD CONSTRAINT mode_cause_id_fk FOREIGN KEY (cause_id) REFERENCES public.code_breakage_cause(id) ON DELETE CASCADE;
 
 
 --
@@ -2592,6 +2689,13 @@ GRANT ALL ON TABLE public.ci_providers TO logan;
 
 
 --
+-- Name: SEQUENCE ci_providers_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE public.ci_providers_id_seq TO logan;
+
+
+--
 -- Name: SEQUENCE code_breakage_cause_id_seq; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -2627,6 +2731,13 @@ GRANT ALL ON TABLE public.job_failure_frequencies TO logan;
 
 
 --
+-- Name: TABLE master_failure_mode_attributions; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_failure_mode_attributions TO logan;
+
+
+--
 -- Name: TABLE known_breakage_summaries; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -2659,6 +2770,27 @@ GRANT ALL ON TABLE public.master_contiguous_failure_blocks TO logan;
 --
 
 GRANT ALL ON TABLE public.master_contiguous_failure_blocks_with_commits TO logan;
+
+
+--
+-- Name: SEQUENCE master_failure_mode_attributions_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE public.master_failure_mode_attributions_id_seq TO logan;
+
+
+--
+-- Name: TABLE master_failure_modes; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_failure_modes TO logan;
+
+
+--
+-- Name: SEQUENCE master_failure_modes_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE public.master_failure_modes_id_seq TO logan;
 
 
 --
@@ -2792,6 +2924,13 @@ GRANT ALL ON TABLE public.unattributed_failed_builds TO logan;
 --
 
 GRANT ALL ON TABLE public.universal_builds TO logan;
+
+
+--
+-- Name: SEQUENCE universal_builds_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE public.universal_builds_id_seq TO logan;
 
 
 --
