@@ -359,7 +359,17 @@ githubEventEndpoint connection_data github_config = do
           will_post <- liftIO $ handleStatusWebhook connection_data (AuthConfig.personal_access_token github_config) Nothing body_json
           S.json =<< return ["Will post?" :: String, show will_post]
         "push" -> do
+          plain_body <- S.body
+          liftIO $ putStrLn $ unwords [
+              "Now processing push event:"
+            , show plain_body
+            ]
+
           body_json <- S.jsonData
-          liftIO $ handlePushWebhook connection_data (AuthConfig.personal_access_token github_config) body_json
+
+          liftIO $ do
+            putStrLn "Parsed push event body JSON..."
+            handlePushWebhook connection_data (AuthConfig.personal_access_token github_config) body_json
+            putStrLn "Handled push event."
           S.json =<< return ["hello" :: String]
         _ -> return ()

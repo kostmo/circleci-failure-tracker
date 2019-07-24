@@ -192,26 +192,21 @@ function mark_failure_cause(commit_sha1, clicked_job_name) {
 
 			var description = $("#dialog-description-textarea").val();
 
-			if (description) {
-				$.post({
-					url: "/api/code-breakage-cause-report",
-					data: {"sha1": commit_sha1, "description": description, "jobs": jobs_list_delimited},
-					success: function( data ) {
+			$.post({
+				url: "/api/code-breakage-cause-report",
+				data: {"sha1": commit_sha1, "description": description, "jobs": jobs_list_delimited},
+				success: function( data ) {
 
-						if (data.success) {
-							alert("submitted report with ID: " + data.payload);
-							render_table();
-						} else {
-							alert("Error: " + data.error.message);
-						}
+					if (data.success) {
+						alert("submitted report with ID: " + data.payload);
+						render_table();
+					} else {
+						alert("Error: " + data.error.message);
 					}
-				});
+				}
+			});
 
-				document.getElementById("affected-jobs-dialog").close();
-
-			} else {
-				alert("Description must not be empty!");
-			}
+			document.getElementById("affected-jobs-dialog").close();
 
 		} else {
 			alert("Must select at least one job!");
