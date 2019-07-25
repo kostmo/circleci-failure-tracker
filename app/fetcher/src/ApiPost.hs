@@ -20,6 +20,7 @@ import qualified Network.HTTP.Client        as NC
 import qualified Network.OAuth.OAuth2       as OAuth2
 import           Network.Wreq               as NW
 
+import qualified Builds
 import qualified DbHelpers
 import qualified FetchHelpers
 import qualified StatusEvent
@@ -42,13 +43,13 @@ instance FromJSON StatusPostResult
 postCommitStatus ::
      OAuth2.AccessToken
   -> DbHelpers.OwnerAndRepo
-  -> T.Text
+  -> Builds.RawCommit
   -> StatusEvent.GitHubStatusEventSetter
   -> IO (Either LT.Text StatusPostResult)
 postCommitStatus
     (OAuth2.AccessToken personal_access_token)
     owned_repo
-    target_sha1
+    (Builds.RawCommit target_sha1)
     status_obj = runExceptT $ do
 
   response <- ExceptT $ fmap (first LT.pack) $ FetchHelpers.safeGetUrl $

@@ -81,14 +81,22 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 					align:"center",
 				},
 			]},
-			{title: "Mode", width: 250, field: "start.record.payload.failure_mode",
+			{title: "Mode", width: 250, field: "start.record.payload.failure_mode.payload",
 				formatter: function(cell, formatterParams, onRendered) {
 					var value = cell.getValue();
-					return failure_modes_dict[value] || "//";
+					return failure_modes_dict[value] || "?";
 				},
 				editor:"select",
 				editorParams: {
 					values: failure_modes_dict,
+				},
+				cellEdited: function(cell) {
+					var cause_id = cell.getRow().getData()["start"]["db_id"];
+					var new_failure_mode = cell.getValue();
+					console.log("updating failure mode to: " + new_failure_mode);
+
+					var data_dict = {"cause_id": cause_id, "mode": new_failure_mode};
+					post_modification("/api/code-breakage-mode-update", data_dict);
 				},
 			},
 			{title: "Notes", width: 250, field: "start.record.payload.description",
@@ -96,7 +104,6 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 				cellEdited: function(cell) {
 					var cause_id = cell.getRow().getData()["start"]["db_id"];
 					var new_description = cell.getValue();
-
 
 					var data_dict = {"cause_id": cause_id, "description": new_description};
 					post_modification("/api/code-breakage-description-update", data_dict);
@@ -196,9 +203,57 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 }
 
 
+function gen_failure_modes_chart(container_id) {
+
+   $.getJSON('/api/master-deterministic-failure-modes', function (data) {
+
+      Highcharts.chart(container_id, {
+        chart: {
+            plotBackgroundColor: null,
+            plotBorderWidth: null,
+            plotShadow: false,
+            type: 'pie'
+        },
+        title: {
+            text: 'Failure modes'
+        },
+        tooltip: {
+            pointFormat: '{series.name}: <b>{point.percentage:.1f}%</b>'
+        },
+        plotOptions: {
+            pie: {
+                allowPointSelect: true,
+                cursor: 'pointer',
+                dataLabels: {
+                    enabled: true,
+                    format: '<b>{point.name}</b>: {point.percentage:.1f} %',
+                    style: {
+                        color: (Highcharts.theme && Highcharts.theme.contrastTextColor) || 'black'
+                    }
+                }
+            }
+        },
+        credits: {
+            enabled: false
+        },
+        series: [{
+            name: 'Failure modes',
+            colorByPoint: true,
+            data: data.rows,
+         }]
+      });
+
+   });
+}
+
+
 function main() {
 
+	// TODO Apply throbber to more fetches
+	$("#scan-throbber").show();
 	$.getJSON('/api/list-failure-modes', function (mydata) {
+
+		$("#scan-throbber").hide();
 
 		var failure_modes_dict = {};
 		for (var item of mydata) {
@@ -208,7 +263,9 @@ function main() {
 		gen_annotated_breakages_table("annotated-breakages-table", "/api/code-breakages-annotated", failure_modes_dict);
 	});
 
+	gen_failure_modes_chart("container-failure-modes");
 
 	gen_detected_breakages_table("detected-breakages-table", "/api/code-breakages-detected");
+
 }
 

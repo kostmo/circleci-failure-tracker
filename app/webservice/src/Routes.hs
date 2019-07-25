@@ -309,10 +309,11 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       commit_sha1_text <- S.param "sha1"
 
       let owned_repo = DbHelpers.OwnerAndRepo Constants.project_name Constants.repo_name
+          commit = Builds.RawCommit commit_sha1_text
 
           callback_func :: AuthStages.Username -> IO (Either (AuthStages.BackendFailure Text) Text)
           callback_func user_alias = do
-            maybe_previously_posted_status <- liftIO $ SqlRead.get_posted_github_status connection_data owned_repo commit_sha1_text
+            maybe_previously_posted_status <- liftIO $ SqlRead.get_posted_github_status connection_data owned_repo commit
 
             run_result <- runExceptT $
               StatusUpdate.handleFailedStatuses
@@ -320,7 +321,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
                 (AuthConfig.personal_access_token github_config)
                 (Just user_alias)
                 owned_repo
-                commit_sha1_text
+                commit
                 maybe_previously_posted_status
 
             putStrLn $ "Run result: " ++ show run_result
@@ -447,10 +448,11 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     get "/api/step" SqlRead.apiStep
 
+    get "/api/master-deterministic-failure-modes" SqlRead.apiDeterministicFailureModes
+
     get "/api/summary" SqlRead.apiSummaryStats
 
     get "/api/tags" SqlRead.apiTagsHistogram
-
 
     get "/api/unmatched-builds" SqlRead.api_unmatched_builds
 
@@ -628,6 +630,16 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       S.json $ WebApi.toJsonEither insertion_result
 
 
+    S.post "/api/code-breakage-mode-update" $ do
+      item_id <- S.param "cause_id"
+      mode <- S.param "mode"
+      let callback_func user_alias = SqlWrite.update_code_breakage_mode connection_data user_alias item_id mode
+
+      rq <- S.request
+      insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
+      S.json $ WebApi.toJsonEither insertion_result
+
+
     S.post "/api/code-breakage-description-update" $ do
       item_id <- S.param "cause_id"
       description <- S.param "description"
@@ -636,6 +648,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       rq <- S.request
       insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
       S.json $ WebApi.toJsonEither insertion_result
+
 
 
     S.post "/api/code-breakage-delete" $ do

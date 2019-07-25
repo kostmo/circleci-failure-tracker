@@ -296,6 +296,11 @@ apiStep = WebApi.ApiResponse <$> runQuery
   "SELECT step_name, COUNT(*) AS freq FROM builds_join_steps WHERE step_name IS NOT NULL AND branch IN (SELECT branch FROM presumed_stable_branches) GROUP BY step_name ORDER BY freq DESC;"
 
 
+apiDeterministicFailureModes :: DbIO (WebApi.ApiResponse WebApi.PieSliceApiRecord)
+apiDeterministicFailureModes = WebApi.ApiResponse <$> runQuery
+  "SELECT master_failure_modes.label, freq FROM (SELECT failure_mode_id, COUNT(*) AS freq FROM known_breakage_summaries WHERE failure_mode_id >= 0 GROUP BY failure_mode_id ORDER BY freq DESC) foo JOIN master_failure_modes on foo.failure_mode_id = master_failure_modes.id;"
+
+
 -- | Note that Highcharts expects the dates to be in ascending order
 api_failed_commits_by_day :: DbIO (WebApi.ApiResponse (Day, Int))
 api_failed_commits_by_day = WebApi.ApiResponse <$> runQuery
@@ -1006,8 +1011,12 @@ get_best_pattern_matches_whitelisted_branches pat@(ScanPatterns.PatternId patter
     sql = "SELECT build, step_name, match_id, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch FROM best_pattern_match_augmented_builds WHERE pattern_id = ? AND branch IN (SELECT branch from presumed_stable_branches);"
 
 
-get_posted_github_status :: DbHelpers.DbConnectionData -> DbHelpers.OwnerAndRepo -> Text -> IO (Maybe (Text, Text))
-get_posted_github_status conn_data (DbHelpers.OwnerAndRepo project repo) sha1 = do
+get_posted_github_status ::
+     DbHelpers.DbConnectionData
+  -> DbHelpers.OwnerAndRepo
+  -> Builds.RawCommit
+  -> IO (Maybe (Text, Text))
+get_posted_github_status conn_data (DbHelpers.OwnerAndRepo project repo) (Builds.RawCommit sha1) = do
 
   conn <- DbHelpers.get_connection conn_data
 

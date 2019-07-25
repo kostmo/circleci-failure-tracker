@@ -260,12 +260,12 @@ findAncestor
 getBuildStatuses ::
      OAuth2.AccessToken
   -> DbHelpers.OwnerAndRepo
-  -> T.Text
+  -> Builds.RawCommit
   -> IO (Either TL.Text [StatusEventQuery.GitHubStatusEventGetter])
 getBuildStatuses
     token
     owner_and_repo
-    target_sha1 = do
+    (Builds.RawCommit target_sha1) = do
 
   mgr <- newManager tlsManagerSettings
 

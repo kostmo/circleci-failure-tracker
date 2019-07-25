@@ -175,11 +175,11 @@ get_and_store_ci_providers conn_data failed_statuses_by_hostname = do
 
 insert_posted_github_status ::
      DbHelpers.DbConnectionData
-  -> Text
+  -> Builds.RawCommit
   -> DbHelpers.OwnerAndRepo
   -> ApiPost.StatusPostResult
   -> IO Int64
-insert_posted_github_status conn_data git_sha1 (DbHelpers.OwnerAndRepo owner repo) (ApiPost.StatusPostResult id url state desc target_url context created_at updated_at) = do
+insert_posted_github_status conn_data (Builds.RawCommit git_sha1) (DbHelpers.OwnerAndRepo owner repo) (ApiPost.StatusPostResult id url state desc target_url context created_at updated_at) = do
   conn <- DbHelpers.get_connection conn_data
   [Only pattern_id] <- query conn sql (id, git_sha1, owner, repo, url, state, desc, target_url, context, created_at, updated_at)
   return pattern_id
@@ -244,6 +244,19 @@ update_code_breakage_description conn_data cause_id description = do
   Right <$> execute conn sql (description, cause_id)
   where
     sql = "UPDATE code_breakage_cause SET description = ? WHERE id = ?;"
+
+
+update_code_breakage_mode ::
+     DbHelpers.DbConnectionData
+  -> AuthStages.Username
+  -> Int64 -- ^ cause
+  -> Int64 -- ^ mode
+  -> IO (Either Text Int64)
+update_code_breakage_mode conn_data (AuthStages.Username author) cause_id mode = do
+  conn <- DbHelpers.get_connection conn_data
+  Right <$> execute conn insertion_sql (cause_id, author, mode)
+  where
+    insertion_sql = "INSERT INTO master_failure_mode_attributions(cause_id, reporter, mode_id) VALUES(?,?,?);"
 
 
 update_pattern_description ::

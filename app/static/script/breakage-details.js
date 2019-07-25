@@ -3,7 +3,6 @@ function gen_affected_jobs_table(element_id, cause_id) {
 	var data_url = "/api/known-breakage-affected-jobs?cause_id=" + cause_id;
 
 	var table = new Tabulator("#" + element_id, {
-		height:"400px",
 		layout:"fitColumns",
 		placeholder:"No Data Set",
 		columns: [

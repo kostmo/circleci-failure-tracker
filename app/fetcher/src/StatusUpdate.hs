@@ -10,7 +10,6 @@ import           Control.Monad                 (guard, when)
 import           Control.Monad.IO.Class        (liftIO)
 import           Control.Monad.Trans.Except    (ExceptT (ExceptT), except,
                                                 runExceptT)
-import           Data.Bifunctor                (first)
 import qualified Data.ByteString.Lazy          as LBS
 import           Data.List                     (filter, intercalate)
 import           Data.List.Split               (splitOn)
@@ -42,7 +41,6 @@ import qualified PushWebhooks
 import qualified Scanning
 import qualified ScanPatterns
 import qualified SqlRead
-import qualified SqlUpdate
 import qualified SqlWrite
 import qualified StatusEvent
 import qualified StatusEventQuery
@@ -82,7 +80,10 @@ groupStatusesByHostname =
 
 -- | XXX Note that we are obtaining the build metadata from an "unofficial"
 -- source; the queued_at time is inaccurate and the branch name is empty.
-getCircleciFailure :: Text -> StatusEventQuery.GitHubStatusEventGetter -> Maybe Builds.Build
+getCircleciFailure ::
+     Builds.RawCommit
+  -> StatusEventQuery.GitHubStatusEventGetter
+  -> Maybe Builds.Build
 getCircleciFailure sha1 event_setter = do
 
   guard $ circleCIContextPrefix `T.isPrefixOf` context_text
@@ -92,7 +93,7 @@ getCircleciFailure sha1 event_setter = do
   build_number <- readMaybe last_segment
   return $ Builds.NewBuild
     (Builds.NewBuildNumber build_number)
-    (Builds.RawCommit sha1)
+    sha1
     current_time
     build_name
     ""
@@ -110,7 +111,7 @@ storeUniversalBuilds ::
      DbHelpers.DbConnectionData
   -> Builds.RawCommit
   -> [([StatusEventQuery.GitHubStatusEventGetter], DbHelpers.WithId String)]
-  -> IO [DbHelpers.WithId Builds.UniversalBuild]
+  -> IO [((DbHelpers.WithId Builds.UniversalBuild, Builds.Build), (StatusEventQuery.GitHubStatusEventGetter, String))]
 storeUniversalBuilds conn_data commit statuses_by_ci_providers = do
   conn <- DbHelpers.get_connection conn_data
 
@@ -121,10 +122,9 @@ storeUniversalBuilds conn_data commit statuses_by_ci_providers = do
       let maybe_universal_build = extractUniversalBuild commit provider_with_id status_event
       case maybe_universal_build of
         Nothing -> return Nothing
-        Just uni_build@(Builds.UniversalBuild (Builds.NewBuildNumber provider_buildnum) provider_id build_namespace) -> do
+        Just (sub_build, uni_build@(Builds.UniversalBuild (Builds.NewBuildNumber provider_buildnum) provider_id build_namespace)) -> do
           [Only new_id] <- query conn sql_insert (provider_id, provider_buildnum, build_namespace)
-          return $ Just $ DbHelpers.WithId new_id uni_build
-
+          return $ Just ((DbHelpers.WithId new_id uni_build, sub_build), (status_event, DbHelpers.record provider_with_id))
 
     return $ Maybe.catMaybes result_maybe_list
 
@@ -138,14 +138,15 @@ extractUniversalBuild ::
      Builds.RawCommit
   -> DbHelpers.WithId String
   -> StatusEventQuery.GitHubStatusEventGetter
-  -> Maybe Builds.UniversalBuild
-extractUniversalBuild (Builds.RawCommit commit) provider_with_id status_object = case DbHelpers.record provider_with_id of
+  -> Maybe (Builds.Build, Builds.UniversalBuild)
+extractUniversalBuild commit provider_with_id status_object = case DbHelpers.record provider_with_id of
   "circleci.com"   -> do
-    circle_failure_obj <- getCircleciFailure commit status_object
-    return $ Builds.UniversalBuild
-      (Builds.build_id circle_failure_obj)
-      (DbHelpers.db_id provider_with_id)
-      ""
+    circle_build <- getCircleciFailure commit status_object
+    let uni_build = Builds.UniversalBuild
+          (Builds.build_id circle_build)
+          (DbHelpers.db_id provider_with_id)
+          ""
+    return (circle_build, uni_build)
   "ci.pytorch.org" -> Nothing
   "travis-ci.org"  -> Nothing
   _                -> Nothing
@@ -162,7 +163,7 @@ handleFailedStatuses ::
   -> OAuth2.AccessToken
   -> Maybe AuthStages.Username -- ^ scan initiator
   -> DbHelpers.OwnerAndRepo
-  -> Text -- ^ commit sha1
+  -> Builds.RawCommit
   -> Maybe (Text, Text)
   -> ExceptT LT.Text IO ()
 handleFailedStatuses
@@ -183,9 +184,6 @@ handleFailedStatuses
   liftIO $ putStrLn $ "Build statuses count: " ++ show (length build_statuses_list_any_source)
 
   let statuses_list_not_mine = filter is_not_my_own_context build_statuses_list_any_source
-
-      filter_failed = filter $ (== "failure") . StatusEventQuery._state
-
       statuses_by_hostname = groupStatusesByHostname statuses_list_not_mine
 
   statuses_by_ci_providers <- liftIO $ SqlWrite.get_and_store_ci_providers db_connection_data statuses_by_hostname
@@ -194,25 +192,28 @@ handleFailedStatuses
   let provider_keys = map (DbHelpers.db_id . snd) statuses_by_ci_providers
   liftIO $ putStrLn $ unwords ["Provider DB keys:", show provider_keys]
 
-  liftIO $ storeUniversalBuilds
+  stored_build_tuples <- liftIO $ storeUniversalBuilds
     db_connection_data
-    (Builds.RawCommit sha1)
+    sha1
     statuses_by_ci_providers
 
-  let circleci_statuses = filter ((== circleciDomain) . DbHelpers.record . snd) statuses_by_ci_providers
-      circleci_failed_statuses = filter_failed $ concatMap fst circleci_statuses
+  let circleci_builds_and_statuses = filter ((== circleciDomain) . snd . snd) stored_build_tuples
+      filter_failed = filter $ (== "failure") . StatusEventQuery._state . fst . snd
 
-      circleci_failed_builds = Maybe.mapMaybe (getCircleciFailure sha1) circleci_failed_statuses
+      circleci_failed_builds_and_statuses = filter_failed circleci_builds_and_statuses
+
+      circleci_failed_builds = map (snd . fst) circleci_failed_builds_and_statuses
       scannable_build_numbers = map Builds.build_id circleci_failed_builds
 
       circleci_failcount = length circleci_failed_builds
 
   liftIO $ putStrLn $ "Failed CircleCI build count: " ++ show circleci_failcount
 
-
-  known_breakages <- ExceptT $ do
-    conn <- liftIO $ DbHelpers.get_connection db_connection_data
-    first LT.fromStrict <$> SqlUpdate.findKnownBuildBreakages conn access_token owned_repo (Builds.RawCommit sha1)
+  -- XXX TEMPORARILY DISABLED FOR PERFORMANCE REASONS
+  let known_breakages = []
+--  known_breakages <- ExceptT $ do
+--    conn <- liftIO $ DbHelpers.get_connection db_connection_data
+--    first LT.fromStrict <$> SqlUpdate.findKnownBuildBreakages conn access_token owned_repo (Builds.RawCommit sha1)
 
   let all_broken_jobs = Set.unions $ map (SqlRead._jobs . DbHelpers.record) known_breakages
       known_broken_circle_builds = filter ((`Set.member` all_broken_jobs) . Builds.job_name) circleci_failed_builds
@@ -234,7 +235,7 @@ handleFailedStatuses
     return builds_with_flaky_pattern_matches
 
   let flaky_count = length builds_with_flaky_pattern_matches
-      status_setter_data = genFlakinessStatus (LT.fromStrict sha1) flaky_count known_broken_circle_build_count circleci_failcount
+      status_setter_data = genFlakinessStatus sha1 flaky_count known_broken_circle_build_count circleci_failcount
 
       new_state_description_tuple = (LT.toStrict $ StatusEvent._state status_setter_data, LT.toStrict $ StatusEvent._description status_setter_data)
 
@@ -342,20 +343,20 @@ handleStatusWebhook
     notified_status_context_string = LT.unpack context_text
     notified_status_context_text = LT.toStrict context_text
     is_not_my_own_context = notified_status_context_text /= myAppStatusContext
-    sha1 = LT.toStrict $ Webhooks.sha status_event
+    sha1 = Builds.RawCommit $ LT.toStrict $ Webhooks.sha status_event
 
 
 genFlakinessStatus ::
-     LT.Text
+     Builds.RawCommit
   -> Int -- ^ flaky count
   -> Int -- ^ pre-broken count
   -> Int -- ^ total failure count
   -> StatusEvent.GitHubStatusEventSetter
-genFlakinessStatus sha1 flaky_count pre_broken_count total_failcount =
+genFlakinessStatus (Builds.RawCommit sha1) flaky_count pre_broken_count total_failcount =
   StatusEvent.GitHubStatusEventSetter
     description
     status_string
-    (webserverBaseUrl <> "/commit-details.html?sha1=" <> sha1)
+    (webserverBaseUrl <> "/commit-details.html?sha1=" <> LT.fromStrict sha1)
     (LT.fromStrict myAppStatusContext)
 
   where
