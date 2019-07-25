@@ -38,7 +38,7 @@ function get_log_text(match_id, context_linecount) {
 			var dialog_content = [
 				render_tag("div", "<a href='javascript: document.getElementById(\"myDialog\").close();'>Press <i>Esc</i> to close</a>", {"style": "color: gray; text-align: right; float: right;"}),
 				render_tag("div", link("Full plaintext log", "/api/view-log-full?build_id=" + data.payload.build_number) + " | " + link("on CircleCI", "https://circleci.com/gh/pytorch/pytorch/" + data.payload.build_number, true)),
-				render_table(table_items, {"class": "code-lines"}, null),
+				render_table(table_items, {"class": "code-lines"}, null, false),
 			];
 
 			$("#myDialog").html(dialog_content.join(""));

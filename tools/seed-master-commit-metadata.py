@@ -46,7 +46,23 @@ def get_log_json_list(repo_path, merge_commit):
     # print("command: " + " ".join(command_args))
 
     output = subprocess.check_output(command_args, cwd=repo_path)
-    return json.loads(output)
+
+    old_json = json.loads(output)
+
+    # Get sanitized commit messages
+    new_json = []
+    for i, item in enumerate(old_json):
+
+        print("progress: %d/%d" % (i, len(old_json)))
+
+        commit_sha1 = item["sha1"];
+
+        my_command = "git log --format=%B -n 1 " + commit_sha1
+        commit_message = subprocess.check_output(my_command, cwd=repo_path, shell=True)
+        item["message"] = commit_message.strip()
+        new_json.append(item)
+
+    return new_json
 
 
 def upload_commits(hostname, auth_token, commits):
@@ -72,7 +88,10 @@ def get_last_excluded_commit(options):
         r = requests.get(url, verify=False)
         parsed_json = r.json()
         print(parsed_json)
-        return parsed_json["payload"]
+        if parsed_json["success"]:
+            return parsed_json["payload"]
+        else:
+            return get_first_merge_commit(options.repo_path)
 
 
 def parse_args():
