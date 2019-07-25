@@ -152,14 +152,13 @@ function mark_failure_resolution(commit_sha1, active_breakages) {
 
 			if (data.success) {
 				alert("submitted report with ID: " + data.payload);
-				render_table();
+				render_timeline_table();
 			} else {
 				alert("Error: " + data.error.message);
 			}
 		}
         });
 }
-
 
 
 function mark_failure_cause(commit_sha1, clicked_job_name) {
@@ -199,7 +198,7 @@ function mark_failure_cause(commit_sha1, clicked_job_name) {
 
 					if (data.success) {
 						alert("submitted report with ID: " + data.payload);
-						render_table();
+						render_timeline_table();
 					} else {
 						alert("Error: " + data.error.message);
 					}
@@ -275,6 +274,8 @@ function define_column(col) {
 
 			if (detected_contiguous_breakage) {
 				cell.getElement().style.backgroundSize = "33.3%";
+
+				// vertical stripes
 				cell.getElement().style.backgroundImage = "url(\"data:image/svg+xml,%3Csvg width='40' height='1' viewBox='0 0 40 1' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0h20v1H0z' fill='%230000FF' fill-opacity='0.6' fill-rule='evenodd'/%3E%3C/svg%3E\")";
 			}
 
@@ -298,9 +299,7 @@ function define_column(col) {
 			}
 		},
 
-		headerClick: function(e, column){
-			//e - the click event object
-			//column - column component
+		headerClick: function(e, column) {
 
 			var columnField = column.getField();
 
@@ -318,8 +317,6 @@ function define_column(col) {
 			document.execCommand('copy');
 			document.body.removeChild(el);
 */
-
-
 		},
 		cellContext: function(e, cell) {
 
@@ -357,14 +354,33 @@ function next_page() {
 
 	$('#offset-input').val(old_offset + count);
 
-	render_table();
+	render_timeline_table();
 }
 
 
 function get_column_definitions(raw_column_list) {
 
+	var legend_rows = [
+		["Symbol", "Meaning"],
+	];
+
+	var symbol_pairs = [
+		['yellow-triangle.svg', "flaky"],
+		['red-x.svg', "other match"],
+		['blue-square.svg', "no pattern match"],
+		['purple-circle.svg', "timeout"],
+		['gray-diamond.svg', "no log"],
+		['green-dot.svg', "success"],
+	];
+
+	for (var x of symbol_pairs) {
+		legend_rows.push(['<img src="/images/build-status-indicators/' + x[0] + '" style="width: 20px"/>', x[1]]);
+	}
+
+	var legend = render_table(legend_rows, {"style": "vertical-align: bottom;"}, "Legend", true);
+
 	var commit_column_definition = {
-		title: 'Commit<br/><table style="vertical-align: bottom;"><caption>Legend</caption><tbody><tr><th>Symbol</th><th>Meaning</th></tr><tr><td><img src="/images/build-status-indicators/yellow-triangle.svg" style="width: 20px"/></td><td>flaky</td></tr><tr><td><img src="/images/build-status-indicators/red-x.svg" style="width: 20px"/></td><td>other match</td></tr><tr><td><img src="/images/build-status-indicators/blue-square.svg" style="width: 20px"/></td><td>no pattern match</td></tr><tr><td><img src="/images/build-status-indicators/purple-circle.svg" style="width: 20px"/></td><td>timeout</td></tr><tr><td><img src="/images/build-status-indicators/gray-diamond.svg" style="width: 20px"/></td><td>no log</td></tr><tr><td><img src="/images/build-status-indicators/green-dot.svg" style="width: 20px"/></td><td>success</td></tr></tbody></table>',
+		title: 'Commit<br/>' + legend,
 		field: "commit",
 		headerVertical: false,
 		formatter: function(cell, formatterParams, onRendered) {
@@ -550,7 +566,7 @@ function get_query_parms() {
 }
 
 
-function render_table() {
+function render_timeline_table() {
 
 	const parms = get_query_parms();
 	get_timeline_data(parms);
@@ -618,6 +634,6 @@ function main() {
 		}
 	}
 
-	render_table();
+	render_timeline_table();
 }
 

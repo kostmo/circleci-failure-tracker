@@ -179,7 +179,7 @@ function test_pattern() {
 				table_rows.push(["Line " + one_based_line_number + ":", match_details["line_text"]]);
 			}
 
-			inner_html += render_table(table_rows);
+			inner_html += render_table(table_rows, {}, null);
 
 			var lines_from_end = data.payload.total_line_count - one_based_line_number;
 			$('#input-lines-from-end').val( lines_from_end );

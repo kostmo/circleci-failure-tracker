@@ -72,7 +72,7 @@ function render_list(items) {
 }
 
 
-function render_table_vertical_headers(rows, attrs) {
+function render_table_vertical_headers(rows, attrs, caption) {
 
 	var content = "";
 	for (var row of rows) {
@@ -87,20 +87,48 @@ function render_table_vertical_headers(rows, attrs) {
 		content += render_tag("tr", row_content);
 	}
 
-	return render_tag("table", render_tag("tbody", content), attrs);
+	var caption_html = "";
+	if (caption) {
+		caption_html = render_tag("caption", caption);
+	}
+
+	return render_tag("table", render_tag("tbody", content) + caption_html, attrs);
 }
 
 
-function render_table(rows, attrs) {
-
-	var content = "";
-	for (var row of rows) {
-		var row_content = "";
-		for (var item of row) {
-			row_content += render_tag("td", item);
-		}
-		content += render_tag("tr", row_content);
+function render_table_row(items, cell_type) {
+	var row_content = "";
+	for (var item of items) {
+		row_content += render_tag(cell_type, item);
 	}
 
-	return render_tag("table", render_tag("tbody", content), attrs);
+	return row_content;
+}
+
+
+function render_table_content(rows, first_row_header) {
+
+	var content = "";
+
+	var row_count = 0;
+	for (var row of rows) {
+		var row_content = render_table_row(row, row_count == 0 && first_row_header ? "th" : "td");
+		content += render_tag("tr", row_content);
+
+		row_count += 1;
+	}
+
+	return content;
+}
+
+function render_table(rows, attrs, caption, first_row_header) {
+
+	var content = render_table_content(rows, first_row_header);
+
+	var caption_html = "";
+	if (caption) {
+		caption_html = render_tag("caption", caption);
+	}
+
+	return render_tag("table", render_tag("tbody", content) + caption_html, attrs);
 }
