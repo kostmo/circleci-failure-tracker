@@ -47,6 +47,9 @@ import qualified StatusEventQuery
 import qualified Webhooks
 
 
+masterRefName = "refs/heads/master"
+
+
 webserverBaseUrl :: LT.Text
 webserverBaseUrl = "https://circle.pytorch.org"
 
@@ -276,11 +279,18 @@ handlePushWebhook
 
   putStrLn $ unwords [
       "Got repo push event; ref:"
-    , LT.unpack $ PushWebhooks.ref push_event
+    , refname
     , "; head:"
-    , LT.unpack $ PushWebhooks.id $ PushWebhooks.head_commit push_event
+    , head_sha1
     ]
+
+  when (refname == masterRefName) $
+    putStrLn "This was the master branch!"
+
   return $ Right ()
+  where
+    refname = LT.unpack $ PushWebhooks.ref push_event
+    head_sha1 = LT.unpack $ PushWebhooks.id $ PushWebhooks.head_commit push_event
 
 
 handleStatusWebhook ::
@@ -414,11 +424,6 @@ githubEventEndpoint connection_data github_config = do
           will_post <- liftIO $ handleStatusWebhook connection_data (AuthConfig.personal_access_token github_config) Nothing body_json
           S.json =<< return ["Will post?" :: String, show will_post]
         "push" -> do
-          plain_body <- S.body
-          liftIO $ putStrLn $ unwords [
-              "Now processing push event:"
-            , show plain_body
-            ]
 
           body_json <- S.jsonData
 
