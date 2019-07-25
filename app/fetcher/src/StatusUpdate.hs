@@ -20,7 +20,9 @@ import           Data.Text                     (Text)
 import qualified Data.Text                     as T
 import qualified Data.Text.Lazy                as LT
 import qualified Data.Time.Clock               as Clock
+import           Data.Traversable              (for)
 import           Data.Tuple                    (swap)
+import           Database.PostgreSQL.Simple
 import qualified GitHub.Data.Webhooks.Validate as GHValidate
 import qualified Network.OAuth.OAuth2          as OAuth2
 import qualified Network.URI                   as URI
@@ -104,6 +106,52 @@ getCircleciFailure sha1 event_setter = do
     url_text = StatusEventQuery._target_url event_setter
 
 
+storeUniversalBuilds ::
+     DbHelpers.DbConnectionData
+  -> Builds.RawCommit
+  -> [([StatusEventQuery.GitHubStatusEventGetter], DbHelpers.WithId String)]
+  -> IO [DbHelpers.WithId Builds.UniversalBuild]
+storeUniversalBuilds conn_data commit statuses_by_ci_providers = do
+  conn <- DbHelpers.get_connection conn_data
+
+  result_lists <- for statuses_by_ci_providers $ \(statuses, provider_with_id) -> do
+
+    result_maybe_list <- for statuses $ \status_event -> do
+
+      let maybe_universal_build = extractUniversalBuild commit provider_with_id status_event
+      case maybe_universal_build of
+        Nothing -> return Nothing
+        Just uni_build@(Builds.UniversalBuild (Builds.NewBuildNumber provider_buildnum) provider_id build_namespace) -> do
+          [Only new_id] <- query conn sql_insert (provider_id, provider_buildnum, build_namespace)
+          return $ Just $ DbHelpers.WithId new_id uni_build
+
+
+    return $ Maybe.catMaybes result_maybe_list
+
+  return $ concat result_lists
+
+  where
+    sql_insert = "INSERT INTO universal_builds(provider, build_number, build_namespace) VALUES(?,?,?) RETURNING id;"
+
+
+extractUniversalBuild ::
+     Builds.RawCommit
+  -> DbHelpers.WithId String
+  -> StatusEventQuery.GitHubStatusEventGetter
+  -> Maybe Builds.UniversalBuild
+extractUniversalBuild (Builds.RawCommit commit) provider_with_id status_object = case DbHelpers.record provider_with_id of
+  "circleci.com"   -> do
+    circle_failure_obj <- getCircleciFailure commit status_object
+    return $ Builds.UniversalBuild
+      (Builds.build_id circle_failure_obj)
+      (DbHelpers.db_id provider_with_id)
+      ""
+  "ci.pytorch.org" -> Nothing
+  "travis-ci.org"  -> Nothing
+  _                -> Nothing
+
+
+
 -- | Operations:
 -- * Filter out the CircleCI builds
 -- * Check if the builds have been scanned yet.
@@ -114,7 +162,7 @@ handleFailedStatuses ::
   -> OAuth2.AccessToken
   -> Maybe AuthStages.Username -- ^ scan initiator
   -> DbHelpers.OwnerAndRepo
-  -> Text
+  -> Text -- ^ commit sha1
   -> Maybe (Text, Text)
   -> ExceptT LT.Text IO ()
 handleFailedStatuses
@@ -137,18 +185,24 @@ handleFailedStatuses
   let statuses_list_not_mine = filter is_not_my_own_context build_statuses_list_any_source
 
       filter_failed = filter $ (== "failure") . StatusEventQuery._state
-      failed_statuses_list_not_mine = filter_failed statuses_list_not_mine
 
-      failed_statuses_by_hostname = groupStatusesByHostname failed_statuses_list_not_mine
+      statuses_by_hostname = groupStatusesByHostname statuses_list_not_mine
 
-  failed_statuses_by_providers <- liftIO $ SqlWrite.get_and_store_ci_providers db_connection_data failed_statuses_by_hostname
+  statuses_by_ci_providers <- liftIO $ SqlWrite.get_and_store_ci_providers db_connection_data statuses_by_hostname
 
   -- debug info:
-  let provider_keys = map (snd . snd) failed_statuses_by_providers
+  let provider_keys = map (DbHelpers.db_id . snd) statuses_by_ci_providers
   liftIO $ putStrLn $ unwords ["Provider DB keys:", show provider_keys]
 
-  let circleci_failed_statuses = filter ((== circleciDomain) . fst . snd) failed_statuses_by_providers
-      circleci_failed_builds = Maybe.mapMaybe (getCircleciFailure sha1) $ concatMap fst circleci_failed_statuses
+  liftIO $ storeUniversalBuilds
+    db_connection_data
+    (Builds.RawCommit sha1)
+    statuses_by_ci_providers
+
+  let circleci_statuses = filter ((== circleciDomain) . DbHelpers.record . snd) statuses_by_ci_providers
+      circleci_failed_statuses = filter_failed $ concatMap fst circleci_statuses
+
+      circleci_failed_builds = Maybe.mapMaybe (getCircleciFailure sha1) circleci_failed_statuses
       scannable_build_numbers = map Builds.build_id circleci_failed_builds
 
       circleci_failcount = length circleci_failed_builds

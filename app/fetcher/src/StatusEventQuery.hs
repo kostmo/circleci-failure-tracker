@@ -1,7 +1,5 @@
 {-# LANGUAGE DeriveGeneric         #-}
 {-# LANGUAGE DuplicateRecordFields #-}
-{-# LANGUAGE OverloadedStrings     #-}
-{-# LANGUAGE QuasiQuotes           #-}
 
 module StatusEventQuery where
 
@@ -19,9 +17,9 @@ data GitHubStatusEventGetter = GitHubStatusEventGetter {
     _url         :: Text
   , _avatar_url  :: Text
   , _id          :: Integer
-  , _state       :: Text
+  , _state       :: Text -- ^ we care about "failure" and "success"
   , _description :: Text
-  , _target_url  :: Text
+  , _target_url  :: Text -- ^ the build number and CI provider hostname can be extracted from this
   , _context     :: Text
   , _created_at  :: UTCTime
   } deriving (Generic, Show)
