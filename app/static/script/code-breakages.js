@@ -47,7 +47,32 @@ function gen_detected_breakages_table(element_id, data_url) {
 }
 
 
+function getModesSelectorValues(failure_modes_dict) {
+
+	var modes_by_revertibility = {};
+	for (var mode_id in failure_modes_dict) {
+		var props = failure_modes_dict[mode_id];
+
+		// Note: using a boolean as a dictionary key turns it into a string
+		var revertible_list = setDefault(modes_by_revertibility, props["revertible"], []);
+		revertible_list.push({label: props["label"], value: mode_id});
+	}
+
+	var modes_selector_values = [];
+	for (var revertibility in modes_by_revertibility) {
+		var vals = modes_by_revertibility[revertibility];
+
+		var outer_label = (revertibility === 'true') ? "revertible" : "nonrevertible";
+		modes_selector_values.push({label: outer_label, options: vals});
+	}
+
+	return modes_selector_values;
+}
+
+
 function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict) {
+
+	var modes_selector_values = getModesSelectorValues(failure_modes_dict);
 
 	var table = new Tabulator("#" + element_id, {
 		height:"300px",
@@ -84,11 +109,11 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 			{title: "Mode", width: 250, field: "start.record.payload.failure_mode.payload",
 				formatter: function(cell, formatterParams, onRendered) {
 					var value = cell.getValue();
-					return failure_modes_dict[value] || "?";
+					return failure_modes_dict[value]["label"] || "?";
 				},
 				editor:"select",
 				editorParams: {
-					values: failure_modes_dict,
+					values: modes_selector_values,
 				},
 				cellEdited: function(cell) {
 					var cause_id = cell.getRow().getData()["start"]["db_id"];
@@ -140,7 +165,7 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 						return render_commit_cell(cell, "start");
 					},
 				},
-				{title: "reported", width: 250, field: "start.record.created",
+				{title: "annotated", width: 250, field: "start.record.created",
 					formatter: function(cell, formatterParams, onRendered) {
 						var val = cell.getValue();
 						var start_obj = cell.getRow().getData()["start"];
@@ -148,16 +173,12 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 					},
 				},
 			]},
-
 			{title: "End", columns: [
-
 				{title: "commit", width: 300, field: "end.record.payload.resolution_commit.record",
 					formatter: function(cell, formatterParams, onRendered) {
 						return render_commit_cell(cell, "end");
 					},
 				},
-
-
 				{title: "reported", width: 250,
 					formatter: function(cell, formatterParams, onRendered) {
 						var val = cell.getValue();
@@ -173,9 +194,7 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 						return "";
 					},
 				},
-
 			]},
-
 			{title: "Span", width: 100,
 				headerSort: false,
 				formatter: function(cell, formatterParams, onRendered) {
@@ -192,13 +211,8 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 					}
 				},
 			},
-
 		],
 		ajaxURL: data_url,
-/*		ajaxResponse: function(url, params, response) {
-			return response.payload;
-		},
-*/
 	});
 }
 
@@ -257,7 +271,7 @@ function main() {
 
 		var failure_modes_dict = {};
 		for (var item of mydata) {
-			failure_modes_dict[item["db_id"]] = item["record"]["label"];
+			failure_modes_dict[item["db_id"]] = item["record"];
 		}
 
 		gen_annotated_breakages_table("annotated-breakages-table", "/api/code-breakages-annotated", failure_modes_dict);

@@ -298,7 +298,7 @@ apiStep = WebApi.ApiResponse <$> runQuery
 
 apiDeterministicFailureModes :: DbIO (WebApi.ApiResponse WebApi.PieSliceApiRecord)
 apiDeterministicFailureModes = WebApi.ApiResponse <$> runQuery
-  "SELECT master_failure_modes.label, freq FROM (SELECT failure_mode_id, COUNT(*) AS freq FROM known_breakage_summaries WHERE failure_mode_id >= 0 GROUP BY failure_mode_id ORDER BY freq DESC) foo JOIN master_failure_modes on foo.failure_mode_id = master_failure_modes.id;"
+  "SELECT master_failure_modes.label, freq FROM (SELECT failure_mode_id, COUNT(*) AS freq FROM known_breakage_summaries WHERE GROUP BY failure_mode_id ORDER BY freq DESC) foo JOIN master_failure_modes on foo.failure_mode_id = master_failure_modes.id;"
 
 
 -- | Note that Highcharts expects the dates to be in ascending order
