@@ -278,7 +278,7 @@ handlePushWebhook
       "Got repo push event; ref:"
     , LT.unpack $ PushWebhooks.ref push_event
     , "; head:"
-    , LT.unpack $ PushWebhooks.head push_event
+    , LT.unpack $ PushWebhooks.id $ PushWebhooks.head_commit push_event
     ]
   return $ Right ()
 

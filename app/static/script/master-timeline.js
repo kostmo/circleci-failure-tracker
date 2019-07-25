@@ -391,46 +391,49 @@ function get_column_definitions(raw_column_list) {
 		frozen: true,
 	};
 
-//	var filtered_column_names = raw_column_list.filter(x => !x.startsWith("binary"));
-	var filtered_column_names = raw_column_list;
-	filtered_column_names.sort();
+	raw_column_list.sort();
 
-	var column_list = [commit_column_definition].concat(generate_column_tree(filtered_column_names));
+	var column_list = [commit_column_definition].concat(generate_column_tree_base(raw_column_list));
 	return column_list;
 }
 
 
-// TODO Make recursive
-function generate_column_tree(column_names) {
+function generate_column_tree_base(column_names) {
+	return generate_column_tree(column_names.map(x => [x, x]), 0);
+}
 
-	var colname_by_prefix = {};
-	for (var col of column_names) {
-		var chunks = col.split("_");
 
-		var members = setDefault(colname_by_prefix, chunks[0], []);
-		members.push(col);
+function generate_column_tree(column_name_suffix_pairs, depth) {
+
+	var colname_pair_by_prefix = {};
+	for (var pair of column_name_suffix_pairs) {
+
+		var col = pair[0];
+		var suffix = pair[1];
+
+		var chunks = suffix.split("_");
+		var prefix = chunks.shift();
+
+		var members = setDefault(colname_pair_by_prefix, prefix, []);
+		members.push([col, chunks.join("_")]);
 	}
 
 	var column_list = [];
 
-	for (var col_prefix in colname_by_prefix) {
+	for (var col_prefix in colname_pair_by_prefix) {
 
-		var grouped_cols = colname_by_prefix[col_prefix];
+		var grouped_col_pairs = colname_pair_by_prefix[col_prefix];
 
-		if (grouped_cols.length < 3) {
+		if (grouped_col_pairs.length < 3 || depth > 10) {
 
-			for (var col of grouped_cols) {
-				var col_dict = define_column(col);
+			for (var col_pair of grouped_col_pairs) {
+			
+				var col_dict = define_column(col_pair[0]);
 				column_list.push(col_dict);
 			}
 
 		} else {
-
-			var subcolumn_definitions = [];
-			for (var col of grouped_cols) {
-				var col_dict = define_column(col);
-				subcolumn_definitions.push(col_dict);
-			}
+			var subcolumn_definitions = generate_column_tree(grouped_col_pairs, depth + 1);
 
 			var column_group_definition = {
 				title: col_prefix,
