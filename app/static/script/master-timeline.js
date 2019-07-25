@@ -273,10 +273,13 @@ function define_column(col) {
 			}
 
 			if (detected_contiguous_breakage) {
+				// Repeat 3 times wthin a cell
 				cell.getElement().style.backgroundSize = "33.3%";
 
 				// vertical stripes
-				cell.getElement().style.backgroundImage = "url(\"data:image/svg+xml,%3Csvg width='40' height='1' viewBox='0 0 40 1' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0h20v1H0z' fill='%230000FF' fill-opacity='0.6' fill-rule='evenodd'/%3E%3C/svg%3E\")";
+				var stripes_color_hex = "0000ff";
+				var stripes_opacity_fraction = 0.7; // between 0 and 1
+				cell.getElement().style.backgroundImage = "url(\"data:image/svg+xml,%3Csvg width='40' height='1' viewBox='0 0 40 1' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0h20v1H0z' fill='%23" + stripes_color_hex + "' fill-opacity='" + stripes_opacity_fraction + "' fill-rule='evenodd'/%3E%3C/svg%3E\")";
 			}
 
 			var context_menu_items = get_context_menu_items_for_cell(cell);
@@ -366,11 +369,11 @@ function get_column_definitions(raw_column_list) {
 
 	var symbol_pairs = [
 		['yellow-triangle.svg', "flaky"],
-		['red-x.svg', "other match"],
-		['blue-square.svg', "no pattern match"],
-		['purple-circle.svg', "timeout"],
-		['gray-diamond.svg', "no log"],
-		['green-dot.svg', "success"],
+		['red-x.svg',           "other match"],
+		['blue-square.svg',     "no pattern match"],
+		['purple-circle.svg',   "timeout"],
+		['gray-diamond.svg',    "no log"],
+		['green-dot.svg',       "success"],
 	];
 
 	for (var x of symbol_pairs) {
@@ -415,11 +418,14 @@ function get_column_definitions(raw_column_list) {
 
 
 function generate_column_tree_base(column_names) {
-	return generate_column_tree(column_names.map(x => [x, x]), 0);
+
+	var collator = new Intl.Collator(undefined, {numeric: true, sensitivity: 'base'});
+	column_names.sort(collator.compare);
+	return generate_column_tree_recursive(column_names.map(x => [x, x]), 0);
 }
 
 
-function generate_column_tree(column_name_suffix_pairs, depth) {
+function generate_column_tree_recursive(column_name_suffix_pairs, depth) {
 
 	var colname_pair_by_prefix = {};
 	for (var pair of column_name_suffix_pairs) {
@@ -440,20 +446,22 @@ function generate_column_tree(column_name_suffix_pairs, depth) {
 
 		var grouped_col_pairs = colname_pair_by_prefix[col_prefix];
 
-		if (grouped_col_pairs.length < 3 || depth > 10) {
+		// < 3 leaves enough space to fit all header names horizontally
+		if (grouped_col_pairs.length < 3) {
 
 			for (var col_pair of grouped_col_pairs) {
-			
-				var col_dict = define_column(col_pair[0]);
-				column_list.push(col_dict);
+				column_list.push(define_column(col_pair[0]));
 			}
 
 		} else {
-			var subcolumn_definitions = generate_column_tree(grouped_col_pairs, depth + 1);
+			var subcolumn_definitions = generate_column_tree_recursive(grouped_col_pairs, depth + 1);
+
+			// Collapse redundant headers
+			var next_subcolumns = subcolumn_definitions.length == 1 ? subcolumn_definitions[0]["columns"] : subcolumn_definitions;
 
 			var column_group_definition = {
 				title: col_prefix,
-				columns: subcolumn_definitions,
+				columns: next_subcolumns,
 			}
 
 			column_list.push(column_group_definition);
@@ -472,12 +480,8 @@ function gen_timeline_table(element_id, fetched_data) {
 	// global
 	breakage_starts_by_job_name = {};
 	for (var breakage_span_obj of fetched_data.breakage_spans) {
-
-		var breakage_start_obj = breakage_span_obj.start;
-		for (var affected_job_obj of breakage_start_obj.record.payload.affected_jobs) {
-
-			var breakage_starts_for_job = setDefault(breakage_starts_by_job_name, affected_job_obj, []);
-			breakage_starts_for_job.push(breakage_span_obj);
+		for (var affected_job_obj of breakage_span_obj.start.record.payload.affected_jobs) {
+			setDefault(breakage_starts_by_job_name, affected_job_obj, []).push(breakage_span_obj);
 		}
 	}
 
