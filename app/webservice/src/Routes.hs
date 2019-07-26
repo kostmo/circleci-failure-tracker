@@ -356,7 +356,9 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
           auth_token <- except $ maybeToEither (T.pack "Need \"token\" header!") maybe_auth_header
           when (LT.toStrict auth_token /= AuthConfig.admin_password github_config) $
             except $ Left $ T.pack "Incorrect admin password"
-          ExceptT $ SqlWrite.storeCommitMetadata connection_data body_json
+
+          conn <- liftIO $ DbHelpers.get_connection connection_data
+          ExceptT $ SqlWrite.storeCommitMetadata conn body_json
 
       S.json $ WebApi.toJsonEither insertion_result
 
@@ -504,7 +506,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     jsonDbGet1Either connection_data "/api/test-failures" "pattern_id" $ SqlRead.apiTestFailures . ScanPatterns.PatternId
 
-    jsonDbGet1Either connection_data "/api/single-build-info" "build_id" $ SqlUpdate.get_build_info (AuthConfig.personal_access_token github_config) . Builds.NewBuildNumber
+    jsonDbGet1Either connection_data "/api/single-build-info" "build_id" $ SqlUpdate.getBuildInfo (AuthConfig.personal_access_token github_config) . Builds.NewBuildNumber
 
     S.get "/api/master-timeline" $ do
 
@@ -533,7 +535,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       commit_sha1_text <- S.param "sha1"
       json_result <- liftIO $ runExceptT $ do
         sha1 <- except $ GitRev.validateSha1 commit_sha1_text
-        ExceptT $ SqlUpdate.count_revision_builds connection_data (AuthConfig.personal_access_token github_config) sha1
+        ExceptT $ SqlUpdate.countRevisionBuilds connection_data (AuthConfig.personal_access_token github_config) sha1
 
       S.json $ WebApi.toJsonEither json_result
 

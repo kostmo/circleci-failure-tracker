@@ -457,11 +457,18 @@ function generate_column_tree_recursive(column_name_suffix_pairs, depth) {
 			var subcolumn_definitions = generate_column_tree_recursive(grouped_col_pairs, depth + 1);
 
 			// Collapse redundant headers
-			var next_subcolumns = subcolumn_definitions.length == 1 ? subcolumn_definitions[0]["columns"] : subcolumn_definitions;
+			var column_group_definition;
 
-			var column_group_definition = {
-				title: col_prefix,
-				columns: next_subcolumns,
+			if (subcolumn_definitions.length == 1) {
+				column_group_definition = {
+					title: col_prefix + "<br/>" + subcolumn_definitions[0]["title"],
+					columns: subcolumn_definitions[0]["columns"],
+				}
+			} else {
+				column_group_definition = {
+					title: col_prefix,
+					columns: subcolumn_definitions,
+				}
 			}
 
 			column_list.push(column_group_definition);

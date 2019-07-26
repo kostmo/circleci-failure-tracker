@@ -47,11 +47,10 @@ buildToTuple (Builds.NewBuild (Builds.NewBuildNumber build_num) (Builds.RawCommi
 
 
 storeCommitMetadata ::
-     DbHelpers.DbConnectionData
+     Connection
   -> [Commits.CommitMetadata]
   -> IO (Either Text Int64)
-storeCommitMetadata conn_data commit_list = do
-  conn <- DbHelpers.get_connection conn_data
+storeCommitMetadata conn commit_list = do
 
   catchViolation catcher $ do
     count <- executeMany conn insertion_sql $ map f commit_list
@@ -74,7 +73,7 @@ populateLatestMasterCommits ::
   -> IO (Either Text Int64)
 populateLatestMasterCommits conn access_token owned_repo = do
 
-  maybe_latest_known_commit <- SqlRead.get_latest_known_master_commit conn
+  maybe_latest_known_commit <- SqlRead.getLatestKnownMasterCommit conn
 
   runExceptT $ do
 
@@ -85,14 +84,20 @@ populateLatestMasterCommits conn access_token owned_repo = do
     fetched_commits_newest_first <- ExceptT $ first TL.toStrict <$> GithubApiFetch.getCommits
       access_token
       owned_repo
-      "master"
+      Builds.masterName
       latest_known_commit
 
     let fetched_commits_oldest_first = reverse fetched_commits_newest_first
 
     ExceptT $ do
-      insertion_count <- storeMasterCommits conn $ map GitHubRecords._sha fetched_commits_oldest_first
-      putStrLn $ "Inserted " ++ show insertion_count ++ " commits"
+      insertion_count <- storeMasterCommits conn $ map GitHubRecords.extractCommitSha fetched_commits_oldest_first
+      putStrLn $ unwords [
+          "Inserted "
+        , show insertion_count
+        , "commits"
+        ]
+
+      storeCommitMetadata conn $ map Commits.fromGithubRecord fetched_commits_oldest_first
       return insertion_count
 
 

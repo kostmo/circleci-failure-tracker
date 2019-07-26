@@ -60,8 +60,6 @@ instance ToJSON CommitInfo where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
-
-
 data SingleBuildInfo = SingleBuildInfo {
     _multi_match_count :: Int
   , _build_info        :: BuildSteps.BuildStep
@@ -72,11 +70,11 @@ instance ToJSON SingleBuildInfo where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
-get_build_info ::
+getBuildInfo ::
      OAuth2.AccessToken
   -> Builds.BuildNumber
   -> SqlRead.DbIO (Either Text SingleBuildInfo)
-get_build_info access_token build@(Builds.NewBuildNumber build_id) = do
+getBuildInfo access_token build@(Builds.NewBuildNumber build_id) = do
 
   conn <- ask
 
@@ -112,13 +110,12 @@ get_build_info access_token build@(Builds.NewBuildNumber build_id) = do
     sql = "SELECT step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch, implicated_revision, is_broken, breakage_notes, reporter FROM builds_with_reports where build_num = ?;"
 
 
-
-count_revision_builds ::
+countRevisionBuilds ::
      DbHelpers.DbConnectionData
   -> OAuth2.AccessToken
   -> GitRev.GitSha1
   -> IO (Either Text CommitInfo)
-count_revision_builds conn_data access_token git_revision = do
+countRevisionBuilds conn_data access_token git_revision = do
   conn <- DbHelpers.get_connection conn_data
   [Only failed_count] <- query conn failed_count_sql only_commit
   [Only matched_count] <- query conn matched_count_sql only_commit
@@ -161,8 +158,7 @@ count_revision_builds conn_data access_token git_revision = do
 -- of this PR commit
 findKnownBuildBreakages ::
      Connection
-  -> OAuth2.AccessToken
-  -> DbHelpers.OwnerAndRepo
+  -> OAuth2.AccessToken -> DbHelpers.OwnerAndRepo
   -> Builds.RawCommit
   -> IO (Either Text [DbHelpers.WithId SqlRead.CodeBreakage])
 findKnownBuildBreakages conn access_token owned_repo sha1 =
@@ -175,8 +171,8 @@ findKnownBuildBreakages conn access_token owned_repo sha1 =
 
     -- Second, find which "master" commit is the most recent
     -- ancestor of the given PR commit.
-    nearest_ancestor <- ExceptT $ SqlRead.find_master_ancestor conn access_token owned_repo sha1
+    nearest_ancestor <- ExceptT $ SqlRead.findMasterAncestor conn access_token owned_repo sha1
 
     -- Third, find whether that commit is within the
     -- [start, end) span of any known breakages
-    ExceptT $ SqlRead.get_spanning_breakages conn nearest_ancestor
+    ExceptT $ SqlRead.getSpanningBreakages conn nearest_ancestor

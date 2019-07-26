@@ -10,6 +10,7 @@ import           Control.Monad                 (guard, when)
 import           Control.Monad.IO.Class        (liftIO)
 import           Control.Monad.Trans.Except    (ExceptT (ExceptT), except,
                                                 runExceptT)
+import           Data.Bifunctor                (first)
 import qualified Data.ByteString.Lazy          as LBS
 import           Data.List                     (filter, intercalate)
 import           Data.List.Split               (splitOn)
@@ -47,7 +48,8 @@ import qualified StatusEventQuery
 import qualified Webhooks
 
 
-masterRefName = "refs/heads/master"
+fullMasterRefName :: Text
+fullMasterRefName = "refs/heads/" <> Builds.masterName
 
 
 webserverBaseUrl :: LT.Text
@@ -153,7 +155,6 @@ extractUniversalBuild commit provider_with_id status_object = case DbHelpers.rec
   "ci.pytorch.org" -> Nothing
   "travis-ci.org"  -> Nothing
   _                -> Nothing
-
 
 
 -- | Operations:
@@ -273,24 +274,40 @@ handlePushWebhook ::
   -> PushWebhooks.GitHubPushEvent
   -> IO (Either LT.Text ())
 handlePushWebhook
-    _db_connection_data
-    _access_token
+    db_connection_data
+    access_token
     push_event = do
 
   putStrLn $ unwords [
       "Got repo push event; ref:"
-    , refname
+    , T.unpack refname
     , "; head:"
     , head_sha1
     ]
 
-  when (refname == masterRefName) $
-    putStrLn "This was the master branch!"
+  if refname == fullMasterRefName
+    then do
+      putStrLn "This was the master branch!"
+      conn <- DbHelpers.get_connection db_connection_data
 
-  return $ Right ()
+      -- FIXME the Either is just being absorbed here
+      first LT.fromStrict <$> SqlWrite.populateLatestMasterCommits
+        conn
+        access_token
+        owned_repo
+
+      return $ Right ()
+  else
+    return $ Right ()
+
   where
-    refname = LT.unpack $ PushWebhooks.ref push_event
+    refname = LT.toStrict $ PushWebhooks.ref push_event
+
     head_sha1 = LT.unpack $ PushWebhooks.id $ PushWebhooks.head_commit push_event
+    repo_object = PushWebhooks.repository push_event
+    owned_repo = DbHelpers.OwnerAndRepo
+      (LT.unpack $ PushWebhooks.organization repo_object)
+      (LT.unpack $ PushWebhooks.name repo_object)
 
 
 handleStatusWebhook ::

@@ -15,6 +15,7 @@ data GitHubPushEvent = GitHubPushEvent {
     ref         :: Text
   , head_commit :: HeadCommit -- ^ XXX The documentation is *wrong*; the key name is "head_commit" not "head"
   , before      :: Text
+  , repository  :: RepoInfo
   } deriving Generic
 
 instance FromJSON GitHubPushEvent
@@ -27,6 +28,13 @@ data HeadCommit = HeadCommit {
 
 instance FromJSON HeadCommit
 
+
+data RepoInfo = RepoInfo {
+    name         :: Text
+  , organization :: Text
+  } deriving Generic
+
+instance FromJSON RepoInfo
 
 
 

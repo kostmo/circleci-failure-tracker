@@ -1,5 +1,6 @@
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveGeneric  #-}
+{-# LANGUAGE DeriveAnyClass    #-}
+{-# LANGUAGE DeriveGeneric     #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Builds where
 
@@ -10,6 +11,11 @@ import           Database.PostgreSQL.Simple           (FromRow)
 import           Database.PostgreSQL.Simple.FromField (FromField, fromField)
 import           GHC.Generics
 import           GHC.Int                              (Int64)
+
+
+masterName :: Text
+masterName = "master"
+
 
 newtype RawCommit = RawCommit Text
  deriving (Generic, Show)

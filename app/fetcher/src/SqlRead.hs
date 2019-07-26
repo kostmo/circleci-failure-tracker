@@ -427,21 +427,21 @@ masterWeeklyFailureStats week_count = do
       WeeklyStats.MasterWeeklyStats commit_count had_failure had_idiopathic had_timeout had_known_broken had_pattern_matched had_flaky failure_count idiopathic_count timeout_count known_broken_count pattern_matched_count pattern_unmatched_count flaky_count week $ WeeklyStats.InclusiveNumericBounds earliest_commit_index latest_commit_index
 
 
-get_latest_known_master_commit :: Connection -> IO (Maybe Text)
-get_latest_known_master_commit conn = do
+getLatestKnownMasterCommit :: Connection -> IO (Maybe Text)
+getLatestKnownMasterCommit conn = do
   rows <- query_ conn sql
   return $ Safe.headMay $ map (\(Only x) -> x) rows
   where
     sql = "SELECT sha1 FROM ordered_master_commits ORDER BY id DESC LIMIT 1;"
 
 
-find_master_ancestor ::
+findMasterAncestor ::
      Connection
   -> OAuth2.AccessToken
   -> DbHelpers.OwnerAndRepo
   -> Builds.RawCommit
   -> IO (Either Text Builds.RawCommit)
-find_master_ancestor conn access_token owner_and_repo sha1 = do
+findMasterAncestor conn access_token owner_and_repo sha1 = do
 
   rows <- query_ conn sql
   let known_commit_set = Set.fromList $ map (\(Only x) -> x) rows
@@ -494,11 +494,11 @@ knownBreakageAffectedJobs cause_id = do
 -- | This only works for commits from the master branch.
 -- Commits from other branches must use
 -- StatusUpdate.findKnownBuildBreakages
-get_spanning_breakages ::
+getSpanningBreakages ::
      Connection
   -> Builds.RawCommit
   -> IO (Either Text [DbHelpers.WithId CodeBreakage])
-get_spanning_breakages conn sha1 =
+getSpanningBreakages conn sha1 =
 
   runExceptT $ do
     target_commit_index <- ExceptT $ get_master_commit_index conn sha1

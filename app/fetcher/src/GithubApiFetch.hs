@@ -150,7 +150,7 @@ getCommitsRecurse
     newly_retrieved_items <- ExceptT $
       first displayOAuth2Error <$> OAuth2.authGetJSON mgr token uri
 
-    let (novel_commits, known_commits) = break (stopping_condition . GitHubRecords._sha) newly_retrieved_items
+    let (novel_commits, known_commits) = break (stopping_condition . GitHubRecords.extractCommitSha) newly_retrieved_items
         is_merge_commit = (> 1) . length . GitHubRecords._parents
         merge_commits = filter is_merge_commit novel_commits
         combined_list = old_retrieved_items <> novel_commits
@@ -172,7 +172,7 @@ getCommitsRecurse
       guard $ null known_commits
 
       -- start the next iteration at the parent of the last found commit
-      let next_target_ref = GitHubRecords._sha parent_of_last_fetched
+      let next_target_ref = GitHubRecords.extractParentSha parent_of_last_fetched
 
       return $ ExceptT $ getCommitsRecurse
         ghsupport
@@ -253,7 +253,7 @@ findAncestor
           (`Set.member` known_commit_set)
           []
 
-        let maybe_ancestor = Builds.RawCommit . GitHubRecords._sha <$> first_known_commit
+        let maybe_ancestor = Builds.RawCommit . GitHubRecords.extractCommitSha <$> first_known_commit
         except $ maybeToEither "No merge base found" maybe_ancestor
 
 

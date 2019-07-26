@@ -3,11 +3,12 @@
 module Commits where
 
 import           Data.Aeson
-import           Data.Text    (Text)
-import           Data.Time    (UTCTime)
+import           Data.Text     (Text)
+import           Data.Time     (UTCTime)
 import           GHC.Generics
 
 import qualified Builds
+import qualified GitHubRecords
 import qualified JsonUtils
 
 
@@ -29,3 +30,16 @@ instance FromJSON CommitMetadata where
 instance ToJSON CommitMetadata where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
+
+fromGithubRecord :: GitHubRecords.GitHubCommit -> CommitMetadata
+fromGithubRecord (GitHubRecords.GitHubCommit commit_sha1 _ (GitHubRecords.CommitPart author committer message (GitHubRecords.TreePart tree_sha1 _))) =
+  CommitMetadata
+    (Builds.RawCommit commit_sha1)
+    message
+    tree_sha1
+    (GitHubRecords._name author)
+    (GitHubRecords._email author)
+    (GitHubRecords._date author)
+    (GitHubRecords._name committer)
+    (GitHubRecords._email committer)
+    (GitHubRecords._date committer)

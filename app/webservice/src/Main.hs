@@ -59,7 +59,7 @@ mainAppCode args = do
     latest_pattern_id <- SqlRead.getLatestPatternId conn
     putStrLn $ unwords ["Latest pattern ID:", show latest_pattern_id]
 
-    find_master_ancestor <- SqlRead.find_master_ancestor
+    find_master_ancestor <- SqlRead.findMasterAncestor
       conn
       access_token
       (DbHelpers.OwnerAndRepo Constants.project_name Constants.repo_name)
