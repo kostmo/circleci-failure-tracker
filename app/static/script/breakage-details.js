@@ -1,3 +1,14 @@
+
+function delete_callback() {
+
+	var cause_id = get_cause_id();
+
+	if (confirm("Realy delete cause #" + cause_id + "?")) {
+		post_modification("/api/code-breakage-delete", {"cause_id": cause_id});
+	}
+}
+
+
 function gen_affected_jobs_table(element_id, cause_id) {
 
 	var data_url = "/api/known-breakage-affected-jobs?cause_id=" + cause_id;

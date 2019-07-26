@@ -12,8 +12,6 @@ function render_commit_cell(cell, position) {
 	} else {
 		return "";
 	}
-
-
 }
 
 
@@ -159,6 +157,22 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 					},
 				},
 			]},
+			{title: "Span", width: 100,
+				headerSort: false,
+				formatter: function(cell, formatterParams, onRendered) {
+
+					var data_obj = cell.getRow().getData();
+					var start_index = data_obj["start"]["record"]["payload"]["breakage_commit"]["db_id"];
+
+					var end_index = data_obj["end"]["record"]["payload"]["resolution_commit"]["db_id"];
+					if (end_index) {
+						var span_count = end_index - start_index;
+						return span_count;
+					} else {
+						return "ongoing";
+					}
+				},
+			},
 			{title: "Start", columns: [
 				{title: "commit", width: 300, field: "start.record.payload.breakage_commit.record",
 					formatter: function(cell, formatterParams, onRendered) {
@@ -195,22 +209,6 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 					},
 				},
 			]},
-			{title: "Span", width: 100,
-				headerSort: false,
-				formatter: function(cell, formatterParams, onRendered) {
-
-					var data_obj = cell.getRow().getData();
-					var start_index = data_obj["start"]["record"]["payload"]["breakage_commit"]["db_id"];
-
-					var end_index = data_obj["end"]["record"]["payload"]["resolution_commit"]["db_id"];
-					if (end_index) {
-						var span_count = end_index - start_index;
-						return span_count;
-					} else {
-						return "ongoing";
-					}
-				},
-			},
 		],
 		ajaxURL: data_url,
 	});

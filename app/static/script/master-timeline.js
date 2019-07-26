@@ -540,7 +540,7 @@ function showContextMenu() {
 }
 
 
-function get_query_parms() {
+function get_form_values() {
 
 	var offset = $('#offset-input').val();
 	var count = $('#count-input').val();
@@ -579,8 +579,40 @@ function get_query_parms() {
 
 function render_timeline_table() {
 
-	const parms = get_query_parms();
+	const parms = get_form_values();
 	get_timeline_data(parms);
+}
+
+
+function url_from_form() {
+
+	var url_parms;
+
+	var pagination_mode = document.querySelector('input[name="pagination-mode"]:checked').value;
+
+	if (pagination_mode == "start-by-sha1") {
+
+		url_parms = {
+			"count": $('#count-input').val(),
+			"sha1": $('#sha1-input').val(),
+		};
+
+	} else if (pagination_mode == "start-by-commit-index") {
+
+		url_parms = {
+			"min_commit_index": $('#commit-index-min').val(),
+			"max_commit_index": $('#commit-index-max').val(),
+		};
+
+	} else {
+
+		url_parms = {
+			"offset": $('#offset-input').val(),
+			"count": $('#count-input').val(),
+		};
+	}
+
+	document.location.search = $.param( url_parms );
 }
 
 

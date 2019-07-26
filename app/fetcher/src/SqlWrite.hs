@@ -121,15 +121,29 @@ storeMasterCommits conn commit_list =
 
 
 -- | TODO we may only need the multiple-row version of this
+--
+-- Currently, we handle de-duplication of records on the client side.
+-- This should be handled in the INSERT statement.
 insertSingleUniversalBuild ::
      Connection
   -> Builds.UniversalBuild
   -> IO (DbHelpers.WithId Builds.UniversalBuild)
 insertSingleUniversalBuild conn uni_build@(Builds.UniversalBuild (Builds.NewBuildNumber provider_buildnum) provider_id build_namespace) = do
-  [Only new_id] <- query conn sqlInsertUniversalBuild (provider_id, provider_buildnum, build_namespace)
-  return $ DbHelpers.WithId new_id uni_build
+  result_rows <- query conn query_sql (provider_buildnum, provider_id, build_namespace)
+  case Safe.headMay result_rows of
+    Nothing -> do
+      [Only new_id] <- query conn sqlInsertUniversalBuild (provider_id, provider_buildnum, build_namespace)
+      return $ DbHelpers.WithId new_id uni_build
+    Just (Only old_id) -> return $ DbHelpers.WithId old_id uni_build
+
+  where
+    query_sql = "SELECT id FROM universal_builds WHERE build_number = ? AND provider = ? AND build_namespace = ?"
 
 
+-- TODO This is the more efficient "bulk" operation, but needs to
+-- handle constraint violations on individual rows.
+--
+-- for now, this function is only called from the standalone scanner application.
 storeCircleCiBuildsList :: Connection -> [Builds.Build] -> IO Int64
 storeCircleCiBuildsList conn builds_list = do
   universal_build_insertion_output_rows <- returning conn sqlInsertUniversalBuild $ map input_f universal_builds
@@ -140,7 +154,8 @@ storeCircleCiBuildsList conn builds_list = do
   storeBuildsList conn zipped_output2
 
   where
-    universal_builds = map (\b -> Builds.UniversalBuild (Builds.build_id b) circleCIProviderIndex "") builds_list
+    mk_ubuild b = Builds.UniversalBuild (Builds.build_id b) circleCIProviderIndex ""
+    universal_builds = map mk_ubuild builds_list
 
     input_f (Builds.UniversalBuild (Builds.NewBuildNumber provider_buildnum) provider_id build_namespace) = (provider_id, provider_buildnum, build_namespace)
 

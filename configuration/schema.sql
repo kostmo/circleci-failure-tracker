@@ -1035,6 +1035,41 @@ CREATE TABLE public.commit_metadata (
 ALTER TABLE public.commit_metadata OWNER TO postgres;
 
 --
+-- Name: universal_builds; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.universal_builds (
+    id integer NOT NULL,
+    build_number integer,
+    build_namespace text,
+    provider integer
+);
+
+
+ALTER TABLE public.universal_builds OWNER TO postgres;
+
+--
+-- Name: global_builds; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.global_builds AS
+ SELECT builds.global_build_num,
+    builds.succeeded,
+    builds.vcs_revision,
+    builds.job_name,
+    builds.branch,
+    universal_builds.build_number,
+    universal_builds.build_namespace,
+    builds.queued_at,
+    builds.started_at,
+    builds.finished_at
+   FROM (public.universal_builds
+     JOIN public.builds ON ((builds.global_build_num = universal_builds.id)));
+
+
+ALTER TABLE public.global_builds OWNER TO postgres;
+
+--
 -- Name: idiopathic_build_failures; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -1695,20 +1730,6 @@ CREATE VIEW public.unattributed_failed_builds WITH (security_barrier='false') AS
 ALTER TABLE public.unattributed_failed_builds OWNER TO postgres;
 
 --
--- Name: universal_builds; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.universal_builds (
-    id integer NOT NULL,
-    build_number integer,
-    build_namespace text,
-    provider integer
-);
-
-
-ALTER TABLE public.universal_builds OWNER TO postgres;
-
---
 -- Name: universal_builds_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
 --
 
@@ -2082,6 +2103,14 @@ ALTER TABLE ONLY public.scanned_patterns
 
 ALTER TABLE ONLY public.scans
     ADD CONSTRAINT scans_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: universal_builds universal_builds_build_number_build_namespace_provider_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.universal_builds
+    ADD CONSTRAINT universal_builds_build_number_build_namespace_provider_key UNIQUE (build_number, build_namespace, provider);
 
 
 --
@@ -2780,6 +2809,20 @@ GRANT ALL ON TABLE public.commit_metadata TO logan;
 
 
 --
+-- Name: TABLE universal_builds; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.universal_builds TO logan;
+
+
+--
+-- Name: TABLE global_builds; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.global_builds TO logan;
+
+
+--
 -- Name: TABLE idiopathic_build_failures; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -2973,13 +3016,6 @@ GRANT ALL ON SEQUENCE public.scans_id_seq TO logan;
 --
 
 GRANT ALL ON TABLE public.unattributed_failed_builds TO logan;
-
-
---
--- Name: TABLE universal_builds; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.universal_builds TO logan;
 
 
 --
