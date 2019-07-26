@@ -44,7 +44,7 @@ circleCIProviderIndex = 3
 
 
 sqlInsertUniversalBuild :: Query
-sqlInsertUniversalBuild = "INSERT INTO universal_builds(provider, build_number, build_namespace) VALUES(?,?,?) RETURNING id;"
+sqlInsertUniversalBuild = "INSERT INTO universal_builds(provider, build_number, build_namespace) VALUES(?,?,?) ON CONFLICT ON CONSTRAINT universal_builds_build_number_build_namespace_provider_key DO UPDATE SET build_number = excluded.build_number RETURNING id;"
 
 
 storeCommitMetadata ::
@@ -129,15 +129,8 @@ insertSingleUniversalBuild ::
   -> Builds.UniversalBuild
   -> IO (DbHelpers.WithId Builds.UniversalBuild)
 insertSingleUniversalBuild conn uni_build@(Builds.UniversalBuild (Builds.NewBuildNumber provider_buildnum) provider_id build_namespace) = do
-  result_rows <- query conn query_sql (provider_buildnum, provider_id, build_namespace)
-  case Safe.headMay result_rows of
-    Nothing -> do
-      [Only new_id] <- query conn sqlInsertUniversalBuild (provider_id, provider_buildnum, build_namespace)
-      return $ DbHelpers.WithId new_id uni_build
-    Just (Only old_id) -> return $ DbHelpers.WithId old_id uni_build
-
-  where
-    query_sql = "SELECT id FROM universal_builds WHERE build_number = ? AND provider = ? AND build_namespace = ?"
+  [Only new_id] <- query conn sqlInsertUniversalBuild (provider_id, provider_buildnum, build_namespace)
+  return $ DbHelpers.WithId new_id uni_build
 
 
 -- TODO This is the more efficient "bulk" operation, but needs to
@@ -202,8 +195,8 @@ storeMatches scan_resources (Builds.NewBuildStepId build_step_id) _build_num sco
     insertion_sql = "INSERT INTO matches(scan_id, build_step, pattern, line_number, line_text, span_start, span_end) VALUES(?,?,?,?,?,?,?);"
 
 
-insert_single_ci_provider :: Connection -> String -> IO (DbHelpers.WithId String)
-insert_single_ci_provider conn hostname = do
+insertSingleCIProvider :: Connection -> String -> IO (DbHelpers.WithId String)
+insertSingleCIProvider conn hostname = do
   rows <- query conn sql_query $ Only hostname
   row_id <- case rows of
     Only old_id:_ -> return old_id
@@ -222,7 +215,7 @@ get_and_store_ci_providers ::
   -> IO [(a, DbHelpers.WithId String)]
 get_and_store_ci_providers conn_data failed_statuses_by_hostname = do
   conn <- DbHelpers.get_connection conn_data
-  mapM (traverse (insert_single_ci_provider conn) . swap) failed_statuses_by_hostname
+  mapM (traverse (insertSingleCIProvider conn) . swap) failed_statuses_by_hostname
 
 
 insert_posted_github_status ::
