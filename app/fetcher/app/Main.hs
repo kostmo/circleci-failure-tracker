@@ -57,9 +57,7 @@ mainAppCode args = do
   -}
 
 
-
-  BuildRetrieval.updateBuildsList conn (branchName args) fetch_count age_days
-
+  BuildRetrieval.updateCircleCIBuildsList conn (branchName args) fetch_count age_days
 
 
   scan_resources <- Scanning.prepareScanResources conn $ Just Constants.defaultPatternAuthor

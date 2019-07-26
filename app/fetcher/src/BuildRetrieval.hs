@@ -23,6 +23,7 @@ import qualified Safe
 import           Builds
 import qualified Constants
 import qualified FetchHelpers
+import qualified MyUtils
 import           SillyMonoids               ()
 import qualified SqlWrite
 
@@ -37,20 +38,24 @@ maxBuildPerPage = 100
 --  pages <- withPool 1 $ \pool -> parallel_ pool $ map Scanning.store_log scannable
 
 
-updateBuildsList ::
+-- | This is CircleCI-specific
+updateCircleCIBuildsList ::
      Connection
   -> [String]
   -> Int
   -> Int
   -> IO Int64
-updateBuildsList conn branch_names fetch_count age_days = do
+updateCircleCIBuildsList conn branch_names fetch_count age_days = do
 
   builds_lists <- for branch_names $ \branch_name -> do
-    putStrLn $ "Fetching builds list for branch \"" ++ branch_name ++ "\"..."
-    populateBuilds branch_name fetch_count age_days
+    putStrLn $ unwords [
+        "Fetching builds list for branch"
+      , MyUtils.quote branch_name ++ "..."
+      ]
+    fetchCircleCIBuilds branch_name fetch_count age_days
 
   putStrLn "Storing builds list..."
-  SqlWrite.storeBuildsList conn $ concat builds_lists
+  SqlWrite.storeCircleCiBuildsList conn $ concat builds_lists
 
 
 itemToBuild :: Value -> Build
@@ -73,12 +78,12 @@ getBuildListUrl branch_name = intercalate "/"
   ]
 
 
-populateBuilds ::
+fetchCircleCIBuilds ::
      String
   -> Int
   -> Int
   -> IO [Build]
-populateBuilds branch_name max_build_count max_age_days = do
+fetchCircleCIBuilds branch_name max_build_count max_age_days = do
 
   sess <- Sess.newSession
   current_time <- Clock.getCurrentTime
@@ -88,17 +93,17 @@ populateBuilds branch_name max_build_count max_age_days = do
       time_diff = Clock.secondsToNominalDiffTime seconds_offset
       earliest_requested_time = Clock.addUTCTime time_diff current_time
 
-  populateBuildsRecurse sess branch_name 0 earliest_requested_time max_build_count
+  fetchCircleCIBuildsRecurse sess branch_name 0 earliest_requested_time max_build_count
 
 
-populateBuildsRecurse ::
+fetchCircleCIBuildsRecurse ::
      Sess.Session
   -> String
   -> Int
   -> UTCTime
   -> Int
   -> IO [Build]
-populateBuildsRecurse sess branch_name offset earliest_requested_time max_build_count =
+fetchCircleCIBuildsRecurse sess branch_name offset earliest_requested_time max_build_count =
 
   if max_build_count > 0
     then do
@@ -131,7 +136,7 @@ populateBuildsRecurse sess branch_name offset earliest_requested_time max_build_
         then do
           putStrLn $ "The earliest build for branch \"" ++ branch_name ++ "\" has been retrieved."
           return []
-        else populateBuildsRecurse sess branch_name next_offset earliest_requested_time builds_left
+        else fetchCircleCIBuildsRecurse sess branch_name next_offset earliest_requested_time builds_left
       return $ builds ++ more_builds
 
   else

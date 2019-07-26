@@ -12,6 +12,7 @@ import           Database.PostgreSQL.Simple.FromField (FromField, fromField)
 import           GHC.Generics
 import           GHC.Int                              (Int64)
 
+import qualified DbHelpers
 
 masterName :: Text
 masterName = "master"
@@ -47,6 +48,12 @@ data UniversalBuild = UniversalBuild {
   , provider_id       :: Int64
   , build_namespace   :: Text
   } deriving (Show, Generic)
+
+
+data StorableBuild = StorableBuild {
+    univeral_build :: DbHelpers.WithId UniversalBuild -- ^ this already came from database
+  , build_record   :: Build
+  }
 
 
 data Build = NewBuild {

@@ -40,11 +40,11 @@ import qualified ScanRecords
 import qualified SqlRead
 
 
-buildToTuple :: Builds.Build -> (Int64, Text, Text, Text, Text)
-buildToTuple (Builds.NewBuild (Builds.NewBuildNumber build_num) (Builds.RawCommit vcs_rev) queuedat jobname branch) =
-  (build_num, vcs_rev, queued_at_string, jobname, branch)
-  where
-    queued_at_string = T.pack $ formatTime defaultTimeLocale rfc822DateFormat queuedat
+circleCIProviderIndex = 3
+
+
+sqlInsertUniversalBuild :: Query
+sqlInsertUniversalBuild = "INSERT INTO universal_builds(provider, build_number, build_namespace) VALUES(?,?,?) RETURNING id;"
 
 
 storeCommitMetadata ::
@@ -120,21 +120,52 @@ storeMasterCommits conn commit_list =
     catcher e _                            = throwIO e
 
 
--- | This is idempotent; builds that are already present will not be overwritten
-storeBuildsList :: Connection -> [Builds.Build] -> IO Int64
-storeBuildsList conn builds_list =
-  executeMany conn sql $ map buildToTuple builds_list
+-- | TODO we may only need the multiple-row version of this
+insertSingleUniversalBuild ::
+     Connection
+  -> Builds.UniversalBuild
+  -> IO (DbHelpers.WithId Builds.UniversalBuild)
+insertSingleUniversalBuild conn uni_build@(Builds.UniversalBuild (Builds.NewBuildNumber provider_buildnum) provider_id build_namespace) = do
+  [Only new_id] <- query conn sqlInsertUniversalBuild (provider_id, provider_buildnum, build_namespace)
+  return $ DbHelpers.WithId new_id uni_build
+
+
+storeCircleCiBuildsList :: Connection -> [Builds.Build] -> IO Int64
+storeCircleCiBuildsList conn builds_list = do
+  universal_build_insertion_output_rows <- returning conn sqlInsertUniversalBuild $ map input_f universal_builds
+
+  let zipped_output1 = zipWith (\(Only row_id) ubuild -> DbHelpers.WithId row_id ubuild) universal_build_insertion_output_rows universal_builds
+      zipped_output2 = zipWith Builds.StorableBuild zipped_output1 builds_list
+
+  storeBuildsList conn zipped_output2
+
   where
-    sql = "INSERT INTO builds(build_num, vcs_revision, queued_at, job_name, branch) VALUES(?,?,?,?,?) ON CONFLICT (build_num) DO NOTHING;"
+    universal_builds = map (\b -> Builds.UniversalBuild (Builds.build_id b) circleCIProviderIndex "") builds_list
+
+    input_f (Builds.UniversalBuild (Builds.NewBuildNumber provider_buildnum) provider_id build_namespace) = (provider_id, provider_buildnum, build_namespace)
 
 
-store_matches ::
+-- | This is idempotent; builds that are already present will not be overwritten
+storeBuildsList :: Connection -> [Builds.StorableBuild] -> IO Int64
+storeBuildsList conn builds_list =
+  executeMany conn sql $ map f builds_list
+  where
+    f (Builds.StorableBuild universal_build rbuild) =
+      (build_num, vcs_rev, queued_at_string, jobname, branch, DbHelpers.db_id universal_build)
+      where
+        queued_at_string = T.pack $ formatTime defaultTimeLocale rfc822DateFormat queuedat
+        (Builds.NewBuild (Builds.NewBuildNumber build_num) (Builds.RawCommit vcs_rev) queuedat jobname branch) = rbuild
+
+    sql = "INSERT INTO builds(build_num, vcs_revision, queued_at, job_name, branch, global_build_num) VALUES(?,?,?,?,?,?) ON CONFLICT (build_num) DO NOTHING;"
+
+
+storeMatches ::
      ScanRecords.ScanCatchupResources
   -> Builds.BuildStepId
   -> Builds.BuildNumber
   -> [ScanPatterns.ScanMatch]
   -> IO Int64
-store_matches scan_resources (Builds.NewBuildStepId build_step_id) _build_num scoped_matches =
+storeMatches scan_resources (Builds.NewBuildStepId build_step_id) _build_num scoped_matches =
   executeMany conn insertion_sql $ map to_tuple scoped_matches
 
   where

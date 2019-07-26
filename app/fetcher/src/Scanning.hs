@@ -75,6 +75,9 @@ scanBuilds scan_resources revisit whitelisted_builds_or_fetch_count = do
         )
 
 
+-- TODO RESTORE THIS
+{-
+
 -- | Note that the Left/Right convention is backwards!
 rescanSingleBuild ::
      DbHelpers.DbConnectionData
@@ -104,7 +107,7 @@ rescanSingleBuild db_connection_data initiator build_to_scan = do
         , "builds."
         ]
       return ()
-
+-}
 
 getSingleBuildUrl :: Builds.BuildNumber -> String
 getSingleBuildUrl (Builds.NewBuildNumber build_number) = intercalate "/"
@@ -200,7 +203,7 @@ catchupScan
       let matches = scanLogText lines_list applicable_patterns
 
       liftIO $ do
-        SqlWrite.store_matches scan_resources buildstep_id buildnum matches
+        SqlWrite.storeMatches scan_resources buildstep_id buildnum matches
         SqlWrite.insert_latest_pattern_build_scan scan_resources buildnum maximum_pattern_id
 
       return matches
@@ -335,6 +338,8 @@ getAndStoreLog
 
       log_download_result <- ExceptT $ FetchHelpers.safeGetUrl $ Sess.get aws_sess $ T.unpack download_url
 
+      liftIO $ putStrLn "Log downloaded."
+
       let parent_elements = log_download_result ^. NW.responseBody . _Array
           -- for some reason the log is sometimes split into sections, so we concatenate all of the "out" elements
           pred x = x ^. key "type" . _String == "out"
@@ -347,8 +352,13 @@ getAndStoreLog
           lines_list = T.lines ansi_stripped_log
           byte_count = T.length ansi_stripped_log
 
-      liftIO $ SqlWrite.store_log_info scan_resources build_step_id $
-        ScanRecords.LogInfo byte_count (length lines_list) ansi_stripped_log
+      liftIO $ do
+        putStrLn "Storing log to database..."
+
+        SqlWrite.store_log_info scan_resources build_step_id $
+          ScanRecords.LogInfo byte_count (length lines_list) ansi_stripped_log
+
+        putStrLn "Log stored."
 
       return lines_list
 

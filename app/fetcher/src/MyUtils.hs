@@ -29,3 +29,5 @@ derivePair :: (a -> b) -> a -> (a, b)
 derivePair g = fmap g . duple
 
 
+quote :: String -> String
+quote x = "\"" <> x <> "\""

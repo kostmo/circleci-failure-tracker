@@ -289,15 +289,19 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     S.post "/api/rescan-build" $ do
 
-      build_number <- S.param "build"
+--      build_number <- S.param "build"
 
       let callback_func :: AuthStages.Username -> IO (Either (AuthStages.BackendFailure Text) Text)
           callback_func user_alias = do
+            -- TODO Restore this
+            {-
             Scanning.rescanSingleBuild
               connection_data
               user_alias
               (Builds.NewBuildNumber build_number)
             return $ Right "Scan complete."
+            -}
+            return $ Left $ AuthStages.DbFailure "This functionality is temporarily disabled.  The API needs to use a Universal build number."
 
       rq <- S.request
       insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func

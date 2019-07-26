@@ -22,7 +22,6 @@ import qualified Data.Text.Lazy                as LT
 import qualified Data.Time.Clock               as Clock
 import           Data.Traversable              (for)
 import           Data.Tuple                    (swap)
-import           Database.PostgreSQL.Simple
 import qualified GitHub.Data.Webhooks.Validate as GHValidate
 import qualified Network.OAuth.OAuth2          as OAuth2
 import qualified Network.URI                   as URI
@@ -112,11 +111,12 @@ getCircleciFailure sha1 event_setter = do
     url_text = StatusEventQuery._target_url event_setter
 
 
+-- | TODO return Left for each universal build that violated its uniqueness constraint
 storeUniversalBuilds ::
      DbHelpers.DbConnectionData
   -> Builds.RawCommit
   -> [([StatusEventQuery.GitHubStatusEventGetter], DbHelpers.WithId String)]
-  -> IO [((DbHelpers.WithId Builds.UniversalBuild, Builds.Build), (StatusEventQuery.GitHubStatusEventGetter, String))]
+  -> IO [(Builds.StorableBuild, (StatusEventQuery.GitHubStatusEventGetter, String))]
 storeUniversalBuilds conn_data commit statuses_by_ci_providers = do
   conn <- DbHelpers.get_connection conn_data
 
@@ -127,21 +127,18 @@ storeUniversalBuilds conn_data commit statuses_by_ci_providers = do
       let maybe_universal_build = extractUniversalBuild commit provider_with_id status_event
       case maybe_universal_build of
         Nothing -> return Nothing
-        Just (sub_build, uni_build@(Builds.UniversalBuild (Builds.NewBuildNumber provider_buildnum) provider_id build_namespace)) -> do
-          [Only new_id] <- query conn sql_insert (provider_id, provider_buildnum, build_namespace)
-          return $ Just ((DbHelpers.WithId new_id uni_build, sub_build), (status_event, DbHelpers.record provider_with_id))
+        Just (sub_build, uni_build) -> do
+          stored_uni_build <- SqlWrite.insertSingleUniversalBuild conn uni_build
+          return $ Just (Builds.StorableBuild stored_uni_build sub_build, (status_event, DbHelpers.record provider_with_id))
 
     return $ Maybe.catMaybes result_maybe_list
 
   return $ concat result_lists
 
-  where
-    sql_insert = "INSERT INTO universal_builds(provider, build_number, build_namespace) VALUES(?,?,?) RETURNING id;"
-
 
 extractUniversalBuild ::
      Builds.RawCommit
-  -> DbHelpers.WithId String
+  -> DbHelpers.WithId String -- ^ CI provider domain and ID
   -> StatusEventQuery.GitHubStatusEventGetter
   -> Maybe (Builds.Build, Builds.UniversalBuild)
 extractUniversalBuild commit provider_with_id status_object = case DbHelpers.record provider_with_id of
@@ -206,8 +203,8 @@ handleFailedStatuses
 
       circleci_failed_builds_and_statuses = filter_failed circleci_builds_and_statuses
 
-      circleci_failed_builds = map (snd . fst) circleci_failed_builds_and_statuses
-      scannable_build_numbers = map Builds.build_id circleci_failed_builds
+      circleci_failed_builds = map fst circleci_failed_builds_and_statuses
+      scannable_build_numbers = map (Builds.provider_buildnum . DbHelpers.record . Builds.univeral_build) circleci_failed_builds
 
       circleci_failcount = length circleci_failed_builds
 
@@ -220,7 +217,7 @@ handleFailedStatuses
 --    first LT.fromStrict <$> SqlUpdate.findKnownBuildBreakages conn access_token owned_repo (Builds.RawCommit sha1)
 
   let all_broken_jobs = Set.unions $ map (SqlRead._jobs . DbHelpers.record) known_breakages
-      known_broken_circle_builds = filter ((`Set.member` all_broken_jobs) . Builds.job_name) circleci_failed_builds
+      known_broken_circle_builds = filter ((`Set.member` all_broken_jobs) . Builds.job_name . Builds.build_record) circleci_failed_builds
       known_broken_circle_build_count = length known_broken_circle_builds
 
 
