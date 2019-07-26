@@ -4,6 +4,7 @@ module SqlWrite where
 
 import           Control.Applicative               ((<|>))
 import           Control.Exception                 (throwIO)
+import           Control.Monad.IO.Class            (liftIO)
 import           Control.Monad.Trans.Except        (ExceptT (ExceptT), except,
                                                     runExceptT)
 import           Data.Bifunctor                    (first)
@@ -50,7 +51,7 @@ storeCommitMetadata ::
      Connection
   -> [Commits.CommitMetadata]
   -> IO (Either Text Int64)
-storeCommitMetadata conn commit_list = do
+storeCommitMetadata conn commit_list =
 
   catchViolation catcher $ do
     count <- executeMany conn insertion_sql $ map f commit_list
@@ -70,7 +71,7 @@ populateLatestMasterCommits ::
      Connection
   -> OAuth2.AccessToken
   -> DbHelpers.OwnerAndRepo
-  -> IO (Either Text Int64)
+  -> IO (Either Text (Int64, Int64))
 populateLatestMasterCommits conn access_token owned_repo = do
 
   maybe_latest_known_commit <- SqlRead.getLatestKnownMasterCommit conn
@@ -89,16 +90,16 @@ populateLatestMasterCommits conn access_token owned_repo = do
 
     let fetched_commits_oldest_first = reverse fetched_commits_newest_first
 
-    ExceptT $ do
-      insertion_count <- storeMasterCommits conn $ map GitHubRecords.extractCommitSha fetched_commits_oldest_first
-      putStrLn $ unwords [
+    commit_insertion_count <- ExceptT $ storeMasterCommits conn $ map GitHubRecords.extractCommitSha fetched_commits_oldest_first
+    liftIO $ putStrLn $ unwords [
           "Inserted "
-        , show insertion_count
+        , show commit_insertion_count
         , "commits"
         ]
 
-      storeCommitMetadata conn $ map Commits.fromGithubRecord fetched_commits_oldest_first
-      return insertion_count
+    metadata_insertion_count <- ExceptT $ storeCommitMetadata conn $ map Commits.fromGithubRecord fetched_commits_oldest_first
+
+    return (commit_insertion_count, metadata_insertion_count)
 
 
 storeMasterCommits ::
@@ -120,8 +121,8 @@ storeMasterCommits conn commit_list =
 
 
 -- | This is idempotent; builds that are already present will not be overwritten
-store_builds_list :: Connection -> [Builds.Build] -> IO Int64
-store_builds_list conn builds_list =
+storeBuildsList :: Connection -> [Builds.Build] -> IO Int64
+storeBuildsList conn builds_list =
   executeMany conn sql $ map buildToTuple builds_list
   where
     sql = "INSERT INTO builds(build_num, vcs_revision, queued_at, job_name, branch) VALUES(?,?,?,?,?) ON CONFLICT (build_num) DO NOTHING;"

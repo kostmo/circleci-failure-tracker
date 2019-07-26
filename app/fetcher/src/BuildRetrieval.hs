@@ -37,15 +37,20 @@ maxBuildPerPage = 100
 --  pages <- withPool 1 $ \pool -> parallel_ pool $ map Scanning.store_log scannable
 
 
-updateBuildsList :: Connection -> [String] -> Int -> Int -> IO Int64
+updateBuildsList ::
+     Connection
+  -> [String]
+  -> Int
+  -> Int
+  -> IO Int64
 updateBuildsList conn branch_names fetch_count age_days = do
 
   builds_lists <- for branch_names $ \branch_name -> do
     putStrLn $ "Fetching builds list for branch \"" ++ branch_name ++ "\"..."
-    populate_builds branch_name fetch_count age_days
+    populateBuilds branch_name fetch_count age_days
 
   putStrLn "Storing builds list..."
-  SqlWrite.store_builds_list conn $ concat builds_lists
+  SqlWrite.storeBuildsList conn $ concat builds_lists
 
 
 itemToBuild :: Value -> Build
@@ -60,36 +65,40 @@ itemToBuild json = NewBuild {
     queued_at_string = view (key "queued_at" . _String) json
 
 
-get_build_list_url :: String -> String
-get_build_list_url branch_name = intercalate "/"
+getBuildListUrl :: String -> String
+getBuildListUrl branch_name = intercalate "/"
   [ Constants.circleci_api_base
   , "tree"
   , branch_name
   ]
 
 
-populate_builds :: String -> Int -> Int -> IO [Build]
-populate_builds branch_name max_build_count max_age_days = do
+populateBuilds ::
+     String
+  -> Int
+  -> Int
+  -> IO [Build]
+populateBuilds branch_name max_build_count max_age_days = do
 
   sess <- Sess.newSession
   current_time <- Clock.getCurrentTime
 
-  let seconds_per_day = Clock.nominalDiffTimeToSeconds $ Clock.nominalDay
+  let seconds_per_day = Clock.nominalDiffTimeToSeconds Clock.nominalDay
       seconds_offset = seconds_per_day * (MkFixed $ fromIntegral max_age_days)
       time_diff = Clock.secondsToNominalDiffTime seconds_offset
       earliest_requested_time = Clock.addUTCTime time_diff current_time
 
-  populate_builds_recurse sess branch_name 0 earliest_requested_time max_build_count
+  populateBuildsRecurse sess branch_name 0 earliest_requested_time max_build_count
 
 
-populate_builds_recurse ::
+populateBuildsRecurse ::
      Sess.Session
   -> String
   -> Int
   -> UTCTime
   -> Int
   -> IO [Build]
-populate_builds_recurse sess branch_name offset earliest_requested_time max_build_count = do
+populateBuildsRecurse sess branch_name offset earliest_requested_time max_build_count =
 
   if max_build_count > 0
     then do
@@ -100,7 +109,7 @@ populate_builds_recurse sess branch_name offset earliest_requested_time max_buil
         , "(" ++ show max_build_count ++ " left)"
         ]
 
-      builds <- get_single_build_list sess branch_name builds_per_page offset
+      builds <- getSingleBuildList sess branch_name builds_per_page offset
 
       let fetched_build_count = length builds
           builds_left = max_build_count - fetched_build_count
@@ -122,7 +131,7 @@ populate_builds_recurse sess branch_name offset earliest_requested_time max_buil
         then do
           putStrLn $ "The earliest build for branch \"" ++ branch_name ++ "\" has been retrieved."
           return []
-        else populate_builds_recurse sess branch_name next_offset earliest_requested_time builds_left
+        else populateBuildsRecurse sess branch_name next_offset earliest_requested_time builds_left
       return $ builds ++ more_builds
 
   else
@@ -132,8 +141,13 @@ populate_builds_recurse sess branch_name offset earliest_requested_time max_buil
     builds_per_page = min maxBuildPerPage max_build_count
 
 
-get_single_build_list :: Sess.Session -> String -> Int -> Int -> IO [Build]
-get_single_build_list sess branch_name limit offset = do
+getSingleBuildList ::
+     Sess.Session
+  -> String
+  -> Int
+  -> Int
+  -> IO [Build]
+getSingleBuildList sess branch_name limit offset = do
 
   either_r <- FetchHelpers.safeGetUrl $ Sess.getWith opts sess fetch_url
 
@@ -145,11 +159,11 @@ get_single_build_list sess branch_name limit offset = do
 
       return builds_list
     Left err_message -> do
-      putStrLn $ "PROBLEM: Failed in get_single_build_list with message: " ++ err_message
+      putStrLn $ "PROBLEM: Failed in getSingleBuildList with message: " ++ err_message
       return []
 
   where
-    fetch_url = get_build_list_url branch_name
+    fetch_url = getBuildListUrl branch_name
     opts = defaults
       & header "Accept" .~ [Constants.json_mime_type]
       & param "shallow" .~ ["true"]

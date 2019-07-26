@@ -50,7 +50,7 @@ data UniversalBuild = UniversalBuild {
 
 
 data Build = NewBuild {
-    build_id     :: BuildNumber
+    build_id     :: BuildNumber -- ^ deprecated; should come from UniversalBuild
   , vcs_revision :: RawCommit
   , queued_at    :: UTCTime
   , job_name     :: Text

@@ -91,7 +91,7 @@ rescanSingleBuild db_connection_data initiator build_to_scan = do
     Right _ -> return ()
     Left (Builds.BuildWithStepFailure build_obj _step_failure) -> do
 
-      SqlWrite.store_builds_list conn [build_obj]
+      SqlWrite.storeBuildsList conn [build_obj]
 
       scan_matches <- scanBuilds scan_resources True $ Left $ Set.singleton build_to_scan
 

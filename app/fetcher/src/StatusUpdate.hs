@@ -227,7 +227,7 @@ handleFailedStatuses
   builds_with_flaky_pattern_matches <- liftIO $ do
     conn <- DbHelpers.get_connection db_connection_data
     scan_resources <- Scanning.prepareScanResources conn maybe_initiator
-    SqlWrite.store_builds_list conn circleci_failed_builds
+    SqlWrite.storeBuildsList conn circleci_failed_builds
     scan_matches <- Scanning.scanBuilds scan_resources True $ Left $ Set.fromList scannable_build_numbers
 
     -- TODO - we should instead see if the "best matching pattern" is
@@ -279,9 +279,9 @@ handlePushWebhook
     push_event = do
 
   putStrLn $ unwords [
-      "Got repo push event; ref:"
+      "Got repo push event for ref"
     , T.unpack refname
-    , "; head:"
+    , "at head:"
     , head_sha1
     ]
 
@@ -421,17 +421,6 @@ githubEventEndpoint connection_data github_config = do
 
   maybe_event_type <- S.header "X-GitHub-Event"
 
-
-  liftIO $ do
-    current_time <- Clock.getCurrentTime
-    putStrLn $ unwords [
-      "Received event at " ++ show current_time
-      , "; event type:"
-      , show maybe_event_type
-      , "; signature valid?"
-      , show is_signature_valid
-      ]
-
   case maybe_event_type of
     Nothing -> return ()
     Just event_type -> when is_signature_valid $
@@ -440,6 +429,7 @@ githubEventEndpoint connection_data github_config = do
           body_json <- S.jsonData
           will_post <- liftIO $ handleStatusWebhook connection_data (AuthConfig.personal_access_token github_config) Nothing body_json
           S.json =<< return ["Will post?" :: String, show will_post]
+
         "push" -> do
 
           body_json <- S.jsonData
@@ -449,4 +439,5 @@ githubEventEndpoint connection_data github_config = do
             handlePushWebhook connection_data (AuthConfig.personal_access_token github_config) body_json
             putStrLn "Handled push event."
           S.json =<< return ["hello" :: String]
+
         _ -> return ()

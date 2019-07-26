@@ -370,7 +370,8 @@ CREATE TABLE public.builds (
     branch character varying,
     succeeded boolean,
     started_at timestamp with time zone,
-    finished_at timestamp with time zone
+    finished_at timestamp with time zone,
+    global_build_num integer
 );
 
 
@@ -682,6 +683,13 @@ CREATE TABLE public.code_breakage_cause (
 ALTER TABLE public.code_breakage_cause OWNER TO postgres;
 
 --
+-- Name: TABLE code_breakage_cause; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.code_breakage_cause IS 'TODO: "failure_mode" column is deprecated; this is now in its own table.';
+
+
+--
 -- Name: code_breakage_resolution; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -695,6 +703,21 @@ CREATE TABLE public.code_breakage_resolution (
 
 
 ALTER TABLE public.code_breakage_resolution OWNER TO postgres;
+
+--
+-- Name: master_failure_mode_attributions; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.master_failure_mode_attributions (
+    cause_id integer NOT NULL,
+    reporter text NOT NULL,
+    mode_id integer NOT NULL,
+    reported_at timestamp with time zone,
+    id integer NOT NULL
+);
+
+
+ALTER TABLE public.master_failure_mode_attributions OWNER TO postgres;
 
 --
 -- Name: ordered_master_commits; Type: TABLE; Schema: public; Owner: postgres
@@ -731,8 +754,10 @@ CREATE VIEW public.code_breakage_spans WITH (security_barrier='false') AS
     bar.sha1 AS resolution_sha1,
     bar.reporter AS resolution_reporter,
     bar.reported_at AS resolution_reported_at,
-    foo.failure_mode
-   FROM (( SELECT code_breakage_cause.reporter,
+    barx.mode_id AS failure_mode,
+    barx.reporter AS failure_mode_reporter,
+    barx.reported_at AS failure_mode_reported_at
+   FROM ((( SELECT code_breakage_cause.reporter,
             code_breakage_cause.reported_at,
             code_breakage_cause.id AS cause_id,
             ordered_master_commits.id AS commit_index,
@@ -749,6 +774,12 @@ CREATE VIEW public.code_breakage_spans WITH (security_barrier='false') AS
             code_breakage_resolution.sha1
            FROM (public.code_breakage_resolution
              JOIN public.ordered_master_commits ON ((ordered_master_commits.sha1 = code_breakage_resolution.sha1)))) bar ON ((foo.cause_id = bar.cause_id)))
+     LEFT JOIN ( SELECT DISTINCT ON (master_failure_mode_attributions.cause_id) master_failure_mode_attributions.cause_id,
+            master_failure_mode_attributions.reporter,
+            master_failure_mode_attributions.reported_at,
+            master_failure_mode_attributions.mode_id
+           FROM public.master_failure_mode_attributions
+          ORDER BY master_failure_mode_attributions.cause_id, master_failure_mode_attributions.id DESC) barx ON ((foo.cause_id = barx.cause_id)))
   ORDER BY foo.cause_id, bar.resolution_id DESC;
 
 
@@ -969,6 +1000,22 @@ ALTER SEQUENCE public.code_breakage_resolution_id_seq OWNED BY public.code_break
 
 
 --
+-- Name: commit_authorship_supplemental; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.commit_authorship_supplemental (
+    sha1 character(40) NOT NULL,
+    pulled_by text,
+    reviewed_by text,
+    differential_revision text,
+    fbshipit_source_id text,
+    ghstack_source_id text
+);
+
+
+ALTER TABLE public.commit_authorship_supplemental OWNER TO postgres;
+
+--
 -- Name: commit_metadata; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -1017,25 +1064,10 @@ CREATE VIEW public.job_failure_frequencies AS
 ALTER TABLE public.job_failure_frequencies OWNER TO postgres;
 
 --
--- Name: master_failure_mode_attributions; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.master_failure_mode_attributions (
-    cause_id integer NOT NULL,
-    reporter text NOT NULL,
-    mode_id integer NOT NULL,
-    reported_at timestamp with time zone,
-    id integer NOT NULL
-);
-
-
-ALTER TABLE public.master_failure_mode_attributions OWNER TO postgres;
-
---
 -- Name: known_breakage_summaries; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.known_breakage_summaries AS
+CREATE VIEW public.known_breakage_summaries WITH (security_barrier='false') AS
  SELECT code_breakage_spans.cause_id,
     code_breakage_spans.cause_commit_index,
     code_breakage_spans.cause_sha1,
@@ -1054,22 +1086,16 @@ CREATE VIEW public.known_breakage_summaries AS
     COALESCE(meta2.message, ''::text) AS resolution_commit_message,
     COALESCE(meta1.committer_date, now()) AS breakage_commit_date,
     COALESCE(meta2.committer_date, now()) AS resolution_commit_date,
-    COALESCE(bar.mode_id, '-1'::integer) AS failure_mode_id,
-    COALESCE(bar.reporter, ''::text) AS failure_mode_reporter,
-    COALESCE(bar.reported_at, now()) AS failure_mode_reported_at
-   FROM ((((public.code_breakage_spans
+    COALESCE(code_breakage_spans.failure_mode, 1) AS failure_mode_id,
+    COALESCE(code_breakage_spans.failure_mode_reporter, ''::text) AS failure_mode_reporter,
+    COALESCE(code_breakage_spans.failure_mode_reported_at, now()) AS failure_mode_reported_at
+   FROM (((public.code_breakage_spans
      LEFT JOIN ( SELECT code_breakage_affected_jobs.cause,
             string_agg(code_breakage_affected_jobs.job, ';'::text) AS jobs
            FROM public.code_breakage_affected_jobs
           GROUP BY code_breakage_affected_jobs.cause) foo ON ((foo.cause = code_breakage_spans.cause_id)))
      LEFT JOIN public.commit_metadata meta1 ON ((meta1.sha1 = code_breakage_spans.cause_sha1)))
-     LEFT JOIN public.commit_metadata meta2 ON ((meta2.sha1 = code_breakage_spans.resolution_sha1)))
-     LEFT JOIN ( SELECT DISTINCT ON (master_failure_mode_attributions.cause_id) master_failure_mode_attributions.cause_id,
-            master_failure_mode_attributions.reporter,
-            master_failure_mode_attributions.reported_at,
-            master_failure_mode_attributions.mode_id
-           FROM public.master_failure_mode_attributions
-          ORDER BY master_failure_mode_attributions.cause_id, master_failure_mode_attributions.id DESC) bar ON ((bar.cause_id = code_breakage_spans.cause_id)));
+     LEFT JOIN public.commit_metadata meta2 ON ((meta2.sha1 = code_breakage_spans.resolution_sha1)));
 
 
 ALTER TABLE public.known_breakage_summaries OWNER TO postgres;
@@ -1907,6 +1933,14 @@ ALTER TABLE ONLY public.code_breakage_resolution
 
 
 --
+-- Name: commit_authorship_supplemental commit_authorship_supplemental_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.commit_authorship_supplemental
+    ADD CONSTRAINT commit_authorship_supplemental_pkey PRIMARY KEY (sha1);
+
+
+--
 -- Name: commit_metadata commit_metadata_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -2178,6 +2212,13 @@ CREATE INDEX fki_fk_build ON public.scanned_patterns USING btree (build);
 
 
 --
+-- Name: fki_fk_global_buildnum; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX fki_fk_global_buildnum ON public.builds USING btree (global_build_num);
+
+
+--
 -- Name: fki_fk_mode_id; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -2271,6 +2312,14 @@ ALTER TABLE ONLY public.code_breakage_resolution
 
 ALTER TABLE ONLY public.code_breakage_resolution
     ADD CONSTRAINT code_breakage_resolution_sha1_fkey FOREIGN KEY (sha1) REFERENCES public.ordered_master_commits(sha1);
+
+
+--
+-- Name: builds fk_global_buildnum; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.builds
+    ADD CONSTRAINT fk_global_buildnum FOREIGN KEY (global_build_num) REFERENCES public.universal_builds(id);
 
 
 --
@@ -2633,6 +2682,13 @@ GRANT ALL ON TABLE public.code_breakage_resolution TO logan;
 
 
 --
+-- Name: TABLE master_failure_mode_attributions; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_failure_mode_attributions TO logan;
+
+
+--
 -- Name: TABLE ordered_master_commits; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -2710,6 +2766,13 @@ GRANT ALL ON SEQUENCE public.code_breakage_resolution_id_seq TO logan;
 
 
 --
+-- Name: TABLE commit_authorship_supplemental; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.commit_authorship_supplemental TO logan;
+
+
+--
 -- Name: TABLE commit_metadata; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -2728,13 +2791,6 @@ GRANT ALL ON TABLE public.idiopathic_build_failures TO logan;
 --
 
 GRANT ALL ON TABLE public.job_failure_frequencies TO logan;
-
-
---
--- Name: TABLE master_failure_mode_attributions; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.master_failure_mode_attributions TO logan;
 
 
 --
