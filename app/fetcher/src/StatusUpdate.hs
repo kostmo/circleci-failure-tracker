@@ -187,7 +187,7 @@ handleFailedStatuses
   let statuses_list_not_mine = filter is_not_my_own_context build_statuses_list_any_source
       statuses_by_hostname = groupStatusesByHostname statuses_list_not_mine
 
-  statuses_by_ci_providers <- liftIO $ SqlWrite.get_and_store_ci_providers db_connection_data statuses_by_hostname
+  statuses_by_ci_providers <- liftIO $ SqlWrite.getAndStoreCIProviders db_connection_data statuses_by_hostname
 
   -- debug info:
   let provider_keys = map (DbHelpers.db_id . snd) statuses_by_ci_providers

@@ -164,7 +164,7 @@ storeBuildsList conn builds_list =
         queued_at_string = T.pack $ formatTime defaultTimeLocale rfc822DateFormat queuedat
         (Builds.NewBuild (Builds.NewBuildNumber build_num) (Builds.RawCommit vcs_rev) queuedat jobname branch) = rbuild
 
-    sql = "INSERT INTO builds(build_num, vcs_revision, queued_at, job_name, branch, global_build_num) VALUES(?,?,?,?,?,?) ON CONFLICT (build_num) DO NOTHING;"
+    sql = "INSERT INTO builds(build_num, vcs_revision, queued_at, job_name, branch, global_build_num) VALUES(?,?,?,?,?,?) ON CONFLICT (build_num) DO UPDATE SET global_build_num = excluded.global_build_num;"
 
 
 storeMatches ::
@@ -209,11 +209,11 @@ insertSingleCIProvider conn hostname = do
     sql_insert = "INSERT INTO ci_providers(hostname) VALUES(?) RETURNING id;"
 
 
-get_and_store_ci_providers ::
+getAndStoreCIProviders ::
      DbHelpers.DbConnectionData
   -> [(String, a)]
   -> IO [(a, DbHelpers.WithId String)]
-get_and_store_ci_providers conn_data failed_statuses_by_hostname = do
+getAndStoreCIProviders conn_data failed_statuses_by_hostname = do
   conn <- DbHelpers.get_connection conn_data
   mapM (traverse (insertSingleCIProvider conn) . swap) failed_statuses_by_hostname
 
