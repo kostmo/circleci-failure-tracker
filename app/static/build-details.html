@@ -15,7 +15,6 @@
 
 <script src="/script/html-utils.js"></script>
 <script src="/script/table-helpers.js"></script>
-<script src="/script/breakage-reporting.js"></script>
 <script src="/script/build-details.js"></script>
 
 </head>
@@ -27,21 +26,6 @@
 
 <button onclick="rescan_build();">Rescan build</button>
 <div id="scan-throbber" style="display: none;"><div>Scanning...</div><img src="/images/duck.gif"/></div>
-
-<form onsubmit="return false;" style="border: 1px solid gray; padding: 0.3em; float: right;">
-
-<h2>Breakage report</h2>
-
-<br/>
-<label>Implicated revision:<br/>
-<input id="input-implicated-revision" type="text" maxlength="40" size="40" value=""/></label> <button id="implicate-self-button" disabled="disabled">This commit</button>
-<br/>
-
-<label>Notes:<br/><textarea id="input-notes" rows="2" cols="30"></textarea></label>
-<br/>
-
-<label><input id="is-broken-checkbox" type="checkbox" checked="checked"/> is broken?</label> <span id="submission_button_placeholder"></span>
-</form>
 
 <div id="build-info-box"></div>
 

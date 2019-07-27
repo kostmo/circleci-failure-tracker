@@ -34,7 +34,6 @@ import qualified Web.Scotty.Internal.Types       as ScottyTypes
 import qualified Auth
 import qualified AuthConfig
 import qualified AuthStages
-import qualified Breakages
 import qualified Breakages2
 import qualified Builds
 import qualified Constants
@@ -213,31 +212,6 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
 
     S.post "/api/github-event" $ StatusUpdate.githubEventEndpoint connection_data github_config
-
-
-    -- Experimental
-    S.post "/api/report-breakage" $ do
-
-      either_maybe_implicated_revision <- validateMaybeRevision "implicated_revision"
-      notes <- S.param "notes"
-      is_broken <- S.param "is_broken"
-      step_id <- S.param "step_id"
-
-      rq <- S.request
-      insertion_result <- liftIO $ runExceptT $ do
-        maybe_implicated_revision <- except $ first AuthStages.DbFailure either_maybe_implicated_revision
-
-        let callback_func user_alias = SqlWrite.api_new_breakage_report connection_data breakage_report
-              where
-                breakage_report = Breakages.NewBreakageReport
-                  (Builds.NewBuildStepId step_id)
-                  (GitRev.sha1 <$> maybe_implicated_revision)
-                  is_broken
-                  notes
-                  user_alias
-
-        ExceptT $ Auth.getAuthenticatedUser rq session github_config callback_func
-      S.json $ WebApi.toJsonEither insertion_result
 
 
     S.post "/api/code-breakage-resolution-report" $ do
@@ -420,9 +394,6 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
     get "/api/status-postings-by-day" SqlRead.api_status_postings_by_day
 
     get "/api/failed-commits-by-day" SqlRead.api_failed_commits_by_day
-
-    -- XXX This is the deprecated kind of breakage report
-    get "/api/breakages-dump" SqlRead.dump_breakages
 
     get "/api/code-breakages-detected" SqlRead.apiDetectedCodeBreakages
 

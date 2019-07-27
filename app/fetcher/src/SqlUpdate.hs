@@ -19,8 +19,6 @@ import           GHC.Generics
 import qualified Network.OAuth.OAuth2       as OAuth2
 import qualified Safe
 
-import qualified AuthStages
-import qualified Breakages
 import qualified Builds
 import qualified BuildSteps
 import qualified CommitBuilds
@@ -97,17 +95,13 @@ getBuildInfo access_token build@(Builds.NewBuildNumber build_id) = do
       return $ SingleBuildInfo multi_match_count step_container applicable_breakages
 
   where
-    f multi_match_count (step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch, maybe_implicated_revision, maybe_is_broken, maybe_notes, maybe_reporter) = (multi_match_count, step_container)
+    f multi_match_count (step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch) = (multi_match_count, step_container)
       where
         step_container = BuildSteps.NewBuildStep step_name (Builds.NewBuildStepId step_id) build_obj maybe_breakage_obj
         build_obj = Builds.NewBuild (Builds.NewBuildNumber build_num) (Builds.RawCommit vcs_revision) queued_at job_name branch
-        maybe_breakage_obj = do
-          is_broken <- maybe_is_broken
-          notes <- maybe_notes
-          reporter <- maybe_reporter
-          return $ Breakages.NewBreakageReport (Builds.NewBuildStepId step_id) maybe_implicated_revision is_broken notes $ AuthStages.Username reporter
+        maybe_breakage_obj = Nothing
 
-    sql = "SELECT step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch, implicated_revision, is_broken, breakage_notes, reporter FROM builds_with_reports where build_num = ?;"
+    sql = "SELECT step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch FROM builds_with_reports where build_num = ?;"
 
 
 countRevisionBuilds ::

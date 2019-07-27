@@ -1,39 +1,3 @@
-
-function gather_revision_data(step_id) {
-	return {
-		step_id: step_id,
-		implicated_revision: $('#input-implicated-revision').val(),
-		is_broken: $('#is-broken-checkbox').is(":checked"),
-		notes: $('#input-notes').val(),
-	};
-}
-
-
-function submit_breakage_report(button, build_step_id) {
-
-	$(button).prop("disabled", true);
-
-	console.log("Submitting breakage report...");
-
-	var revision_data = gather_revision_data(build_step_id);
-
-        $.post({
-		url: "/api/report-breakage",
-		data: revision_data,
-		success: function( data ) {
-
-			$(button).prop("disabled", false);
-
-			if (data.success) {
-				alert("submitted report with ID: " + data.payload);
-			} else {
-				alert("Error: " + data.error.message);
-			}
-		}
-        });
-}
-
-
 function gen_builds_table(element_id, data_url, height_string) {
 
 	var column_list = [
@@ -121,8 +85,6 @@ function populate_build_info(build_id, parent_data) {
 	$("#implicate-self-button").prop("disabled", false);
 
         $("#build-info-box").html(render_table_vertical_headers(items));
-
-	populate_breakage_form("submission_button_placeholder", data["step_id"], data);
 
 	if (parent_data["multi_match_count"] > 1) {
 		$("#all-matches-section").show();

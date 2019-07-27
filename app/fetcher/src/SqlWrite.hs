@@ -28,7 +28,6 @@ import qualified Safe
 
 import qualified ApiPost
 import qualified AuthStages
-import qualified Breakages
 import qualified Breakages2
 import qualified Builds
 import qualified Commits
@@ -452,26 +451,6 @@ insert_scan_id conn maybe_initiator (ScanPatterns.PatternId pattern_id)  = do
   where
     inititator = fmap (\(AuthStages.Username x) -> x) maybe_initiator
     sql = "INSERT INTO scans(latest_pattern_id, initiator) VALUES(?,?) RETURNING id;"
-
-
-api_new_breakage_report ::
-     DbHelpers.DbConnectionData
-  -> Breakages.BreakageReport
-  -> IO (Either Text Int64)
-api_new_breakage_report
-    conn_data
-    (Breakages.NewBreakageReport (Builds.NewBuildStepId build_step_id) implicated_rev is_broken notes (AuthStages.Username author_username)) = do
-
-  conn <- DbHelpers.get_connection conn_data
-  catchViolation catcher $ do
-    [Only report_id] <- query conn insertion_sql (build_step_id, author_username, is_broken, implicated_rev, notes)
-    return $ Right report_id
-
-  where
-    insertion_sql = "INSERT INTO broken_build_reports(build_step, reporter, is_broken, implicated_revision, notes) VALUES(?,?,?,?,?) RETURNING id;"
-
-    catcher _ (UniqueViolation some_error) = return $ Left $ "Insertion error: " <> T.pack (BS.unpack some_error)
-    catcher e _                                  = throwIO e
 
 
 api_code_breakage_cause_insert ::

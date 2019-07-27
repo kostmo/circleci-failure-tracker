@@ -50,7 +50,8 @@ CREATE TABLE public.build_steps (
     id integer NOT NULL,
     build integer,
     name text,
-    is_timeout boolean
+    is_timeout boolean,
+    universal_build integer NOT NULL
 );
 
 
@@ -371,7 +372,7 @@ CREATE TABLE public.builds (
     succeeded boolean,
     started_at timestamp with time zone,
     finished_at timestamp with time zone,
-    global_build_num integer
+    global_build_num integer NOT NULL
 );
 
 
@@ -2287,6 +2288,13 @@ CREATE INDEX fki_fk_scan ON public.scanned_patterns USING btree (scan);
 
 
 --
+-- Name: fki_fk_ubuild; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX fki_fk_ubuild ON public.build_steps USING btree (universal_build);
+
+
+--
 -- Name: fki_master_failure_mode_fk; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -2391,6 +2399,14 @@ ALTER TABLE ONLY public.scanned_patterns
 
 ALTER TABLE ONLY public.scanned_patterns
     ADD CONSTRAINT fk_scan FOREIGN KEY (scan) REFERENCES public.scans(id);
+
+
+--
+-- Name: build_steps fk_ubuild; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.build_steps
+    ADD CONSTRAINT fk_ubuild FOREIGN KEY (universal_build) REFERENCES public.universal_builds(id);
 
 
 --
