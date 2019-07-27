@@ -1042,17 +1042,26 @@ CREATE TABLE public.universal_builds (
     id integer NOT NULL,
     build_number integer,
     build_namespace text,
-    provider integer
+    provider integer,
+    commit_sha1 character(40),
+    succeeded boolean
 );
 
 
 ALTER TABLE public.universal_builds OWNER TO postgres;
 
 --
+-- Name: TABLE universal_builds; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.universal_builds IS 'Currently, these records are stored even if the build succeeds.';
+
+
+--
 -- Name: global_builds; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.global_builds AS
+CREATE VIEW public.global_builds WITH (security_barrier='false') AS
  SELECT builds.global_build_num,
     builds.succeeded,
     builds.vcs_revision,
@@ -1062,7 +1071,8 @@ CREATE VIEW public.global_builds AS
     universal_builds.build_namespace,
     builds.queued_at,
     builds.started_at,
-    builds.finished_at
+    builds.finished_at,
+    universal_builds.provider
    FROM (public.universal_builds
      JOIN public.builds ON ((builds.global_build_num = universal_builds.id)));
 
@@ -1911,6 +1921,14 @@ ALTER TABLE ONLY public.build_steps
 
 ALTER TABLE ONLY public.build_steps
     ADD CONSTRAINT build_steps_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: builds builds_global_build_num_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.builds
+    ADD CONSTRAINT builds_global_build_num_key UNIQUE (global_build_num);
 
 
 --

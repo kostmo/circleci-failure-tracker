@@ -39,6 +39,7 @@ maxBuildPerPage = 100
 
 
 -- | This is CircleCI-specific
+-- and assumes all the builds are failed builds
 updateCircleCIBuildsList ::
      Connection
   -> [String]
@@ -55,7 +56,7 @@ updateCircleCIBuildsList conn branch_names fetch_count age_days = do
     fetchCircleCIBuilds branch_name fetch_count age_days
 
   putStrLn "Storing builds list..."
-  SqlWrite.storeCircleCiBuildsList conn $ concat builds_lists
+  SqlWrite.storeCircleCiBuildsList conn $ map (\x -> (x, False)) $ concat builds_lists
 
 
 itemToBuild :: Value -> Build

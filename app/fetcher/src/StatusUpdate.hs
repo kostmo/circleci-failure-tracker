@@ -148,10 +148,14 @@ extractUniversalBuild commit provider_with_id status_object = case DbHelpers.rec
           (Builds.build_id circle_build)
           (DbHelpers.db_id provider_with_id)
           ""
+          did_succeed
+          commit
     return (circle_build, uni_build)
   "ci.pytorch.org" -> Nothing
   "travis-ci.org"  -> Nothing
   _                -> Nothing
+  where
+    did_succeed = StatusEventQuery._state status_object == "success"
 
 
 -- | Operations:
@@ -175,7 +179,6 @@ handleFailedStatuses
     sha1
     maybe_previously_posted_status = do
 
-
   liftIO $ do
     current_time <- Clock.getCurrentTime
     putStrLn $ "Processing at " ++ show current_time
@@ -185,7 +188,10 @@ handleFailedStatuses
   liftIO $ putStrLn $ "Build statuses count: " ++ show (length build_statuses_list_any_source)
 
   let statuses_list_not_mine = filter is_not_my_own_context build_statuses_list_any_source
-      statuses_by_hostname = groupStatusesByHostname statuses_list_not_mine
+
+      succeeded_or_failed_statuses = filter ((`elem` ["failure", "success"]) . StatusEventQuery._state) statuses_list_not_mine
+
+      statuses_by_hostname = groupStatusesByHostname succeeded_or_failed_statuses
 
   statuses_by_ci_providers <- liftIO $ SqlWrite.getAndStoreCIProviders db_connection_data statuses_by_hostname
 
@@ -193,6 +199,7 @@ handleFailedStatuses
   let provider_keys = map (DbHelpers.db_id . snd) statuses_by_ci_providers
   liftIO $ putStrLn $ unwords ["Provider DB keys:", show provider_keys]
 
+  -- Only store succeeded or failed builds; ignore pending or aborted
   stored_build_tuples <- liftIO $ storeUniversalBuilds
     db_connection_data
     sha1

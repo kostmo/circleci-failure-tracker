@@ -44,7 +44,7 @@ circleCIProviderIndex = 3
 
 
 sqlInsertUniversalBuild :: Query
-sqlInsertUniversalBuild = "INSERT INTO universal_builds(provider, build_number, build_namespace) VALUES(?,?,?) ON CONFLICT ON CONSTRAINT universal_builds_build_number_build_namespace_provider_key DO UPDATE SET build_number = excluded.build_number RETURNING id;"
+sqlInsertUniversalBuild = "INSERT INTO universal_builds(provider, build_number, build_namespace, succeeded, commit_sha1) VALUES(?,?,?,?,?) ON CONFLICT ON CONSTRAINT universal_builds_build_number_build_namespace_provider_key DO UPDATE SET build_number = excluded.build_number RETURNING id;"
 
 
 storeCommitMetadata ::
@@ -128,8 +128,8 @@ insertSingleUniversalBuild ::
      Connection
   -> Builds.UniversalBuild
   -> IO (DbHelpers.WithId Builds.UniversalBuild)
-insertSingleUniversalBuild conn uni_build@(Builds.UniversalBuild (Builds.NewBuildNumber provider_buildnum) provider_id build_namespace) = do
-  [Only new_id] <- query conn sqlInsertUniversalBuild (provider_id, provider_buildnum, build_namespace)
+insertSingleUniversalBuild conn uni_build@(Builds.UniversalBuild (Builds.NewBuildNumber provider_buildnum) provider_id build_namespace succeeded (Builds.RawCommit sha1)) = do
+  [Only new_id] <- query conn sqlInsertUniversalBuild (provider_id, provider_buildnum, build_namespace, succeeded, sha1)
   return $ DbHelpers.WithId new_id uni_build
 
 
@@ -137,20 +137,20 @@ insertSingleUniversalBuild conn uni_build@(Builds.UniversalBuild (Builds.NewBuil
 -- handle constraint violations on individual rows.
 --
 -- for now, this function is only called from the standalone scanner application.
-storeCircleCiBuildsList :: Connection -> [Builds.Build] -> IO Int64
+storeCircleCiBuildsList :: Connection -> [(Builds.Build, Bool)] -> IO Int64
 storeCircleCiBuildsList conn builds_list = do
   universal_build_insertion_output_rows <- returning conn sqlInsertUniversalBuild $ map input_f universal_builds
 
   let zipped_output1 = zipWith (\(Only row_id) ubuild -> DbHelpers.WithId row_id ubuild) universal_build_insertion_output_rows universal_builds
-      zipped_output2 = zipWith Builds.StorableBuild zipped_output1 builds_list
+      zipped_output2 = zipWith Builds.StorableBuild zipped_output1 $ map fst builds_list
 
   storeBuildsList conn zipped_output2
 
   where
-    mk_ubuild b = Builds.UniversalBuild (Builds.build_id b) circleCIProviderIndex ""
+    mk_ubuild (b, succeeded) = Builds.UniversalBuild (Builds.build_id b) circleCIProviderIndex "" succeeded (Builds.vcs_revision b)
     universal_builds = map mk_ubuild builds_list
 
-    input_f (Builds.UniversalBuild (Builds.NewBuildNumber provider_buildnum) provider_id build_namespace) = (provider_id, provider_buildnum, build_namespace)
+    input_f (Builds.UniversalBuild (Builds.NewBuildNumber provider_buildnum) provider_id build_namespace succeeded (Builds.RawCommit sha1)) = (provider_id, provider_buildnum, build_namespace, succeeded, sha1)
 
 
 -- | This is idempotent; builds that are already present will not be overwritten

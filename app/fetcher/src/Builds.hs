@@ -42,11 +42,12 @@ instance ToJSON BuildStepId
 instance FromJSON BuildStepId
 
 
-
 data UniversalBuild = UniversalBuild {
     provider_buildnum :: BuildNumber
   , provider_id       :: Int64
   , build_namespace   :: Text
+  , succeeded         :: Bool
+  , sha1              :: RawCommit
   } deriving (Show, Generic)
 
 
