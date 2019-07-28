@@ -85,15 +85,40 @@ CREATE TABLE public.matches (
 ALTER TABLE public.matches OWNER TO postgres;
 
 --
+-- Name: universal_builds; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.universal_builds (
+    id integer NOT NULL,
+    build_number integer,
+    build_namespace text,
+    provider integer,
+    commit_sha1 character(40),
+    succeeded boolean
+);
+
+
+ALTER TABLE public.universal_builds OWNER TO postgres;
+
+--
+-- Name: TABLE universal_builds; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.universal_builds IS 'Currently, these records are stored even if the build succeeds.';
+
+
+--
 -- Name: matches_for_build; Type: VIEW; Schema: public; Owner: postgres
 --
 
 CREATE VIEW public.matches_for_build WITH (security_barrier='false') AS
  SELECT matches.pattern AS pat,
-    build_steps.build,
-    build_steps.name AS step_name
-   FROM (public.matches
-     JOIN public.build_steps ON ((matches.build_step = build_steps.id)));
+    universal_builds.build_number AS build,
+    build_steps.name AS step_name,
+    universal_builds.id AS universal_build
+   FROM ((public.matches
+     JOIN public.build_steps ON ((matches.build_step = build_steps.id)))
+     JOIN public.universal_builds ON ((universal_builds.id = build_steps.universal_build)));
 
 
 ALTER TABLE public.matches_for_build OWNER TO postgres;
@@ -132,7 +157,7 @@ ALTER TABLE public.log_metadata OWNER TO postgres;
 
 CREATE VIEW public.match_positions WITH (security_barrier='false') AS
  SELECT foo.pattern,
-    build_steps.build,
+    universal_builds.build_number AS build,
     log_metadata.step AS step_id,
     build_steps.name AS step_name,
     foo.first_line,
@@ -141,8 +166,9 @@ CREATE VIEW public.match_positions WITH (security_barrier='false') AS
     foo.matched_line_count,
     ((foo.first_line)::double precision / (log_metadata.line_count)::double precision) AS first_position_fraction,
     ((foo.last_line)::double precision / (log_metadata.line_count)::double precision) AS last_position_fraction,
-    (log_metadata.line_count - (1 + foo.last_line)) AS lines_from_end
-   FROM ((( SELECT matches.pattern,
+    (log_metadata.line_count - (1 + foo.last_line)) AS lines_from_end,
+    universal_builds.id AS universal_build
+   FROM (((( SELECT matches.pattern,
             matches.build_step,
             min(matches.line_number) AS first_line,
             max(matches.line_number) AS last_line,
@@ -151,6 +177,7 @@ CREATE VIEW public.match_positions WITH (security_barrier='false') AS
           GROUP BY matches.pattern, matches.build_step) foo
      JOIN public.log_metadata ON ((log_metadata.step = foo.build_step)))
      JOIN public.build_steps ON ((build_steps.id = log_metadata.step)))
+     JOIN public.universal_builds ON ((universal_builds.id = build_steps.universal_build)))
   ORDER BY foo.matched_line_count DESC, foo.pattern, build_steps.build;
 
 
@@ -439,27 +466,26 @@ CREATE VIEW public.aggregated_github_status_postings AS
 ALTER TABLE public.aggregated_github_status_postings OWNER TO postgres;
 
 --
--- Name: universal_builds; Type: TABLE; Schema: public; Owner: postgres
+-- Name: global_builds; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE TABLE public.universal_builds (
-    id integer NOT NULL,
-    build_number integer,
-    build_namespace text,
-    provider integer,
-    commit_sha1 character(40),
-    succeeded boolean
-);
+CREATE VIEW public.global_builds WITH (security_barrier='false') AS
+ SELECT builds.global_build_num,
+    builds.succeeded,
+    builds.vcs_revision,
+    builds.job_name,
+    builds.branch,
+    universal_builds.build_number,
+    universal_builds.build_namespace,
+    builds.queued_at,
+    builds.started_at,
+    builds.finished_at,
+    universal_builds.provider
+   FROM (public.universal_builds
+     JOIN public.builds ON ((builds.global_build_num = universal_builds.id)));
 
 
-ALTER TABLE public.universal_builds OWNER TO postgres;
-
---
--- Name: TABLE universal_builds; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON TABLE public.universal_builds IS 'Currently, these records are stored even if the build succeeds.';
-
+ALTER TABLE public.global_builds OWNER TO postgres;
 
 --
 -- Name: builds_join_steps; Type: VIEW; Schema: public; Owner: postgres
@@ -468,20 +494,19 @@ COMMENT ON TABLE public.universal_builds IS 'Currently, these records are stored
 CREATE VIEW public.builds_join_steps WITH (security_barrier='false') AS
  SELECT build_steps.id AS step_id,
     build_steps.name AS step_name,
-    builds.build_num,
-    builds.vcs_revision,
-    builds.queued_at,
-    builds.job_name,
-    builds.branch,
+    global_builds.build_number AS build_num,
+    global_builds.vcs_revision,
+    global_builds.queued_at,
+    global_builds.job_name,
+    global_builds.branch,
     build_steps.is_timeout,
     build_steps.universal_build,
-    universal_builds.provider,
-    universal_builds.succeeded,
-    universal_builds.build_namespace
-   FROM ((public.build_steps
-     LEFT JOIN public.universal_builds ON ((build_steps.universal_build = universal_builds.id)))
-     LEFT JOIN public.builds ON ((builds.build_num = universal_builds.build_number)))
-  ORDER BY builds.vcs_revision, builds.build_num DESC;
+    global_builds.provider,
+    global_builds.succeeded,
+    global_builds.build_namespace
+   FROM (public.build_steps
+     LEFT JOIN public.global_builds ON ((build_steps.universal_build = global_builds.global_build_num)))
+  ORDER BY global_builds.vcs_revision, global_builds.build_number DESC;
 
 
 ALTER TABLE public.builds_join_steps OWNER TO postgres;
@@ -533,11 +558,12 @@ CREATE VIEW public.matches_with_log_metadata WITH (security_barrier='false') AS
     log_metadata.line_count,
     log_metadata.byte_count,
     log_metadata.step,
-    build_steps.name AS step_name,
-    build_steps.build AS build_num
+    builds_join_steps.step_name,
+    builds_join_steps.build_num,
+    builds_join_steps.universal_build
    FROM ((public.matches
      LEFT JOIN public.log_metadata ON ((log_metadata.step = matches.build_step)))
-     LEFT JOIN public.build_steps ON ((build_steps.id = log_metadata.step)));
+     LEFT JOIN public.builds_join_steps ON ((builds_join_steps.step_id = log_metadata.step)));
 
 
 ALTER TABLE public.matches_with_log_metadata OWNER TO postgres;
@@ -1012,28 +1038,6 @@ CREATE TABLE public.commit_metadata (
 
 
 ALTER TABLE public.commit_metadata OWNER TO postgres;
-
---
--- Name: global_builds; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.global_builds WITH (security_barrier='false') AS
- SELECT builds.global_build_num,
-    builds.succeeded,
-    builds.vcs_revision,
-    builds.job_name,
-    builds.branch,
-    universal_builds.build_number,
-    universal_builds.build_namespace,
-    builds.queued_at,
-    builds.started_at,
-    builds.finished_at,
-    universal_builds.provider
-   FROM (public.universal_builds
-     JOIN public.builds ON ((builds.global_build_num = universal_builds.id)));
-
-
-ALTER TABLE public.global_builds OWNER TO postgres;
 
 --
 -- Name: idiopathic_build_failures; Type: VIEW; Schema: public; Owner: postgres
@@ -2382,6 +2386,13 @@ GRANT ALL ON TABLE public.matches TO logan;
 
 
 --
+-- Name: TABLE universal_builds; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.universal_builds TO logan;
+
+
+--
 -- Name: TABLE matches_for_build; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -2508,10 +2519,10 @@ GRANT ALL ON TABLE public.aggregated_github_status_postings TO logan;
 
 
 --
--- Name: TABLE universal_builds; Type: ACL; Schema: public; Owner: postgres
+-- Name: TABLE global_builds; Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON TABLE public.universal_builds TO logan;
+GRANT ALL ON TABLE public.global_builds TO logan;
 
 
 --
@@ -2680,13 +2691,6 @@ GRANT ALL ON TABLE public.commit_authorship_supplemental TO logan;
 --
 
 GRANT ALL ON TABLE public.commit_metadata TO logan;
-
-
---
--- Name: TABLE global_builds; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.global_builds TO logan;
 
 
 --
