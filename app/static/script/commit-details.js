@@ -174,7 +174,6 @@ function rescan_commit(button) {
 		},
 		error: function( data ) {
 			$("#scan-throbber").hide();
-			
 		},
         });
 }

@@ -360,6 +360,8 @@ function next_page() {
 	render_timeline_table();
 }
 
+var PULL_REQUEST_URL_PREFIX = "https://github.com/pytorch/pytorch/pull/";
+
 
 function get_column_definitions(raw_column_list) {
 
@@ -390,7 +392,20 @@ function get_column_definitions(raw_column_list) {
 
 			var commit_metadata = cell.getRow().getData()["commit_metadata"];
 
-			var message_suffix = commit_metadata ? ": " + get_commit_subject(commit_metadata["message"]) : "";
+			var message_suffix = "";
+			if (commit_metadata) {
+
+				var pr_link = "";
+				var matches_array = /https:\/\/github\.com\/pytorch\/pytorch\/pull\/(\d+)/.exec(commit_metadata["message"]);
+				if (matches_array !== null) {
+					var pr_number = matches_array[1];
+					pr_link = render_tag("sup", render_tag("small", link("#" + pr_number, PULL_REQUEST_URL_PREFIX + pr_number)));
+				}
+
+				var message_subject = get_commit_subject(commit_metadata["message"]);
+				message_suffix = pr_link + ": " + message_subject;
+			}
+
 			return sha1_link(cell.getValue()) + message_suffix;
 		},
 		tooltip: function(cell) {

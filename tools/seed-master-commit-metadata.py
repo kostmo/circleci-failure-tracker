@@ -33,15 +33,20 @@ def get_first_merge_commit(repo_path):
             return splitted[0]
 
 
-def get_log_json_list(repo_path, merge_commit):
+def get_log_json_list(repo_path, merge_commit, maybe_single_commit):
     """
     Returns the most recent sequence of commits
     that have a linear ancestry, ordered from oldest to newest
     """
     command_args = [
         os.path.join(PARENT_DIRECTORY, "git-log2json.sh"),
-        merge_commit + ".." + "origin/master",
     ]
+
+    if maybe_single_commit:
+        command_args.extend(["-n1", maybe_single_commit])
+    else:
+        command_args.append(merge_commit + ".." + "origin/master")
+
 
     # print("command: " + " ".join(command_args))
 
@@ -53,7 +58,7 @@ def get_log_json_list(repo_path, merge_commit):
     new_json = []
     for i, item in enumerate(old_json):
 
-        print("progress: %d/%d" % (i, len(old_json)))
+        print("progress: %d/%d" % (i + 1, len(old_json)))
 
         commit_sha1 = item["sha1"];
 
@@ -100,6 +105,7 @@ def parse_args():
     parser.add_argument('--token', dest='token', required=True, help='GitHub auth token')
     parser.add_argument('--hostname', dest='hostname', required=True, help='Server hostname')
     parser.add_argument('--from-scratch', dest='from_scratch', action="store_true", help='Populate the database from scratch')
+    parser.add_argument('--single-commit', dest='single_commit', help='Single commit to retrieve')
 
     return parser.parse_args()
 
@@ -109,7 +115,7 @@ if __name__ == "__main__":
     options = parse_args()
     merge_commit = get_last_excluded_commit(options)
     print("Starting (excluded) commit:", merge_commit)
-    commit_list_json = get_log_json_list(options.repo_path, merge_commit)
+    commit_list_json = get_log_json_list(options.repo_path, merge_commit, options.single_commit)
     print("Populating metadata for", len(commit_list_json), "commits...")
 
     upload_commits(options.hostname, options.token, commit_list_json)
