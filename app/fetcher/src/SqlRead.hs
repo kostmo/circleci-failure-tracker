@@ -48,7 +48,6 @@ import qualified Pagination
 import qualified PostedStatuses
 import qualified ScanPatterns
 import qualified ScanUtils
-import qualified StoredBreakageReports
 import qualified WebApi
 import qualified WeeklyStats
 
@@ -356,15 +355,6 @@ list_builds sql = do
 api_unmatched_builds :: DbIO [WebApi.BuildBranchRecord]
 api_unmatched_builds = list_builds
   "SELECT build, branch FROM unattributed_failed_builds ORDER BY build DESC;"
-
-
-api_commit_breakage_reports :: Text -> DbIO [StoredBreakageReports.BreakageReport]
-api_commit_breakage_reports sha1 = do
-  conn <- ask
-  liftIO $ map f <$> query conn sql (Only sha1)
-  where
-    f (build_num, step_name, job_name, is_broken, reporter, report_timestamp, breakage_notes, implicated_revision) = StoredBreakageReports.BreakageReport (Builds.NewBuildNumber build_num) step_name job_name is_broken (AuthStages.Username reporter) report_timestamp breakage_notes implicated_revision
-    sql = "SELECT build_num, step_name, job_name, is_broken, reporter, report_timestamp, breakage_notes, implicated_revision FROM builds_with_reports WHERE vcs_revision = ? AND is_broken IS NOT NULL"
 
 
 api_unmatched_commit_builds :: Text -> DbIO [WebApi.UnmatchedBuild]

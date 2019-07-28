@@ -404,26 +404,31 @@ populate_presumed_stable_branches conn =
     sql = "INSERT INTO presumed_stable_branches(branch) VALUES(?);"
 
 
-store_log_info :: ScanRecords.ScanCatchupResources -> Builds.BuildStepId -> ScanRecords.LogInfo -> IO Int64
-store_log_info scan_resources (Builds.NewBuildStepId step_id) (ScanRecords.LogInfo byte_count line_count log_content) =
+storeLogInfo :: ScanRecords.ScanCatchupResources -> Builds.BuildStepId -> ScanRecords.LogInfo -> IO Int64
+storeLogInfo scan_resources (Builds.NewBuildStepId step_id) (ScanRecords.LogInfo byte_count line_count log_content) =
   execute conn sql (step_id, line_count, byte_count, log_content)
   where
     sql = "INSERT INTO log_metadata(step, line_count, byte_count, content) VALUES(?,?,?,?) ON CONFLICT (step) DO UPDATE SET line_count = EXCLUDED.line_count, byte_count = EXCLUDED.byte_count, content = EXCLUDED.content;"
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
 
 
-insert_latest_pattern_build_scan ::
+insertLatestPatternBuildScan ::
      ScanRecords.ScanCatchupResources
   -> Builds.BuildNumber
+  -> Builds.BuildStepId
   -> Int64
   -> IO ()
-insert_latest_pattern_build_scan scan_resources (Builds.NewBuildNumber build_number) pattern_id = do
+insertLatestPatternBuildScan
+    scan_resources
+    (Builds.NewBuildNumber build_number)
+    (Builds.NewBuildStepId step_id)
+    pattern_id = do
 
-  execute conn sql (ScanRecords.scan_id scan_resources, build_number, pattern_id)
+  execute conn sql (ScanRecords.scan_id scan_resources, build_number, step_id, pattern_id)
   return ()
 
   where
-    sql = "INSERT INTO scanned_patterns(scan, build, newest_pattern) VALUES(?,?,?);"
+    sql = "INSERT INTO scanned_patterns(scan, build, step_id, newest_pattern) VALUES(?,?,?,?);"
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
 
 

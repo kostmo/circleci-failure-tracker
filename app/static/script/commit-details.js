@@ -152,42 +152,6 @@ function gen_unmatched_build_list(api_endpoint, div_id) {
 }
 
 
-function gen_breakage_reports_list(api_endpoint, div_id) {
-
-	$.getJSON(api_endpoint, function (data) {
-
-		if (data.length == 0) {
-			return;
-		}
-
-		$("#" + div_id + "-parent").show();
-
-		var table = new Tabulator("#" + div_id, {
-			height:"200px",
-			layout:"fitColumns",
-			placeholder:"No Data Set",
-			columns:[
-				{title:"Broken?", field:"is_broken", formatter:"tickCross", sorter:"boolean",
-					formatterParams: {
-						allowEmpty: true,
-						tickElement: "<img src='/images/broken-lightbulb.svg' class='brokenness-icon'/>",
-						crossElement: "<img src='/images/bandaid.svg' class='brokenness-icon'/>",
-					},
-					width: 90,
-				},
-				{title:"Build", field:"build", formatter: "link", width: 75, formatterParams: {urlPrefix: "/build-details.html?build_id="}},
-				{title:"Step", field:"step_name", width: 200},
-				{title:"Job", field:"job_name", width: 200},
-				{title:"Reporter", field:"reporter", width: 150},
-				{title:"Report time", field:"reported_at", width: 150},
-				{title:"Notes", field:"notes", width: 300},
-				{title:"Breaking rev", field:"implicated_revision", width: 100},
-			],
-			data: data,
-		});
-	});
-}
-
 function rescan_commit(button) {
 
 	var commit_sha1 = get_scrubbed_sha1();
@@ -240,6 +204,4 @@ function main() {
 	gen_unmatched_build_list("/api/unmatched-builds-for-commit?sha1=" + commit_sha1, "container-unattributed-failures");
 	gen_unmatched_build_list("/api/idiopathic-failed-builds-for-commit?sha1=" + commit_sha1, "container-idiopathic-failures");
 	gen_unmatched_build_list("/api/timed-out-builds-for-commit?sha1=" + commit_sha1, "container-timeout-failures");
-
-	gen_breakage_reports_list("/api/commit-breakage-reports?sha1=" + commit_sha1, "breakage-reports-box");
 }

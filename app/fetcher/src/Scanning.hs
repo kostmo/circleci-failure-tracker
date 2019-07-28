@@ -208,7 +208,12 @@ catchupScan
 
       liftIO $ do
         SqlWrite.storeMatches scan_resources buildstep_id buildnum matches
-        SqlWrite.insert_latest_pattern_build_scan scan_resources buildnum maximum_pattern_id
+
+        SqlWrite.insertLatestPatternBuildScan
+          scan_resources
+          buildnum
+          buildstep_id
+          maximum_pattern_id
 
       return matches
   where
@@ -366,7 +371,7 @@ getAndStoreLog
       liftIO $ do
         putStrLn "Storing log to database..."
 
-        SqlWrite.store_log_info scan_resources build_step_id $
+        SqlWrite.storeLogInfo scan_resources build_step_id $
           ScanRecords.LogInfo byte_count (length lines_list) ansi_stripped_log
 
         putStrLn "Log stored."

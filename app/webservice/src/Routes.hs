@@ -459,9 +459,6 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     get1 "/api/timed-out-builds-for-commit" "sha1" SqlRead.api_timeout_commit_builds
 
-    -- XXX This is the deprecated kind of breakage report
-    get1 "/api/commit-breakage-reports" "sha1" SqlRead.api_commit_breakage_reports
-
     get1 "/api/pattern-step-occurrences" "pattern_id" $ SqlRead.patternBuildStepOccurrences . ScanPatterns.PatternId
 
     get1 "/api/pattern-job-occurrences" "pattern_id" $ SqlRead.patternBuildJobOccurrences . ScanPatterns.PatternId
