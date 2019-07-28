@@ -388,13 +388,6 @@ api_timeout_commit_builds sha1 = do
     sql = "SELECT build_num, step_name, queued_at, job_name, branch, NULL FROM builds_join_steps WHERE vcs_revision = ? AND is_timeout;"
 
 
--- | TODO get rid of "partial" head function
-api_random_scannable_build :: DbIO WebApi.BuildNumberRecord
-api_random_scannable_build =
-  WebApi.BuildNumberRecord . head <$> runQuery
-  "SELECT build_num FROM scannable_build_steps OFFSET floor(random()*(SELECT COUNT(*) FROM scannable_build_steps)) LIMIT 1;"
-
-
 -- | Obtains the console log from database
 read_log :: Connection -> Builds.BuildNumber -> IO (Maybe Text)
 read_log conn (Builds.NewBuildNumber build_num) = do

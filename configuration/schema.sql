@@ -1040,10 +1040,11 @@ ALTER TABLE public.global_builds OWNER TO postgres;
 --
 
 CREATE VIEW public.idiopathic_build_failures WITH (security_barrier='false') AS
- SELECT build_steps.build,
-    builds.branch
+ SELECT global_builds.build_number AS build,
+    global_builds.branch,
+    global_builds.global_build_num
    FROM (public.build_steps
-     JOIN public.builds ON ((build_steps.build = builds.build_num)))
+     JOIN public.global_builds ON ((build_steps.universal_build = global_builds.global_build_num)))
   WHERE (build_steps.name IS NULL);
 
 
@@ -1583,21 +1584,6 @@ ALTER TABLE public.presumed_stable_branches OWNER TO postgres;
 
 COMMENT ON TABLE public.presumed_stable_branches IS 'A (small) list of branches that are presumed to be stable.  That is, the branch is "policed" for human-caused breakages.  Such breakages are annotated and reverted ASAP.';
 
-
---
--- Name: scannable_build_steps; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.scannable_build_steps AS
- SELECT builds.build_num,
-    build_steps.id AS step_id,
-    build_steps.name AS step_name
-   FROM (public.builds
-     LEFT JOIN public.build_steps ON ((builds.build_num = build_steps.build)))
-  WHERE ((build_steps.name IS NOT NULL) AND (NOT build_steps.is_timeout));
-
-
-ALTER TABLE public.scannable_build_steps OWNER TO postgres;
 
 --
 -- Name: scans; Type: TABLE; Schema: public; Owner: postgres
@@ -2855,13 +2841,6 @@ GRANT ALL ON SEQUENCE public.pattern_step_applicability_id_seq TO logan;
 --
 
 GRANT ALL ON TABLE public.presumed_stable_branches TO logan;
-
-
---
--- Name: TABLE scannable_build_steps; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.scannable_build_steps TO logan;
 
 
 --

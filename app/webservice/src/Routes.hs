@@ -419,8 +419,6 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     get "/api/presumed-stable-branches-dump" SqlRead.dumpPresumedStableBranches
 
-    get "/api/random-scannable-build" SqlRead.api_random_scannable_build
-
     get "/api/step-list" SqlRead.apiListSteps
 
     get "/api/step" SqlRead.apiStep

@@ -97,17 +97,6 @@ function submit_pattern() {
 }
 
 
-function get_random_build(destination_field_id) {
-
-	$.get( {
-		url: "/api/random-scannable-build",
-		success: function( data ) {
-			$("#" + destination_field_id).val(data["build_number"]);
-		}
-	});
-}
-
-
 function setup_autocomplete() {
 
 	var select = document.getElementById("build-step-applicability-input");
