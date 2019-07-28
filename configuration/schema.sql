@@ -48,7 +48,6 @@ SET default_with_oids = false;
 
 CREATE TABLE public.build_steps (
     id integer NOT NULL,
-    build integer,
     name text,
     is_timeout boolean,
     universal_build integer NOT NULL
@@ -1793,14 +1792,6 @@ ALTER TABLE ONLY public.builds
 
 
 --
--- Name: build_steps build_steps_build_name_key; Type: CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.build_steps
-    ADD CONSTRAINT build_steps_build_name_key UNIQUE (build, name);
-
-
---
 -- Name: build_steps build_steps_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -2052,13 +2043,6 @@ CREATE INDEX cause_fk ON public.code_breakage_resolution USING btree (cause);
 
 
 --
--- Name: fk_build_step_build; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX fk_build_step_build ON public.build_steps USING btree (build);
-
-
---
 -- Name: fk_build_step_id; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -2195,14 +2179,6 @@ CREATE OR REPLACE VIEW public.master_failures_by_commit WITH (security_barrier='
      LEFT JOIN public.build_failure_causes_mutual_exclusion_known_broken ON ((build_failure_causes_mutual_exclusion_known_broken.vcs_revision = ordered_master_commits.sha1)))
   GROUP BY ordered_master_commits.id
   ORDER BY ordered_master_commits.id DESC;
-
-
---
--- Name: build_steps build_steps_build_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.build_steps
-    ADD CONSTRAINT build_steps_build_fkey FOREIGN KEY (build) REFERENCES public.builds(build_num) ON DELETE CASCADE;
 
 
 --
