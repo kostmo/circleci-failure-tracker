@@ -178,7 +178,7 @@ CREATE VIEW public.match_positions WITH (security_barrier='false') AS
      JOIN public.log_metadata ON ((log_metadata.step = foo.build_step)))
      JOIN public.build_steps ON ((build_steps.id = log_metadata.step)))
      JOIN public.universal_builds ON ((universal_builds.id = build_steps.universal_build)))
-  ORDER BY foo.matched_line_count DESC, foo.pattern, build_steps.build;
+  ORDER BY foo.matched_line_count DESC, foo.pattern, universal_builds.build_number;
 
 
 ALTER TABLE public.match_positions OWNER TO postgres;
@@ -615,36 +615,23 @@ CREATE SEQUENCE public.broken_revisions_id_seq
 ALTER TABLE public.broken_revisions_id_seq OWNER TO postgres;
 
 --
--- Name: rebuilds; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.rebuilds AS
- SELECT max(builds.build_num) AS latest_build_num,
-    builds.vcs_revision,
-    builds.job_name,
-    count(*) AS rebuild_count
-   FROM public.builds
-  GROUP BY builds.vcs_revision, builds.job_name;
-
-
-ALTER TABLE public.rebuilds OWNER TO postgres;
-
---
 -- Name: builds_deduped; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.builds_deduped AS
- SELECT builds.build_num,
-    builds.vcs_revision,
-    builds.queued_at,
-    builds.job_name,
-    builds.branch,
-    builds.succeeded,
-    builds.started_at,
-    builds.finished_at,
-    rebuilds.rebuild_count
-   FROM (public.builds
-     JOIN public.rebuilds ON ((rebuilds.latest_build_num = builds.build_num)));
+CREATE VIEW public.builds_deduped WITH (security_barrier='false') AS
+ SELECT DISTINCT ON (global_builds.provider, global_builds.job_name, global_builds.vcs_revision) global_builds.build_number AS build_num,
+    global_builds.vcs_revision,
+    global_builds.queued_at,
+    global_builds.job_name,
+    global_builds.branch,
+    global_builds.succeeded,
+    global_builds.started_at,
+    global_builds.finished_at,
+    count(*) OVER (PARTITION BY global_builds.provider, global_builds.job_name, global_builds.vcs_revision) AS rebuild_count,
+    global_builds.global_build_num AS global_build,
+    global_builds.provider
+   FROM public.global_builds
+  ORDER BY global_builds.provider, global_builds.job_name, global_builds.vcs_revision, global_builds.build_number DESC;
 
 
 ALTER TABLE public.builds_deduped OWNER TO postgres;
@@ -841,7 +828,7 @@ CREATE VIEW public.build_failure_causes WITH (security_barrier='false') AS
     builds_deduped.job_name,
     builds_deduped.branch,
     COALESCE(builds_deduped.succeeded, false) AS succeeded,
-    (build_steps.build IS NULL) AS is_idiopathic,
+    (build_steps.universal_build IS NULL) AS is_idiopathic,
     build_steps.id AS step_id,
     build_steps.name AS step_name,
     COALESCE(build_steps.is_timeout, false) AS is_timeout,
@@ -853,7 +840,7 @@ CREATE VIEW public.build_failure_causes WITH (security_barrier='false') AS
     (best_pattern_match_for_builds.pattern_id IS NOT NULL) AS is_matched,
     builds_deduped.rebuild_count
    FROM (((public.builds_deduped
-     LEFT JOIN public.build_steps ON ((build_steps.build = builds_deduped.build_num)))
+     LEFT JOIN public.build_steps ON ((build_steps.universal_build = builds_deduped.global_build)))
      LEFT JOIN public.best_pattern_match_for_builds ON ((best_pattern_match_for_builds.build = builds_deduped.build_num)))
      LEFT JOIN public.known_broken_builds ON ((known_broken_builds.build_num = builds_deduped.build_num)));
 
@@ -1630,13 +1617,14 @@ ALTER SEQUENCE public.scans_id_seq OWNED BY public.scans.id;
 --
 
 CREATE VIEW public.unattributed_failed_builds WITH (security_barrier='false') AS
- SELECT foo.build,
-    builds.branch
-   FROM (( SELECT build_steps.build
+ SELECT global_builds.build_number AS build,
+    global_builds.branch,
+    global_builds.global_build_num AS global_build
+   FROM (( SELECT build_steps.universal_build
            FROM (public.build_steps
              LEFT JOIN public.matches ON ((matches.build_step = build_steps.id)))
           WHERE ((matches.pattern IS NULL) AND (build_steps.name IS NOT NULL) AND (NOT build_steps.is_timeout))) foo
-     JOIN public.builds ON ((foo.build = builds.build_num)));
+     JOIN public.global_builds ON ((foo.universal_build = global_builds.global_build_num)));
 
 
 ALTER TABLE public.unattributed_failed_builds OWNER TO postgres;
@@ -2176,6 +2164,20 @@ CREATE INDEX fki_master_failure_mode_fk ON public.code_breakage_cause USING btre
 
 
 --
+-- Name: idx_universal_builds_sha1; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_universal_builds_sha1 ON public.universal_builds USING btree (commit_sha1);
+
+
+--
+-- Name: idx_universal_builds_succeeded; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_universal_builds_succeeded ON public.universal_builds USING btree (succeeded);
+
+
+--
 -- Name: master_failures_by_commit _RETURN; Type: RULE; Schema: public; Owner: postgres
 --
 
@@ -2558,13 +2560,6 @@ GRANT ALL ON TABLE public.best_pattern_match_augmented_builds TO logan;
 --
 
 GRANT ALL ON SEQUENCE public.broken_revisions_id_seq TO logan;
-
-
---
--- Name: TABLE rebuilds; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.rebuilds TO logan;
 
 
 --
