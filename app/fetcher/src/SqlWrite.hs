@@ -386,15 +386,15 @@ restore_patterns conn_data pattern_list = do
 
 
 step_failure_to_tuple ::
-     (Builds.BuildNumber, Either Builds.BuildWithStepFailure ScanRecords.UnidentifiedBuildFailure)
-  -> (Int64, Maybe Text, Bool)
-step_failure_to_tuple (Builds.NewBuildNumber buildnum, visitation_result) = case visitation_result of
-  Right _ -> (buildnum, Nothing, False)
+     (Builds.BuildNumber, Builds.UniversalBuildId, Either Builds.BuildWithStepFailure ScanRecords.UnidentifiedBuildFailure)
+  -> (Int64, Maybe Text, Bool, Int64)
+step_failure_to_tuple (Builds.NewBuildNumber buildnum, Builds.UniversalBuildId universal_buildnum, visitation_result) = case visitation_result of
+  Right _ -> (buildnum, Nothing, False, universal_buildnum)
   Left (Builds.BuildWithStepFailure _build_obj (Builds.NewBuildStepFailure stepname mode)) -> let
     is_timeout = case mode of
       Builds.BuildTimeoutFailure              -> True
       Builds.ScannableFailure _failure_output -> False
-    in (buildnum, Just stepname, is_timeout)
+    in (buildnum, Just stepname, is_timeout, universal_buildnum)
 
 
 populate_presumed_stable_branches :: Connection -> [Text] -> IO Int64
@@ -427,25 +427,26 @@ insert_latest_pattern_build_scan scan_resources (Builds.NewBuildNumber build_num
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
 
 
-insert_build_visitation ::
+insertBuildVisitation ::
      ScanRecords.ScanCatchupResources
-  -> (Builds.BuildNumber, Either Builds.BuildWithStepFailure ScanRecords.UnidentifiedBuildFailure)
+  -> (DbHelpers.WithId Builds.UniversalBuild, Either Builds.BuildWithStepFailure ScanRecords.UnidentifiedBuildFailure)
   -> IO Builds.BuildStepId
-insert_build_visitation scan_resources visitation = do
+insertBuildVisitation scan_resources (ubuild, visitation_result) = do
 
-  [Only step_id] <- query conn sql $ step_failure_to_tuple visitation
+  [Only step_id] <- query conn sql $
+    step_failure_to_tuple (Builds.provider_buildnum $ DbHelpers.record ubuild, Builds.UniversalBuildId $ DbHelpers.db_id ubuild, visitation_result)
   return $ Builds.NewBuildStepId step_id
   where
-    sql = "INSERT INTO build_steps(build, name, is_timeout) VALUES(?,?,?) RETURNING id;"
+    sql = "INSERT INTO build_steps(build, name, is_timeout, universal_build) VALUES(?,?,?,?) RETURNING id;"
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
 
 
-insert_scan_id ::
+insertScanId ::
      Connection
   -> Maybe AuthStages.Username
   -> ScanPatterns.PatternId
   -> IO Int64
-insert_scan_id conn maybe_initiator (ScanPatterns.PatternId pattern_id)  = do
+insertScanId conn maybe_initiator (ScanPatterns.PatternId pattern_id)  = do
   [Only pattern_id] <- query conn sql (pattern_id, inititator)
   return pattern_id
   where

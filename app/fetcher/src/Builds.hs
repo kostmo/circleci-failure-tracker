@@ -30,6 +30,12 @@ newtype BuildNumber = NewBuildNumber Int64
 instance ToJSON BuildNumber
 instance FromJSON BuildNumber
 
+
+newtype UniversalBuildId = UniversalBuildId Int64
+  deriving (Show, Generic, Eq, Ord)
+
+
+
 -- TODO do error handling: http://hackage.haskell.org/package/postgresql-simple-0.6.2/docs/Database-PostgreSQL-Simple-FromField.html
 instance FromField BuildNumber where
   fromField f mdata = NewBuildNumber <$> fromField f mdata

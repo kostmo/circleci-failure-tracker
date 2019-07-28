@@ -108,30 +108,51 @@ getPatterns conn = do
     applicable_steps_sql = "SELECT step_name FROM pattern_step_applicability WHERE pattern = ?;"
 
 
-getUnvisitedBuildIds :: Connection -> Maybe Int -> IO [Builds.BuildNumber]
+-- | Only searches for CircleCI builds
+getUnvisitedBuildIds ::
+     Connection
+  -> Maybe Int
+  -> IO [DbHelpers.WithId Builds.UniversalBuild]
 getUnvisitedBuildIds conn maybe_limit = do
   rows <- case maybe_limit of
-    Just limit -> query conn sql (Only limit)
-    Nothing    -> query_ conn unlimited_sql
-  return $ map (\(Only num) -> Builds.NewBuildNumber num) rows
-  where
-    sql = "SELECT build_num FROM unvisited_builds ORDER BY build_NUM DESC LIMIT ?;"
-    unlimited_sql = "SELECT build_num FROM unvisited_builds ORDER BY build_NUM DESC;"
-
-
-getRevisitableBuilds :: Connection -> IO [(Builds.BuildStepId, Text, Builds.BuildNumber, [Int64])]
-getRevisitableBuilds conn = do
-  rows <- query_ conn sql
+    Just limit -> query conn sql (circleCIProviderId, limit)
+    Nothing    -> query conn unlimited_sql (Only circleCIProviderId)
   return $ map f rows
   where
-    f (delimited_pattern_ids, step_id, step_name, build_id) =
+    -- TODO parameterize this function
+    circleCIProviderId = 3 :: Int
+
+    f (universal_build_id, provider_buildnum, provider_id, build_namespace, succeeded, sha1) = DbHelpers.WithId universal_build_id $ Builds.UniversalBuild
+      (Builds.NewBuildNumber provider_buildnum)
+      provider_id
+      build_namespace
+      succeeded
+      (Builds.RawCommit sha1)
+
+    sql = "SELECT universal_build_id, build_num, provider, build_namespace, succeeded, commit_sha1 FROM unvisited_builds WHERE provider = ? ORDER BY build_num DESC LIMIT ?;"
+
+    unlimited_sql = "SELECT universal_build_id, build_num, provider, build_namespace, succeeded, commit_sha1 FROM unvisited_builds WHERE provider = ? ORDER BY build_num DESC;"
+
+
+getRevisitableBuilds ::
+     Connection
+  -> IO [(Builds.BuildStepId, Text, DbHelpers.WithId Builds.UniversalBuild, [Int64])]
+getRevisitableBuilds conn =
+  map f <$> query_ conn sql
+  where
+    f (delimited_pattern_ids, step_id, step_name, universal_build_id, build_num, provider_id, build_namespace, succeeded, vcs_revision) =
       ( Builds.NewBuildStepId step_id
       , step_name
-      , Builds.NewBuildNumber build_id
+      , DbHelpers.WithId universal_build_id $ Builds.UniversalBuild
+          (Builds.NewBuildNumber build_num)
+          provider_id
+          build_namespace
+          succeeded
+          (Builds.RawCommit vcs_revision)
       , map read $ splitOn ";" delimited_pattern_ids
       )
 
-    sql = "SELECT string_agg((patterns.id)::text, ';'), MAX(step_id) AS step_id, MAX(name) AS step_name, build_num FROM (SELECT COALESCE(scanned_patterns.newest_pattern, -1) AS latest_pattern, build_steps.build AS build_num, build_steps.name, build_steps.id AS step_id FROM build_steps LEFT JOIN scanned_patterns ON scanned_patterns.build = build_steps.build WHERE build_steps.name IS NOT NULL AND NOT build_steps.is_timeout) foo, patterns WHERE patterns.id > latest_pattern GROUP BY build_num;"
+    sql = "SELECT unscanned_patterns_delimited, step_id, step_name, universal_build, build_num, provider, build_namespace, succeeded, vcs_revision FROM unscanned_patterns;"
 
 
 -- | FIXME don't use partial "head"

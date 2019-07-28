@@ -181,7 +181,7 @@ handleFailedStatuses
 
   liftIO $ do
     current_time <- Clock.getCurrentTime
-    putStrLn $ "Processing at " ++ show current_time
+    putStrLn $ "KARL: Processing at " ++ show current_time
 
   build_statuses_list_any_source <- ExceptT $ GithubApiFetch.getBuildStatuses access_token owned_repo sha1
 
@@ -211,7 +211,7 @@ handleFailedStatuses
       circleci_failed_builds_and_statuses = filter_failed circleci_builds_and_statuses
 
       circleci_failed_builds = map fst circleci_failed_builds_and_statuses
-      scannable_build_numbers = map (Builds.provider_buildnum . DbHelpers.record . Builds.univeral_build) circleci_failed_builds
+      scannable_build_numbers = map (Builds.UniversalBuildId . DbHelpers.db_id . Builds.univeral_build) circleci_failed_builds
 
       circleci_failcount = length circleci_failed_builds
 
