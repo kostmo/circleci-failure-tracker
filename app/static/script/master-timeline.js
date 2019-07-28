@@ -2,6 +2,9 @@
 var breakage_starts_by_job_name = {};
 
 
+var PULL_REQUEST_URL_PREFIX = "https://github.com/pytorch/pytorch/pull/";
+
+
 function gen_broken_jobs_table(element_id, data_url) {
 
 	var column_list = [
@@ -277,8 +280,8 @@ function define_column(col) {
 				cell.getElement().style.backgroundSize = "33.3%";
 
 				// vertical stripes
-				var stripes_color_hex = "0000ff";
-				var stripes_opacity_fraction = 0.7; // between 0 and 1
+				var stripes_color_hex = "00f";
+				var stripes_opacity_fraction = 0.8; // between 0 and 1
 				cell.getElement().style.backgroundImage = "url(\"data:image/svg+xml,%3Csvg width='40' height='1' viewBox='0 0 40 1' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0h20v1H0z' fill='%23" + stripes_color_hex + "' fill-opacity='" + stripes_opacity_fraction + "' fill-rule='evenodd'/%3E%3C/svg%3E\")";
 			}
 
@@ -357,10 +360,8 @@ function next_page() {
 
 	$('#offset-input').val(old_offset + count);
 
-	render_timeline_table();
+	url_from_form();
 }
-
-var PULL_REQUEST_URL_PREFIX = "https://github.com/pytorch/pytorch/pull/";
 
 
 function get_column_definitions(raw_column_list) {

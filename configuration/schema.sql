@@ -208,7 +208,6 @@ ALTER TABLE public.pattern_authorship OWNER TO postgres;
 CREATE TABLE public.scanned_patterns (
     scan integer NOT NULL,
     newest_pattern integer NOT NULL,
-    build integer NOT NULL,
     step_id integer NOT NULL
 );
 
@@ -219,15 +218,22 @@ ALTER TABLE public.scanned_patterns OWNER TO postgres;
 -- Name: pattern_scan_counts; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.pattern_scan_counts AS
+CREATE VIEW public.pattern_scan_counts WITH (security_barrier='false') AS
  SELECT scanned_patterns.newest_pattern,
-    count(scanned_patterns.build) AS count
+    count(scanned_patterns.step_id) AS count
    FROM public.scanned_patterns
   GROUP BY scanned_patterns.newest_pattern
   ORDER BY scanned_patterns.newest_pattern DESC;
 
 
 ALTER TABLE public.pattern_scan_counts OWNER TO postgres;
+
+--
+-- Name: VIEW pattern_scan_counts; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.pattern_scan_counts IS 'FIXME: counting on the "step_id" column may not account for repetition across multiple scans';
+
 
 --
 -- Name: pattern_step_applicability; Type: TABLE; Schema: public; Owner: postgres
@@ -503,6 +509,13 @@ CREATE VIEW public.builds_with_reports WITH (security_barrier='false') AS
 
 
 ALTER TABLE public.builds_with_reports OWNER TO postgres;
+
+--
+-- Name: VIEW builds_with_reports; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.builds_with_reports IS 'TODO: The "with reports" part is obsolete; those columns should be removed.';
+
 
 --
 -- Name: matches_with_log_metadata; Type: VIEW; Schema: public; Owner: postgres
@@ -1998,7 +2011,7 @@ ALTER TABLE ONLY public.presumed_stable_branches
 --
 
 ALTER TABLE ONLY public.scanned_patterns
-    ADD CONSTRAINT scanned_patterns_pkey PRIMARY KEY (scan, newest_pattern, build);
+    ADD CONSTRAINT scanned_patterns_pkey PRIMARY KEY (scan, newest_pattern, step_id);
 
 
 --
@@ -2121,13 +2134,6 @@ CREATE INDEX fk_tag_pattern ON public.pattern_tags USING btree (pattern);
 --
 
 CREATE INDEX fki_bre ON public.master_failure_mode_attributions USING btree (cause_id);
-
-
---
--- Name: fki_fk_build; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX fki_fk_build ON public.scanned_patterns USING btree (build);
 
 
 --
@@ -2357,14 +2363,6 @@ ALTER TABLE ONLY public.pattern_step_applicability
 
 ALTER TABLE ONLY public.pattern_tags
     ADD CONSTRAINT pattern_tags_pattern_fkey FOREIGN KEY (pattern) REFERENCES public.patterns(id);
-
-
---
--- Name: scanned_patterns scanned_patterns_build_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.scanned_patterns
-    ADD CONSTRAINT scanned_patterns_build_fkey FOREIGN KEY (build) REFERENCES public.builds(build_num) ON DELETE CASCADE;
 
 
 --

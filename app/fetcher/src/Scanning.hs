@@ -211,7 +211,6 @@ catchupScan
 
         SqlWrite.insertLatestPatternBuildScan
           scan_resources
-          buildnum
           buildstep_id
           maximum_pattern_id
 

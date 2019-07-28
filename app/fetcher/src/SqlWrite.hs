@@ -414,21 +414,19 @@ storeLogInfo scan_resources (Builds.NewBuildStepId step_id) (ScanRecords.LogInfo
 
 insertLatestPatternBuildScan ::
      ScanRecords.ScanCatchupResources
-  -> Builds.BuildNumber
   -> Builds.BuildStepId
   -> Int64
   -> IO ()
 insertLatestPatternBuildScan
     scan_resources
-    (Builds.NewBuildNumber build_number)
     (Builds.NewBuildStepId step_id)
     pattern_id = do
 
-  execute conn sql (ScanRecords.scan_id scan_resources, build_number, step_id, pattern_id)
+  execute conn sql (ScanRecords.scan_id scan_resources, step_id, pattern_id)
   return ()
 
   where
-    sql = "INSERT INTO scanned_patterns(scan, build, step_id, newest_pattern) VALUES(?,?,?,?);"
+    sql = "INSERT INTO scanned_patterns(scan, step_id, newest_pattern) VALUES(?,?,?);"
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
 
 
