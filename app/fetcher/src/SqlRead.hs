@@ -323,7 +323,7 @@ apiDeterministicFailureModes = WebApi.ApiResponse <$> runQuery
 -- | Note that Highcharts expects the dates to be in ascending order
 api_failed_commits_by_day :: DbIO (WebApi.ApiResponse (Day, Int))
 api_failed_commits_by_day = WebApi.ApiResponse <$> runQuery
-  "SELECT queued_at::date AS date, COUNT(*) FROM (SELECT vcs_revision, MAX(queued_at) queued_at FROM builds GROUP BY vcs_revision) foo GROUP BY date ORDER BY date ASC;"
+  "SELECT queued_at::date AS date, COUNT(*) FROM (SELECT vcs_revision, MAX(queued_at) queued_at FROM global_builds GROUP BY vcs_revision) foo GROUP BY date ORDER BY date ASC;"
 
 
 -- | Note that Highcharts expects the dates to be in ascending order
@@ -576,13 +576,13 @@ apiListSteps = listFlat
 
 api_autocomplete_branches :: Text -> DbIO [Text]
 api_autocomplete_branches = listFlat1X
-  "SELECT branch FROM builds WHERE branch ILIKE CONCAT(?,'%') GROUP BY branch ORDER BY COUNT(*) DESC;"
+  "SELECT branch FROM global_builds WHERE branch ILIKE CONCAT(?,'%') GROUP BY branch ORDER BY COUNT(*) DESC;"
 
 
 -- Not used yet
 api_list_branches :: DbIO [Text]
 api_list_branches = listFlat
-  "SELECT branch, COUNT(*) AS count FROM builds GROUP BY branch ORDER BY count DESC;"
+  "SELECT branch, COUNT(*) AS count FROM global_builds WHERE branch != '' GROUP BY branch ORDER BY count DESC;"
 
 
 get_revision_builds :: DbHelpers.DbConnectionData -> GitRev.GitSha1 -> IO [CommitBuilds.CommitBuild]
@@ -667,76 +667,76 @@ getMasterCommits conn parent_offset_mode =
 
 
 instance FromRow BuildResults.SimpleBuildStatus where
- fromRow = do
-  sha1 <- field
-  succeeded <- field
-  is_idiopathic <- field
-  is_flaky <-field
-  is_timeout <- field
-  is_matched <- field
-  is_known_broken <- field
-  build_num <- field
-  queued_at <- field
-  job_name <- field
-  branch <- field
-  step_name <- field
-  pattern_id <- field
-  match_id <- field
-  line_number <- field
-  line_count <- field
-  line_text <- field
-  span_start <- field
-  span_end <- field
-  specificity <- field
-  is_serially_isolated <- field
-  contiguous_run_count <- field
-  contiguous_group_index <- field
-  contiguous_start_commit_index <- field
-  contiguous_end_commit_index <- field
-  contiguous_length <- field
+  fromRow = do
+    sha1 <- field
+    succeeded <- field
+    is_idiopathic <- field
+    is_flaky <-field
+    is_timeout <- field
+    is_matched <- field
+    is_known_broken <- field
+    build_num <- field
+    queued_at <- field
+    job_name <- field
+    branch <- field
+    step_name <- field
+    pattern_id <- field
+    match_id <- field
+    line_number <- field
+    line_count <- field
+    line_text <- field
+    span_start <- field
+    span_end <- field
+    specificity <- field
+    is_serially_isolated <- field
+    contiguous_run_count <- field
+    contiguous_group_index <- field
+    contiguous_start_commit_index <- field
+    contiguous_end_commit_index <- field
+    contiguous_length <- field
 
-  let
+    let
 
-   failure_mode
-      | succeeded = BuildResults.Success
-      | is_idiopathic = BuildResults.NoLog
-      | is_timeout = BuildResults.FailedStep step_name BuildResults.Timeout
-      | is_matched = BuildResults.FailedStep step_name $ BuildResults.PatternMatch match_obj
-      | otherwise = BuildResults.FailedStep step_name BuildResults.NoMatch
+     failure_mode
+        | succeeded = BuildResults.Success
+        | is_idiopathic = BuildResults.NoLog
+        | is_timeout = BuildResults.FailedStep step_name BuildResults.Timeout
+        | is_matched = BuildResults.FailedStep step_name $ BuildResults.PatternMatch match_obj
+        | otherwise = BuildResults.FailedStep step_name BuildResults.NoMatch
 
-   maybe_contiguous_member = if is_serially_isolated
-      then Nothing
-      else Just $ BuildResults.ContiguousBreakageMember
-        contiguous_run_count
-        contiguous_group_index
-        contiguous_start_commit_index
-        contiguous_end_commit_index
-        contiguous_length
+     maybe_contiguous_member = if is_serially_isolated
+       then Nothing
+       else Just $ BuildResults.ContiguousBreakageMember
+         contiguous_run_count
+         contiguous_group_index
+         contiguous_start_commit_index
+         contiguous_end_commit_index
+         contiguous_length
 
-   build_obj = Builds.NewBuild
-      (Builds.NewBuildNumber build_num)
-      (Builds.RawCommit sha1)
-      queued_at
-      job_name
-      branch
+     build_obj = Builds.NewBuild
+       (Builds.NewBuildNumber build_num)
+       (Builds.RawCommit sha1)
+       queued_at
+       job_name
+       branch
 
-   match_obj = MatchOccurrences.MatchOccurrencesForBuild
-      step_name
-      (ScanPatterns.PatternId pattern_id)
-      (MatchOccurrences.MatchId match_id)
-      line_number
-      line_count
-      line_text
-      span_start
-      span_end
-      specificity
+     match_obj = MatchOccurrences.MatchOccurrencesForBuild
+       step_name
+       (ScanPatterns.PatternId pattern_id)
+       (MatchOccurrences.MatchId match_id)
+       line_number
+       line_count
+       line_text
+       span_start
+       span_end
+       specificity
 
-   in return $ BuildResults.SimpleBuildStatus
-      build_obj
-      failure_mode
-      is_flaky
-      is_known_broken
-      maybe_contiguous_member
+     in return $ BuildResults.SimpleBuildStatus
+       build_obj
+       failure_mode
+       is_flaky
+       is_known_broken
+       maybe_contiguous_member
 
 
 -- | Gets last N commits in one query,
@@ -754,10 +754,9 @@ apiMasterBuilds offset_limit = do
 
   (commit_id_bounds, master_commits) <- ExceptT $ getMasterCommits conn offset_limit
   let query_bounds = (WeeklyStats.min_bound commit_id_bounds, WeeklyStats.max_bound commit_id_bounds)
-  failure_rows <- liftIO $ query conn failures_sql query_bounds
+  failed_builds <- liftIO $ query conn failures_sql query_bounds
 
-  let failed_builds = failure_rows
-      job_names = Set.fromList $ map (Builds.job_name . BuildResults._build) failed_builds
+  let job_names = Set.fromList $ map (Builds.job_name . BuildResults._build) failed_builds
 
   return $ BuildResults.MasterBuildsResponse
     job_names
@@ -845,7 +844,7 @@ apiSummaryStats :: DbIO SummaryStats
 apiSummaryStats = do
  conn <- ask
  liftIO $ do
-  [Only build_count] <- query_ conn "SELECT COUNT(*) FROM builds"
+  [Only build_count] <- query_ conn "SELECT COUNT(*) FROM global_builds"
   [Only visited_count] <- query_ conn "SELECT COUNT(*) FROM build_steps"
   [Only explained_count] <- query_ conn "SELECT COUNT(*) FROM build_steps WHERE name IS NOT NULL"
   [Only timeout_count] <- query_ conn "SELECT COUNT(*) FROM build_steps WHERE is_timeout"

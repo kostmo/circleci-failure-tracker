@@ -158,12 +158,12 @@ storeBuildsList conn builds_list =
   executeMany conn sql $ map f builds_list
   where
     f (Builds.StorableBuild universal_build rbuild) =
-      (build_num, vcs_rev, queued_at_string, jobname, branch, DbHelpers.db_id universal_build)
+      (queued_at_string, jobname, branch, DbHelpers.db_id universal_build)
       where
         queued_at_string = T.pack $ formatTime defaultTimeLocale rfc822DateFormat queuedat
-        (Builds.NewBuild (Builds.NewBuildNumber build_num) (Builds.RawCommit vcs_rev) queuedat jobname branch) = rbuild
+        (Builds.NewBuild _ _ queuedat jobname branch) = rbuild
 
-    sql = "INSERT INTO builds(build_num, vcs_revision, queued_at, job_name, branch, global_build_num) VALUES(?,?,?,?,?,?) ON CONFLICT (build_num) DO UPDATE SET global_build_num = excluded.global_build_num;"
+    sql = "INSERT INTO builds(queued_at, job_name, branch, global_build_num) VALUES(?,?,?,?) ON CONFLICT DO NOTHING;"
 
 
 storeMatches ::

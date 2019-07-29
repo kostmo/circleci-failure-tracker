@@ -142,10 +142,10 @@ countRevisionBuilds conn_data access_token git_revision = do
     only_commit = Only sha1
 
     timeout_count_sql = "SELECT COUNT(*) FROM builds_join_steps WHERE vcs_revision = ? AND is_timeout;"
-    failed_count_sql = "SELECT COUNT(*) FROM builds WHERE vcs_revision = ?;"
+    failed_count_sql = "SELECT COUNT(*) FROM global_builds WHERE vcs_revision = ?;"
     matched_count_sql = "SELECT COUNT(*) FROM best_pattern_match_augmented_builds WHERE vcs_revision = ?;"
     reported_broken_count_sql = "SELECT COUNT(*) FROM builds_with_reports WHERE vcs_revision = ? AND is_broken;"
-    known_broken_count_sql = "SELECT COUNT(*) FROM builds WHERE vcs_revision = ? AND job_name IN ?;"
+    known_broken_count_sql = "SELECT COUNT(*) FROM global_builds WHERE vcs_revision = ? AND job_name IN ?;"
 
 
 -- | Find known build breakages applicable to the merge base

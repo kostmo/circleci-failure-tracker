@@ -397,8 +397,8 @@ ALTER TABLE public.best_pattern_match_for_builds OWNER TO postgres;
 --
 
 CREATE TABLE public.builds (
-    build_num integer NOT NULL,
-    vcs_revision character(40) NOT NULL,
+    build_num integer,
+    vcs_revision character(40),
     queued_at timestamp with time zone,
     job_name text NOT NULL,
     branch character varying,
@@ -412,16 +412,45 @@ CREATE TABLE public.builds (
 ALTER TABLE public.builds OWNER TO postgres;
 
 --
+-- Name: TABLE builds; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.builds IS 'In contrast with the "universal_builds" table, this is information that may be fetched using a provider-specific API and may be populated asynchronously from the "universal_builds" info which is available from the GitHub status notification.';
+
+
+--
+-- Name: global_builds; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.global_builds WITH (security_barrier='false') AS
+ SELECT builds.global_build_num,
+    universal_builds.succeeded,
+    universal_builds.commit_sha1 AS vcs_revision,
+    builds.job_name,
+    builds.branch,
+    universal_builds.build_number,
+    universal_builds.build_namespace,
+    builds.queued_at,
+    builds.started_at,
+    builds.finished_at,
+    universal_builds.provider
+   FROM (public.universal_builds
+     JOIN public.builds ON ((builds.global_build_num = universal_builds.id)));
+
+
+ALTER TABLE public.global_builds OWNER TO postgres;
+
+--
 -- Name: aggregated_build_matches; Type: VIEW; Schema: public; Owner: postgres
 --
 
 CREATE VIEW public.aggregated_build_matches WITH (security_barrier='false') AS
  SELECT best_pattern_match_for_builds.pattern_id AS pat,
     count(best_pattern_match_for_builds.build) AS matching_build_count,
-    max(builds.queued_at) AS most_recent,
-    min(builds.queued_at) AS earliest
+    max(global_builds.queued_at) AS most_recent,
+    min(global_builds.queued_at) AS earliest
    FROM (public.best_pattern_match_for_builds
-     JOIN public.builds ON ((builds.build_num = best_pattern_match_for_builds.build)))
+     JOIN public.global_builds ON ((global_builds.build_number = best_pattern_match_for_builds.build)))
   GROUP BY best_pattern_match_for_builds.pattern_id;
 
 
@@ -463,28 +492,6 @@ CREATE VIEW public.aggregated_github_status_postings AS
 
 
 ALTER TABLE public.aggregated_github_status_postings OWNER TO postgres;
-
---
--- Name: global_builds; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.global_builds WITH (security_barrier='false') AS
- SELECT builds.global_build_num,
-    universal_builds.succeeded,
-    universal_builds.commit_sha1 AS vcs_revision,
-    builds.job_name,
-    builds.branch,
-    universal_builds.build_number,
-    universal_builds.build_namespace,
-    builds.queued_at,
-    builds.started_at,
-    builds.finished_at,
-    universal_builds.provider
-   FROM (public.universal_builds
-     JOIN public.builds ON ((builds.global_build_num = universal_builds.id)));
-
-
-ALTER TABLE public.global_builds OWNER TO postgres;
 
 --
 -- Name: builds_join_steps; Type: VIEW; Schema: public; Owner: postgres
@@ -793,18 +800,18 @@ COMMENT ON VIEW public.master_commit_known_breakage_causes IS 'This is just an i
 -- Name: known_broken_builds; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.known_broken_builds AS
- SELECT builds.build_num,
+CREATE VIEW public.known_broken_builds WITH (security_barrier='false') AS
+ SELECT global_builds.build_number AS build_num,
     count(*) AS cause_count,
     string_agg((foo.cause_id)::text, ';'::text) AS causes
-   FROM (public.builds
+   FROM (public.global_builds
      JOIN ( SELECT master_commit_known_breakage_causes.sha1,
             code_breakage_affected_jobs.job,
             master_commit_known_breakage_causes.cause_id
            FROM (public.master_commit_known_breakage_causes
-             JOIN public.code_breakage_affected_jobs ON ((code_breakage_affected_jobs.cause = master_commit_known_breakage_causes.cause_id)))) foo ON (((builds.vcs_revision = foo.sha1) AND (builds.job_name = foo.job))))
-  WHERE (NOT COALESCE(builds.succeeded, false))
-  GROUP BY builds.build_num;
+             JOIN public.code_breakage_affected_jobs ON ((code_breakage_affected_jobs.cause = master_commit_known_breakage_causes.cause_id)))) foo ON (((global_builds.vcs_revision = foo.sha1) AND (global_builds.job_name = foo.job))))
+  WHERE (NOT COALESCE(global_builds.succeeded, false))
+  GROUP BY global_builds.build_number;
 
 
 ALTER TABLE public.known_broken_builds OWNER TO postgres;
@@ -826,7 +833,7 @@ CREATE VIEW public.build_failure_causes WITH (security_barrier='false') AS
     builds_deduped.queued_at,
     builds_deduped.job_name,
     builds_deduped.branch,
-    COALESCE(builds_deduped.succeeded, false) AS succeeded,
+    builds_deduped.succeeded,
     (build_steps.universal_build IS NULL) AS is_idiopathic,
     build_steps.id AS step_id,
     build_steps.name AS step_name,
@@ -1044,13 +1051,13 @@ ALTER TABLE public.idiopathic_build_failures OWNER TO postgres;
 -- Name: job_failure_frequencies; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.job_failure_frequencies AS
- SELECT builds.job_name,
+CREATE VIEW public.job_failure_frequencies WITH (security_barrier='false') AS
+ SELECT global_builds.job_name,
     count(*) AS freq,
-    max(builds.queued_at) AS last
-   FROM public.builds
-  GROUP BY builds.job_name
-  ORDER BY (count(*)) DESC, builds.job_name;
+    max(global_builds.queued_at) AS last
+   FROM public.global_builds
+  GROUP BY global_builds.job_name
+  ORDER BY (count(*)) DESC, global_builds.job_name;
 
 
 ALTER TABLE public.job_failure_frequencies OWNER TO postgres;
@@ -1279,7 +1286,8 @@ SELECT
     NULL::bigint AS pattern_matched,
     NULL::bigint AS flaky,
     NULL::integer AS commit_index,
-    NULL::bigint AS pattern_unmatched;
+    NULL::bigint AS pattern_unmatched,
+    NULL::bigint AS succeeded;
 
 
 ALTER TABLE public.master_failures_by_commit OWNER TO postgres;
@@ -1360,7 +1368,8 @@ CREATE VIEW public.master_failures_weekly_aggregation WITH (security_barrier='fa
     sum(foo.flaky_count) AS flaky_count,
     min(foo.commit_index) AS earliest_commit_index,
     max(foo.commit_index) AS latest_commit_index,
-    sum(foo.pattern_unmatched_count) AS pattern_unmatched_count
+    sum(foo.pattern_unmatched_count) AS pattern_unmatched_count,
+    sum(foo.succeeded_count) AS succeeded_count
    FROM ( SELECT ((master_failures_by_commit.total > 0))::integer AS has_failure,
             ((master_failures_by_commit.idiopathic > 0))::integer AS has_idiopathic,
             ((master_failures_by_commit.timeout > 0))::integer AS has_timeout,
@@ -1368,6 +1377,7 @@ CREATE VIEW public.master_failures_weekly_aggregation WITH (security_barrier='fa
             ((master_failures_by_commit.pattern_matched > 0))::integer AS has_pattern_matched,
             ((master_failures_by_commit.flaky > 0))::integer AS has_flaky,
             master_failures_by_commit.total AS failure_count,
+            master_failures_by_commit.succeeded AS succeeded_count,
             master_failures_by_commit.idiopathic AS idiopathic_count,
             master_failures_by_commit.timeout AS timeout_count,
             master_failures_by_commit.known_broken AS known_broken_count,
@@ -1389,7 +1399,10 @@ ALTER TABLE public.master_failures_weekly_aggregation OWNER TO postgres;
 -- Name: VIEW master_failures_weekly_aggregation; Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON VIEW public.master_failures_weekly_aggregation IS 'NOTE: "pattern_matched_count" excludes "flaky" builds';
+COMMENT ON VIEW public.master_failures_weekly_aggregation IS 'NOTE: "pattern_matched_count" excludes "flaky" builds
+
+FIXME: "failure_count" is a misnomer; it is actually the total that includes successes.
+"has_failure" is also a misnomer.';
 
 
 --
@@ -1784,14 +1797,6 @@ ALTER TABLE ONLY public.universal_builds ALTER COLUMN id SET DEFAULT nextval('pu
 
 
 --
--- Name: builds build_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.builds
-    ADD CONSTRAINT build_pkey PRIMARY KEY (build_num);
-
-
---
 -- Name: build_steps build_steps_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -1800,11 +1805,11 @@ ALTER TABLE ONLY public.build_steps
 
 
 --
--- Name: builds builds_global_build_num_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: builds builds_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.builds
-    ADD CONSTRAINT builds_global_build_num_key UNIQUE (global_build_num);
+    ADD CONSTRAINT builds_pkey PRIMARY KEY (global_build_num);
 
 
 --
@@ -2174,7 +2179,8 @@ CREATE OR REPLACE VIEW public.master_failures_by_commit WITH (security_barrier='
     COALESCE(sum((build_failure_causes_mutual_exclusion_known_broken.is_matched)::integer), (0)::bigint) AS pattern_matched,
     COALESCE(sum((build_failure_causes_mutual_exclusion_known_broken.is_flaky)::integer), (0)::bigint) AS flaky,
     ordered_master_commits.id AS commit_index,
-    COALESCE(sum((build_failure_causes_mutual_exclusion_known_broken.is_unmatched)::integer), (0)::bigint) AS pattern_unmatched
+    COALESCE(sum((build_failure_causes_mutual_exclusion_known_broken.is_unmatched)::integer), (0)::bigint) AS pattern_unmatched,
+    COALESCE(sum((build_failure_causes_mutual_exclusion_known_broken.succeeded)::integer), (0)::bigint) AS succeeded
    FROM (public.ordered_master_commits
      LEFT JOIN public.build_failure_causes_mutual_exclusion_known_broken ON ((build_failure_causes_mutual_exclusion_known_broken.vcs_revision = ordered_master_commits.sha1)))
   GROUP BY ordered_master_commits.id
@@ -2476,6 +2482,13 @@ GRANT ALL ON TABLE public.builds TO logan;
 
 
 --
+-- Name: TABLE global_builds; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.global_builds TO logan;
+
+
+--
 -- Name: TABLE aggregated_build_matches; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -2494,13 +2507,6 @@ GRANT ALL ON TABLE public.created_github_statuses TO logan;
 --
 
 GRANT ALL ON TABLE public.aggregated_github_status_postings TO logan;
-
-
---
--- Name: TABLE global_builds; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.global_builds TO logan;
 
 
 --

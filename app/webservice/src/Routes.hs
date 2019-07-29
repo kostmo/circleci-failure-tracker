@@ -489,10 +489,18 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       commit_count <- S.param "count"
 
       let offset_mode
-            | checkboxIsTrue use_sha1_offset = Pagination.FixedAndOffset $ Pagination.OffsetLimit (Pagination.Commit $ Builds.RawCommit starting_commit) commit_count
-            | checkboxIsTrue use_commit_index_bounds = Pagination.CommitIndices $ WeeklyStats.InclusiveNumericBounds min_commit_index max_commit_index
-            | otherwise = Pagination.FixedAndOffset $ Pagination.OffsetLimit (Pagination.Count offset_count) commit_count
-
+            | checkboxIsTrue use_sha1_offset = Pagination.FixedAndOffset $
+                Pagination.OffsetLimit
+                  (Pagination.Commit $ Builds.RawCommit starting_commit)
+                  commit_count
+            | checkboxIsTrue use_commit_index_bounds = Pagination.CommitIndices $
+                WeeklyStats.InclusiveNumericBounds
+                  min_commit_index
+                  max_commit_index
+            | otherwise = Pagination.FixedAndOffset $
+                Pagination.OffsetLimit
+                  (Pagination.Count offset_count)
+                  commit_count
 
       json_result <- liftIO $ do
         conn <- DbHelpers.get_connection connection_data
