@@ -440,7 +440,7 @@ insertBuildVisitation scan_resources (ubuild, visitation_result) = do
     step_failure_to_tuple (Builds.UniversalBuildId $ DbHelpers.db_id ubuild, visitation_result)
   return $ Builds.NewBuildStepId step_id
   where
-    sql = "INSERT INTO build_steps(name, is_timeout, universal_build) VALUES(?,?,?,?) RETURNING id;"
+    sql = "INSERT INTO build_steps(name, is_timeout, universal_build) VALUES(?,?,?) RETURNING id;"
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
 
 

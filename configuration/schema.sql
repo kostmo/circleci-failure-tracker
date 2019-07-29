@@ -92,8 +92,8 @@ CREATE TABLE public.universal_builds (
     build_number integer,
     build_namespace text,
     provider integer,
-    commit_sha1 character(40),
-    succeeded boolean
+    commit_sha1 character(40) NOT NULL,
+    succeeded boolean NOT NULL
 );
 
 
@@ -470,8 +470,8 @@ ALTER TABLE public.aggregated_github_status_postings OWNER TO postgres;
 
 CREATE VIEW public.global_builds WITH (security_barrier='false') AS
  SELECT builds.global_build_num,
-    builds.succeeded,
-    builds.vcs_revision,
+    universal_builds.succeeded,
+    universal_builds.commit_sha1 AS vcs_revision,
     builds.job_name,
     builds.branch,
     universal_builds.build_number,
@@ -504,7 +504,7 @@ CREATE VIEW public.builds_join_steps WITH (security_barrier='false') AS
     global_builds.succeeded,
     global_builds.build_namespace
    FROM (public.build_steps
-     LEFT JOIN public.global_builds ON ((build_steps.universal_build = global_builds.global_build_num)))
+     JOIN public.global_builds ON ((build_steps.universal_build = global_builds.global_build_num)))
   ORDER BY global_builds.vcs_revision, global_builds.build_number DESC;
 
 

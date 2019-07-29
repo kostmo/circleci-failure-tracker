@@ -391,10 +391,19 @@ function get_column_definitions(raw_column_list) {
 		headerVertical: false,
 		formatter: function(cell, formatterParams, onRendered) {
 
+
 			var commit_metadata = cell.getRow().getData()["commit_metadata"];
 
 			var message_suffix = "";
 			if (commit_metadata) {
+
+				var commit_date = new Date(commit_metadata["committer_date"]);
+				var day_index = commit_date.getDay();
+				var day_ratio = day_index/7.0;
+				var color = tinycolor.fromRatio({ h: day_ratio, s: 0.8, l: 0.8 });
+				var hex_string = color.toHexString();
+
+				cell.getElement().style.borderLeft = "4px solid " + hex_string;
 
 				var pr_link = "";
 				var matches_array = /https:\/\/github\.com\/pytorch\/pytorch\/pull\/(\d+)/.exec(commit_metadata["message"]);

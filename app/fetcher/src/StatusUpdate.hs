@@ -181,7 +181,7 @@ handleFailedStatuses
 
   liftIO $ do
     current_time <- Clock.getCurrentTime
-    putStrLn $ "KARL: Processing at " ++ show current_time
+    putStrLn $ "Processing at " ++ show current_time
 
   build_statuses_list_any_source <- ExceptT $ GithubApiFetch.getBuildStatuses access_token owned_repo sha1
 
