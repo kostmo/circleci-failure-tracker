@@ -397,8 +397,6 @@ ALTER TABLE public.best_pattern_match_for_builds OWNER TO postgres;
 --
 
 CREATE TABLE public.builds (
-    build_num integer,
-    vcs_revision character(40),
     queued_at timestamp with time zone,
     job_name text NOT NULL,
     branch character varying,
@@ -2031,13 +2029,6 @@ CREATE INDEX breakage_sha1 ON public.code_breakage_cause USING btree (sha1);
 --
 
 CREATE INDEX builds_job_name_idx ON public.builds USING btree (job_name);
-
-
---
--- Name: builds_vcs_revision_idx; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX builds_vcs_revision_idx ON public.builds USING btree (vcs_revision);
 
 
 --
