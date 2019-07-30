@@ -401,12 +401,12 @@ apiTimeoutCommitBuilds sha1 = do
 
 
 -- | Obtains the console log from database
-readLog :: Connection -> Builds.BuildNumber -> IO (Maybe Text)
-readLog conn (Builds.NewBuildNumber build_num) = do
+readLog :: Connection -> Builds.UniversalBuildId -> IO (Maybe Text)
+readLog conn (Builds.UniversalBuildId build_num) = do
   result <- query conn sql $ Only build_num
   return $ (\(Only log_text) -> log_text) <$> Safe.headMay result
   where
-    sql = "SELECT log_metadata.content FROM log_metadata JOIN builds_join_steps ON log_metadata.step = builds_join_steps.step_id WHERE builds_join_steps.build_num = ? LIMIT 1;"
+    sql = "SELECT log_metadata.content FROM log_metadata JOIN builds_join_steps ON log_metadata.step = builds_join_steps.step_id WHERE builds_join_steps.universal_build = ? LIMIT 1;"
 
 
 data MasterBuildStats = MasterBuildStats {
@@ -873,7 +873,7 @@ apiNewPatternTest conn_data universal_build_id new_pattern = do
 
   -- TODO consolidate with Scanning.scan_log
   -- TODO SqlRead.readLog should accept a universal build number
-  maybe_console_log <- SqlRead.readLog conn provider_build_number
+  maybe_console_log <- SqlRead.readLog conn universal_build_id
 
   return $ case maybe_console_log of
     Just console_log -> Right $ ScanTestResponse (length $ T.lines console_log) $
@@ -1148,7 +1148,7 @@ logContextFunc connection_data (MatchOccurrences.MatchId match_id) context_linec
         match_info = ScanPatterns.NewMatchDetails line_text line_number $ ScanPatterns.NewMatchSpan span_start span_end
         wrapped_build_num = Builds.NewBuildNumber build_num
 
-    maybe_log <- liftIO $ SqlRead.readLog conn wrapped_build_num
+    maybe_log <- liftIO $ SqlRead.readLog conn universal_build
     console_log <- except $ maybeToEither "log not in database" maybe_log
 
     let log_lines = T.lines console_log
@@ -1161,7 +1161,7 @@ logContextFunc connection_data (MatchOccurrences.MatchId match_id) context_linec
       match_info
       tuples
       wrapped_build_num
-      (Builds.UniversalBuildId universal_build)
+      universal_build
 
   where
     sql = "SELECT build_num, line_number, span_start, span_end, line_text, universal_build FROM matches_with_log_metadata WHERE id = ?"

@@ -200,7 +200,7 @@ catchupScan
       lines_list <- ExceptT $ getAndStoreLog
         scan_resources
         False
-        buildnum
+        universal_build_obj
         buildstep_id
         maybe_console_output_url
 
@@ -319,20 +319,20 @@ getCircleCIFailedBuildInfo scan_resources build_number = do
 getAndStoreLog ::
      ScanRecords.ScanCatchupResources
   -> Bool -- ^ overwrite existing log
-  -> Builds.BuildNumber
+  -> DbHelpers.WithId Builds.UniversalBuild
   -> Builds.BuildStepId
   -> Maybe Builds.BuildFailureOutput
   -> IO (Either String [T.Text])
 getAndStoreLog
     scan_resources
     overwrite
-    build_number
+    universal_build
     build_step_id
     maybe_failed_build_output = do
 
   maybe_console_log <- if overwrite
     then return Nothing
-    else SqlRead.readLog conn build_number
+    else SqlRead.readLog conn $ Builds.UniversalBuildId $ DbHelpers.db_id universal_build
 
   case maybe_console_log of
     Just console_log -> return $ Right $ T.lines console_log  -- Log was already fetched
@@ -340,7 +340,9 @@ getAndStoreLog
       download_url <- ExceptT $ case maybe_failed_build_output of
         Just failed_build_output -> return $ Right $ Builds.log_url failed_build_output
         Nothing -> do
-          visitation_result <- getCircleCIFailedBuildInfo scan_resources build_number
+          visitation_result <- getCircleCIFailedBuildInfo
+            scan_resources
+            (Builds.provider_buildnum $ DbHelpers.record universal_build)
 
           return $ case visitation_result of
             Right _ -> Left "This build didn't have a console log!"
@@ -401,28 +403,3 @@ scanLogText lines_list patterns =
   concat $ filter (not . null) $ zipWith (curry apply_patterns) [0 ..] $ map T.stripEnd lines_list
   where
     apply_patterns line_tuple = Maybe.mapMaybe (ScanUtils.applySinglePattern line_tuple) patterns
-
-
-scanLog ::
-     ScanRecords.ScanCatchupResources
-  -> Builds.BuildNumber
-  -> [ScanPatterns.DbPattern]
-  -> IO (Either String [ScanPatterns.ScanMatch])
-scanLog scan_resources build_number@(Builds.NewBuildNumber buildnum) patterns = do
-
-  putStrLn $ unwords [
-      "Scanning log for"
-    , show $ length patterns
-    , "patterns..."
-    ]
-
-  maybe_console_log <- SqlRead.readLog conn build_number
-  return $ case maybe_console_log of
-    Just console_log -> Right $ scanLogText (T.lines console_log) patterns
-    Nothing -> Left $ unwords [
-        "No log found for build number"
-      , show buildnum
-      ]
-
-  where
-    conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources

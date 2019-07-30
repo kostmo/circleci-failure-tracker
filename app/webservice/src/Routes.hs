@@ -551,7 +551,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
             storable_build <- SqlRead.getGlobalBuild conn universal_build_id
 
             -- TODO SqlRead.readLog should accept a universal build number
-            maybe_log <- SqlRead.readLog conn $ Builds.build_id $ Builds.build_record storable_build
+            maybe_log <- SqlRead.readLog conn $ Builds.UniversalBuildId $ DbHelpers.db_id $ Builds.universal_build storable_build
             return $ maybeToEither "log not in database" maybe_log
 
       rq <- S.request

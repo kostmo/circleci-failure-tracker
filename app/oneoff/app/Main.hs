@@ -44,7 +44,8 @@ mainAppCode args = do
   -- Experimental
 
   scan_resources <- Scanning.prepareScanResources conn $ Just Constants.defaultPatternAuthor
-
+  return ()
+  {-
   my_scan_result <- Scanning.getCircleCIFailedBuildInfo scan_resources $ Builds.NewBuildNumber 2102088
   putStrLn $ "My scan result: " ++ show my_scan_result
 
@@ -62,6 +63,7 @@ mainAppCode args = do
 
   maybe_log <- SqlRead.readLog conn $ Builds.NewBuildNumber 2101460
   putStrLn $ "Log output: " <> Maybe.fromMaybe "<no log>" (Scanning.filterAnsi . T.unpack <$> maybe_log)
+  -}
 
 --  putStrLn $ "Log linecount: " <> show (maybe 0 (length . T.lines) maybe_log)
   where
