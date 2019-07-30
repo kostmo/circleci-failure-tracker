@@ -62,6 +62,7 @@ data SingleBuildInfo = SingleBuildInfo {
     _multi_match_count :: Int
   , _build_info        :: BuildSteps.BuildStep
   , _known_failures    :: [DbHelpers.WithId SqlRead.CodeBreakage]
+  , _umbrella_build    :: Builds.StorableBuild
   } deriving Generic
 
 instance ToJSON SingleBuildInfo where
@@ -70,9 +71,9 @@ instance ToJSON SingleBuildInfo where
 
 getBuildInfo ::
      OAuth2.AccessToken
-  -> Builds.BuildNumber
+  -> Builds.UniversalBuildId
   -> SqlRead.DbIO (Either Text SingleBuildInfo)
-getBuildInfo access_token build@(Builds.NewBuildNumber build_id) = do
+getBuildInfo access_token build@(Builds.UniversalBuildId build_id) = do
 
   conn <- ask
 
@@ -82,6 +83,7 @@ getBuildInfo access_token build@(Builds.NewBuildNumber build_id) = do
   liftIO $ do
     xs <- query conn sql $ Only build_id
 
+    storable_build <- SqlRead.getGlobalBuild conn build
 
     let either_tuple = f (length matches) <$> maybeToEither (T.pack $ "Build with ID " ++ show build_id ++ " not found!") (Safe.headMay xs)
 
@@ -90,9 +92,14 @@ getBuildInfo access_token build@(Builds.NewBuildNumber build_id) = do
 
       let sha1 = Builds.vcs_revision $ BuildSteps.build step_container
           job_name = Builds.job_name $ BuildSteps.build step_container
+
       breakages <- ExceptT $ findKnownBuildBreakages conn access_token pytorchRepoOwner sha1
       let applicable_breakages = filter (Set.member job_name . SqlRead._jobs . DbHelpers.record) breakages
-      return $ SingleBuildInfo multi_match_count step_container applicable_breakages
+      return $ SingleBuildInfo
+        multi_match_count
+        step_container
+        applicable_breakages
+        storable_build
 
   where
     f multi_match_count (step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch) = (multi_match_count, step_container)
@@ -101,7 +108,7 @@ getBuildInfo access_token build@(Builds.NewBuildNumber build_id) = do
         build_obj = Builds.NewBuild (Builds.NewBuildNumber build_num) (Builds.RawCommit vcs_revision) queued_at job_name branch
         maybe_breakage_obj = Nothing
 
-    sql = "SELECT step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch FROM builds_with_reports where build_num = ?;"
+    sql = "SELECT step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch FROM builds_with_reports where universal_build = ?;"
 
 
 countRevisionBuilds ::
@@ -116,7 +123,7 @@ countRevisionBuilds conn_data access_token git_revision = do
   [Only timeout_count] <- query conn timeout_count_sql only_commit
   [Only reported_count] <- query conn reported_broken_count_sql only_commit
 
-  revision_builds <- SqlRead.get_revision_builds conn_data git_revision
+  revision_builds <- SqlRead.getRevisionBuilds conn_data git_revision
   flaky_pattern_ids <- SqlRead.get_flaky_pattern_ids conn
 
   let is_flaky = (`Set.member` flaky_pattern_ids) . coerce . MatchOccurrences._pattern_id . CommitBuilds._match

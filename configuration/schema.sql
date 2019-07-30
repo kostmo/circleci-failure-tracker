@@ -532,7 +532,11 @@ CREATE VIEW public.builds_with_reports WITH (security_barrier='false') AS
     now() AS report_timestamp,
     ''::text AS breakage_notes,
     NULL::character(40) AS implicated_revision,
-    NULL::integer AS report_id
+    NULL::integer AS report_id,
+    builds_join_steps.universal_build,
+    builds_join_steps.provider,
+    builds_join_steps.succeeded,
+    builds_join_steps.build_namespace
    FROM public.builds_join_steps
   ORDER BY builds_join_steps.build_num DESC;
 
@@ -594,7 +598,11 @@ CREATE VIEW public.best_pattern_match_augmented_builds WITH (security_barrier='f
     builds_with_reports.reporter,
     builds_with_reports.report_timestamp,
     matches_with_log_metadata.id AS match_id,
-    best_pattern_match_for_builds.is_flaky
+    best_pattern_match_for_builds.is_flaky,
+    builds_with_reports.universal_build,
+    builds_with_reports.provider,
+    builds_with_reports.succeeded,
+    builds_with_reports.build_namespace
    FROM ((public.best_pattern_match_for_builds
      JOIN public.matches_with_log_metadata ON (((matches_with_log_metadata.pattern = best_pattern_match_for_builds.pattern_id) AND (matches_with_log_metadata.build_num = best_pattern_match_for_builds.build))))
      JOIN public.builds_with_reports ON ((builds_with_reports.build_num = best_pattern_match_for_builds.build)))
@@ -633,7 +641,8 @@ CREATE VIEW public.builds_deduped WITH (security_barrier='false') AS
     global_builds.finished_at,
     count(*) OVER (PARTITION BY global_builds.provider, global_builds.job_name, global_builds.vcs_revision) AS rebuild_count,
     global_builds.global_build_num AS global_build,
-    global_builds.provider
+    global_builds.provider,
+    global_builds.build_namespace
    FROM public.global_builds
   ORDER BY global_builds.provider, global_builds.job_name, global_builds.vcs_revision, global_builds.build_number DESC;
 
@@ -842,7 +851,10 @@ CREATE VIEW public.build_failure_causes WITH (security_barrier='false') AS
     (known_broken_builds.build_num IS NOT NULL) AS is_known_broken,
     known_broken_builds.causes AS known_cause_ids,
     (best_pattern_match_for_builds.pattern_id IS NOT NULL) AS is_matched,
-    builds_deduped.rebuild_count
+    builds_deduped.rebuild_count,
+    builds_deduped.global_build,
+    builds_deduped.provider,
+    builds_deduped.build_namespace
    FROM (((public.builds_deduped
      LEFT JOIN public.build_steps ON ((build_steps.universal_build = builds_deduped.global_build)))
      LEFT JOIN public.best_pattern_match_for_builds ON ((best_pattern_match_for_builds.build = builds_deduped.build_num)))
@@ -1321,7 +1333,10 @@ CREATE VIEW public.master_failures_raw_causes WITH (security_barrier='false') AS
     COALESCE(master_contiguous_failures.start_commit_index, '-1'::integer) AS contiguous_start_commit_index,
     COALESCE(master_contiguous_failures.end_commit_index, '-1'::integer) AS contiguous_end_commit_index,
     ordered_master_commits.id AS commit_index,
-    COALESCE(master_contiguous_failure_job_groups.run_length, (1)::bigint) AS contiguous_length
+    COALESCE(master_contiguous_failure_job_groups.run_length, (1)::bigint) AS contiguous_length,
+    build_failure_causes.global_build,
+    build_failure_causes.provider,
+    build_failure_causes.build_namespace
    FROM ((((public.ordered_master_commits
      JOIN public.build_failure_causes ON ((build_failure_causes.vcs_revision = ordered_master_commits.sha1)))
      LEFT JOIN public.best_pattern_match_augmented_builds ON ((build_failure_causes.build_num = best_pattern_match_augmented_builds.build)))

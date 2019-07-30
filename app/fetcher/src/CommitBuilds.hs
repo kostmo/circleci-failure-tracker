@@ -3,29 +3,18 @@
 module CommitBuilds where
 
 import           Data.Aeson
-import           Data.Time        (UTCTime)
 import           GHC.Generics
 
-import qualified AuthStages
 import qualified Builds
+import qualified DbHelpers
 import qualified JsonUtils
 import qualified MatchOccurrences
 
 
-data StoredBreakageReport = StoredBreakageReport {
-    _is_broken   :: Bool
-  , _reporter    :: AuthStages.Username
-  , _reported_at :: UTCTime
-  } deriving Generic
-
-instance ToJSON StoredBreakageReport where
-  toJSON = genericToJSON JsonUtils.dropUnderscore
-
-
 data CommitBuild = NewCommitBuild {
-    _build    :: Builds.Build
+    _build    :: Builds.StorableBuild
   , _match    :: MatchOccurrences.MatchOccurrencesForBuild
-  , _breakage :: Maybe StoredBreakageReport
+  , _provider :: DbHelpers.WithId Builds.CiProvider
   } deriving Generic
 
 instance ToJSON CommitBuild where

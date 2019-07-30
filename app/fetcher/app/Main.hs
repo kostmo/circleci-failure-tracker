@@ -52,7 +52,7 @@ mainAppCode args = do
 
   -- Experimental
   {-
-  my_scan_result <- Scanning.getFailedBuildInfo scan_resources $ Builds.NewBuildNumber 2102088
+  my_scan_result <- Scanning.getCircleCIFailedBuildInfo scan_resources $ Builds.NewBuildNumber 2102088
   putStrLn $ "My scan result: " ++ show my_scan_result
   -}
 

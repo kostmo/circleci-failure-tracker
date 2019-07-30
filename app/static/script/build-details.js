@@ -49,13 +49,16 @@ function render_known_failure(failure_obj) {
 }
 
 
-function populate_build_info(build_id, parent_data) {
+function populate_build_info(universal_build_id, parent_data) {
 
 	var data = parent_data["build_info"];
 
-	var local_logview_item_full = link("View full log", "/api/view-log-full?build_id=" + build_id);
+	var circleci_build_id = parent_data["umbrella_build"]["build_record"]["build_id"];
+
+
+	var local_logview_item_full = link("View full log", "/api/view-log-full?build_id=" + universal_build_id);
 	var logview_items = render_list([
-		"View log " + link("on CircleCI", "https://circleci.com/gh/pytorch/pytorch/" + build_id, true),
+		"View log " + link("on CircleCI", "https://circleci.com/gh/pytorch/pytorch/" + circleci_build_id, true),
 		local_logview_item_full,
 	]);
 
@@ -82,21 +85,23 @@ function populate_build_info(build_id, parent_data) {
  	$("#implicate-self-button").click(function (e) {
 		$("#input-implicated-revision").val(full_commit);
 	});
+
 	$("#implicate-self-button").prop("disabled", false);
 
         $("#build-info-box").html(render_table_vertical_headers(items));
 
 	if (parent_data["multi_match_count"] > 1) {
 		$("#all-matches-section").show();
-		gen_builds_table("all-build-matches-table", "/api/build-pattern-matches?build_id=" + build_id, "300px");
+		gen_builds_table("all-build-matches-table", "/api/build-pattern-matches?build_id=" + universal_build_id, "300px");
 	}
 }
 
-function get_build_info(build_id) {
 
-	$.getJSON('/api/single-build-info', {"build_id": build_id}, function (data) {
+function get_build_info(universal_build_id) {
+
+	$.getJSON('/api/single-build-info', {"build_id": universal_build_id}, function (data) {
 		if (data.success) {
-			populate_build_info(build_id, data.payload);
+			populate_build_info(universal_build_id, data.payload);
 		} else {
 		        $("#build-info-box").html(render_tag("span", "Error: " + data.error.message, {"style": "color: red;"}));
 		}
@@ -104,21 +109,21 @@ function get_build_info(build_id) {
 }
 
 
-function gen_pattern_test_link(build_id) {
-        $("#pattern-add-link-container").html( link("Add pattern", "/add-pattern.html?build_id=" + build_id) );
+function gen_pattern_test_link(universal_build_id) {
+        $("#pattern-add-link-container").html( link("Add pattern", "/add-pattern.html?build_id=" + universal_build_id) );
 }
 
 
 function rescan_build(button) {
 
-	var build_id = get_build_number();
+	var universal_build_id = get_build_number();
 
 	$(button).prop("disabled", true);
 	$("#scan-throbber").show();
 
         $.post({
 		url: "/api/rescan-build",
-		data: {"build": build_id},
+		data: {"build": universal_build_id},
 		success: function( data ) {
 
 			$(button).prop("disabled", false);
@@ -145,11 +150,11 @@ function get_build_number() {
 
 function main() {
 
-	var build_id = get_build_number();
+	var universal_build_id = get_build_number();
 
-	get_build_info(build_id);
-	gen_builds_table("best-build-matches-table", "/api/best-build-match?build_id=" + build_id, null);
+	get_build_info(universal_build_id);
+	gen_builds_table("best-build-matches-table", "/api/best-build-match?build_id=" + universal_build_id, null);
 
-	gen_pattern_test_link(build_id);
+	gen_pattern_test_link(universal_build_id);
 }
 

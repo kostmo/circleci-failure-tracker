@@ -156,7 +156,7 @@ retrieveLogContext session github_config connection_data = do
   context_linecount <- S.param "context_linecount"
 
   let callback_func :: AuthStages.Username -> IO (Either Text SqlRead.LogContext)
-      callback_func _user_alias = SqlRead.log_context_func
+      callback_func _user_alias = SqlRead.logContextFunc
         connection_data
         (MatchOccurrences.MatchId match_id)
         context_linecount
@@ -263,19 +263,21 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     S.post "/api/rescan-build" $ do
 
---      build_number <- S.param "build"
+      build_number <- S.param "build"
 
-      let callback_func :: AuthStages.Username -> IO (Either (AuthStages.BackendFailure Text) Text)
+      let universal_build_id = Builds.UniversalBuildId build_number
+
+          callback_func :: AuthStages.Username -> IO (Either (AuthStages.BackendFailure Text) Text)
           callback_func user_alias = do
             -- TODO Restore this
             {-
             Scanning.rescanSingleBuild
               connection_data
               user_alias
-              (Builds.NewBuildNumber build_number)
+              universal_build_id
             return $ Right "Scan complete."
             -}
-            return $ Left $ AuthStages.DbFailure "This functionality is temporarily disabled.  The API needs to use a Universal build number."
+            return $ Left $ AuthStages.DbFailure "This functionality is temporarily disabled; the API needs to use a Universal build number."
 
       rq <- S.request
       insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
@@ -443,17 +445,17 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     get1 "/api/known-breakage-affected-jobs" "cause_id" SqlRead.knownBreakageAffectedJobs
 
-    get1 "/api/tag-suggest" "term" SqlRead.api_autocomplete_tags
+    get1 "/api/tag-suggest" "term" SqlRead.apiAutocompleteTags
 
-    get1 "/api/step-suggest" "term" SqlRead.api_autocomplete_steps
+    get1 "/api/step-suggest" "term" SqlRead.apiAutocompleteSteps
 
-    get1 "/api/branch-suggest" "term" SqlRead.api_autocomplete_branches
+    get1 "/api/branch-suggest" "term" SqlRead.apiAutocompleteBranches
 
     get1 "/api/master-weekly-failure-stats" "weeks" SqlRead.masterWeeklyFailureStats
 
-    get1 "/api/unmatched-builds-for-commit" "sha1" SqlRead.api_unmatched_commit_builds
+    get1 "/api/unmatched-builds-for-commit" "sha1" SqlRead.apiUnmatchedCommitBuilds
 
-    get1 "/api/idiopathic-failed-builds-for-commit" "sha1" SqlRead.api_idiopathic_commit_builds
+    get1 "/api/idiopathic-failed-builds-for-commit" "sha1" SqlRead.apiIdiopathicCommitBuilds
 
     get1 "/api/timed-out-builds-for-commit" "sha1" SqlRead.api_timeout_commit_builds
 
@@ -463,20 +465,19 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     get1 "/api/list-commit-jobs" "sha1" $ SqlRead.apiCommitJobs . Builds.RawCommit
 
-    get1 "/api/build-pattern-matches" "build_id" $ SqlRead.get_build_pattern_matches . Builds.NewBuildNumber
+    get1 "/api/build-pattern-matches" "build_id" $ SqlRead.get_build_pattern_matches . Builds.UniversalBuildId
 
     get1 "/api/best-pattern-matches" "pattern_id" $ SqlRead.get_best_pattern_matches . ScanPatterns.PatternId
 
-    get1 "/api/pattern-matches" "pattern_id" $ SqlRead.get_pattern_matches . ScanPatterns.PatternId
-
+    get1 "/api/pattern-matches" "pattern_id" $ SqlRead.getPatternMatches . ScanPatterns.PatternId
 
     get1 "/api/pattern" "pattern_id" $ SqlRead.api_single_pattern . ScanPatterns.PatternId
 
-    get1 "/api/best-build-match" "build_id" $ SqlRead.get_best_build_match . Builds.NewBuildNumber
+    get1 "/api/best-build-match" "build_id" $ SqlRead.getBestBuildMatch . Builds.UniversalBuildId
 
     jsonDbGet1Either connection_data "/api/test-failures" "pattern_id" $ SqlRead.apiTestFailures . ScanPatterns.PatternId
 
-    jsonDbGet1Either connection_data "/api/single-build-info" "build_id" $ SqlUpdate.getBuildInfo (AuthConfig.personal_access_token github_config) . Builds.NewBuildNumber
+    jsonDbGet1Either connection_data "/api/single-build-info" "build_id" $ SqlUpdate.getBuildInfo (AuthConfig.personal_access_token github_config) . Builds.UniversalBuildId
 
     S.get "/api/master-timeline" $ do
 
@@ -521,7 +522,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       commit_sha1_text <- S.param "sha1"
       json_result <- runExceptT $ do
         sha1 <- except $ GitRev.validateSha1 commit_sha1_text
-        liftIO $ SqlRead.get_revision_builds connection_data sha1
+        liftIO $ SqlRead.getRevisionBuilds connection_data sha1
 
       S.json $ WebApi.toJsonEither json_result
 
@@ -530,7 +531,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       buildnum <- S.param "build_num"
       new_pattern <- patternFromParms
       S.json =<< liftIO (do
-        foo <- SqlRead.apiNewPatternTest connection_data (Builds.NewBuildNumber buildnum) new_pattern
+        foo <- SqlRead.apiNewPatternTest connection_data (Builds.UniversalBuildId buildnum) new_pattern
         return $ WebApi.toJsonEither foo)
 
 
@@ -541,9 +542,16 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       build_id <- S.param "build_id"
 
       let callback_func :: AuthStages.Username -> IO (Either Text Text)
+
+          universal_build_id = Builds.UniversalBuildId build_id
+
           callback_func _user_alias = do
             conn <- DbHelpers.get_connection connection_data
-            maybe_log <- SqlRead.read_log conn $ Builds.NewBuildNumber build_id
+
+            storable_build <- SqlRead.getGlobalBuild conn universal_build_id
+
+            -- TODO SqlRead.read_log should accept a universal build number
+            maybe_log <- SqlRead.read_log conn $ Builds.build_id $ Builds.build_record storable_build
             return $ maybeToEither "log not in database" maybe_log
 
       rq <- S.request

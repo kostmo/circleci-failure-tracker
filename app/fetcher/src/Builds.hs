@@ -9,6 +9,7 @@ import           Data.Text                            (Text)
 import           Data.Time                            (UTCTime)
 import           Database.PostgreSQL.Simple           (FromRow)
 import           Database.PostgreSQL.Simple.FromField (FromField, fromField)
+import           Database.PostgreSQL.Simple.FromRow   (field, fromRow)
 import           GHC.Generics
 import           GHC.Int                              (Int64)
 
@@ -30,15 +31,19 @@ newtype BuildNumber = NewBuildNumber Int64
 instance ToJSON BuildNumber
 instance FromJSON BuildNumber
 
+-- TODO do error handling: http://hackage.haskell.org/package/postgresql-simple-0.6.2/docs/Database-PostgreSQL-Simple-FromField.html
+instance FromField BuildNumber where
+  fromField f mdata = NewBuildNumber <$> fromField f mdata
+
 
 newtype UniversalBuildId = UniversalBuildId Int64
   deriving (Show, Generic, Eq, Ord)
 
-
+instance ToJSON UniversalBuildId
 
 -- TODO do error handling: http://hackage.haskell.org/package/postgresql-simple-0.6.2/docs/Database-PostgreSQL-Simple-FromField.html
-instance FromField BuildNumber where
-  fromField f mdata = NewBuildNumber <$> fromField f mdata
+instance FromField UniversalBuildId where
+  fromField f mdata = UniversalBuildId <$> fromField f mdata
 
 
 newtype BuildStepId = NewBuildStepId Int64
@@ -48,19 +53,64 @@ instance ToJSON BuildStepId
 instance FromJSON BuildStepId
 
 
+data CiProvider = CiProvider {
+    icon_url :: Text
+  , label    :: Text
+  } deriving Generic
+
+instance ToJSON CiProvider
+
+
 data UniversalBuild = UniversalBuild {
     provider_buildnum :: BuildNumber
   , provider_id       :: Int64
   , build_namespace   :: Text
   , succeeded         :: Bool
   , sha1              :: RawCommit
-  } deriving (Show, Generic)
+  } deriving Generic
+
+instance ToJSON UniversalBuild
 
 
 data StorableBuild = StorableBuild {
-    univeral_build :: DbHelpers.WithId UniversalBuild -- ^ this already came from database
-  , build_record   :: Build
-  }
+    universal_build :: DbHelpers.WithId UniversalBuild -- ^ this already came from database
+  , build_record    :: Build
+  } deriving Generic
+
+instance ToJSON StorableBuild
+
+
+instance FromRow StorableBuild where
+  fromRow = do
+    global_build_num <- field
+    provider_buildnum <- field
+    provider_id <- field
+    build_namespace <- field
+    succeeded <- field
+    sha1 <- field
+
+    queued_at <- field
+    job_name <- field
+    branch <- field
+
+    let wrapped_commit = Builds.RawCommit sha1
+        u_build_obj = UniversalBuild
+          provider_buildnum
+          provider_id
+          build_namespace
+          succeeded
+          wrapped_commit
+
+        inner_build_obj = NewBuild
+          provider_buildnum
+          wrapped_commit
+          queued_at
+          job_name
+          branch
+
+    return $ StorableBuild
+      (DbHelpers.WithId global_build_num u_build_obj)
+      inner_build_obj
 
 
 data Build = NewBuild {

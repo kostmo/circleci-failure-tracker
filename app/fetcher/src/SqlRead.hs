@@ -34,7 +34,6 @@ import           GHC.Int                              (Int64)
 import qualified Network.OAuth.OAuth2                 as OAuth2
 import qualified Safe
 
-import qualified AuthStages
 import qualified BuildResults
 import qualified Builds
 import qualified CommitBuilds
@@ -131,6 +130,18 @@ getUnvisitedBuildIds conn maybe_limit = do
     sql = "SELECT universal_build_id, build_num, provider, build_namespace, succeeded, commit_sha1 FROM unvisited_builds WHERE provider = ? ORDER BY build_num DESC LIMIT ?;"
 
     unlimited_sql = "SELECT universal_build_id, build_num, provider, build_namespace, succeeded, commit_sha1 FROM unvisited_builds WHERE provider = ? ORDER BY build_num DESC;"
+
+
+-- | XXX This is a partial function
+getGlobalBuild ::
+     Connection
+  -> Builds.UniversalBuildId
+  -> IO Builds.StorableBuild
+getGlobalBuild conn (Builds.UniversalBuildId global_build_num) = do
+  [x] <- query conn sql $ Only global_build_num
+  return x
+  where
+    sql = "SELECT global_build_num, build_number, provider, build_namespace, succeeded, vcs_revision, queued_at, job_name, branch FROM global_builds WHERE global_build_num = ?;"
 
 
 getRevisitableBuilds ::
@@ -282,10 +293,12 @@ apiByteCountHistogram = map (swap . f) <$> runQuery
 
 
 data JobBuild = JobBuild {
-    _job          :: Text
-  , _build        :: Builds.BuildNumber
-  , _flaky        :: Bool
-  , _known_broken :: Bool
+    _job                :: Text
+  , _build              :: Builds.BuildNumber
+  , _flaky              :: Bool
+  , _known_broken       :: Bool
+  , _universal_build_id :: Builds.UniversalBuildId
+  , _provider_id        :: Int64
   } deriving (Generic, FromRow)
 
 instance ToJSON JobBuild where
@@ -300,7 +313,7 @@ apiCommitJobs (Builds.RawCommit sha1) = do
   conn <- ask
   liftIO $ query conn sql $ Only sha1
   where
-    sql = "SELECT job_name, build_num, is_flaky, is_known_broken FROM build_failure_causes WHERE vcs_revision = ? ORDER BY job_name;"
+    sql = "SELECT job_name, build_num, is_flaky, is_known_broken, global_build, provider FROM build_failure_causes WHERE vcs_revision = ? ORDER BY job_name;"
 
 
 apiJobs :: DbIO (WebApi.ApiResponse WebApi.JobApiRecord)
@@ -354,38 +367,37 @@ list_builds sql = do
 
 api_unmatched_builds :: DbIO [WebApi.BuildBranchRecord]
 api_unmatched_builds = list_builds
-  "SELECT build, branch FROM unattributed_failed_builds ORDER BY build DESC;"
-
-
-api_unmatched_commit_builds :: Text -> DbIO [WebApi.UnmatchedBuild]
-api_unmatched_commit_builds sha1 = do
-  conn <- ask
-  liftIO $ query conn sql $ Only sha1
-  where
-    sql = "SELECT build, step_name, queued_at, job_name, unattributed_failed_builds.branch, is_broken FROM unattributed_failed_builds LEFT JOIN builds_with_reports ON unattributed_failed_builds.build = builds_with_reports.build_num WHERE vcs_revision = ?"
+  "SELECT build, branch, global_build FROM unattributed_failed_builds ORDER BY build DESC;"
 
 
 apiIdiopathicBuilds :: DbIO [WebApi.BuildBranchRecord]
 apiIdiopathicBuilds = list_builds
-  "SELECT build, branch FROM idiopathic_build_failures ORDER BY build DESC;"
+  "SELECT build, branch, global_build_num FROM idiopathic_build_failures ORDER BY build DESC;"
 
 
-api_idiopathic_commit_builds :: Text -> DbIO [WebApi.UnmatchedBuild]
-api_idiopathic_commit_builds sha1 = do
+apiUnmatchedCommitBuilds :: Text -> DbIO [WebApi.UnmatchedBuild]
+apiUnmatchedCommitBuilds sha1 = do
+  conn <- ask
+  liftIO $ query conn sql $ Only sha1
+  where
+    sql = "SELECT build, step_name, queued_at, job_name, unattributed_failed_builds.branch, builds_with_reports.universal_build, ci_providers.icon_url, ci_providers.label FROM unattributed_failed_builds JOIN builds_with_reports ON unattributed_failed_builds.global_build = builds_with_reports.universal_build JOIN ci_providers ON builds_with_reports.provider = ci_providers.id WHERE vcs_revision = ?"
+
+
+apiIdiopathicCommitBuilds :: Text -> DbIO [WebApi.UnmatchedBuild]
+apiIdiopathicCommitBuilds sha1 = do
   conn <- ask
   liftIO $ map f <$> query conn sql (Only sha1)
   where
-    f (build, step_name, queued_at, job_name, branch, is_broken) = WebApi.UnmatchedBuild (Builds.NewBuildNumber build) step_name queued_at job_name branch is_broken
-    sql = "SELECT build, step_name, queued_at, job_name, idiopathic_build_failures.branch, is_broken FROM idiopathic_build_failures LEFT JOIN builds_with_reports ON idiopathic_build_failures.build = builds_with_reports.build_num WHERE vcs_revision = ?"
+    f (build, step_name, queued_at, job_name, branch, universal_build_id, provider_icon_url, provider_label) = WebApi.UnmatchedBuild (Builds.NewBuildNumber build) step_name queued_at job_name branch (Builds.UniversalBuildId universal_build_id) provider_icon_url provider_label
+    sql = "SELECT build, step_name, queued_at, job_name, idiopathic_build_failures.branch, builds_with_reports.universal_build, ci_providers.icon_url, ci_providers.label FROM idiopathic_build_failures JOIN builds_with_reports ON idiopathic_build_failures.global_build_num = builds_with_reports.universal_build JOIN ci_providers ON builds_with_reports.provider = ci_providers.id WHERE vcs_revision = ?"
 
 
--- | TODO Don't hardcode is_broken to null; join tables instead
 api_timeout_commit_builds :: Text -> DbIO [WebApi.UnmatchedBuild]
 api_timeout_commit_builds sha1 = do
   conn <- ask
   liftIO $ query conn sql $ Only sha1
   where
-    sql = "SELECT build_num, step_name, queued_at, job_name, branch, NULL FROM builds_join_steps WHERE vcs_revision = ? AND is_timeout;"
+    sql = "SELECT build_num, step_name, queued_at, job_name, branch, universal_build, ci_providers.icon_url, ci_providers.label FROM builds_join_steps JOIN ci_providers ON builds_join_steps.provider = ci_providers.id WHERE vcs_revision = ? AND is_timeout;"
 
 
 -- | Obtains the console log from database
@@ -559,13 +571,13 @@ apiTagsHistogram = runQuery
   "SELECT tag, COUNT(*) AS pattern_count, SUM(matching_build_count)::bigint AS build_matches FROM pattern_tags LEFT JOIN pattern_frequency_summary ON pattern_frequency_summary.id = pattern_tags.pattern GROUP BY tag ORDER BY pattern_count DESC, build_matches DESC;"
 
 
-api_autocomplete_tags :: Text -> DbIO [Text]
-api_autocomplete_tags = listFlat1X
+apiAutocompleteTags :: Text -> DbIO [Text]
+apiAutocompleteTags = listFlat1X
   "SELECT tag FROM (SELECT tag, COUNT(*) AS freq FROM pattern_tags GROUP BY tag ORDER BY freq DESC, tag ASC) foo WHERE tag ILIKE CONCAT(?,'%');"
 
 
-api_autocomplete_steps :: Text -> DbIO [Text]
-api_autocomplete_steps = listFlat1X
+apiAutocompleteSteps :: Text -> DbIO [Text]
+apiAutocompleteSteps = listFlat1X
   "SELECT name FROM (SELECT name, COUNT(*) AS freq FROM build_steps where name IS NOT NULL GROUP BY name ORDER BY freq DESC, name ASC) foo WHERE name ILIKE CONCAT(?,'%');"
 
 
@@ -574,8 +586,8 @@ apiListSteps = listFlat
   "SELECT name FROM build_steps WHERE name IS NOT NULL GROUP BY name ORDER BY COUNT(*) DESC, name ASC;"
 
 
-api_autocomplete_branches :: Text -> DbIO [Text]
-api_autocomplete_branches = listFlat1X
+apiAutocompleteBranches :: Text -> DbIO [Text]
+apiAutocompleteBranches = listFlat1X
   "SELECT branch FROM global_builds WHERE branch ILIKE CONCAT(?,'%') GROUP BY branch ORDER BY COUNT(*) DESC;"
 
 
@@ -585,28 +597,59 @@ api_list_branches = listFlat
   "SELECT branch, COUNT(*) AS count FROM global_builds WHERE branch != '' GROUP BY branch ORDER BY count DESC;"
 
 
-get_revision_builds :: DbHelpers.DbConnectionData -> GitRev.GitSha1 -> IO [CommitBuilds.CommitBuild]
-get_revision_builds conn_data git_revision = do
+getRevisionBuilds ::
+     DbHelpers.DbConnectionData
+  -> GitRev.GitSha1
+  -> IO [CommitBuilds.CommitBuild]
+getRevisionBuilds conn_data git_revision = do
   conn <- DbHelpers.get_connection conn_data
   fmap (map f) $ query conn sql $ Only $ GitRev.sha1 git_revision
 
   where
-    f (step_name, match_id, buildnum, vcs_rev, queuedat, jobname, branch, patt, line_number, line_count, line_text, span_start, span_end, specificity, maybe_is_broken, maybe_reporter, maybe_report_timestamp) =
+    f (step_name, match_id, buildnum, vcs_rev, queuedat, jobname, branch, patt, line_number, line_count, line_text, span_start, span_end, specificity, universal_build, provider_id, build_namespace, succeeded, ci_label, ci_icon_url) =
       CommitBuilds.NewCommitBuild
-        build_obj
+        parent_build_obj
         match_obj
-        (maybe_breakage_report maybe_is_broken  maybe_reporter maybe_report_timestamp)
+        (DbHelpers.WithId provider_id provider_obj)
       where
-        build_obj = Builds.NewBuild (Builds.NewBuildNumber buildnum) (Builds.RawCommit vcs_rev) queuedat jobname branch
-        match_obj = MatchOccurrences.MatchOccurrencesForBuild step_name (ScanPatterns.PatternId patt) (MatchOccurrences.MatchId match_id) line_number line_count line_text span_start span_end specificity
 
-        maybe_breakage_report :: Maybe Bool -> Maybe Text -> Maybe UTCTime -> Maybe CommitBuilds.StoredBreakageReport
-        maybe_breakage_report x y z = CommitBuilds.StoredBreakageReport
-          <$> x
-          <*> (AuthStages.Username <$> y)
-          <*> z
+        provider_obj = Builds.CiProvider
+          ci_icon_url
+          ci_label
 
-    sql = "SELECT step_name, match_id, build, vcs_revision, queued_at, job_name, branch, pattern_id, line_number, line_count, line_text, span_start, span_end, specificity, is_broken, reporter, report_timestamp FROM best_pattern_match_augmented_builds WHERE vcs_revision = ?;"
+        universal_build_obj = Builds.UniversalBuild
+          wrapped_build_num
+          provider_id
+          build_namespace
+          succeeded
+          wrapped_commit
+
+        parent_build_obj = Builds.StorableBuild
+          (DbHelpers.WithId universal_build universal_build_obj)
+          build_obj
+
+        wrapped_commit = Builds.RawCommit vcs_rev
+        wrapped_build_num = Builds.NewBuildNumber buildnum
+
+        build_obj = Builds.NewBuild
+          wrapped_build_num
+          wrapped_commit
+          queuedat
+          jobname
+          branch
+
+        match_obj = MatchOccurrences.MatchOccurrencesForBuild
+          step_name
+          (ScanPatterns.PatternId patt)
+          (MatchOccurrences.MatchId match_id)
+          line_number
+          line_count
+          line_text
+          span_start
+          span_end
+          specificity
+
+    sql = "SELECT step_name, match_id, build, vcs_revision, queued_at, job_name, branch, pattern_id, line_number, line_count, line_text, span_start, span_end, specificity, universal_build, provider, build_namespace, succeeded, label, icon_url FROM best_pattern_match_augmented_builds JOIN ci_providers ON ci_providers.id = best_pattern_match_augmented_builds.provider WHERE vcs_revision = ?;"
 
 
 getMasterCommits ::
@@ -694,49 +737,63 @@ instance FromRow BuildResults.SimpleBuildStatus where
     contiguous_start_commit_index <- field
     contiguous_end_commit_index <- field
     contiguous_length <- field
+    universal_build_id <- field
+    provider_id <- field
+    build_namespace <- field
 
     let
-
-     failure_mode
+      failure_mode
         | succeeded = BuildResults.Success
         | is_idiopathic = BuildResults.NoLog
         | is_timeout = BuildResults.FailedStep step_name BuildResults.Timeout
         | is_matched = BuildResults.FailedStep step_name $ BuildResults.PatternMatch match_obj
         | otherwise = BuildResults.FailedStep step_name BuildResults.NoMatch
 
-     maybe_contiguous_member = if is_serially_isolated
-       then Nothing
-       else Just $ BuildResults.ContiguousBreakageMember
-         contiguous_run_count
-         contiguous_group_index
-         contiguous_start_commit_index
-         contiguous_end_commit_index
-         contiguous_length
+      maybe_contiguous_member = if is_serially_isolated
+        then Nothing
+        else Just $ BuildResults.ContiguousBreakageMember
+          contiguous_run_count
+          contiguous_group_index
+          contiguous_start_commit_index
+          contiguous_end_commit_index
+          contiguous_length
 
-     build_obj = Builds.NewBuild
-       (Builds.NewBuildNumber build_num)
-       (Builds.RawCommit sha1)
-       queued_at
-       job_name
-       branch
+      wrapped_build_num = Builds.NewBuildNumber build_num
+      wrapped_commit = Builds.RawCommit sha1
 
-     match_obj = MatchOccurrences.MatchOccurrencesForBuild
-       step_name
-       (ScanPatterns.PatternId pattern_id)
-       (MatchOccurrences.MatchId match_id)
-       line_number
-       line_count
-       line_text
-       span_start
-       span_end
-       specificity
+      build_obj = Builds.NewBuild
+        wrapped_build_num
+        wrapped_commit
+        queued_at
+        job_name
+        branch
 
-     in return $ BuildResults.SimpleBuildStatus
-       build_obj
-       failure_mode
-       is_flaky
-       is_known_broken
-       maybe_contiguous_member
+      match_obj = MatchOccurrences.MatchOccurrencesForBuild
+        step_name
+        (ScanPatterns.PatternId pattern_id)
+        (MatchOccurrences.MatchId match_id)
+        line_number
+        line_count
+        line_text
+        span_start
+        span_end
+        specificity
+
+      ubuild_obj = DbHelpers.WithId universal_build_id $
+        Builds.UniversalBuild
+          wrapped_build_num
+          provider_id
+          build_namespace
+          succeeded
+          wrapped_commit
+
+    return $ BuildResults.SimpleBuildStatus
+      build_obj
+      failure_mode
+      is_flaky
+      is_known_broken
+      maybe_contiguous_member
+      ubuild_obj
 
 
 -- | Gets last N commits in one query,
@@ -747,25 +804,25 @@ apiMasterBuilds ::
   -> DbIO (Either Text BuildResults.MasterBuildsResponse)
 apiMasterBuilds offset_limit = do
 
- code_breakage_ranges <- apiAnnotatedCodeBreakages
+  code_breakage_ranges <- apiAnnotatedCodeBreakages
 
- conn <- ask
- liftIO $ runExceptT $ do
+  conn <- ask
+  liftIO $ runExceptT $ do
 
-  (commit_id_bounds, master_commits) <- ExceptT $ getMasterCommits conn offset_limit
-  let query_bounds = (WeeklyStats.min_bound commit_id_bounds, WeeklyStats.max_bound commit_id_bounds)
-  failed_builds <- liftIO $ query conn failures_sql query_bounds
+    (commit_id_bounds, master_commits) <- ExceptT $ getMasterCommits conn offset_limit
+    let query_bounds = (WeeklyStats.min_bound commit_id_bounds, WeeklyStats.max_bound commit_id_bounds)
+    failed_builds <- liftIO $ query conn failures_sql query_bounds
 
-  let job_names = Set.fromList $ map (Builds.job_name . BuildResults._build) failed_builds
+    let job_names = Set.fromList $ map (Builds.job_name . BuildResults._build) failed_builds
 
-  return $ BuildResults.MasterBuildsResponse
-    job_names
-    master_commits
-    failed_builds
-    code_breakage_ranges
+    return $ BuildResults.MasterBuildsResponse
+      job_names
+      master_commits
+      failed_builds
+      code_breakage_ranges
 
   where
-    failures_sql = "SELECT sha1, succeeded, is_idiopathic, is_flaky, is_timeout, is_matched, is_known_broken, build_num, queued_at, job_name, branch, step_name, pattern_id, match_id, line_number, line_count, line_text, span_start, span_end, specificity, is_serially_isolated, contiguous_run_count, contiguous_group_index, contiguous_start_commit_index, contiguous_end_commit_index, contiguous_length FROM master_failures_raw_causes WHERE commit_index >= ? AND commit_index <= ?;"
+    failures_sql = "SELECT sha1, succeeded, is_idiopathic, is_flaky, is_timeout, is_matched, is_known_broken, build_num, queued_at, job_name, branch, step_name, pattern_id, match_id, line_number, line_count, line_text, span_start, span_end, specificity, is_serially_isolated, contiguous_run_count, contiguous_group_index, contiguous_start_commit_index, contiguous_end_commit_index, contiguous_length, global_build, provider, build_namespace FROM master_failures_raw_causes WHERE commit_index >= ? AND commit_index <= ?;"
 
 
 apiDetectedCodeBreakages :: DbIO [BuildResults.DetectedBreakageSpan]
@@ -804,20 +861,24 @@ instance ToJSON ScanTestResponse where
 
 apiNewPatternTest ::
      DbHelpers.DbConnectionData
-  -> Builds.BuildNumber
+  -> Builds.UniversalBuildId
   -> ScanPatterns.Pattern
   -> IO (Either String ScanTestResponse)
-apiNewPatternTest conn_data build_number@(Builds.NewBuildNumber buildnum) new_pattern = do
+apiNewPatternTest conn_data universal_build_id new_pattern = do
 
   conn <- DbHelpers.get_connection conn_data
 
+  storable_build <- SqlRead.getGlobalBuild conn universal_build_id
+  let provider_build_number = Builds.build_id $ Builds.build_record storable_build
+
   -- TODO consolidate with Scanning.scan_log
-  maybe_console_log <- SqlRead.read_log conn build_number
+  -- TODO SqlRead.read_log should accept a universal build number
+  maybe_console_log <- SqlRead.read_log conn provider_build_number
 
   return $ case maybe_console_log of
     Just console_log -> Right $ ScanTestResponse (length $ T.lines console_log) $
       Maybe.mapMaybe apply_pattern $ zip [0::Int ..] $ map T.stripEnd $ T.lines console_log
-    Nothing -> Left $ "No log found for build number " ++ show buildnum
+    Nothing -> Left $ "No log found for build number " ++ show provider_build_number
 
   where
     apply_pattern :: (Int, Text) -> Maybe ScanPatterns.ScanMatch
@@ -934,31 +995,32 @@ api_patterns_presumed_stable_branches = do
 
 
 data PatternOccurrence = NewPatternOccurrence {
-    _build_number :: Builds.BuildNumber
-  , _pattern_id   :: ScanPatterns.PatternId
-  , _match_id     :: MatchOccurrences.MatchId
-  , _vcs_revision :: Builds.RawCommit
-  , _queued_at    :: UTCTime
-  , _job_name     :: Text
-  , _branch       :: Text
-  , _build_step   :: Text
-  , _line_number  :: Int
-  , _line_count   :: Int
-  , _line_text    :: Text
-  , _span_start   :: Int
-  , _span_end     :: Int
+    _build_number       :: Builds.BuildNumber
+  , _pattern_id         :: ScanPatterns.PatternId
+  , _match_id           :: MatchOccurrences.MatchId
+  , _vcs_revision       :: Builds.RawCommit
+  , _queued_at          :: UTCTime
+  , _job_name           :: Text
+  , _branch             :: Text
+  , _build_step         :: Text
+  , _line_number        :: Int
+  , _line_count         :: Int
+  , _line_text          :: Text
+  , _span_start         :: Int
+  , _span_end           :: Int
+  , _universal_build_id :: Builds.UniversalBuildId
   } deriving Generic
 
 instance ToJSON PatternOccurrence where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
-get_build_pattern_matches :: Builds.BuildNumber -> DbIO [MatchOccurrences.MatchOccurrencesForBuild]
-get_build_pattern_matches (Builds.NewBuildNumber build_id) = do
+get_build_pattern_matches :: Builds.UniversalBuildId -> DbIO [MatchOccurrences.MatchOccurrencesForBuild]
+get_build_pattern_matches (Builds.UniversalBuildId build_id) = do
   conn <- ask
   liftIO $ query conn sql $ Only build_id
   where
-    sql = "SELECT step_name, pattern, matches_with_log_metadata.id, line_number, line_count, line_text, span_start, span_end, specificity FROM matches_with_log_metadata JOIN build_steps ON matches_with_log_metadata.build_step = build_steps.id JOIN patterns_augmented ON patterns_augmented.id = matches_with_log_metadata.pattern WHERE matches_with_log_metadata.build_num = ? ORDER BY specificity DESC, patterns_augmented.id ASC, line_number ASC;"
+    sql = "SELECT step_name, pattern, matches_with_log_metadata.id, line_number, line_count, line_text, span_start, span_end, specificity FROM matches_with_log_metadata JOIN build_steps ON matches_with_log_metadata.build_step = build_steps.id JOIN patterns_augmented ON patterns_augmented.id = matches_with_log_metadata.pattern WHERE build_steps.universal_build = ? ORDER BY specificity DESC, patterns_augmented.id ASC, line_number ASC;"
 
 
 data StorageStats = StorageStats {
@@ -977,13 +1039,25 @@ apiStorageStats = head <$> runQuery
   "SELECT SUM(line_count) AS total_lines, SUM(byte_count) AS total_bytes, COUNT(*) log_count FROM log_metadata"
 
 
-pattern_occurrence_txform pattern_id = txform . f
+pattern_occurrence_txform pattern_id = f
   where
-    -- TODO consolidate this transformation with "get_pattern_matches"
-    f (buildnum, stepname, match_id, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch) =
-      (Builds.NewBuild (Builds.NewBuildNumber buildnum) (Builds.RawCommit vcs_revision) queued_at job_name branch, stepname, line_count, MatchOccurrences.MatchId match_id, ScanPatterns.NewMatchDetails line_text line_number $ ScanPatterns.NewMatchSpan span_start span_end)
-
-    txform (Builds.NewBuild buildnum vcs_rev queued_at job_name branch, stepname, line_count, match_id, ScanPatterns.NewMatchDetails line_text line_number (ScanPatterns.NewMatchSpan start end)) = NewPatternOccurrence buildnum pattern_id match_id vcs_rev queued_at job_name branch stepname line_number line_count line_text start end
+    -- TODO consolidate this transformation with "getPatternMatches"
+    f (buildnum, stepname, match_id, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch, universal_build_id) =
+     NewPatternOccurrence
+      buildnum
+      pattern_id
+      match_id
+      (Builds.RawCommit vcs_revision)
+      queued_at
+      job_name
+      branch
+      stepname
+      line_number
+      line_count
+      line_text
+      span_start
+      span_end
+      universal_build_id
 
 
 get_best_pattern_matches :: ScanPatterns.PatternId -> DbIO [PatternOccurrence]
@@ -992,7 +1066,7 @@ get_best_pattern_matches pat@(ScanPatterns.PatternId pattern_id) = do
   liftIO $ map (pattern_occurrence_txform pat) <$> query conn sql (Only pattern_id)
 
   where
-    sql = "SELECT build, step_name, match_id, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch FROM best_pattern_match_augmented_builds WHERE pattern_id = ?;"
+    sql = "SELECT build, step_name, match_id, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch, universal_build FROM best_pattern_match_augmented_builds WHERE pattern_id = ?;"
 
 
 get_best_pattern_matches_whitelisted_branches :: ScanPatterns.PatternId -> DbIO [PatternOccurrence]
@@ -1000,7 +1074,7 @@ get_best_pattern_matches_whitelisted_branches pat@(ScanPatterns.PatternId patter
   conn <- ask
   liftIO $ map (pattern_occurrence_txform pat) <$> query conn sql (Only pattern_id)
   where
-    sql = "SELECT build, step_name, match_id, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch FROM best_pattern_match_augmented_builds WHERE pattern_id = ? AND branch IN (SELECT branch from presumed_stable_branches);"
+    sql = "SELECT build, step_name, match_id, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch, universal_build FROM best_pattern_match_augmented_builds WHERE pattern_id = ? AND branch IN (SELECT branch from presumed_stable_branches);"
 
 
 get_posted_github_status ::
@@ -1023,30 +1097,35 @@ get_posted_github_status conn_data (DbHelpers.OwnerAndRepo project repo) (Builds
 -- We use a list instead of a Maybe so that
 -- the javascript table renderer code can be reused
 -- for multi-item lists.
-get_best_build_match :: Builds.BuildNumber -> DbIO [PatternOccurrence]
-get_best_build_match (Builds.NewBuildNumber build_id) = do
+getBestBuildMatch :: Builds.UniversalBuildId -> DbIO [PatternOccurrence]
+getBestBuildMatch ubuild_id@(Builds.UniversalBuildId build_id) = do
 
   conn <- ask
   liftIO $ map f <$> query conn sql (Only build_id)
 
   where
-    f (pattern_id, build, step_name, match_id, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch) = pattern_occurrence_txform (ScanPatterns.PatternId pattern_id) (build, step_name, match_id, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch)
+    f (pattern_id, build, step_name, match_id, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch) = pattern_occurrence_txform (ScanPatterns.PatternId pattern_id) (build, step_name, match_id, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch, ubuild_id)
 
-    sql = "SELECT pattern_id, build, step_name, match_id, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch FROM best_pattern_match_augmented_builds WHERE build = ?;"
+    sql = "SELECT pattern_id, build, step_name, match_id, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch FROM best_pattern_match_augmented_builds WHERE universal_build = ?;"
 
 
 data LogContext = LogContext {
-    _match_info   :: ScanPatterns.MatchDetails
-  , _log_lines    :: [(Int, Text)]
-  , _build_number :: Builds.BuildNumber
+    _match_info         :: ScanPatterns.MatchDetails
+  , _log_lines          :: [(Int, Text)]
+  , _build_number       :: Builds.BuildNumber
+  , _universal_build_id :: Builds.UniversalBuildId
   } deriving Generic
 
 instance ToJSON LogContext where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
-log_context_func :: DbHelpers.DbConnectionData -> MatchOccurrences.MatchId -> Int -> IO (Either Text LogContext)
-log_context_func connection_data (MatchOccurrences.MatchId match_id) context_linecount = do
+logContextFunc ::
+     DbHelpers.DbConnectionData
+  -> MatchOccurrences.MatchId
+  -> Int
+  -> IO (Either Text LogContext)
+logContextFunc connection_data (MatchOccurrences.MatchId match_id) context_linecount = do
   conn <- DbHelpers.get_connection connection_data
 
   xs <- query conn sql $ Only match_id
@@ -1055,7 +1134,7 @@ log_context_func connection_data (MatchOccurrences.MatchId match_id) context_lin
   runExceptT $ do
     first_row <- except $ maybeToEither (T.pack $ "Match ID " ++ show match_id ++ " not found") maybe_first_row
 
-    let (build_num, line_number, span_start, span_end, line_text) = first_row
+    let (build_num, line_number, span_start, span_end, line_text, universal_build) = first_row
         match_info = ScanPatterns.NewMatchDetails line_text line_number $ ScanPatterns.NewMatchSpan span_start span_end
         wrapped_build_num = Builds.NewBuildNumber build_num
 
@@ -1068,30 +1147,48 @@ log_context_func connection_data (MatchOccurrences.MatchId match_id) context_lin
 
         tuples = zip [first_context_line..] $ take (2*context_linecount + 1) $ drop first_context_line log_lines
 
-    return $ LogContext match_info tuples wrapped_build_num
+    return $ LogContext
+      match_info
+      tuples
+      wrapped_build_num
+      (Builds.UniversalBuildId universal_build)
 
   where
-    sql = "SELECT build_num, line_number, span_start, span_end, line_text FROM matches_with_log_metadata WHERE id = ?"
+    sql = "SELECT build_num, line_number, span_start, span_end, line_text, universal_build FROM matches_with_log_metadata WHERE id = ?"
 
 
-get_pattern_matches :: ScanPatterns.PatternId -> DbIO [PatternOccurrence]
-get_pattern_matches pattern_id =
+getPatternMatches :: ScanPatterns.PatternId -> DbIO [PatternOccurrence]
+getPatternMatches pattern_id =
   map f <$> get_pattern_occurrence_rows pattern_id
   where
-    f (Builds.NewBuild buildnum vcs_rev queued_at job_name branch, stepname, line_count, match_id, ScanPatterns.NewMatchDetails line_text line_number (ScanPatterns.NewMatchSpan start end)) =
-      NewPatternOccurrence buildnum pattern_id match_id vcs_rev queued_at job_name branch stepname line_number line_count line_text start end
+    f (Builds.NewBuild buildnum vcs_rev queued_at job_name branch, stepname, line_count, match_id, ScanPatterns.NewMatchDetails line_text line_number (ScanPatterns.NewMatchSpan start end), global_build_id) =
+      NewPatternOccurrence
+        buildnum
+        pattern_id
+        match_id
+        vcs_rev
+        queued_at
+        job_name
+        branch
+        stepname
+        line_number
+        line_count
+        line_text
+        start
+        end
+        global_build_id
 
 
 get_pattern_occurrence_rows ::
      ScanPatterns.PatternId
-  -> DbIO [(Builds.Build, Text, Int, MatchOccurrences.MatchId, ScanPatterns.MatchDetails)]
+  -> DbIO [(Builds.Build, Text, Int, MatchOccurrences.MatchId, ScanPatterns.MatchDetails, Builds.UniversalBuildId)]
 get_pattern_occurrence_rows (ScanPatterns.PatternId pattern_id) = do
 
   conn <- ask
   liftIO $ fmap (map f) $ query conn sql $ Only pattern_id
 
   where
-    f (buildnum, stepname, match_id, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch) =
-      (Builds.NewBuild (Builds.NewBuildNumber buildnum) (Builds.RawCommit vcs_revision) queued_at job_name branch, stepname, line_count, MatchOccurrences.MatchId match_id, ScanPatterns.NewMatchDetails line_text line_number $ ScanPatterns.NewMatchSpan span_start span_end)
+    f (buildnum, stepname, match_id, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch, global_build_num) =
+      (Builds.NewBuild (Builds.NewBuildNumber buildnum) (Builds.RawCommit vcs_revision) queued_at job_name branch, stepname, line_count, MatchOccurrences.MatchId match_id, ScanPatterns.NewMatchDetails line_text line_number $ ScanPatterns.NewMatchSpan span_start span_end, Builds.UniversalBuildId global_build_num)
 
-    sql = "SELECT builds.build_num, step_name, matches_with_log_metadata.id, line_number, line_count, line_text, span_start, span_end, builds.vcs_revision, queued_at, job_name, branch FROM matches_with_log_metadata JOIN builds ON matches_with_log_metadata.build_num = builds.build_num WHERE pattern = ?;"
+    sql = "SELECT global_builds.build_number, step_name, matches_with_log_metadata.id, line_number, line_count, line_text, span_start, span_end, global_builds.vcs_revision, queued_at, job_name, branch, global_build_num FROM matches_with_log_metadata JOIN global_builds ON matches_with_log_metadata.universal_build = global_builds.global_build_num WHERE pattern = ?;"

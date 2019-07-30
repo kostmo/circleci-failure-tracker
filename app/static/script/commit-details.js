@@ -62,11 +62,23 @@ function gen_builds_table(element_id, data_url) {
 					return gen_line_number_cell_with_count(cell, cell.getRow().getData()["match"]["line_count"]);
 				},
 			},
-			{title: "Job", width: 300, field: "build.job_name"},
+			{title: "Job", width: 300, field: "build.build_record.job_name"},
 			{title: "Step", width: 250, field: "match.build_step"},
-			{title: "Build", field: "build.build_id", formatter: "link",
-				formatterParams: {urlPrefix: "/build-details.html?build_id="},
-				width: 75,
+			{title: "Build", field: "build.build_record.build_id",
+				formatter: function(cell, formatterParams, onRendered) {
+
+					var row_data = cell.getRow().getData();
+
+					var provider_build_number = row_data["build"]["build_record"]["build_id"];
+					var universal_build_number = row_data["build"]["universal_build"]["db_id"];
+
+					return render_build_link_cell(universal_build_number, row_data["provider"]["record"]["icon_url"], provider_build_number);
+				},
+				tooltip: function(cell) {
+					var row_data = cell.getRow().getData();
+					return row_data["provider"]["record"]["label"];
+				},
+				width: 90,
 			},
 			{title: "Match (" + render_tag("span", "click to show log context", {"style": "color: #0d0;"}) + ")",
 				field: "match.line_text",
@@ -86,17 +98,6 @@ function gen_builds_table(element_id, data_url) {
 					get_log_text(row_data["match"]["match_id"], STANDARD_LOG_CONTEXT_LINECOUNT);
 				},
 			},
-			{title: "Broken?", field: "breakage", width: 90,
-				formatter: function(cell, formatterParams, onRendered) {
-					var breakage_obj = cell.getValue();
-					if (breakage_obj != null) {
-						var img_name = breakage_obj["is_broken"] ? "broken-lightbulb.svg" : "bandaid.svg";
-						return "<img src='/images/" + img_name + "' class='brokenness-icon'/>";
-					} else {
-						return "";
-					}
-				},
-			},
 			{title: "Pattern", field: "match.pattern_id", formatter: "link",
 				formatterParams: {urlPrefix: "/pattern-details.html?pattern_id="},
 				width: 75,
@@ -110,8 +111,14 @@ function gen_builds_table(element_id, data_url) {
 }
 
 
-function gen_unmatched_build_list(api_endpoint, div_id) {
+function render_build_link_cell(universal_build_number, icon_url, provider_build_number) {
 
+	var url = "/build-details.html?build_id=" + universal_build_number;
+	return '<img src="' + icon_url + '?s=16" style="vertical-align: middle"/> ' + render_tag("span", link(provider_build_number, url), {"style": "vertical-align: middle"})
+}
+
+
+function gen_unmatched_build_list(api_endpoint, div_id) {
 
 	$.getJSON(api_endpoint, function (data) {
 
@@ -127,7 +134,23 @@ function gen_unmatched_build_list(api_endpoint, div_id) {
 			layout:"fitColumns",
 			placeholder:"No Data Set",
 			columns:[
-				{title:"Build number", field:"build", formatter: "link", width: 75, formatterParams: {urlPrefix: "/build-details.html?build_id="}},
+				{title:"Build number", field: "build",
+
+					formatter: function(cell, formatterParams, onRendered) {
+
+						var row_data = cell.getRow().getData();
+
+						var provider_build_number = cell.getValue();
+						var universal_build_number = row_data["universal_build_number"];
+
+						return render_build_link_cell(universal_build_number, row_data["provider_icon_url"], provider_build_number);
+					},
+					tooltip: function(cell) {
+						var row_data = cell.getRow().getData();
+						return row_data["provider_label"];
+					},
+					width: 90,
+				},
 				{title:"Step", field:"step_name", width: 200},
 				{title:"Job", field:"job_name", width: 200},
 				{title:"Time", field:"queued_at", width: 150,
@@ -137,14 +160,6 @@ function gen_unmatched_build_list(api_endpoint, div_id) {
 					},
 				},
 				{title:"Branch", field:"branch", width: 150},
-				{title:"Broken?", field:"is_broken", formatter:"tickCross", sorter:"boolean",
-					formatterParams: {
-						allowEmpty: true,
-						tickElement:"<img src='/images/broken-lightbulb.svg' class='brokenness-icon'/>",
-						crossElement: "<img src='/images/bandaid.svg' class='brokenness-icon'/>",
-					},
-					width: 90,
-				},
 			],
 			data: data,
 		});

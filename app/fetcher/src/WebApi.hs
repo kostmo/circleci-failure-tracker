@@ -27,7 +27,7 @@ instance (ToJSON a, ToJSON b) => ToJSON (JsonEither a b) where
 
 toJsonEither :: (JsonUtils.WithErrorDetails a, ToJSON a, ToJSON b) => Either a b -> JsonEither a b
 toJsonEither input = case input of
-  Right x -> JsonEither True Nothing (Just x)
+  Right x -> JsonEither True Nothing $ Just x
   Left x  -> JsonEither False (Just $ JsonUtils.getDetails x) Nothing
 
 
@@ -47,12 +47,14 @@ instance ToJSON BuildNumberRecord where
 
 
 data UnmatchedBuild = UnmatchedBuild {
-    _build     :: Builds.BuildNumber
-  , _step_name :: Text
-  , _queued_at :: UTCTime
-  , _job_name  :: Text
-  , _branch    :: Text
-  , _is_broken :: Maybe Bool
+    _build                  :: Builds.BuildNumber
+  , _step_name              :: Text
+  , _queued_at              :: UTCTime
+  , _job_name               :: Text
+  , _branch                 :: Text
+  , _universal_build_number :: Builds.UniversalBuildId
+  , _provider_icon_url      :: Text
+  , _provider_label         :: Text
   } deriving (Generic, FromRow)
 
 instance ToJSON UnmatchedBuild where
@@ -60,8 +62,9 @@ instance ToJSON UnmatchedBuild where
 
 
 data BuildBranchRecord = BuildBranchRecord {
-    _build_number :: Builds.BuildNumber
-  , _branch       :: Text
+    _build_number       :: Builds.BuildNumber
+  , _branch             :: Text
+  , _universal_build_id :: Builds.UniversalBuildId
   } deriving (Generic, FromRow)
 
 instance ToJSON BuildBranchRecord where

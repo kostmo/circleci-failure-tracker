@@ -77,20 +77,20 @@ scanBuilds scan_resources revisit whitelisted_builds_or_fetch_count = do
 
 
 -- TODO RESTORE THIS
-{-
 
+{-
 -- | Note that the Left/Right convention is backwards!
 rescanSingleBuild ::
      DbHelpers.DbConnectionData
   -> AuthStages.Username
-  -> Builds.BuildNumber
+  -> Builds.UniversalBuildId
   -> IO ()
 rescanSingleBuild db_connection_data initiator build_to_scan = do
   putStrLn $ "Rescanning build: " ++ show build_to_scan
   conn <- DbHelpers.get_connection db_connection_data
   scan_resources <- prepareScanResources conn $ Just initiator
 
-  either_visitation_result <- getFailedBuildInfo scan_resources build_to_scan
+  either_visitation_result <- getCircleCIFailedBuildInfo scan_resources build_to_scan
   case either_visitation_result of
     Right _ -> return ()
     Left (Builds.BuildWithStepFailure build_obj _step_failure) -> do
@@ -253,7 +253,7 @@ processUnvisitedBuilds scan_resources unvisited_builds_list =
       , show idx ++ "/" ++ show unvisited_count
       , "unvisited builds..."
       ]
-    visitation_result <- getFailedBuildInfo
+    visitation_result <- getCircleCIFailedBuildInfo
       scan_resources
       (Builds.provider_buildnum $ DbHelpers.record universal_build_obj)
 
@@ -281,11 +281,11 @@ processUnvisitedBuilds scan_resources unvisited_builds_list =
 -- here, the *expected* outcome is a Left, whereas a Right is the "bad" condition.
 -- Rationale: we're searching a known-failed build for failures, so not finding a failure is unexpected.
 -- We make use of Either's short-circuting to find the *first* failure.
-getFailedBuildInfo ::
+getCircleCIFailedBuildInfo ::
      ScanRecords.ScanCatchupResources
   -> Builds.BuildNumber
   -> IO (Either Builds.BuildWithStepFailure ScanRecords.UnidentifiedBuildFailure)
-getFailedBuildInfo scan_resources build_number = do
+getCircleCIFailedBuildInfo scan_resources build_number = do
 
   putStrLn $ "Fetching from: " ++ fetch_url
 
@@ -306,7 +306,7 @@ getFailedBuildInfo scan_resources build_number = do
       return ScanRecords.NoFailedSteps
 
     Left err_message -> do
-      let fail_string = "PROBLEM: Failed in getFailedBuildInfo with message: " ++ err_message
+      let fail_string = "PROBLEM: Failed in getCircleCIFailedBuildInfo with message: " ++ err_message
       return $ ScanRecords.NetworkProblem fail_string
 
   where
@@ -340,7 +340,7 @@ getAndStoreLog
       download_url <- ExceptT $ case maybe_failed_build_output of
         Just failed_build_output -> return $ Right $ Builds.log_url failed_build_output
         Nothing -> do
-          visitation_result <- getFailedBuildInfo scan_resources build_number
+          visitation_result <- getCircleCIFailedBuildInfo scan_resources build_number
 
           return $ case visitation_result of
             Right _ -> Left "This build didn't have a console log!"

@@ -1,5 +1,6 @@
 // global
 var breakage_starts_by_job_name = {};
+var grid_table = null;
 
 
 var PULL_REQUEST_URL_PREFIX = "https://github.com/pytorch/pytorch/pull/";
@@ -9,7 +10,7 @@ function gen_broken_jobs_table(element_id, data_url) {
 
 	var column_list = [
 		{title: "Job", field: "job", width: 350},
-		{title: "Build", field: "build", formatter: "link",
+		{title: "Build", field: "universal_build_id", formatter: "link",
 			formatterParams: {urlPrefix: "/build-details.html?build_id="},
 			width: 75,
 		},
@@ -66,13 +67,41 @@ function get_context_menu_items_for_cell(cell) {
 
 	var cell_value = get_cell_value_indirect(cell);
 	if (cell_value != null) {
-		var node = document.createElement("span");
-		var textnode = document.createTextNode("Mark failure start");
-		node.appendChild(textnode);
 
-		node.addEventListener("click", function () {mark_failure_cause(commit_sha1, job_name);});
 
-		context_menu_items.push(node);
+		var selected_commit_indices = [];
+
+		if (grid_table) {
+			var selectedData = grid_table.getSelectedData();
+
+			console.log("Grid selected row count: " + selectedData.length);
+
+			for (var datum of selectedData) {
+				selected_commit_indices.push(datum["commit_index"]);
+			}
+		}
+
+		if (selected_commit_indices.length > 1) {
+
+			var node = document.createElement("span");
+			var textnode = document.createTextNode("Mark failure span");
+			node.appendChild(textnode);
+
+			node.addEventListener("click", function () {mark_failure_span(commit_sha1, job_name, selected_commit_indices);});
+
+			context_menu_items.push(node);
+
+		} else {
+
+			var node = document.createElement("span");
+			var textnode = document.createTextNode("Mark failure start");
+			node.appendChild(textnode);
+
+			node.addEventListener("click", function () {mark_failure_cause(commit_sha1, job_name);});
+
+			context_menu_items.push(node);
+		}
+
 	}
 
 	var open_breakages = get_open_breakages(cell);
@@ -164,6 +193,19 @@ function mark_failure_resolution(commit_sha1, active_breakages) {
 }
 
 
+function mark_failure_span(commit_sha1, clicked_job_name, selected_commit_indices) {
+
+	console.log("Commit indices: " + selected_commit_indices);
+
+	var min_commit_index = Math.min(selected_commit_indices);
+	var max_commit_index = Math.max(selected_commit_indices);
+
+	console.log("Min: " + min_commit_index + "; Max: " + max_commit_index);
+
+	mark_failure_cause(commit_sha1, clicked_job_name);
+}
+
+
 function mark_failure_cause(commit_sha1, clicked_job_name) {
 
 	var tabulator = gen_broken_jobs_table("broken-jobs-table", "/api/list-commit-jobs?sha1=" + commit_sha1);
@@ -248,11 +290,15 @@ function define_column(col) {
 				var failure_mode_obj = cell_value["failure_mode"];
 				if (failure_mode_obj["tag"] == "FailedStep" && failure_mode_obj["step_failure"]["tag"] == "PatternMatch") {
 
-					return failure_mode_obj["step_failure"]["contents"]["line_text"];
+					return "<" + failure_mode_obj["step_name"] + ">\n" + failure_mode_obj["step_failure"]["contents"]["line_text"];
 
 				} else if (failure_mode_obj["tag"] == "FailedStep" && failure_mode_obj["step_failure"]["tag"] == "Timeout") {
 
 					return "Timeout on step \"" + failure_mode_obj["step_name"] + "\"";
+
+				} else if (failure_mode_obj["tag"] == "FailedStep" && failure_mode_obj["step_failure"]["tag"] == "NoMatch") {
+
+					return "<" + failure_mode_obj["step_name"] + ">";
 
 				} else {
 					return false;
@@ -290,7 +336,6 @@ function define_column(col) {
 				cell.getElement().style.cursor = "context-menu";
 			}
 
-
 			if (cell_value != null) {
 				var img_path = cell_value.is_flaky ? "yellow-triangle.svg"
 					: cell_value.failure_mode["tag"] == "FailedStep" && cell_value.failure_mode["step_failure"]["tag"] == "Timeout" ? "purple-circle.svg"
@@ -298,13 +343,13 @@ function define_column(col) {
 							: cell_value.failure_mode["tag"] == "NoLog" ? "gray-diamond.svg"
 								: cell_value.failure_mode["tag"] == "Success" ? "green-dot.svg" : "red-x.svg";
 
-				var build_id = cell_value["build"]["build_id"];
+				var build_id = cell_value["universal_build"]["db_id"];
 				return link('<img src="/images/build-status-indicators/' + img_path + '" style="width: 100%; top: 50%;"/>', "/build-details.html?build_id=" + build_id);
+
 			} else {
 				return "";
 			}
 		},
-
 		headerClick: function(e, column) {
 
 			var columnField = column.getField();
@@ -542,16 +587,15 @@ function gen_timeline_table(element_id, fetched_data) {
 		table_data.push(row_dict);
 	}
 
-
-	var table = new Tabulator("#" + element_id, {
+	// global
+	grid_table = new Tabulator("#" + element_id, {
 		layout: "fitColumns",
 		placeholder: "No Data Set",
-//		selectable: true,
+		selectable: true,
 		columns: column_list,
 		data: table_data,
 	});
 }
-
 
 
 /* When the user clicks on the button, 

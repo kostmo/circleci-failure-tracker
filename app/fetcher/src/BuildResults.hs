@@ -64,6 +64,8 @@ data SimpleBuildStatus = SimpleBuildStatus {
   , _is_flaky            :: Bool
   , _is_known_broken     :: Bool
   , _contiguous_breakage :: Maybe ContiguousBreakageMember
+  , _universal_build     :: DbHelpers.WithId Builds.UniversalBuild
+--  , _ci_provider         :: DbHelpers.WithId Builds.CiProvider
   } deriving Generic
 
 instance ToJSON SimpleBuildStatus where

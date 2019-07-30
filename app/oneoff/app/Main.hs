@@ -45,7 +45,7 @@ mainAppCode args = do
 
   scan_resources <- Scanning.prepareScanResources conn $ Just Constants.defaultPatternAuthor
 
-  my_scan_result <- Scanning.getFailedBuildInfo scan_resources $ Builds.NewBuildNumber 2102088
+  my_scan_result <- Scanning.getCircleCIFailedBuildInfo scan_resources $ Builds.NewBuildNumber 2102088
   putStrLn $ "My scan result: " ++ show my_scan_result
 
 
