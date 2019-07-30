@@ -235,7 +235,7 @@ instance ToJSON TestFailure where
 -- to identify the name of the failing test
 apiTestFailures :: ScanPatterns.PatternId -> DbIO (Either Text [TestFailure])
 apiTestFailures test_failure_pattern_id = do
-  patterns_singleton <- api_single_pattern test_failure_pattern_id
+  patterns_singleton <- apiSinglePattern test_failure_pattern_id
 
   case Safe.headMay patterns_singleton of
     Nothing -> return $ Left "Could not find Test Failure pattern"
@@ -334,44 +334,44 @@ apiDeterministicFailureModes = WebApi.ApiResponse <$> runQuery
 
 
 -- | Note that Highcharts expects the dates to be in ascending order
-api_failed_commits_by_day :: DbIO (WebApi.ApiResponse (Day, Int))
-api_failed_commits_by_day = WebApi.ApiResponse <$> runQuery
+apiFailedCommitsByDay :: DbIO (WebApi.ApiResponse (Day, Int))
+apiFailedCommitsByDay = WebApi.ApiResponse <$> runQuery
   "SELECT queued_at::date AS date, COUNT(*) FROM (SELECT vcs_revision, MAX(queued_at) queued_at FROM global_builds GROUP BY vcs_revision) foo GROUP BY date ORDER BY date ASC;"
 
 
 -- | Note that Highcharts expects the dates to be in ascending order
-api_status_posted_commits_by_day :: DbIO (WebApi.ApiResponse (Day, Int))
-api_status_posted_commits_by_day = WebApi.ApiResponse <$> runQuery
+apiStatusPostedCommitsByDay :: DbIO (WebApi.ApiResponse (Day, Int))
+apiStatusPostedCommitsByDay = WebApi.ApiResponse <$> runQuery
   "SELECT last_time::date AS date, COUNT(*) FROM aggregated_github_status_postings GROUP BY date ORDER BY date ASC;"
 
 
 -- | Note that Highcharts expects the dates to be in ascending order
-api_status_postings_by_day :: DbIO (WebApi.ApiResponse (Day, Int))
-api_status_postings_by_day = WebApi.ApiResponse <$> runQuery
+apiStatusPostingsByDay :: DbIO (WebApi.ApiResponse (Day, Int))
+apiStatusPostingsByDay = WebApi.ApiResponse <$> runQuery
   "SELECT created_at::date AS date, COUNT(*) FROM created_github_statuses GROUP BY date ORDER BY date ASC;"
 
 
-get_flaky_pattern_ids :: Connection -> IO (Set Int64)
-get_flaky_pattern_ids conn = do
+getFlakyPatternIds :: Connection -> IO (Set Int64)
+getFlakyPatternIds conn = do
   xs <- query_ conn sql
   return $ Set.fromList $ map (\(Only x) -> x) xs
   where
     sql = "SELECT id FROM flaky_patterns_augmented;"
 
 
-list_builds :: Query -> DbIO [WebApi.BuildBranchRecord]
-list_builds sql = do
+listBuilds :: Query -> DbIO [WebApi.BuildBranchRecord]
+listBuilds sql = do
   conn <- ask
   liftIO $ query_ conn sql
 
 
-api_unmatched_builds :: DbIO [WebApi.BuildBranchRecord]
-api_unmatched_builds = list_builds
+apiUnmatchedBuilds :: DbIO [WebApi.BuildBranchRecord]
+apiUnmatchedBuilds = listBuilds
   "SELECT build, branch, global_build FROM unattributed_failed_builds ORDER BY build DESC;"
 
 
 apiIdiopathicBuilds :: DbIO [WebApi.BuildBranchRecord]
-apiIdiopathicBuilds = list_builds
+apiIdiopathicBuilds = listBuilds
   "SELECT build, branch, global_build_num FROM idiopathic_build_failures ORDER BY build DESC;"
 
 
@@ -392,8 +392,8 @@ apiIdiopathicCommitBuilds sha1 = do
     sql = "SELECT build, step_name, queued_at, job_name, idiopathic_build_failures.branch, builds_with_reports.universal_build, ci_providers.icon_url, ci_providers.label FROM idiopathic_build_failures JOIN builds_with_reports ON idiopathic_build_failures.global_build_num = builds_with_reports.universal_build JOIN ci_providers ON builds_with_reports.provider = ci_providers.id WHERE vcs_revision = ?"
 
 
-api_timeout_commit_builds :: Text -> DbIO [WebApi.UnmatchedBuild]
-api_timeout_commit_builds sha1 = do
+apiTimeoutCommitBuilds :: Text -> DbIO [WebApi.UnmatchedBuild]
+apiTimeoutCommitBuilds sha1 = do
   conn <- ask
   liftIO $ query conn sql $ Only sha1
   where
@@ -401,8 +401,8 @@ api_timeout_commit_builds sha1 = do
 
 
 -- | Obtains the console log from database
-read_log :: Connection -> Builds.BuildNumber -> IO (Maybe Text)
-read_log conn (Builds.NewBuildNumber build_num) = do
+readLog :: Connection -> Builds.BuildNumber -> IO (Maybe Text)
+readLog conn (Builds.NewBuildNumber build_num) = do
   result <- query conn sql $ Only build_num
   return $ (\(Only log_text) -> log_text) <$> Safe.headMay result
   where
@@ -872,8 +872,8 @@ apiNewPatternTest conn_data universal_build_id new_pattern = do
   let provider_build_number = Builds.build_id $ Builds.build_record storable_build
 
   -- TODO consolidate with Scanning.scan_log
-  -- TODO SqlRead.read_log should accept a universal build number
-  maybe_console_log <- SqlRead.read_log conn provider_build_number
+  -- TODO SqlRead.readLog should accept a universal build number
+  maybe_console_log <- SqlRead.readLog conn provider_build_number
 
   return $ case maybe_console_log of
     Just console_log -> Right $ ScanTestResponse (length $ T.lines console_log) $
@@ -939,8 +939,8 @@ make_pattern_records =
 
 
 -- | Returns zero or one pattern.
-api_single_pattern :: ScanPatterns.PatternId -> DbIO [PatternRecord]
-api_single_pattern (ScanPatterns.PatternId pattern_id) = do
+apiSinglePattern :: ScanPatterns.PatternId -> DbIO [PatternRecord]
+apiSinglePattern (ScanPatterns.PatternId pattern_id) = do
   conn <- ask
   liftIO $ fmap make_pattern_records $ query conn sql $ Only pattern_id
   where
@@ -963,10 +963,12 @@ dumpPatterns :: DbIO [DbHelpers.WithAuthorship ScanPatterns.DbPattern]
 dumpPatterns = map f <$> runQuery
   "SELECT author, created, id, regex, expression, has_nondeterministic_values, description, tags, steps, specificity, is_retired, lines_from_end FROM patterns_augmented ORDER BY id;"
   where
+    split_texts = sort . map T.pack . DbHelpers.splitAggText
+
     f (author, created, pattern_id, is_regex, expression, has_nondeterministic_values, description, tags, steps, specificity, is_retired, lines_from_end) =
       DbHelpers.WithAuthorship author created $ wrapPattern pattern_id is_regex expression has_nondeterministic_values description
-        (sort $ map T.pack $ DbHelpers.splitAggText tags)
-        (sort $ map T.pack $ DbHelpers.splitAggText steps)
+        (split_texts tags)
+        (split_texts steps)
         specificity
         is_retired
         lines_from_end
@@ -974,6 +976,14 @@ dumpPatterns = map f <$> runQuery
 
 -- | Note that this SQL is from decomposing the "pattern_frequency_summary" and "aggregated_build_matches" view
 -- to parameterize the latter by branch.
+--
+-- TODO: Should just pair this with commits from the master branch
+-- instead of relying on the branch name (which is not available from
+-- GitHub notifications).
+--
+-- For more signal, "dummy" commits should be created with
+-- "git commit --allow-empty" and submitted to CI. These will have
+-- the same "tree" SHA1 as master commits, and can be JOINed on that.
 apiPatternsBranchFiltered :: [Text] -> DbIO [PatternRecord]
 apiPatternsBranchFiltered branches = do
   conn <- ask
@@ -1015,8 +1025,8 @@ instance ToJSON PatternOccurrence where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
-get_build_pattern_matches :: Builds.UniversalBuildId -> DbIO [MatchOccurrences.MatchOccurrencesForBuild]
-get_build_pattern_matches (Builds.UniversalBuildId build_id) = do
+getBuildPatternMatches :: Builds.UniversalBuildId -> DbIO [MatchOccurrences.MatchOccurrencesForBuild]
+getBuildPatternMatches (Builds.UniversalBuildId build_id) = do
   conn <- ask
   liftIO $ query conn sql $ Only build_id
   where
@@ -1132,20 +1142,20 @@ logContextFunc connection_data (MatchOccurrences.MatchId match_id) context_linec
   let maybe_first_row = Safe.headMay xs
 
   runExceptT $ do
-    first_row <- except $ maybeToEither (T.pack $ "Match ID " ++ show match_id ++ " not found") maybe_first_row
+    first_row <- except $ maybeToEither (T.pack $ unwords ["Match ID", show match_id, "not found"]) maybe_first_row
 
     let (build_num, line_number, span_start, span_end, line_text, universal_build) = first_row
         match_info = ScanPatterns.NewMatchDetails line_text line_number $ ScanPatterns.NewMatchSpan span_start span_end
         wrapped_build_num = Builds.NewBuildNumber build_num
 
-    maybe_log <- liftIO $ SqlRead.read_log conn wrapped_build_num
+    maybe_log <- liftIO $ SqlRead.readLog conn wrapped_build_num
     console_log <- except $ maybeToEither "log not in database" maybe_log
 
     let log_lines = T.lines console_log
 
         first_context_line = max 0 $ line_number - context_linecount
 
-        tuples = zip [first_context_line..] $ take (2*context_linecount + 1) $ drop first_context_line log_lines
+        tuples = zip [first_context_line..] $ take (2 * context_linecount + 1) $ drop first_context_line log_lines
 
     return $ LogContext
       match_info

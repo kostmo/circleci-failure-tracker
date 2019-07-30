@@ -391,11 +391,11 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     get "/api/latest-master-commit-with-metadata" $ WebApi.toJsonEither <$> SqlRead.get_latest_master_commit_with_metadata
 
-    get "/api/status-posted-commits-by-day" SqlRead.api_status_posted_commits_by_day
+    get "/api/status-posted-commits-by-day" SqlRead.apiStatusPostedCommitsByDay
 
-    get "/api/status-postings-by-day" SqlRead.api_status_postings_by_day
+    get "/api/status-postings-by-day" SqlRead.apiStatusPostingsByDay
 
-    get "/api/failed-commits-by-day" SqlRead.api_failed_commits_by_day
+    get "/api/failed-commits-by-day" SqlRead.apiFailedCommitsByDay
 
     get "/api/code-breakages-detected" SqlRead.apiDetectedCodeBreakages
 
@@ -431,7 +431,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     get "/api/tags" SqlRead.apiTagsHistogram
 
-    get "/api/unmatched-builds" SqlRead.api_unmatched_builds
+    get "/api/unmatched-builds" SqlRead.apiUnmatchedBuilds
 
     get "/api/idiopathic-failed-builds" SqlRead.apiIdiopathicBuilds
 
@@ -457,7 +457,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     get1 "/api/idiopathic-failed-builds-for-commit" "sha1" SqlRead.apiIdiopathicCommitBuilds
 
-    get1 "/api/timed-out-builds-for-commit" "sha1" SqlRead.api_timeout_commit_builds
+    get1 "/api/timed-out-builds-for-commit" "sha1" SqlRead.apiTimeoutCommitBuilds
 
     get1 "/api/pattern-step-occurrences" "pattern_id" $ SqlRead.patternBuildStepOccurrences . ScanPatterns.PatternId
 
@@ -465,13 +465,13 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     get1 "/api/list-commit-jobs" "sha1" $ SqlRead.apiCommitJobs . Builds.RawCommit
 
-    get1 "/api/build-pattern-matches" "build_id" $ SqlRead.get_build_pattern_matches . Builds.UniversalBuildId
+    get1 "/api/build-pattern-matches" "build_id" $ SqlRead.getBuildPatternMatches . Builds.UniversalBuildId
 
     get1 "/api/best-pattern-matches" "pattern_id" $ SqlRead.get_best_pattern_matches . ScanPatterns.PatternId
 
     get1 "/api/pattern-matches" "pattern_id" $ SqlRead.getPatternMatches . ScanPatterns.PatternId
 
-    get1 "/api/pattern" "pattern_id" $ SqlRead.api_single_pattern . ScanPatterns.PatternId
+    get1 "/api/pattern" "pattern_id" $ SqlRead.apiSinglePattern . ScanPatterns.PatternId
 
     get1 "/api/best-build-match" "build_id" $ SqlRead.getBestBuildMatch . Builds.UniversalBuildId
 
@@ -550,8 +550,8 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
             storable_build <- SqlRead.getGlobalBuild conn universal_build_id
 
-            -- TODO SqlRead.read_log should accept a universal build number
-            maybe_log <- SqlRead.read_log conn $ Builds.build_id $ Builds.build_record storable_build
+            -- TODO SqlRead.readLog should accept a universal build number
+            maybe_log <- SqlRead.readLog conn $ Builds.build_id $ Builds.build_record storable_build
             return $ maybeToEither "log not in database" maybe_log
 
       rq <- S.request

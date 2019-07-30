@@ -332,7 +332,7 @@ getAndStoreLog
 
   maybe_console_log <- if overwrite
     then return Nothing
-    else SqlRead.read_log conn build_number
+    else SqlRead.readLog conn build_number
 
   case maybe_console_log of
     Just console_log -> return $ Right $ T.lines console_log  -- Log was already fetched
@@ -416,7 +416,7 @@ scanLog scan_resources build_number@(Builds.NewBuildNumber buildnum) patterns = 
     , "patterns..."
     ]
 
-  maybe_console_log <- SqlRead.read_log conn build_number
+  maybe_console_log <- SqlRead.readLog conn build_number
   return $ case maybe_console_log of
     Just console_log -> Right $ scanLogText (T.lines console_log) patterns
     Nothing -> Left $ unwords [

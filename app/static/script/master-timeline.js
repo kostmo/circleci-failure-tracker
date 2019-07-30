@@ -431,7 +431,7 @@ function get_column_definitions(raw_column_list) {
 	var legend = render_table(legend_rows, {"style": "vertical-align: bottom;"}, "Legend", true);
 
 	var commit_column_definition = {
-		title: 'Commit<br/>' + legend,
+		title: 'Commit<br/><br/><br/><br/>' + legend,
 		field: "commit",
 		headerVertical: false,
 		formatter: function(cell, formatterParams, onRendered) {

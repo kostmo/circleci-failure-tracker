@@ -60,7 +60,7 @@ mainAppCode args = do
 
 
 
-  maybe_log <- SqlRead.read_log conn $ Builds.NewBuildNumber 2101460
+  maybe_log <- SqlRead.readLog conn $ Builds.NewBuildNumber 2101460
   putStrLn $ "Log output: " <> Maybe.fromMaybe "<no log>" (Scanning.filterAnsi . T.unpack <$> maybe_log)
 
 --  putStrLn $ "Log linecount: " <> show (maybe 0 (length . T.lines) maybe_log)

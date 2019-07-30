@@ -78,7 +78,7 @@ getBuildInfo access_token build@(Builds.UniversalBuildId build_id) = do
   conn <- ask
 
   -- TODO Replace this with SQL COUNT()
-  matches <- SqlRead.get_build_pattern_matches build
+  matches <- SqlRead.getBuildPatternMatches build
 
   liftIO $ do
     xs <- query conn sql $ Only build_id
@@ -124,7 +124,7 @@ countRevisionBuilds conn_data access_token git_revision = do
   [Only reported_count] <- query conn reported_broken_count_sql only_commit
 
   revision_builds <- SqlRead.getRevisionBuilds conn_data git_revision
-  flaky_pattern_ids <- SqlRead.get_flaky_pattern_ids conn
+  flaky_pattern_ids <- SqlRead.getFlakyPatternIds conn
 
   let is_flaky = (`Set.member` flaky_pattern_ids) . coerce . MatchOccurrences._pattern_id . CommitBuilds._match
       flaky_builds = filter is_flaky revision_builds
