@@ -435,9 +435,9 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     get "/api/idiopathic-failed-builds" SqlRead.apiIdiopathicBuilds
 
-    get "/api/patterns-presumed-stable-branches" SqlRead.api_patterns_presumed_stable_branches
+    get "/api/patterns-presumed-stable-branches" SqlRead.apiPatternsPresumedStableBranches
 
-    get1 "/api/patterns-presumed-stable-branches" "branches" SqlRead.api_patterns_branch_filtered
+    get1 "/api/patterns-branch-filtered" "branches" SqlRead.apiPatternsBranchFiltered
 
     get1 "/api/posted-statuses" "count" SqlRead.apiPostedStatuses
 

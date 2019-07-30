@@ -974,13 +974,13 @@ dumpPatterns = map f <$> runQuery
 
 -- | Note that this SQL is from decomposing the "pattern_frequency_summary" and "aggregated_build_matches" view
 -- to parameterize the latter by branch.
-api_patterns_branch_filtered :: [Text] -> DbIO [PatternRecord]
-api_patterns_branch_filtered branches = do
+apiPatternsBranchFiltered :: [Text] -> DbIO [PatternRecord]
+apiPatternsBranchFiltered branches = do
   conn <- ask
   liftIO $ fmap make_pattern_records $ query conn sql $ Only $ In branches
 
   where
-    sql = "SELECT patterns_augmented.id, patterns_augmented.regex, patterns_augmented.expression, patterns_augmented.description, COALESCE(aggregated_build_matches.matching_build_count, 0::int) AS matching_build_count, aggregated_build_matches.most_recent, aggregated_build_matches.earliest, patterns_augmented.tags, patterns_augmented.steps, patterns_augmented.specificity, CAST((patterns_augmented.scanned_count * 100 / patterns_augmented.total_scanned_builds) AS DECIMAL(6, 1)) AS percent_scanned FROM patterns_augmented LEFT JOIN (SELECT best_pattern_match_for_builds.pattern_id AS pat, count(best_pattern_match_for_builds.build) AS matching_build_count, max(builds.queued_at) AS most_recent, min(builds.queued_at) AS earliest FROM best_pattern_match_for_builds JOIN builds ON builds.build_num = best_pattern_match_for_builds.build WHERE builds.branch IN ? GROUP BY best_pattern_match_for_builds.pattern_id) aggregated_build_matches ON patterns_augmented.id = aggregated_build_matches.pat ORDER BY matching_build_count DESC;"
+    sql = "SELECT patterns_augmented.id, patterns_augmented.regex, patterns_augmented.expression, patterns_augmented.description, COALESCE(aggregated_build_matches.matching_build_count, 0::int) AS matching_build_count, aggregated_build_matches.most_recent, aggregated_build_matches.earliest, patterns_augmented.tags, patterns_augmented.steps, patterns_augmented.specificity, CAST((patterns_augmented.scanned_count * 100 / patterns_augmented.total_scanned_builds) AS DECIMAL(6, 1)) AS percent_scanned FROM patterns_augmented LEFT JOIN (SELECT best_pattern_match_for_builds.pattern_id AS pat, count(best_pattern_match_for_builds.build) AS matching_build_count, max(global_builds.queued_at) AS most_recent, min(global_builds.queued_at) AS earliest FROM best_pattern_match_for_builds JOIN global_builds ON global_builds.build_number = best_pattern_match_for_builds.build WHERE global_builds.branch IN ? GROUP BY best_pattern_match_for_builds.pattern_id ) aggregated_build_matches ON patterns_augmented.id = aggregated_build_matches.pat ORDER BY matching_build_count DESC"
 
 
 getPresumedStableBranches :: DbIO [Text]
@@ -988,10 +988,10 @@ getPresumedStableBranches = listFlat
   "SELECT branch FROM presumed_stable_branches;"
 
 
-api_patterns_presumed_stable_branches :: DbIO [PatternRecord]
-api_patterns_presumed_stable_branches = do
+apiPatternsPresumedStableBranches :: DbIO [PatternRecord]
+apiPatternsPresumedStableBranches = do
   branches <- getPresumedStableBranches
-  api_patterns_branch_filtered branches
+  apiPatternsBranchFiltered branches
 
 
 data PatternOccurrence = NewPatternOccurrence {
