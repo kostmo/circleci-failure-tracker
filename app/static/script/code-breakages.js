@@ -132,6 +132,7 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 					post_modification("/api/code-breakage-description-update", data_dict);
 				},
 			},
+
 			{title: "Affected jobs", columns: [
 				{title: "Count",
 					width: 75,
@@ -217,45 +218,45 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 
 function gen_failure_modes_chart(container_id) {
 
-   $.getJSON('/api/master-deterministic-failure-modes', function (data) {
+	$.getJSON('/api/master-deterministic-failure-modes', function (data) {
 
-      Highcharts.chart(container_id, {
-        chart: {
-            plotBackgroundColor: null,
-            plotBorderWidth: null,
-            plotShadow: false,
-            type: 'pie'
-        },
-        title: {
-            text: 'Failure modes'
-        },
-        tooltip: {
-            pointFormat: '{series.name}: <b>{point.percentage:.1f}%</b>'
-        },
-        plotOptions: {
-            pie: {
-                allowPointSelect: true,
-                cursor: 'pointer',
-                dataLabels: {
-                    enabled: true,
-                    format: '<b>{point.name}</b>: {point.percentage:.1f} %',
-                    style: {
-                        color: (Highcharts.theme && Highcharts.theme.contrastTextColor) || 'black'
-                    }
-                }
-            }
-        },
-        credits: {
-            enabled: false
-        },
-        series: [{
-            name: 'Failure modes',
-            colorByPoint: true,
-            data: data.rows,
-         }]
-      });
+		Highcharts.chart(container_id, {
+			chart: {
+				plotBackgroundColor: null,
+				plotBorderWidth: null,
+				plotShadow: false,
+				type: 'pie'
+			},
+			title: {
+				text: 'Failure modes'
+			},
+			tooltip: {
+				pointFormat: '{series.name}: <b>{point.percentage:.1f}%</b>'
+			},
+			plotOptions: {
+				pie: {
+					allowPointSelect: true,
+					cursor: 'pointer',
+					dataLabels: {
+						enabled: true,
+						format: '<b>{point.name}</b>: {point.percentage:.1f} %',
+						style: {
+							color: (Highcharts.theme && Highcharts.theme.contrastTextColor) || 'black'
+						}
+					}
+				}
+			},
+			credits: {
+				enabled: false
+			},
+			series: [{
+				name: 'Failure modes',
+				colorByPoint: true,
+				data: data.rows,
+			}],
+		});
 
-   });
+	});
 }
 
 

@@ -28,7 +28,7 @@ import qualified Safe
 
 import qualified ApiPost
 import qualified AuthStages
-import qualified Breakages2
+import qualified Breakages
 import qualified Builds
 import qualified Commits
 import qualified DbHelpers
@@ -459,12 +459,12 @@ insertScanId conn maybe_initiator (ScanPatterns.PatternId pattern_id)  = do
 
 api_code_breakage_cause_insert ::
      DbHelpers.DbConnectionData
-  -> Breakages2.BreakageReport
+  -> Breakages.BreakageReport
   -> [Text] -- ^ job names
   -> IO (Either Text Int64)
 api_code_breakage_cause_insert
     conn_data
-    (Breakages2.NewBreakageReport sha1 description (AuthStages.Username author_username))
+    (Breakages.NewBreakageReport sha1 description (AuthStages.Username author_username))
     job_names = do
 
   conn <- DbHelpers.get_connection conn_data
@@ -487,11 +487,11 @@ api_code_breakage_cause_insert
 
 api_code_breakage_resolution_insert ::
      DbHelpers.DbConnectionData
-  -> Breakages2.ResolutionReport
+  -> Breakages.ResolutionReport
   -> IO (Either Text Int64)
 api_code_breakage_resolution_insert
     conn_data
-    (Breakages2.NewResolutionReport sha1 cause_id (AuthStages.Username author_username)) = do
+    (Breakages.NewResolutionReport sha1 cause_id (AuthStages.Username author_username)) = do
 
   conn <- DbHelpers.get_connection conn_data
 

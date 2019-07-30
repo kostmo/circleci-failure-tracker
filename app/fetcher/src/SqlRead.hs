@@ -299,6 +299,7 @@ data JobBuild = JobBuild {
   , _known_broken       :: Bool
   , _universal_build_id :: Builds.UniversalBuildId
   , _provider_id        :: Int64
+  , _occurrence_count   :: Int
   } deriving (Generic, FromRow)
 
 instance ToJSON JobBuild where
@@ -313,7 +314,37 @@ apiCommitJobs (Builds.RawCommit sha1) = do
   conn <- ask
   liftIO $ query conn sql $ Only sha1
   where
-    sql = "SELECT job_name, build_num, is_flaky, is_known_broken, global_build, provider FROM build_failure_causes WHERE vcs_revision = ? ORDER BY job_name;"
+    sql = "SELECT job_name, build_num, is_flaky, is_known_broken, global_build, provider, 1 FROM build_failure_causes WHERE vcs_revision = ? ORDER BY job_name;"
+
+
+getNextMasterCommit ::
+     DbHelpers.DbConnectionData
+  -> Builds.RawCommit
+  -> IO (Either Text Builds.RawCommit)
+getNextMasterCommit conn_data (Builds.RawCommit current_git_revision) = do
+  conn <- DbHelpers.get_connection conn_data
+  rows <- query conn sql $ Only current_git_revision
+
+  let mapped_rows = map (\(Only x) -> Builds.RawCommit x) rows
+  return $ maybeToEither ("There are no commits that come after " <> current_git_revision) $ Safe.headMay mapped_rows
+  where
+    sql = "SELECT sha1 FROM ordered_master_commits WHERE id > (SELECT id FROM ordered_master_commits WHERE sha1 = ?) ORDER BY id ASC LIMIT 1"
+
+
+data InclusiveSpan = InclusiveSpan {
+    first_value :: Int
+  , last_value  :: Int
+  } deriving Generic
+
+
+apiCommitRangeJobs ::
+     InclusiveSpan
+  -> DbIO [JobBuild]
+apiCommitRangeJobs (InclusiveSpan first_index last_index) = do
+  conn <- ask
+  liftIO $ query conn sql (first_index, last_index)
+  where
+    sql = "SELECT DISTINCT ON (job_name) job_name, build_num, is_flaky, is_known_broken, global_build, provider, count(*) OVER (PARTITION BY job_name) AS job_occurrences FROM (SELECT sha1 FROM ordered_master_commits WHERE id >= ? AND id <= ?) foo JOIN build_failure_causes ON build_failure_causes.vcs_revision = foo.sha1"
 
 
 apiJobs :: DbIO (WebApi.ApiResponse WebApi.JobApiRecord)

@@ -34,7 +34,7 @@ import qualified Web.Scotty.Internal.Types       as ScottyTypes
 import qualified Auth
 import qualified AuthConfig
 import qualified AuthStages
-import qualified Breakages2
+import qualified Breakages
 import qualified Builds
 import qualified Constants
 import qualified DbHelpers
@@ -229,7 +229,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
               insertion_eithers <- mapM (SqlWrite.api_code_breakage_resolution_insert connection_data . gen_resolution_report) cause_id_list
               return $ sequenceA insertion_eithers
               where
-                gen_resolution_report cause_id = Breakages2.NewResolutionReport
+                gen_resolution_report cause_id = Breakages.NewResolutionReport
                   sha1
                   cause_id
                   user_alias
@@ -240,9 +240,15 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     S.post "/api/code-breakage-cause-report" $ do
 
-      sha1 <- S.param "sha1"
-      description <- S.param "description"
+      breakage_sha1 <- S.param "cause_sha1"
+      notes <- S.param "notes"
       jobs_delimited <- S.param "jobs"
+
+      is_ongoing <- S.param "is_ongoing"
+      last_affected_sha1 <- S.param "last_affected_sha1"
+
+      failure_mode_id <- S.param "failure_mode_id"
+
 
       let clean_list = filter (not . T.null) . map (T.strip . T.pack) . splitOn ";"
           jobs_list = clean_list jobs_delimited
@@ -250,11 +256,38 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       rq <- S.request
       insertion_result <- liftIO $ runExceptT $ do
 
-        let callback_func user_alias = SqlWrite.api_code_breakage_cause_insert connection_data breakage_report jobs_list
+        let callback_func user_alias = runExceptT $ do
+
+              cause_id <- ExceptT $ SqlWrite.api_code_breakage_cause_insert
+                connection_data
+                breakage_report
+                jobs_list
+
+              ExceptT $ SqlWrite.update_code_breakage_mode
+                connection_data
+                user_alias
+                cause_id
+                failure_mode_id
+
+              liftIO $ unless (checkboxIsTrue is_ongoing) $ do
+                runExceptT $ do
+
+                  (Builds.RawCommit resolution_sha1) <- ExceptT $ SqlRead.getNextMasterCommit connection_data $ Builds.RawCommit last_affected_sha1
+
+                  ExceptT $ SqlWrite.api_code_breakage_resolution_insert
+                    connection_data $ Breakages.NewResolutionReport
+                      resolution_sha1
+                      cause_id
+                      user_alias
+
+                return ()
+
+              return cause_id
+
               where
-                breakage_report = Breakages2.NewBreakageReport
-                  sha1
-                  description
+                breakage_report = Breakages.NewBreakageReport
+                  breakage_sha1
+                  notes
                   user_alias
 
         ExceptT $ Auth.getAuthenticatedUser rq session github_config callback_func
@@ -464,6 +497,18 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
     get1 "/api/pattern-job-occurrences" "pattern_id" $ SqlRead.patternBuildJobOccurrences . ScanPatterns.PatternId
 
     get1 "/api/list-commit-jobs" "sha1" $ SqlRead.apiCommitJobs . Builds.RawCommit
+
+    S.get "/api/list-master-commit-range-jobs" $ do
+
+      first_index <- S.param "first_index"
+      last_index <- S.param "last_index"
+
+      json_result <- liftIO $ do
+        conn <- DbHelpers.get_connection connection_data
+        runReaderT (SqlRead.apiCommitRangeJobs $ SqlRead.InclusiveSpan first_index last_index) conn
+
+      S.json json_result
+
 
     get1 "/api/build-pattern-matches" "build_id" $ SqlRead.getBuildPatternMatches . Builds.UniversalBuildId
 

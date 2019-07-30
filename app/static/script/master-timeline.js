@@ -3,13 +3,14 @@ var breakage_starts_by_job_name = {};
 var grid_table = null;
 
 
-var PULL_REQUEST_URL_PREFIX = "https://github.com/pytorch/pytorch/pull/";
+const PULL_REQUEST_URL_PREFIX = "https://github.com/pytorch/pytorch/pull/";
 
 
 function gen_broken_jobs_table(element_id, data_url) {
 
-	var column_list = [
+	const column_list = [
 		{title: "Job", field: "job", width: 350},
+		{title: "Recurrences", field: "occurrence_count", width: 75},
 		{title: "Build", field: "universal_build_id", formatter: "link",
 			formatterParams: {urlPrefix: "/build-details.html?build_id="},
 			width: 75,
@@ -18,7 +19,7 @@ function gen_broken_jobs_table(element_id, data_url) {
 		{title: "Broken", field: "known_broken", formatter:"tickCross", sorter:"boolean", width: 80},
 	];
 
-	var table = new Tabulator("#" + element_id, {
+	const table = new Tabulator("#" + element_id, {
 		height: 300,
 		layout: "fitColumns",
 		selectable: true,
@@ -27,9 +28,9 @@ function gen_broken_jobs_table(element_id, data_url) {
 		ajaxURL: data_url,
 		dataLoaded: function(data) {
 
-			var rows = this.getRows();
+			const rows = this.getRows();
 			rows.forEach(function(row) {
-				var row_data = row.getData();
+				const row_data = row.getData();
 				if (!(row_data["flaky"] || row_data["known_broken"])) {
 					row.toggleSelect();
 				}
@@ -60,41 +61,42 @@ function get_timeline_data(parms) {
 
 function get_context_menu_items_for_cell(cell) {
 
-	var job_name = cell.getColumn().getField();
-	var commit_sha1 = cell.getRow().getData()["commit"];
+	const job_name = cell.getColumn().getField();
+	const commit_sha1 = cell.getRow().getData()["commit"];
 
-	var context_menu_items = [];
+	const context_menu_items = [];
 
-	var cell_value = get_cell_value_indirect(cell);
+	const cell_value = get_cell_value_indirect(cell);
 	if (cell_value != null) {
 
-
-		var selected_commit_indices = [];
+		const selected_commit_indices = [];
+		const commit_sha1_by_index = {};
 
 		if (grid_table) {
-			var selectedData = grid_table.getSelectedData();
+			const selectedData = grid_table.getSelectedData();
 
 			console.log("Grid selected row count: " + selectedData.length);
 
 			for (var datum of selectedData) {
 				selected_commit_indices.push(datum["commit_index"]);
+				commit_sha1_by_index[datum["commit_index"]] = datum["commit"];
 			}
 		}
 
 		if (selected_commit_indices.length > 1) {
 
-			var node = document.createElement("span");
-			var textnode = document.createTextNode("Mark failure span");
+			const node = document.createElement("span");
+			const textnode = document.createTextNode("Mark failure span");
 			node.appendChild(textnode);
 
-			node.addEventListener("click", function () {mark_failure_span(commit_sha1, job_name, selected_commit_indices);});
+			node.addEventListener("click", function () {mark_failure_span(commit_sha1, job_name, selected_commit_indices, commit_sha1_by_index);});
 
 			context_menu_items.push(node);
 
 		} else {
 
-			var node = document.createElement("span");
-			var textnode = document.createTextNode("Mark failure start");
+			const node = document.createElement("span");
+			const textnode = document.createTextNode("Mark failure start");
 			node.appendChild(textnode);
 
 			node.addEventListener("click", function () {mark_failure_cause(commit_sha1, job_name);});
@@ -104,13 +106,13 @@ function get_context_menu_items_for_cell(cell) {
 
 	}
 
-	var open_breakages = get_open_breakages(cell);
+	const open_breakages = get_open_breakages(cell);
 	if (open_breakages.length > 0) {
 
 		{
-			var node = document.createElement("span");
+			const node = document.createElement("span");
 
-			var textnode = document.createTextNode("Mark failure end");
+			const textnode = document.createTextNode("Mark failure resolution");
 			node.appendChild(textnode);
 
 			node.addEventListener("click", function () {mark_failure_resolution(commit_sha1, open_breakages);});
@@ -119,15 +121,15 @@ function get_context_menu_items_for_cell(cell) {
 		}
 
 		{
-			var node = document.createElement("span");
+			const node = document.createElement("span");
 
-			var first_breakage_id = open_breakages[0]["start"]["db_id"];
+			const first_breakage_id = open_breakages[0]["start"]["db_id"];
 
-			var linknode = document.createElement("a");
+			const linknode = document.createElement("a");
 			linknode.setAttribute("href", "/breakage-details.html?cause=" + first_breakage_id);
 			linknode.setAttribute("target", "_blank");
 
-			var textnode = document.createTextNode("View cause details");
+			const textnode = document.createTextNode("View cause details");
 			linknode.appendChild(textnode);
 
 			node.appendChild(linknode);
@@ -142,17 +144,17 @@ function get_context_menu_items_for_cell(cell) {
 
 function get_open_breakages(cell) {
 
-	var open_breakages = [];
+	const open_breakages = [];
 
-	var job_name = cell.getColumn().getField();
+	const job_name = cell.getColumn().getField();
 
 	if (job_name in breakage_starts_by_job_name) {
-		var current_commit_index = cell.getRow().getData()["commit_index"];
+		const current_commit_index = cell.getRow().getData()["commit_index"];
 
 		for (var job_breakage_span of breakage_starts_by_job_name[job_name]) {
 
-			var is_after_breakage_start = current_commit_index >= job_breakage_span.start.record.payload.breakage_commit.db_id;
-			var is_before_breakage_end = !("end" in job_breakage_span)
+			const is_after_breakage_start = current_commit_index >= job_breakage_span.start.record.payload.breakage_commit.db_id;
+			const is_before_breakage_end = !("end" in job_breakage_span)
 			                             || job_breakage_span.end == null
 			                             || current_commit_index < job_breakage_span.end.record.payload.resolution_commit.db_id;
 
@@ -166,25 +168,29 @@ function get_open_breakages(cell) {
 }
 
 
+function update_subform_visibility(is_ongoing_checked) {
+	$('#span-end-form-section').css('visibility', is_ongoing_checked ? 'hidden' : 'visible');
+}
+
+
 function mark_failure_resolution(commit_sha1, active_breakages) {
 
 	console.log("Submitting resolution report. Active breakage count: " + active_breakages.length);
 
-	var cause_ids = [];
-	for (var breakage_obj of active_breakages) {
-		cause_ids.push(breakage_obj.start.db_id);
-	}
-
-	var causes_delimited = cause_ids.join(";")
+	const cause_ids = active_breakages.map(breakage_obj => breakage_obj.start.db_id);
+	const causes_delimited = cause_ids.join(";")
 
         $.post({
 		url: "/api/code-breakage-resolution-report",
-		data: {"sha1": commit_sha1, "causes": causes_delimited},
+		data: {
+			"sha1": commit_sha1,
+			"causes": causes_delimited,
+		},
 		success: function( data ) {
 
 			if (data.success) {
 				alert("submitted report with ID: " + data.payload);
-				render_timeline_table();
+				url_from_form();
 			} else {
 				alert("Error: " + data.error.message);
 			}
@@ -193,57 +199,104 @@ function mark_failure_resolution(commit_sha1, active_breakages) {
 }
 
 
-function mark_failure_span(commit_sha1, clicked_job_name, selected_commit_indices) {
+function mark_failure_span(commit_sha1, clicked_job_name, selected_commit_indices, commit_sha1_by_index) {
 
 	console.log("Commit indices: " + selected_commit_indices);
 
-	var min_commit_index = Math.min(selected_commit_indices);
-	var max_commit_index = Math.max(selected_commit_indices);
+	const min_commit_index = Math.min(...selected_commit_indices);
+	const max_commit_index = Math.max(...selected_commit_indices);
 
 	console.log("Min: " + min_commit_index + "; Max: " + max_commit_index);
 
-	mark_failure_cause(commit_sha1, clicked_job_name);
+	const parms_string = $.param({
+		"first_index": min_commit_index,
+		"last_index": max_commit_index,
+	});
+
+
+	$('#is-ongoing-checkbox').prop('checked', false);
+
+
+
+	$("#breakage-span-start-commit").val( commit_sha1_by_index[min_commit_index] );
+	$("#breakage-span-last-commit").val( commit_sha1_by_index[max_commit_index] );
+
+
+	return mark_failure_cause_common(clicked_job_name, "/api/list-master-commit-range-jobs?" + parms_string);
 }
 
 
 function mark_failure_cause(commit_sha1, clicked_job_name) {
 
-	var tabulator = gen_broken_jobs_table("broken-jobs-table", "/api/list-commit-jobs?sha1=" + commit_sha1);
+	$("#breakage-span-start-commit").val(commit_sha1);
+
+	return mark_failure_cause_common(clicked_job_name, "/api/list-commit-jobs?sha1=" + commit_sha1);
+}
+
+
+function mark_failure_cause_common(clicked_job_name, api_url) {
+
+	const is_ongoing_checked = $('#is-ongoing-checkbox').is(":checked");
+	update_subform_visibility(is_ongoing_checked);
+
+	const tabulator = gen_broken_jobs_table("broken-jobs-table", api_url);
 
 	$('#dialog-cancel-button').click(function(e) {
 		document.getElementById("affected-jobs-dialog").close();
 	});
 
 	$('#dialog-select-all-button').click(function(e) {
-		var rows = tabulator.getRows();
+		const rows = tabulator.getRows();
 		rows.forEach(function(row) {
 			row.toggleSelect();
 		});
 	});
 
+
+	$("#mini-throbber-failure-modes").show();
+	$.getJSON('/api/list-failure-modes', function (mydata) {
+		$("#mini-throbber-failure-modes").hide();
+
+		$('#breakage-mode-selector').empty();
+
+		for (var item of mydata) {
+			$('#breakage-mode-selector').append(render_tag("option", item["record"]["label"], {"value": item["db_id"]}));
+		}
+	});
+
+
 	$('#dialog-submit-button').click(function(e) {
 
-		var selectedData = tabulator.getSelectedData();
+		const selectedData = tabulator.getSelectedData();
 
 		console.log("Selected count: " + selectedData.length);
-		var selected_job_names = [];
-		for (var datum of selectedData) {
-			selected_job_names.push(datum["job"]);
-		}
+		const selected_job_names = selectedData.map(datum => datum["job"]);
 
 		if (selected_job_names.length) {
-			var jobs_list_delimited = selected_job_names.join(";");
+			const jobs_list_delimited = selected_job_names.join(";");
 
-			var description = $("#dialog-description-textarea").val();
+			const notes = $("#dialog-description-textarea").val();
+			const is_ongoing = $('#is-ongoing-checkbox').is(":checked");
+			const breakage_mode_id = $("#breakage-mode-selector").val();
+
+			const cause_sha1 = $("#breakage-span-start-commit").val();
+			const last_affected_sha1 = $("#breakage-span-last-commit").val();
 
 			$.post({
 				url: "/api/code-breakage-cause-report",
-				data: {"sha1": commit_sha1, "description": description, "jobs": jobs_list_delimited},
+				data: {
+					"cause_sha1": cause_sha1,
+					"notes": notes,
+					"jobs": jobs_list_delimited,
+					"failure_mode_id": breakage_mode_id,
+					"is_ongoing": is_ongoing,
+					"last_affected_sha1": last_affected_sha1,
+				},
 				success: function( data ) {
 
 					if (data.success) {
 						alert("submitted report with ID: " + data.payload);
-						render_timeline_table();
+						url_from_form();
 					} else {
 						alert("Error: " + data.error.message);
 					}
@@ -266,15 +319,13 @@ function get_cell_value_indirect(cell) {
 	// indicates a nested JSON object (see http://tabulator.info/docs/4.0/columns#field-nesting)
 	// There's not an obvious way to turn off this interpretation, so we access the data
 	// in a different, more indirect way:
-//	var cell_value = cell.getValue();
 
-	var cell_value = cell.getRow().getData()[cell.getColumn().getField()];
-	return cell_value;
+	return cell.getRow().getData()[cell.getColumn().getField()];
 }
 
 
 function define_column(col) {
-	var col_dict = {
+	const col_dict = {
 		title: col,
 		field: col,
 		headerVertical: "flip",
@@ -285,20 +336,23 @@ function define_column(col) {
 		cssClass: "smallish",
 		tooltip: function(cell) {
 
-			var cell_value = get_cell_value_indirect(cell);
+			const job_name = cell.getColumn().getField();
+			const bracketed_job_name = "[" + job_name + "]\n";
+
+			const cell_value = get_cell_value_indirect(cell);
 			if (cell_value != null) {
-				var failure_mode_obj = cell_value["failure_mode"];
+				const failure_mode_obj = cell_value["failure_mode"];
 				if (failure_mode_obj["tag"] == "FailedStep" && failure_mode_obj["step_failure"]["tag"] == "PatternMatch") {
 
-					return "<" + failure_mode_obj["step_name"] + ">\n" + failure_mode_obj["step_failure"]["contents"]["line_text"];
+					return bracketed_job_name + "<" + failure_mode_obj["step_name"] + ">\n" + failure_mode_obj["step_failure"]["contents"]["line_text"];
 
 				} else if (failure_mode_obj["tag"] == "FailedStep" && failure_mode_obj["step_failure"]["tag"] == "Timeout") {
 
-					return "Timeout on step \"" + failure_mode_obj["step_name"] + "\"";
+					return bracketed_job_name + "Timeout on step \"" + failure_mode_obj["step_name"] + "\"";
 
 				} else if (failure_mode_obj["tag"] == "FailedStep" && failure_mode_obj["step_failure"]["tag"] == "NoMatch") {
 
-					return "<" + failure_mode_obj["step_name"] + ">";
+					return bracketed_job_name + "<" + failure_mode_obj["step_name"] + ">";
 
 				} else {
 					return false;
@@ -309,9 +363,9 @@ function define_column(col) {
 		},
 		formatter: function(cell, formatterParams, onRendered) {
 
-			var cell_value = get_cell_value_indirect(cell);
+			const cell_value = get_cell_value_indirect(cell);
 
-			var open_breakages = get_open_breakages(cell);
+			const open_breakages = get_open_breakages(cell);
 			const has_open_breakage = open_breakages.length > 0;
 
 			const detected_contiguous_breakage = cell_value && cell_value.contiguous_breakage != null;
@@ -326,24 +380,24 @@ function define_column(col) {
 				cell.getElement().style.backgroundSize = "33.3%";
 
 				// vertical stripes
-				var stripes_color_hex = "00f";
-				var stripes_opacity_fraction = 0.8; // between 0 and 1
+				const stripes_color_hex = "00f";
+				const stripes_opacity_fraction = 0.8; // between 0 and 1
 				cell.getElement().style.backgroundImage = "url(\"data:image/svg+xml,%3Csvg width='40' height='1' viewBox='0 0 40 1' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0h20v1H0z' fill='%23" + stripes_color_hex + "' fill-opacity='" + stripes_opacity_fraction + "' fill-rule='evenodd'/%3E%3C/svg%3E\")";
 			}
 
-			var context_menu_items = get_context_menu_items_for_cell(cell);
+			const context_menu_items = get_context_menu_items_for_cell(cell);
 			if (context_menu_items.length > 0) {
 				cell.getElement().style.cursor = "context-menu";
 			}
 
 			if (cell_value != null) {
-				var img_path = cell_value.is_flaky ? "yellow-triangle.svg"
+				const img_path = cell_value.is_flaky ? "yellow-triangle.svg"
 					: cell_value.failure_mode["tag"] == "FailedStep" && cell_value.failure_mode["step_failure"]["tag"] == "Timeout" ? "purple-circle.svg"
 						: cell_value.failure_mode["tag"] == "FailedStep" && cell_value.failure_mode["step_failure"]["tag"] == "NoMatch" ? "blue-square.svg"
 							: cell_value.failure_mode["tag"] == "NoLog" ? "gray-diamond.svg"
 								: cell_value.failure_mode["tag"] == "Success" ? "green-dot.svg" : "red-x.svg";
 
-				var build_id = cell_value["universal_build"]["db_id"];
+				const build_id = cell_value["universal_build"]["db_id"];
 				return link('<img src="/images/build-status-indicators/' + img_path + '" style="width: 100%; top: 50%;"/>', "/build-details.html?build_id=" + build_id);
 
 			} else {
@@ -352,7 +406,7 @@ function define_column(col) {
 		},
 		headerClick: function(e, column) {
 
-			var columnField = column.getField();
+			const columnField = column.getField();
 
 			console.log("Column name: " + columnField);
 
@@ -371,13 +425,13 @@ function define_column(col) {
 		},
 		cellContext: function(e, cell) {
 
-			var dropdown_element = document.getElementById("myDropdown");
+			const dropdown_element = document.getElementById("myDropdown");
 
 			while (dropdown_element.firstChild) {
 				dropdown_element.removeChild(dropdown_element.firstChild);
 			}
 
-			var context_menu_items = get_context_menu_items_for_cell(cell);
+			const context_menu_items = get_context_menu_items_for_cell(cell);
 			if (context_menu_items.length > 0) {
 
 				dropdown_element.style.left = event.pageX;
@@ -400,8 +454,8 @@ function define_column(col) {
 
 function next_page() {
 
-	var count = parseInt($('#count-input').val());
-	var old_offset = parseInt($('#offset-input').val());
+	const count = parseInt($('#count-input').val());
+	const old_offset = parseInt($('#offset-input').val());
 
 	$('#offset-input').val(old_offset + count);
 
@@ -415,7 +469,7 @@ function get_column_definitions(raw_column_list) {
 		["Symbol", "Meaning"],
 	];
 
-	var symbol_pairs = [
+	const symbol_pairs = [
 		['yellow-triangle.svg', "flaky"],
 		['red-x.svg',           "other match"],
 		['blue-square.svg',     "no pattern match"],
@@ -425,39 +479,39 @@ function get_column_definitions(raw_column_list) {
 	];
 
 	for (var x of symbol_pairs) {
-		legend_rows.push(['<img src="/images/build-status-indicators/' + x[0] + '" style="width: 20px"/>', x[1]]);
+		legend_rows.push([render_tag("div", '<img src="/images/build-status-indicators/' + x[0] + '" style="width: 20px;"/>', {"style": "text-align: right; margin-right: 0.5em;"}), x[1]]);
 	}
 
-	var legend = render_table(legend_rows, {"style": "vertical-align: bottom;"}, "Legend", true);
+	const legend = render_table(legend_rows, {"style": "vertical-align: bottom;"}, "Legend", true);
 
-	var commit_column_definition = {
+	const commit_column_definition = {
 		title: 'Commit<br/><br/><br/><br/>' + legend,
 		field: "commit",
 		headerVertical: false,
 		formatter: function(cell, formatterParams, onRendered) {
 
 
-			var commit_metadata = cell.getRow().getData()["commit_metadata"];
+			const commit_metadata = cell.getRow().getData()["commit_metadata"];
 
 			var message_suffix = "";
 			if (commit_metadata) {
 
-				var commit_date = new Date(commit_metadata["committer_date"]);
-				var day_index = commit_date.getDay();
-				var day_ratio = day_index/7.0;
-				var color = tinycolor.fromRatio({ h: day_ratio, s: 0.8, l: 0.8 });
-				var hex_string = color.toHexString();
+				const commit_date = new Date(commit_metadata["committer_date"]);
+				const day_index = commit_date.getDay();
+				const day_ratio = day_index/7.0;
+				const color = tinycolor.fromRatio({ h: day_ratio, s: 0.8, l: 0.8 });
+				const hex_string = color.toHexString();
 
 				cell.getElement().style.borderLeft = "4px solid " + hex_string;
 
 				var pr_link = "";
-				var matches_array = /https:\/\/github\.com\/pytorch\/pytorch\/pull\/(\d+)/.exec(commit_metadata["message"]);
+				const matches_array = /https:\/\/github\.com\/pytorch\/pytorch\/pull\/(\d+)/.exec(commit_metadata["message"]);
 				if (matches_array !== null) {
-					var pr_number = matches_array[1];
+					const pr_number = matches_array[1];
 					pr_link = render_tag("sup", render_tag("small", link("#" + pr_number, PULL_REQUEST_URL_PREFIX + pr_number)));
 				}
 
-				var message_subject = get_commit_subject(commit_metadata["message"]);
+				const message_subject = get_commit_subject(commit_metadata["message"]);
 				message_suffix = pr_link + ": " + message_subject;
 			}
 
@@ -465,7 +519,7 @@ function get_column_definitions(raw_column_list) {
 		},
 		tooltip: function(cell) {
 
-			var commit_metadata = cell.getRow().getData()["commit_metadata"];
+			const commit_metadata = cell.getRow().getData()["commit_metadata"];
 			if (commit_metadata) {
 				return commit_metadata["message"];
 			} else {
@@ -482,14 +536,14 @@ function get_column_definitions(raw_column_list) {
 
 	raw_column_list.sort();
 
-	var column_list = [commit_column_definition].concat(generate_column_tree_base(raw_column_list));
+	const column_list = [commit_column_definition].concat(generate_column_tree_base(raw_column_list));
 	return column_list;
 }
 
 
 function generate_column_tree_base(column_names) {
 
-	var collator = new Intl.Collator(undefined, {numeric: true, sensitivity: 'base'});
+	const collator = new Intl.Collator(undefined, {numeric: true, sensitivity: 'base'});
 	column_names.sort(collator.compare);
 	return generate_column_tree_recursive(column_names.map(x => [x, x]), 0);
 }
@@ -497,26 +551,26 @@ function generate_column_tree_base(column_names) {
 
 function generate_column_tree_recursive(column_name_suffix_pairs, depth) {
 
-	var colname_pair_by_prefix = {};
+	const colname_pair_by_prefix = {};
 	for (var pair of column_name_suffix_pairs) {
 
-		var col = pair[0];
-		var suffix = pair[1];
+		const col = pair[0];
+		const suffix = pair[1];
 
-		var chunks = suffix.split("_");
-		var prefix = chunks.shift();
+		const chunks = suffix.split("_");
+		const prefix = chunks.shift();
 
-		var members = setDefault(colname_pair_by_prefix, prefix, []);
+		const members = setDefault(colname_pair_by_prefix, prefix, []);
 		members.push([col, chunks.join("_")]);
 	}
 
-	var column_list = [];
+	const column_list = [];
 
 	for (var col_prefix in colname_pair_by_prefix) {
 
-		var grouped_col_pairs = colname_pair_by_prefix[col_prefix];
+		const grouped_col_pairs = colname_pair_by_prefix[col_prefix];
 
-		// < 3 leaves enough space to fit all header names horizontally
+		// empirically, < 3 leaves enough space to fit all header names horizontally
 		if (grouped_col_pairs.length < 3) {
 
 			for (var col_pair of grouped_col_pairs) {
@@ -524,7 +578,7 @@ function generate_column_tree_recursive(column_name_suffix_pairs, depth) {
 			}
 
 		} else {
-			var subcolumn_definitions = generate_column_tree_recursive(grouped_col_pairs, depth + 1);
+			const subcolumn_definitions = generate_column_tree_recursive(grouped_col_pairs, depth + 1);
 
 			// Collapse redundant headers
 			var column_group_definition;
@@ -551,7 +605,7 @@ function generate_column_tree_recursive(column_name_suffix_pairs, depth) {
 
 function gen_timeline_table(element_id, fetched_data) {
 
-	var column_list = get_column_definitions(fetched_data.columns);
+	const column_list = get_column_definitions(fetched_data.columns);
 
 
 	// global
@@ -563,18 +617,18 @@ function gen_timeline_table(element_id, fetched_data) {
 	}
 
 
-	var build_failures_by_commit = {};
+	const build_failures_by_commit = {};
 	for (var failure_obj of fetched_data.failures) {
-		var failures_by_job_name = setDefault(build_failures_by_commit, failure_obj.build.vcs_revision, {});
+		const failures_by_job_name = setDefault(build_failures_by_commit, failure_obj.build.vcs_revision, {});
 		failures_by_job_name[failure_obj.build.job_name] = failure_obj;
 	}
 
-	var table_data = [];
+	const table_data = [];
 	for (var commit_obj of fetched_data.commits) {
-		var row_dict = {};
+		const row_dict = {};
 
-		var sha1 = commit_obj.record.commit;
-		var failures_by_job_name = build_failures_by_commit[sha1] || {};
+		const sha1 = commit_obj.record.commit;
+		const failures_by_job_name = build_failures_by_commit[sha1] || {};
 
 		row_dict["commit_index"] = commit_obj.db_id;
 		row_dict["commit"] = sha1;
@@ -611,28 +665,27 @@ function showContextMenu() {
 
 function get_form_values() {
 
-	var offset = $('#offset-input').val();
-	var count = $('#count-input').val();
+	const offset = $('#offset-input').val();
+	const count = $('#count-input').val();
+
+	const sha1 = $('#sha1-input').val() || "nothing";
+	const min_commit_index = $('#commit-index-min').val() || 0;
+	const max_commit_index = $('#commit-index-max').val() || 0;
+
+
+	const pagination_mode = document.querySelector('input[name="pagination-mode"]:checked').value;
 
 	var use_sha1_offset = false;
-	var use_commit_index_bounds = false;
-
-	var sha1 = $('#sha1-input').val() || "nothing";
-	var min_commit_index = $('#commit-index-min').val() || 0;
-	var max_commit_index = $('#commit-index-max').val() || 0;
-
-
-	var pagination_mode = document.querySelector('input[name="pagination-mode"]:checked').value;
-
 	if (pagination_mode == "start-by-sha1") {
 		use_sha1_offset = true;
 	}
 
+	var use_commit_index_bounds = false;
 	if (pagination_mode == "start-by-commit-index") {
 		use_commit_index_bounds = true;
 	}
 
-	var parms = {
+	const parms = {
 		"offset": offset,
 		"sha1": sha1,
 		"count": count,
@@ -657,7 +710,7 @@ function url_from_form() {
 
 	var url_parms;
 
-	var pagination_mode = document.querySelector('input[name="pagination-mode"]:checked').value;
+	const pagination_mode = document.querySelector('input[name="pagination-mode"]:checked').value;
 
 	if (pagination_mode == "start-by-sha1") {
 
@@ -687,36 +740,36 @@ function url_from_form() {
 
 function populate_form_from_url() {
 
-	var urlParams = new URLSearchParams(window.location.search);
+	const urlParams = new URLSearchParams(window.location.search);
 
-	var offset = urlParams.get('offset');
+	const offset = urlParams.get('offset');
 	if (offset != null) {
 		$('#offset-input').val(offset);
 	}
 
-	var count = urlParams.get('count');
+	const count = urlParams.get('count');
 	if (count != null) {
 		$('#count-input').val(count);
 	}
 
 
-	var commit_index_min = urlParams.get('min_commit_index');
+	const commit_index_min = urlParams.get('min_commit_index');
 	if (commit_index_min != null) {
 		$('#commit-index-min').val(commit_index_min);
 	}
 
-	var commit_index_max = urlParams.get('max_commit_index');
+	const commit_index_max = urlParams.get('max_commit_index');
 	if (commit_index_max != null) {
 		$('#commit-index-max').val(commit_index_max);
 	}
 
-	var starting_sha1 = urlParams.get('sha1');
+	const starting_sha1 = urlParams.get('sha1');
 	if (starting_sha1 != null) {
 		$('#sha1-input').val(starting_sha1);
 	}
 
 
-	var radios = $('input:radio[name=pagination-mode]');
+	const radios = $('input:radio[name=pagination-mode]');
 
 	if (commit_index_min != null && commit_index_max != null) {
 		radios.filter('[value=start-by-commit-index]').prop('checked', true);
@@ -730,15 +783,20 @@ function populate_form_from_url() {
 
 function main() {
 
+	$('#is-ongoing-checkbox').change(function() {
+		update_subform_visibility(this.checked);
+	});
+
+
 	populate_form_from_url();
 
 
 	// Close the dropdown menu if the user clicks outside of it
 	window.onclick = function(event) {
 		if (!event.target.matches('.dropbtn')) {
-			var dropdowns = document.getElementsByClassName("dropdown-content");
+			const dropdowns = document.getElementsByClassName("dropdown-content");
 			for (var i = 0; i < dropdowns.length; i++) {
-				var openDropdown = dropdowns[i];
+				const openDropdown = dropdowns[i];
 				if (openDropdown.classList.contains('show')) {
 					openDropdown.classList.remove('show');
 				}

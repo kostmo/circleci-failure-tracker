@@ -1419,6 +1419,38 @@ FIXME: "failure_count" is a misnomer; it is actually the total that includes suc
 
 
 --
+-- Name: master_intra_commit_failure_groups; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_intra_commit_failure_groups AS
+ SELECT foo.job_member_count,
+    foo.vcs_revision,
+    foo.step_name,
+    foo.pattern_id,
+    foo.builds_delimited,
+    foo.jobs_delimited,
+    foo.first_queued_time,
+    foo.last_queued_time
+   FROM ( SELECT count(builds_deduped.job_name) AS job_member_count,
+            builds_deduped.vcs_revision,
+            build_steps.name AS step_name,
+            best_pattern_match_for_builds.pattern_id,
+            string_agg((builds_deduped.global_build)::text, ';'::text) AS builds_delimited,
+            string_agg(builds_deduped.job_name, ';'::text) AS jobs_delimited,
+            min(builds_deduped.queued_at) AS first_queued_time,
+            max(builds_deduped.queued_at) AS last_queued_time
+           FROM (((public.builds_deduped
+             JOIN public.ordered_master_commits ON ((ordered_master_commits.sha1 = builds_deduped.vcs_revision)))
+             JOIN public.build_steps ON ((build_steps.universal_build = builds_deduped.global_build)))
+             JOIN public.best_pattern_match_for_builds ON ((best_pattern_match_for_builds.build = builds_deduped.build_num)))
+          WHERE (NOT builds_deduped.succeeded)
+          GROUP BY builds_deduped.vcs_revision, build_steps.name, best_pattern_match_for_builds.pattern_id) foo
+  WHERE (foo.job_member_count > 1);
+
+
+ALTER TABLE public.master_intra_commit_failure_groups OWNER TO postgres;
+
+--
 -- Name: match_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
 --
 
@@ -2765,6 +2797,13 @@ GRANT ALL ON TABLE public.master_failures_raw_causes TO logan;
 --
 
 GRANT ALL ON TABLE public.master_failures_weekly_aggregation TO logan;
+
+
+--
+-- Name: TABLE master_intra_commit_failure_groups; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_intra_commit_failure_groups TO logan;
 
 
 --

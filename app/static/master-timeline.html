@@ -60,7 +60,6 @@ commits
 
 <label><input type="radio" name="pagination-mode" value="start-by-commit-index"/> by index:</label>
 <label>from <input id="commit-index-max" type="number" min="0" size="5"/></label> <label>down to <input id="commit-index-min" type="number" min="0" size="5"/></label>
-
 </form>
 
 <div id="master-timeline-table"></div>
@@ -76,11 +75,40 @@ commits
 	<div id="broken-jobs-table"></div>
 
 </td><td style="padding-left: 1em;">
-	<p>Enter notes for breakage:</p>
+
+<table><tr><th>Notes:</th>
+<td>
 <textarea id="dialog-description-textarea" placeholder="No comment"></textarea>
-<br/>
-	<button id="dialog-submit-button">Submit</button>
-	<button id="dialog-cancel-button">Cancel</button>
+</td>
+</tr>
+
+<tr>
+<th>
+<label for="breakage-mode-selector">Cause:</label>
+</th>
+<td><select id="breakage-mode-selector"/> <img id="mini-throbber-failure-modes" src="/images/animated-spinner.svg" style="width: 16px; vertical-align: middle"/></td>
+</tr>
+
+
+<tr>
+<th><label for="breakage-span-start-commit">Start commit:</label></th><td><input type="text" id="breakage-span-start-commit" size="40"/></td>
+</tr>
+
+<tr>
+<td colspan="2">
+<label><input id="is-ongoing-checkbox" type="checkbox" name="is-ongoing"/> Ongoing?</label>
+</td></tr>
+
+<tr id="span-end-form-section">
+<th><label for="breakage-span-last-commit">Last affected commit:</label></th>
+<td><input id="breakage-span-last-commit" type="text" size="40"/></td>
+</tr>
+</table>
+
+
+<button id="dialog-submit-button">Submit</button>
+<button id="dialog-cancel-button">Cancel</button>
+
 </td></tr></table>
 </dialog>
 
