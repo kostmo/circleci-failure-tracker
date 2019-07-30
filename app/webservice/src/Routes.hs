@@ -226,7 +226,8 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       insertion_result <- liftIO $ runExceptT $ do
 
         let callback_func user_alias = do
-              insertion_eithers <- mapM (SqlWrite.api_code_breakage_resolution_insert connection_data . gen_resolution_report) cause_id_list
+              conn <- DbHelpers.get_connection connection_data
+              insertion_eithers <- mapM (SqlWrite.apiCodeBreakageResolutionInsert conn . gen_resolution_report) cause_id_list
               return $ sequenceA insertion_eithers
               where
                 gen_resolution_report cause_id = Breakages.NewResolutionReport
@@ -258,13 +259,14 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
         let callback_func user_alias = runExceptT $ do
 
-              cause_id <- ExceptT $ SqlWrite.api_code_breakage_cause_insert
-                connection_data
+              conn <- liftIO $ DbHelpers.get_connection connection_data
+
+              cause_id <- ExceptT $ SqlWrite.apiCodeBreakageCauseInsert
+                conn
                 breakage_report
                 jobs_list
 
-              ExceptT $ SqlWrite.update_code_breakage_mode
-                connection_data
+              ExceptT $ SqlWrite.updateCodeBreakageMode conn
                 user_alias
                 cause_id
                 failure_mode_id
@@ -274,8 +276,8 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
                   (Builds.RawCommit resolution_sha1) <- ExceptT $ SqlRead.getNextMasterCommit connection_data $ Builds.RawCommit last_affected_sha1
 
-                  ExceptT $ SqlWrite.api_code_breakage_resolution_insert
-                    connection_data $ Breakages.NewResolutionReport
+                  ExceptT $ SqlWrite.apiCodeBreakageResolutionInsert conn $
+                    Breakages.NewResolutionReport
                       resolution_sha1
                       cause_id
                       user_alias
@@ -302,15 +304,12 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
           callback_func :: AuthStages.Username -> IO (Either (AuthStages.BackendFailure Text) Text)
           callback_func user_alias = do
-            -- TODO Restore this
-            {-
+
             Scanning.rescanSingleBuild
               connection_data
               user_alias
               universal_build_id
             return $ Right "Scan complete."
-            -}
-            return $ Left $ AuthStages.DbFailure "This functionality is temporarily disabled; the API needs to use a Universal build number."
 
       rq <- S.request
       insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
@@ -397,7 +396,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       new_pattern <- patternFromParms
       let callback_func user_alias = do
             conn <- DbHelpers.get_connection connection_data
-            SqlWrite.api_new_pattern conn $ Left (new_pattern, user_alias)
+            SqlWrite.apiNewPattern conn $ Left (new_pattern, user_alias)
 
       rq <- S.request
       insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
@@ -498,18 +497,6 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     get1 "/api/list-commit-jobs" "sha1" $ SqlRead.apiCommitJobs . Builds.RawCommit
 
-    S.get "/api/list-master-commit-range-jobs" $ do
-
-      first_index <- S.param "first_index"
-      last_index <- S.param "last_index"
-
-      json_result <- liftIO $ do
-        conn <- DbHelpers.get_connection connection_data
-        runReaderT (SqlRead.apiCommitRangeJobs $ SqlRead.InclusiveSpan first_index last_index) conn
-
-      S.json json_result
-
-
     get1 "/api/build-pattern-matches" "build_id" $ SqlRead.getBuildPatternMatches . Builds.UniversalBuildId
 
     get1 "/api/best-pattern-matches" "pattern_id" $ SqlRead.get_best_pattern_matches . ScanPatterns.PatternId
@@ -523,6 +510,19 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
     jsonDbGet1Either connection_data "/api/test-failures" "pattern_id" $ SqlRead.apiTestFailures . ScanPatterns.PatternId
 
     jsonDbGet1Either connection_data "/api/single-build-info" "build_id" $ SqlUpdate.getBuildInfo (AuthConfig.personal_access_token github_config) . Builds.UniversalBuildId
+
+
+    S.get "/api/list-master-commit-range-jobs" $ do
+
+      first_index <- S.param "first_index"
+      last_index <- S.param "last_index"
+
+      json_result <- liftIO $ do
+        conn <- DbHelpers.get_connection connection_data
+        runReaderT (SqlRead.apiCommitRangeJobs $ SqlRead.InclusiveSpan first_index last_index) conn
+
+      S.json json_result
+
 
     S.get "/api/master-timeline" $ do
 
@@ -666,7 +666,9 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
     S.post "/api/code-breakage-mode-update" $ do
       item_id <- S.param "cause_id"
       mode <- S.param "mode"
-      let callback_func user_alias = SqlWrite.update_code_breakage_mode connection_data user_alias item_id mode
+      let callback_func user_alias = do
+            conn <- liftIO $ DbHelpers.get_connection connection_data
+            SqlWrite.updateCodeBreakageMode conn user_alias item_id mode
 
       rq <- S.request
       insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
@@ -676,12 +678,11 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
     S.post "/api/code-breakage-description-update" $ do
       item_id <- S.param "cause_id"
       description <- S.param "description"
-      let callback_func _user_alias = SqlWrite.update_code_breakage_description connection_data item_id description
+      let callback_func _user_alias = SqlWrite.updateCodeBreakageDescription connection_data item_id description
 
       rq <- S.request
       insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
       S.json $ WebApi.toJsonEither insertion_result
-
 
 
     S.post "/api/code-breakage-delete" $ do

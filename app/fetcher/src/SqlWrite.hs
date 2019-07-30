@@ -278,26 +278,25 @@ deleteCodeBreakageJob conn_data cause_id job = do
     sql = "DELETE FROM code_breakage_affected_jobs WHERE cause = ? AND job = ?;"
 
 
-update_code_breakage_description ::
+updateCodeBreakageDescription ::
      DbHelpers.DbConnectionData
   -> Int64
   -> Text
   -> IO (Either Text Int64)
-update_code_breakage_description conn_data cause_id description = do
+updateCodeBreakageDescription conn_data cause_id description = do
   conn <- DbHelpers.get_connection conn_data
   Right <$> execute conn sql (description, cause_id)
   where
     sql = "UPDATE code_breakage_cause SET description = ? WHERE id = ?;"
 
 
-update_code_breakage_mode ::
-     DbHelpers.DbConnectionData
+updateCodeBreakageMode ::
+     Connection
   -> AuthStages.Username
   -> Int64 -- ^ cause
   -> Int64 -- ^ mode
   -> IO (Either Text Int64)
-update_code_breakage_mode conn_data (AuthStages.Username author) cause_id mode = do
-  conn <- DbHelpers.get_connection conn_data
+updateCodeBreakageMode conn (AuthStages.Username author) cause_id mode =
   Right <$> execute conn insertion_sql (cause_id, author, mode)
   where
     insertion_sql = "INSERT INTO master_failure_mode_attributions(cause_id, reporter, mode_id) VALUES(?,?,?);"
@@ -381,7 +380,7 @@ restore_patterns ::
   -> IO (Either Text [Int64])
 restore_patterns conn_data pattern_list = do
   conn <- DbHelpers.get_connection conn_data
-  eithers <- for pattern_list $ api_new_pattern conn . Right
+  eithers <- for pattern_list $ apiNewPattern conn . Right
   return $ sequenceA eithers
 
 
@@ -457,17 +456,16 @@ insertScanId conn maybe_initiator (ScanPatterns.PatternId pattern_id)  = do
     sql = "INSERT INTO scans(latest_pattern_id, initiator) VALUES(?,?) RETURNING id;"
 
 
-api_code_breakage_cause_insert ::
-     DbHelpers.DbConnectionData
+apiCodeBreakageCauseInsert ::
+     Connection
   -> Breakages.BreakageReport
   -> [Text] -- ^ job names
   -> IO (Either Text Int64)
-api_code_breakage_cause_insert
-    conn_data
+apiCodeBreakageCauseInsert
+    conn
     (Breakages.NewBreakageReport sha1 description (AuthStages.Username author_username))
-    job_names = do
+    job_names =
 
-  conn <- DbHelpers.get_connection conn_data
   catchViolation catcher $ do
 
     [Only report_id] <- query conn insertion_sql (sha1, description, author_username)
@@ -485,15 +483,13 @@ api_code_breakage_cause_insert
     catcher e _                                  = throwIO e
 
 
-api_code_breakage_resolution_insert ::
-     DbHelpers.DbConnectionData
+apiCodeBreakageResolutionInsert ::
+     Connection
   -> Breakages.ResolutionReport
   -> IO (Either Text Int64)
-api_code_breakage_resolution_insert
-    conn_data
-    (Breakages.NewResolutionReport sha1 cause_id (AuthStages.Username author_username)) = do
-
-  conn <- DbHelpers.get_connection conn_data
+apiCodeBreakageResolutionInsert
+    conn
+    (Breakages.NewResolutionReport sha1 cause_id (AuthStages.Username author_username)) =
 
   -- TODO: Ensure that the commit index of the resolution is strictly higher
   -- than the commit index of the cause
@@ -510,11 +506,11 @@ api_code_breakage_resolution_insert
     catcher e _                                  = throwIO e
 
 
-retire_pattern ::
+retirePattern ::
      Connection
   -> ScanPatterns.PatternId
   -> IO ()
-retire_pattern conn (ScanPatterns.PatternId pattern_id) = do
+retirePattern conn (ScanPatterns.PatternId pattern_id) = do
   execute conn sql (True, pattern_id)
   return ()
   where
@@ -529,13 +525,13 @@ data PatternFieldOverrides = PatternFieldOverrides {
   }
 
 
-copy_pattern ::
+copyPattern ::
      DbHelpers.DbConnectionData
   -> ScanPatterns.PatternId
   -> AuthStages.Username
   -> PatternFieldOverrides
   -> IO (Either Text Int64)
-copy_pattern conn_data pattern_id@(ScanPatterns.PatternId pat_id) username field_overrides = do
+copyPattern conn_data pattern_id@(ScanPatterns.PatternId pat_id) username field_overrides = do
 
   conn <- DbHelpers.get_connection conn_data
   pattern_rows <- query conn sql $ Only pat_id
@@ -558,19 +554,19 @@ copy_pattern conn_data pattern_id@(ScanPatterns.PatternId pat_id) username field
           (pat_lines_from_end field_overrides <|> p_maybe_lines_from_end)
 
     ExceptT $ do
-      new_id <- api_new_pattern conn $ Left (new_pattern, username)
-      retire_pattern conn pattern_id
+      new_id <- apiNewPattern conn $ Left (new_pattern, username)
+      retirePattern conn pattern_id
       return new_id
 
   where
     sql = "SELECT regex, has_nondeterministic_values, expression, description, tags, steps, specificity, lines_from_end FROM patterns_augmented WHERE id = ?;"
 
 
-api_new_pattern ::
+apiNewPattern ::
      Connection
   -> Either (ScanPatterns.Pattern, AuthStages.Username) (DbHelpers.WithAuthorship ScanPatterns.DbPattern)
   -> IO (Either Text Int64)
-api_new_pattern conn new_pattern =
+apiNewPattern conn new_pattern =
 
   catchViolation catcher $ do
     record_id <- insert_single_pattern conn new_pattern

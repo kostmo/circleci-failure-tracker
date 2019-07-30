@@ -76,9 +76,6 @@ scanBuilds scan_resources revisit whitelisted_builds_or_fetch_count = do
         , filter $ \universal_build_with_id -> (Builds.UniversalBuildId $ DbHelpers.db_id universal_build_with_id) `Set.member` whitelisted_builds)
 
 
--- TODO RESTORE THIS
-
-{-
 -- | Note that the Left/Right convention is backwards!
 rescanSingleBuild ::
      DbHelpers.DbConnectionData
@@ -90,12 +87,22 @@ rescanSingleBuild db_connection_data initiator build_to_scan = do
   conn <- DbHelpers.get_connection db_connection_data
   scan_resources <- prepareScanResources conn $ Just initiator
 
-  either_visitation_result <- getCircleCIFailedBuildInfo scan_resources build_to_scan
+  parent_build <- SqlRead.getGlobalBuild conn build_to_scan
+
+  either_visitation_result <- getCircleCIFailedBuildInfo
+    scan_resources
+    (Builds.provider_buildnum $ DbHelpers.record $ Builds.universal_build parent_build)
+
   case either_visitation_result of
     Right _ -> return ()
-    Left (Builds.BuildWithStepFailure build_obj _step_failure) -> do
+    Left (Builds.BuildWithStepFailure _build_obj _step_failure) -> do
 
-      SqlWrite.storeBuildsList conn [build_obj]
+      -- TODO It seems that this is irrelevant/redundant,
+      -- since we just looked up the build from the database!
+      --
+      -- Perhaps instead we need to *update fields* of the stored record
+      -- from information we obtained from an API fetch
+      SqlWrite.storeBuildsList conn [parent_build]
 
       scan_matches <- scanBuilds scan_resources True $ Left $ Set.singleton build_to_scan
 
@@ -108,7 +115,7 @@ rescanSingleBuild db_connection_data initiator build_to_scan = do
         , "builds."
         ]
       return ()
--}
+
 
 getSingleBuildUrl :: Builds.BuildNumber -> String
 getSingleBuildUrl (Builds.NewBuildNumber build_number) = intercalate "/"
@@ -127,9 +134,9 @@ getStepFailure step_val =
     step_fail = Left . Builds.NewBuildStepFailure stepname
 
     get_failure x
-      | (x ^. key "failed" . _Bool) = step_fail $
+      | x ^. key "failed" . _Bool = step_fail $
           Builds.ScannableFailure $ Builds.NewBuildFailureOutput $ x ^. key "output_url" . _String
-      | (x ^. key "timedout" . _Bool) = step_fail Builds.BuildTimeoutFailure
+      | x ^. key "timedout" . _Bool = step_fail Builds.BuildTimeoutFailure
       | otherwise = pure ()
 
 
@@ -226,7 +233,12 @@ rescanVisitedBuilds ::
 rescanVisitedBuilds scan_resources visited_builds_list =
 
   for (zip [1::Int ..] visited_builds_list) $ \(idx, (build_step_id, step_name, universal_build_with_id, pattern_ids)) -> do
-    putStrLn $ "Visiting " ++ show idx ++ "/" ++ show visited_count ++ " previously-visited builds (" ++ show (DbHelpers.db_id universal_build_with_id) ++ ")..."
+    putStrLn $ unwords [
+        "Visiting"
+      , show idx ++ "/" ++ show visited_count
+      , "previously-visited builds"
+      , "(" ++ show (DbHelpers.db_id universal_build_with_id) ++ ")..."
+      ]
 
     either_matches <- catchupScan scan_resources build_step_id step_name (universal_build_with_id, Nothing) $
       getPatternObjects scan_resources pattern_ids
@@ -358,7 +370,8 @@ getAndStoreLog
       liftIO $ putStrLn "Log downloaded."
 
       let parent_elements = log_download_result ^. NW.responseBody . _Array
-          -- for some reason the log is sometimes split into sections, so we concatenate all of the "out" elements
+          -- for some reason the log is sometimes split into sections,
+          -- so we concatenate all of the "out" elements
           pred x = x ^. key "type" . _String == "out"
           output_elements = filter pred $ V.toList parent_elements
 
