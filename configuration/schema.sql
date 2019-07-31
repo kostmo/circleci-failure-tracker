@@ -235,7 +235,7 @@ CREATE VIEW public.match_positions WITH (security_barrier='false') AS
      JOIN public.log_metadata ON ((log_metadata.step = foo.build_step)))
      JOIN public.build_steps ON ((build_steps.id = log_metadata.step)))
      JOIN public.universal_builds ON ((universal_builds.id = build_steps.universal_build)))
-  ORDER BY foo.matched_line_count DESC, foo.pattern, universal_builds.build_number;
+  ORDER BY foo.matched_line_count DESC, foo.pattern, universal_builds.id DESC;
 
 
 ALTER TABLE public.match_positions OWNER TO postgres;
@@ -523,7 +523,7 @@ CREATE VIEW public.builds_join_steps WITH (security_barrier='false') AS
     global_builds.build_namespace
    FROM (public.build_steps
      JOIN public.global_builds ON ((build_steps.universal_build = global_builds.global_build_num)))
-  ORDER BY global_builds.vcs_revision, global_builds.build_number DESC;
+  ORDER BY global_builds.vcs_revision, global_builds.global_build_num DESC;
 
 
 ALTER TABLE public.builds_join_steps OWNER TO postgres;
@@ -551,7 +551,7 @@ CREATE VIEW public.builds_with_reports WITH (security_barrier='false') AS
     builds_join_steps.succeeded,
     builds_join_steps.build_namespace
    FROM public.builds_join_steps
-  ORDER BY builds_join_steps.build_num DESC;
+  ORDER BY builds_join_steps.universal_build DESC;
 
 
 ALTER TABLE public.builds_with_reports OWNER TO postgres;
@@ -903,7 +903,8 @@ CREATE VIEW public.build_failure_causes_mutual_exclusion_known_broken WITH (secu
     build_failure_causes.branch,
     build_failure_causes.is_known_broken,
     (build_failure_causes.is_matched AND (NOT build_failure_causes.is_known_broken) AND (NOT build_failure_causes.is_flaky)) AS is_matched,
-    build_failure_causes.rebuild_count
+    build_failure_causes.rebuild_count,
+    build_failure_causes.global_build
    FROM public.build_failure_causes;
 
 
@@ -1134,51 +1135,68 @@ ALTER TABLE public.known_breakage_summaries OWNER TO postgres;
 --
 
 CREATE VIEW public.master_contiguous_failures WITH (security_barrier='false') AS
- SELECT row_number() OVER (PARTITION BY quux.group_index, quux.job_name ORDER BY quux.commit_number DESC) AS run_length,
-    quux.group_index,
-    quux.build_num,
-    quux.job_name,
-    quux.sha1,
-    quux.id,
-    first_value(quux.id) OVER (PARTITION BY quux.group_index, quux.job_name ORDER BY quux.commit_number DESC) AS start_commit_index,
-    last_value(quux.id) OVER (PARTITION BY quux.group_index, quux.job_name ORDER BY quux.commit_number DESC) AS end_commit_index
-   FROM ( SELECT ((bar.delta_next = 1) OR (bar.delta_prev = 1)) AS contiguous_failure,
-            COALESCE(sum((((bar.delta_next = 1) AND (bar.delta_prev <> 1)))::integer) OVER (PARTITION BY bar.job_name ORDER BY bar.commit_number DESC, bar.job_name), (0)::bigint) AS group_index,
-            bar.delta_next,
-            bar.delta_prev,
-            bar.prev_commit_number,
-            bar.next_commit_number,
-            bar.commit_number,
-            bar.build_num,
-            bar.job_name,
-            bar.sha1,
-            bar.id
-           FROM ( SELECT (foo.commit_number - foo.next_commit_number) AS delta_next,
-                    (foo.prev_commit_number - foo.commit_number) AS delta_prev,
-                    foo.prev_commit_number,
-                    foo.next_commit_number,
-                    foo.commit_number,
-                    foo.build_num,
-                    foo.job_name,
-                    foo.sha1,
-                    foo.id
-                   FROM ( SELECT lag(blah.commit_number) OVER (PARTITION BY build_failure_causes_mutual_exclusion_known_broken.job_name ORDER BY blah.commit_number DESC, build_failure_causes_mutual_exclusion_known_broken.job_name) AS prev_commit_number,
-                            lead(blah.commit_number) OVER (PARTITION BY build_failure_causes_mutual_exclusion_known_broken.job_name ORDER BY blah.commit_number DESC, build_failure_causes_mutual_exclusion_known_broken.job_name) AS next_commit_number,
-                            blah.commit_number,
-                            build_failure_causes_mutual_exclusion_known_broken.build_num,
-                            build_failure_causes_mutual_exclusion_known_broken.job_name,
-                            blah.sha1,
-                            blah.id
-                           FROM (( SELECT ordered_master_commits.id,
-                                    ordered_master_commits.sha1,
-                                    row_number() OVER (ORDER BY ordered_master_commits.id DESC) AS commit_number
-                                   FROM public.ordered_master_commits) blah
-                             JOIN public.build_failure_causes_mutual_exclusion_known_broken ON ((build_failure_causes_mutual_exclusion_known_broken.vcs_revision = blah.sha1)))) foo) bar) quux
-  WHERE quux.contiguous_failure
-  ORDER BY quux.job_name, quux.commit_number;
+ SELECT foo123.run_length,
+    foo123.group_index,
+    universal_builds.build_number AS build_num,
+    foo123.job_name,
+    foo123.sha1,
+    foo123.id,
+    foo123.start_commit_index,
+    foo123.end_commit_index,
+    universal_builds.id AS universal_build
+   FROM (( SELECT row_number() OVER (PARTITION BY quux.group_index, quux.job_name ORDER BY quux.commit_number DESC) AS run_length,
+            quux.group_index,
+            quux.global_build,
+            quux.job_name,
+            quux.sha1,
+            quux.id,
+            first_value(quux.id) OVER (PARTITION BY quux.group_index, quux.job_name ORDER BY quux.commit_number DESC) AS start_commit_index,
+            last_value(quux.id) OVER (PARTITION BY quux.group_index, quux.job_name ORDER BY quux.commit_number DESC) AS end_commit_index
+           FROM ( SELECT ((bar.delta_next = 1) OR (bar.delta_prev = 1)) AS contiguous_failure,
+                    COALESCE(sum((((bar.delta_next = 1) AND (bar.delta_prev <> 1)))::integer) OVER (PARTITION BY bar.job_name ORDER BY bar.commit_number DESC, bar.job_name), (0)::bigint) AS group_index,
+                    bar.delta_next,
+                    bar.delta_prev,
+                    bar.prev_commit_number,
+                    bar.next_commit_number,
+                    bar.commit_number,
+                    bar.global_build,
+                    bar.job_name,
+                    bar.sha1,
+                    bar.id
+                   FROM ( SELECT (foo.commit_number - foo.next_commit_number) AS delta_next,
+                            (foo.prev_commit_number - foo.commit_number) AS delta_prev,
+                            foo.prev_commit_number,
+                            foo.next_commit_number,
+                            foo.commit_number,
+                            foo.global_build,
+                            foo.job_name,
+                            foo.sha1,
+                            foo.id
+                           FROM ( SELECT lag(blah.commit_number) OVER (PARTITION BY build_failure_causes_mutual_exclusion_known_broken.job_name ORDER BY blah.commit_number DESC, build_failure_causes_mutual_exclusion_known_broken.job_name) AS prev_commit_number,
+                                    lead(blah.commit_number) OVER (PARTITION BY build_failure_causes_mutual_exclusion_known_broken.job_name ORDER BY blah.commit_number DESC, build_failure_causes_mutual_exclusion_known_broken.job_name) AS next_commit_number,
+                                    blah.commit_number,
+                                    build_failure_causes_mutual_exclusion_known_broken.global_build,
+                                    build_failure_causes_mutual_exclusion_known_broken.job_name,
+                                    blah.sha1,
+                                    blah.id
+                                   FROM (( SELECT ordered_master_commits.id,
+    ordered_master_commits.sha1,
+    row_number() OVER (ORDER BY ordered_master_commits.id DESC) AS commit_number
+   FROM public.ordered_master_commits) blah
+                                     JOIN public.build_failure_causes_mutual_exclusion_known_broken ON ((build_failure_causes_mutual_exclusion_known_broken.vcs_revision = blah.sha1)))) foo) bar) quux
+          WHERE quux.contiguous_failure
+          ORDER BY quux.job_name, quux.commit_number) foo123
+     JOIN public.universal_builds ON ((universal_builds.id = foo123.global_build)));
 
 
 ALTER TABLE public.master_contiguous_failures OWNER TO postgres;
+
+--
+-- Name: VIEW master_contiguous_failures; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.master_contiguous_failures IS 'TODO: Drop build_num column and get rid of outer-most JOIN';
+
 
 --
 -- Name: master_contiguous_failure_job_groups; Type: VIEW; Schema: public; Owner: postgres
@@ -1347,7 +1365,7 @@ CREATE VIEW public.master_failures_raw_causes WITH (security_barrier='false') AS
     COALESCE(best_pattern_match_augmented_builds.span_start, '-1'::integer) AS span_start,
     COALESCE(best_pattern_match_augmented_builds.span_end, '-1'::integer) AS span_end,
     COALESCE(best_pattern_match_augmented_builds.specificity, '-1'::integer) AS specificity,
-    (master_contiguous_failures.build_num IS NULL) AS is_serially_isolated,
+    (master_contiguous_failures.universal_build IS NULL) AS is_serially_isolated,
     COALESCE(master_contiguous_failures.run_length, (1)::bigint) AS contiguous_run_count,
     COALESCE(master_contiguous_failures.group_index, ('-1'::integer)::bigint) AS contiguous_group_index,
     COALESCE(master_contiguous_failures.start_commit_index, '-1'::integer) AS contiguous_start_commit_index,
@@ -1359,8 +1377,8 @@ CREATE VIEW public.master_failures_raw_causes WITH (security_barrier='false') AS
     build_failure_causes.build_namespace
    FROM ((((public.ordered_master_commits
      JOIN public.build_failure_causes ON ((build_failure_causes.vcs_revision = ordered_master_commits.sha1)))
-     LEFT JOIN public.best_pattern_match_augmented_builds ON ((build_failure_causes.build_num = best_pattern_match_augmented_builds.build)))
-     LEFT JOIN public.master_contiguous_failures ON ((build_failure_causes.build_num = master_contiguous_failures.build_num)))
+     LEFT JOIN public.best_pattern_match_augmented_builds ON ((build_failure_causes.global_build = best_pattern_match_augmented_builds.universal_build)))
+     LEFT JOIN public.master_contiguous_failures ON ((build_failure_causes.global_build = master_contiguous_failures.universal_build)))
      LEFT JOIN public.master_contiguous_failure_job_groups ON (((build_failure_causes.job_name = master_contiguous_failure_job_groups.job_name) AND (master_contiguous_failures.group_index = master_contiguous_failure_job_groups.group_index))));
 
 
