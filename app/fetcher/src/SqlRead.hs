@@ -628,23 +628,32 @@ api_list_branches = listFlat
   "SELECT branch, COUNT(*) AS count FROM global_builds WHERE branch != '' GROUP BY branch ORDER BY count DESC;"
 
 
-getRevisionBuilds ::
-     DbHelpers.DbConnectionData
-  -> GitRev.GitSha1
-  -> IO [CommitBuilds.CommitBuild]
-getRevisionBuilds conn_data git_revision = do
-  conn <- DbHelpers.get_connection conn_data
-  fmap (map f) $ query conn sql $ Only $ GitRev.sha1 git_revision
+instance FromRow CommitBuilds.CommitBuild where
+  fromRow = do
+    step_name <- field
+    match_id <- field
+    buildnum <- field
+    vcs_rev <- field
+    queuedat <- field
+    jobname <- field
+    branch <- field
+    patt <- field
+    line_number <- field
+    line_count <- field
+    line_text <- field
+    span_start <- field
+    span_end <- field
+    specificity <- field
+    universal_build <- field
+    provider_id <- field
+    build_namespace <- field
+    succeeded <- field
+    ci_label <- field
+    ci_icon_url <- field
+    started_at <- field
+    finished_at <- field
 
-  where
-    f (step_name, match_id, buildnum, vcs_rev, queuedat, jobname, branch, patt, line_number, line_count, line_text, span_start, span_end, specificity, universal_build, provider_id, build_namespace, succeeded, ci_label, ci_icon_url) =
-      CommitBuilds.NewCommitBuild
-        parent_build_obj
-        match_obj
-        (DbHelpers.WithId provider_id provider_obj)
-      where
-
-        provider_obj = Builds.CiProvider
+    let provider_obj = Builds.CiProvider
           ci_icon_url
           ci_label
 
@@ -668,6 +677,8 @@ getRevisionBuilds conn_data git_revision = do
           queuedat
           jobname
           branch
+          started_at
+          finished_at
 
         match_obj = MatchOccurrences.MatchOccurrencesForBuild
           step_name
@@ -680,7 +691,22 @@ getRevisionBuilds conn_data git_revision = do
           span_end
           specificity
 
-    sql = "SELECT step_name, match_id, build, vcs_revision, queued_at, job_name, branch, pattern_id, line_number, line_count, line_text, span_start, span_end, specificity, universal_build, provider, build_namespace, succeeded, label, icon_url FROM best_pattern_match_augmented_builds JOIN ci_providers ON ci_providers.id = best_pattern_match_augmented_builds.provider WHERE vcs_revision = ?;"
+    return $ CommitBuilds.NewCommitBuild
+        parent_build_obj
+        match_obj
+        (DbHelpers.WithId provider_id provider_obj)
+
+
+getRevisionBuilds ::
+     DbHelpers.DbConnectionData
+  -> GitRev.GitSha1
+  -> IO [CommitBuilds.CommitBuild]
+getRevisionBuilds conn_data git_revision = do
+  conn <- DbHelpers.get_connection conn_data
+  query conn sql $ Only $ GitRev.sha1 git_revision
+
+  where
+    sql = "SELECT step_name, match_id, build, vcs_revision, queued_at, job_name, branch, pattern_id, line_number, line_count, line_text, span_start, span_end, specificity, universal_build, provider, build_namespace, succeeded, label, icon_url, started_at, finished_at FROM best_pattern_match_augmented_builds JOIN ci_providers ON ci_providers.id = best_pattern_match_augmented_builds.provider WHERE vcs_revision = ?;"
 
 
 getMasterCommits ::
@@ -773,6 +799,8 @@ instance FromRow BuildResults.SimpleBuildStatus where
     build_namespace <- field
     maybe_cluster_id <- field
     maybe_cluster_member_count <- field
+    maybe_started_at <- field
+    maybe_finished_at <- field
 
     let
       failure_mode
@@ -804,6 +832,8 @@ instance FromRow BuildResults.SimpleBuildStatus where
         queued_at
         job_name
         branch
+        maybe_started_at
+        maybe_finished_at
 
       match_obj = MatchOccurrences.MatchOccurrencesForBuild
         step_name
@@ -860,7 +890,7 @@ apiMasterBuilds offset_limit = do
       code_breakage_ranges
 
   where
-    failures_sql = "SELECT sha1, succeeded, is_idiopathic, is_flaky, is_timeout, is_matched, is_known_broken, build_num, queued_at, job_name, branch, step_name, pattern_id, match_id, line_number, line_count, line_text, span_start, span_end, specificity, is_serially_isolated, contiguous_run_count, contiguous_group_index, contiguous_start_commit_index, contiguous_end_commit_index, contiguous_length, global_build, provider, build_namespace, cluster_id, cluster_member_count FROM master_failures_raw_causes WHERE commit_index >= ? AND commit_index <= ?;"
+    failures_sql = "SELECT sha1, succeeded, is_idiopathic, is_flaky, is_timeout, is_matched, is_known_broken, build_num, queued_at, job_name, branch, step_name, pattern_id, match_id, line_number, line_count, line_text, span_start, span_end, specificity, is_serially_isolated, contiguous_run_count, contiguous_group_index, contiguous_start_commit_index, contiguous_end_commit_index, contiguous_length, global_build, provider, build_namespace, cluster_id, cluster_member_count, started_at, finished_at FROM master_failures_raw_causes WHERE commit_index >= ? AND commit_index <= ?;"
 
 
 apiDetectedCodeBreakages :: DbIO [BuildResults.DetectedBreakageSpan]
@@ -1049,7 +1079,7 @@ data PatternOccurrence = NewPatternOccurrence {
   , _vcs_revision       :: Builds.RawCommit
   , _queued_at          :: UTCTime
   , _job_name           :: Text
-  , _branch             :: Text
+  , _branch             :: Maybe Text
   , _build_step         :: Text
   , _line_number        :: Int
   , _line_count         :: Int
@@ -1209,7 +1239,7 @@ getPatternMatches :: ScanPatterns.PatternId -> DbIO [PatternOccurrence]
 getPatternMatches pattern_id =
   map f <$> get_pattern_occurrence_rows pattern_id
   where
-    f (Builds.NewBuild buildnum vcs_rev queued_at job_name branch, stepname, line_count, match_id, ScanPatterns.NewMatchDetails line_text line_number (ScanPatterns.NewMatchSpan start end), global_build_id) =
+    f (build_obj, stepname, line_count, match_id, match_details, global_build_id) =
       NewPatternOccurrence
         buildnum
         pattern_id
@@ -1225,6 +1255,9 @@ getPatternMatches pattern_id =
         start
         end
         global_build_id
+      where
+        (Builds.NewBuild buildnum vcs_rev queued_at job_name branch _ _) = build_obj
+        (ScanPatterns.NewMatchDetails line_text line_number (ScanPatterns.NewMatchSpan start end)) = match_details
 
 
 get_pattern_occurrence_rows ::
@@ -1236,7 +1269,21 @@ get_pattern_occurrence_rows (ScanPatterns.PatternId pattern_id) = do
   liftIO $ fmap (map f) $ query conn sql $ Only pattern_id
 
   where
-    f (buildnum, stepname, match_id, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch, global_build_num) =
-      (Builds.NewBuild (Builds.NewBuildNumber buildnum) (Builds.RawCommit vcs_revision) queued_at job_name branch, stepname, line_count, MatchOccurrences.MatchId match_id, ScanPatterns.NewMatchDetails line_text line_number $ ScanPatterns.NewMatchSpan span_start span_end, Builds.UniversalBuildId global_build_num)
+    f (buildnum, stepname, match_id, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch, global_build_num, maybe_started_at, maybe_finished_at) =
+      (build_obj, stepname, line_count, MatchOccurrences.MatchId match_id, match_details, Builds.UniversalBuildId global_build_num)
+      where
+        build_obj = Builds.NewBuild
+          (Builds.NewBuildNumber buildnum)
+          (Builds.RawCommit vcs_revision)
+          queued_at
+          job_name
+          branch
+          maybe_started_at
+          maybe_finished_at
 
-    sql = "SELECT global_builds.build_number, step_name, matches_with_log_metadata.id, line_number, line_count, line_text, span_start, span_end, global_builds.vcs_revision, queued_at, job_name, branch, global_build_num FROM matches_with_log_metadata JOIN global_builds ON matches_with_log_metadata.universal_build = global_builds.global_build_num WHERE pattern = ?;"
+        match_details = ScanPatterns.NewMatchDetails
+          line_text
+          line_number $
+            ScanPatterns.NewMatchSpan span_start span_end
+
+    sql = "SELECT global_builds.build_number, step_name, matches_with_log_metadata.id, line_number, line_count, line_text, span_start, span_end, global_builds.vcs_revision, queued_at, job_name, branch, global_build_num, global_builds.started_at, global_builds.finished_at FROM matches_with_log_metadata JOIN global_builds ON matches_with_log_metadata.universal_build = global_builds.global_build_num WHERE pattern = ?;"

@@ -59,16 +59,23 @@ updateCircleCIBuildsList conn branch_names fetch_count age_days = do
   SqlWrite.storeCircleCiBuildsList conn $ map (\x -> (x, False)) $ concat builds_lists
 
 
+-- | This is populated from the "bulk" API query which lists multiple builds.
+-- Contrast with CircleBuild.SingleBuild, for which the API returns
+-- one build at a time.
 itemToBuild :: Value -> Build
 itemToBuild json = NewBuild {
     build_id = NewBuildNumber $ view (key "build_num" . _Integral) json
   , vcs_revision = Builds.RawCommit $ view (key "vcs_revision" . _String) json
   , queued_at = head $ Maybe.fromJust $ decode (encode [queued_at_string])
   , job_name = view (key "workflows" . key "job_name" . _String) json
-  , branch = view (key "branch" . _String) json
+  , branch = Just $ view (key "branch" . _String) json
+  , start_time = Just $ head $ Maybe.fromJust $ decode (encode [start_time_string])
+  , stop_time = Just $ head $ Maybe.fromJust $ decode (encode [stop_time_string])
   }
   where
     queued_at_string = view (key "queued_at" . _String) json
+    start_time_string = view (key "start_time" . _String) json
+    stop_time_string = view (key "stop_time" . _String) json
 
 
 getBuildListUrl :: String -> String

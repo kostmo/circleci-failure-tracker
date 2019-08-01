@@ -92,6 +92,8 @@ instance FromRow StorableBuild where
     queued_at <- field
     job_name <- field
     branch <- field
+    start_time <- field
+    stop_time <- field
 
     let wrapped_commit = Builds.RawCommit sha1
         u_build_obj = UniversalBuild
@@ -107,6 +109,8 @@ instance FromRow StorableBuild where
           queued_at
           job_name
           branch
+          start_time
+          stop_time
 
     return $ StorableBuild
       (DbHelpers.WithId global_build_num u_build_obj)
@@ -118,7 +122,9 @@ data Build = NewBuild {
   , vcs_revision :: RawCommit
   , queued_at    :: UTCTime
   , job_name     :: Text
-  , branch       :: Text
+  , branch       :: Maybe Text
+  , start_time   :: Maybe UTCTime
+  , stop_time    :: Maybe UTCTime
   } deriving (Show, Generic)
 
 instance ToJSON Build

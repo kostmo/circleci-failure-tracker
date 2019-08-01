@@ -11,6 +11,9 @@ import qualified Builds
 import qualified JsonUtils
 
 
+-- | This is populated from the "single-build" API query.
+-- Contrast with BuildRetrieval.itemToBuild, for which the API returns
+-- multiple builds.
 data SingleBuild = SingleBuild {
     vcs_revision     :: Text
   , queued_at        :: UTCTime
@@ -21,6 +24,8 @@ data SingleBuild = SingleBuild {
     -- when "retry_of" is non-null
   , steps            :: [Value]
   , failed           :: Maybe Bool
+  , start_time       :: UTCTime
+  , stop_time        :: UTCTime
   } deriving (Show, Generic)
 
 instance FromJSON SingleBuild
@@ -47,7 +52,9 @@ toBuild build_num single_build = Builds.NewBuild
   (Builds.RawCommit $ vcs_revision single_build)
   (queued_at single_build)
   jobname
-  (branch single_build)
+  (Just $ branch single_build)
+  (Just $ start_time single_build)
+  (Just $ stop_time single_build)
   where
     jobname = maybe (_CIRCLE_JOB $ build_parameters single_build) job_name $ workflows single_build
 

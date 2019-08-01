@@ -45,7 +45,7 @@ mainAppCode args = do
   hSetBuffering stdout LineBuffering
 
   capability_count <- getNumCapabilities
-  print $ "Num capabilities: " ++ show capability_count
+  putStrLn $ unwords ["Num capabilities:", show capability_count]
 
   conn <- DbPreparation.prepareDatabase connection_data $ wipeDatabase args
 

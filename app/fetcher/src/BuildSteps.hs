@@ -12,7 +12,6 @@ data BuildStep = NewBuildStep {
     step_name :: Text
   , step_id   :: Builds.BuildStepId
   , build     :: Builds.Build
-  , breakage  :: Maybe ()
   } deriving Generic
 
 instance ToJSON BuildStep

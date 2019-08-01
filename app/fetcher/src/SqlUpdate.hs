@@ -84,7 +84,7 @@ getBuildInfo access_token build@(Builds.UniversalBuildId build_id) = do
 
     storable_build <- SqlRead.getGlobalBuild conn build
 
-    let either_tuple = f (length matches) <$> maybeToEither (T.pack $ "Build with ID " ++ show build_id ++ " not found!") (Safe.headMay xs)
+    let either_tuple = f (length matches) <$> maybeToEither (T.pack $ unwords ["Build with ID", show build_id, "not found!"]) (Safe.headMay xs)
 
     runExceptT $ do
       (multi_match_count, step_container) <- except either_tuple
@@ -94,6 +94,7 @@ getBuildInfo access_token build@(Builds.UniversalBuildId build_id) = do
 
       breakages <- ExceptT $ findKnownBuildBreakages conn access_token pytorchRepoOwner sha1
       let applicable_breakages = filter (Set.member job_name . SqlRead._jobs . DbHelpers.record) breakages
+
       return $ SingleBuildInfo
         multi_match_count
         step_container
@@ -101,13 +102,24 @@ getBuildInfo access_token build@(Builds.UniversalBuildId build_id) = do
         storable_build
 
   where
-    f multi_match_count (step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch) = (multi_match_count, step_container)
+    f multi_match_count (step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch, started_at, finished_at) = (multi_match_count, step_container)
       where
-        step_container = BuildSteps.NewBuildStep step_name (Builds.NewBuildStepId step_id) build_obj maybe_breakage_obj
-        build_obj = Builds.NewBuild (Builds.NewBuildNumber build_num) (Builds.RawCommit vcs_revision) queued_at job_name branch
-        maybe_breakage_obj = Nothing
+        step_container = BuildSteps.NewBuildStep
+          step_name
+          (Builds.NewBuildStepId step_id)
+          build_obj
 
-    sql = "SELECT step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch FROM builds_join_steps where universal_build = ?;"
+        -- TODO This is redundant with getGlobalBuild
+        build_obj = Builds.NewBuild
+          (Builds.NewBuildNumber build_num)
+          (Builds.RawCommit vcs_revision)
+          queued_at
+          job_name
+          branch
+          started_at
+          finished_at
+
+    sql = "SELECT step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch, started_at, finished_at FROM builds_join_steps WHERE universal_build = ?;"
 
 
 countRevisionBuilds ::

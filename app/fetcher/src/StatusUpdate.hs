@@ -100,7 +100,9 @@ getCircleciFailure sha1 event_setter = do
     sha1
     current_time
     build_name
-    ""
+    Nothing
+    Nothing
+    Nothing
 
   where
     context_text = LT.toStrict context
