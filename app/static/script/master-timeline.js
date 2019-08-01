@@ -369,7 +369,7 @@ function define_column(col) {
 			const has_open_breakage = open_breakages.length > 0;
 
 			const detected_contiguous_breakage = cell_value && cell_value.contiguous_breakage != null;
-
+			const detected_lateral_breakage = cell_value && cell_value.lateral_breakage != null;
 
 			if (has_open_breakage) {
 				cell.getElement().style.backgroundColor = "#f664";
@@ -380,9 +380,18 @@ function define_column(col) {
 				cell.getElement().style.backgroundSize = "33.3%";
 
 				// vertical stripes
-				const stripes_color_hex = "00f";
-				const stripes_opacity_fraction = 0.8; // between 0 and 1
+				const stripes_color_hex = "00c";
+				const stripes_opacity_fraction = 0.7; // between 0 and 1
 				cell.getElement().style.backgroundImage = "url(\"data:image/svg+xml,%3Csvg width='40' height='1' viewBox='0 0 40 1' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0h20v1H0z' fill='%23" + stripes_color_hex + "' fill-opacity='" + stripes_opacity_fraction + "' fill-rule='evenodd'/%3E%3C/svg%3E\")";
+			} else if (detected_lateral_breakage) {
+
+				// Repeat 3 times wthin a cell
+				cell.getElement().style.backgroundSize = "auto 33.3%";
+
+				// horizontal stripes
+				const stripes_color_hex = "00c";
+				const stripes_opacity_fraction = 0.7; // between 0 and 1
+				cell.getElement().style.backgroundImage = "url(\"data:image/svg+xml,%3Csvg width='1' height='40' viewBox='0 0 1 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0h1v20H0z' fill='%23" + stripes_color_hex + "' fill-opacity='" + stripes_opacity_fraction + "' fill-rule='evenodd'/%3E%3C/svg%3E\")";
 			}
 
 			const context_menu_items = get_context_menu_items_for_cell(cell);

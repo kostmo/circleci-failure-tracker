@@ -64,6 +64,7 @@ data SimpleBuildStatus = SimpleBuildStatus {
   , _is_flaky            :: Bool
   , _is_known_broken     :: Bool
   , _contiguous_breakage :: Maybe ContiguousBreakageMember
+  , _lateral_breakage    :: Maybe LateralBreakageMember
   , _universal_build     :: DbHelpers.WithId Builds.UniversalBuild
 --  , _ci_provider         :: DbHelpers.WithId Builds.CiProvider
   } deriving Generic
@@ -183,6 +184,15 @@ data ContiguousBreakageMember = ContiguousBreakageMember {
   } deriving Generic
 
 instance ToJSON ContiguousBreakageMember where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+data LateralBreakageMember = LateralBreakageMember {
+    _cluster_member_count :: Int
+  , _cluster_id           :: Int
+  } deriving Generic
+
+instance ToJSON LateralBreakageMember where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 

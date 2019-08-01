@@ -771,6 +771,8 @@ instance FromRow BuildResults.SimpleBuildStatus where
     universal_build_id <- field
     provider_id <- field
     build_namespace <- field
+    maybe_cluster_id <- field
+    maybe_cluster_member_count <- field
 
     let
       failure_mode
@@ -788,6 +790,10 @@ instance FromRow BuildResults.SimpleBuildStatus where
           contiguous_start_commit_index
           contiguous_end_commit_index
           contiguous_length
+
+      maybe_lateral_breakage = BuildResults.LateralBreakageMember
+        <$> maybe_cluster_member_count
+        <*> maybe_cluster_id
 
       wrapped_build_num = Builds.NewBuildNumber build_num
       wrapped_commit = Builds.RawCommit sha1
@@ -824,6 +830,7 @@ instance FromRow BuildResults.SimpleBuildStatus where
       is_flaky
       is_known_broken
       maybe_contiguous_member
+      maybe_lateral_breakage
       ubuild_obj
 
 
@@ -853,7 +860,7 @@ apiMasterBuilds offset_limit = do
       code_breakage_ranges
 
   where
-    failures_sql = "SELECT sha1, succeeded, is_idiopathic, is_flaky, is_timeout, is_matched, is_known_broken, build_num, queued_at, job_name, branch, step_name, pattern_id, match_id, line_number, line_count, line_text, span_start, span_end, specificity, is_serially_isolated, contiguous_run_count, contiguous_group_index, contiguous_start_commit_index, contiguous_end_commit_index, contiguous_length, global_build, provider, build_namespace FROM master_failures_raw_causes WHERE commit_index >= ? AND commit_index <= ?;"
+    failures_sql = "SELECT sha1, succeeded, is_idiopathic, is_flaky, is_timeout, is_matched, is_known_broken, build_num, queued_at, job_name, branch, step_name, pattern_id, match_id, line_number, line_count, line_text, span_start, span_end, specificity, is_serially_isolated, contiguous_run_count, contiguous_group_index, contiguous_start_commit_index, contiguous_end_commit_index, contiguous_length, global_build, provider, build_namespace, cluster_id, cluster_member_count FROM master_failures_raw_causes WHERE commit_index >= ? AND commit_index <= ?;"
 
 
 apiDetectedCodeBreakages :: DbIO [BuildResults.DetectedBreakageSpan]
