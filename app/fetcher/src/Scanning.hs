@@ -386,7 +386,11 @@ getAndStoreLog
         putStrLn "Storing log to database..."
 
         SqlWrite.storeLogInfo scan_resources build_step_id $
-          ScanRecords.LogInfo byte_count (length lines_list) ansi_stripped_log
+          ScanRecords.LogInfo
+            byte_count
+            (length lines_list)
+            ansi_stripped_log
+            (ansi_stripped_log /= raw_console_log)
 
         putStrLn "Log stored."
 

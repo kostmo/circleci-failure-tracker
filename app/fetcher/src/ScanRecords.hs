@@ -16,9 +16,10 @@ data UnidentifiedBuildFailure = NetworkProblem String | NoFailedSteps
 
 
 data LogInfo = LogInfo {
-    log_byte_count :: Int
-  , log_line_count :: Int
-  , log_content    :: Text
+    log_byte_count             :: Int
+  , log_line_count             :: Int
+  , log_content                :: Text
+  , modified_by_ansi_stripping :: Bool
   }
 
 

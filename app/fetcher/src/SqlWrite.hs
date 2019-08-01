@@ -302,35 +302,35 @@ updateCodeBreakageMode conn (AuthStages.Username author) cause_id mode =
     insertion_sql = "INSERT INTO master_failure_mode_attributions(cause_id, reporter, mode_id) VALUES(?,?,?);"
 
 
-update_pattern_description ::
+updatePatternDescription ::
      DbHelpers.DbConnectionData
   -> ScanPatterns.PatternId
   -> Text
   -> IO (Either Text Int64)
-update_pattern_description conn_data (ScanPatterns.PatternId pattern_id) description = do
+updatePatternDescription conn_data (ScanPatterns.PatternId pattern_id) description = do
   conn <- DbHelpers.get_connection conn_data
   Right <$> execute conn sql (description, pattern_id)
   where
     sql = "UPDATE patterns SET description = ? WHERE id = ?;"
 
 
-update_pattern_specificity ::
+updatePatternSpecificity ::
      DbHelpers.DbConnectionData
   -> ScanPatterns.PatternId
   -> Int
   -> IO (Either Text Int64)
-update_pattern_specificity conn_data (ScanPatterns.PatternId pattern_id) specificity = do
+updatePatternSpecificity conn_data (ScanPatterns.PatternId pattern_id) specificity = do
   conn <- DbHelpers.get_connection conn_data
   Right <$> execute conn sql (specificity, pattern_id)
   where
     sql = "UPDATE patterns SET specificity = ? WHERE id = ?;"
 
 
-insert_single_pattern ::
+insertSinglePattern ::
      Connection
   -> Either (ScanPatterns.Pattern, AuthStages.Username) (DbHelpers.WithAuthorship ScanPatterns.DbPattern)
   -> IO Int64
-insert_single_pattern conn either_pattern = do
+insertSinglePattern conn either_pattern = do
 
   [Only pattern_id] <- case maybe_id of
     Nothing -> query conn pattern_insertion_sql (is_regex, pattern_text, description, is_retired, has_nondeterminisic_values, specificity, lines_from_end)
@@ -384,10 +384,10 @@ restore_patterns conn_data pattern_list = do
   return $ sequenceA eithers
 
 
-step_failure_to_tuple ::
+stepFailureToTuple ::
      (Builds.UniversalBuildId, Either Builds.BuildWithStepFailure ScanRecords.UnidentifiedBuildFailure)
   -> (Maybe Text, Bool, Int64)
-step_failure_to_tuple (Builds.UniversalBuildId universal_buildnum, visitation_result) = case visitation_result of
+stepFailureToTuple (Builds.UniversalBuildId universal_buildnum, visitation_result) = case visitation_result of
   Right _ -> (Nothing, False, universal_buildnum)
   Left (Builds.BuildWithStepFailure _build_obj (Builds.NewBuildStepFailure stepname mode)) -> let
     is_timeout = case mode of
@@ -403,11 +403,19 @@ populate_presumed_stable_branches conn =
     sql = "INSERT INTO presumed_stable_branches(branch) VALUES(?);"
 
 
-storeLogInfo :: ScanRecords.ScanCatchupResources -> Builds.BuildStepId -> ScanRecords.LogInfo -> IO Int64
-storeLogInfo scan_resources (Builds.NewBuildStepId step_id) (ScanRecords.LogInfo byte_count line_count log_content) =
-  execute conn sql (step_id, line_count, byte_count, log_content)
+storeLogInfo ::
+     ScanRecords.ScanCatchupResources
+  -> Builds.BuildStepId
+  -> ScanRecords.LogInfo
+  -> IO Int64
+storeLogInfo
+    scan_resources
+    (Builds.NewBuildStepId step_id)
+    (ScanRecords.LogInfo byte_count line_count log_content modified_by_ansi_stripping) =
+
+  execute conn sql (step_id, line_count, byte_count, log_content, modified_by_ansi_stripping)
   where
-    sql = "INSERT INTO log_metadata(step, line_count, byte_count, content) VALUES(?,?,?,?) ON CONFLICT (step) DO UPDATE SET line_count = EXCLUDED.line_count, byte_count = EXCLUDED.byte_count, content = EXCLUDED.content;"
+    sql = "INSERT INTO log_metadata(step, line_count, byte_count, content, modified_by_ansi_stripping) VALUES(?,?,?,?,?) ON CONFLICT (step) DO UPDATE SET line_count = EXCLUDED.line_count, byte_count = EXCLUDED.byte_count, content = EXCLUDED.content, modified_by_ansi_stripping = EXCLUDED.modified_by_ansi_stripping;"
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
 
 
@@ -436,7 +444,7 @@ insertBuildVisitation ::
 insertBuildVisitation scan_resources (ubuild, visitation_result) = do
 
   [Only step_id] <- query conn sql $
-    step_failure_to_tuple (Builds.UniversalBuildId $ DbHelpers.db_id ubuild, visitation_result)
+    stepFailureToTuple (Builds.UniversalBuildId $ DbHelpers.db_id ubuild, visitation_result)
   return $ Builds.NewBuildStepId step_id
   where
     sql = "INSERT INTO build_steps(name, is_timeout, universal_build) VALUES(?,?,?) RETURNING id;"
@@ -569,7 +577,7 @@ apiNewPattern ::
 apiNewPattern conn new_pattern =
 
   catchViolation catcher $ do
-    record_id <- insert_single_pattern conn new_pattern
+    record_id <- insertSinglePattern conn new_pattern
     return $ Right record_id
 
   where

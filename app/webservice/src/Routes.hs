@@ -608,7 +608,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
     S.post "/api/pattern-specificity-update" $ do
       pattern_id <- S.param "pattern_id"
       specificity <- S.param "specificity"
-      let callback_func _user_alias = SqlWrite.update_pattern_specificity connection_data (ScanPatterns.PatternId pattern_id) specificity
+      let callback_func _user_alias = SqlWrite.updatePatternSpecificity connection_data (ScanPatterns.PatternId pattern_id) specificity
 
       rq <- S.request
       insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
@@ -617,7 +617,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
     S.post "/api/pattern-description-update" $ do
       pattern_id <- S.param "pattern_id"
       description <- S.param "description"
-      let callback_func _user_alias = SqlWrite.update_pattern_description connection_data (ScanPatterns.PatternId pattern_id) description
+      let callback_func _user_alias = SqlWrite.updatePatternDescription connection_data (ScanPatterns.PatternId pattern_id) description
 
       rq <- S.request
       insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
