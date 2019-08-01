@@ -411,7 +411,7 @@ apiUnmatchedCommitBuilds sha1 = do
   conn <- ask
   liftIO $ query conn sql $ Only sha1
   where
-    sql = "SELECT build, step_name, queued_at, job_name, unattributed_failed_builds.branch, builds_with_reports.universal_build, ci_providers.icon_url, ci_providers.label FROM unattributed_failed_builds JOIN builds_with_reports ON unattributed_failed_builds.global_build = builds_with_reports.universal_build JOIN ci_providers ON builds_with_reports.provider = ci_providers.id WHERE vcs_revision = ?"
+    sql = "SELECT build, step_name, queued_at, job_name, unattributed_failed_builds.branch, builds_join_steps.universal_build, ci_providers.icon_url, ci_providers.label FROM unattributed_failed_builds JOIN builds_join_steps ON unattributed_failed_builds.global_build = builds_join_steps.universal_build JOIN ci_providers ON builds_join_steps.provider = ci_providers.id WHERE vcs_revision = ?"
 
 
 apiIdiopathicCommitBuilds :: Text -> DbIO [WebApi.UnmatchedBuild]
@@ -420,7 +420,7 @@ apiIdiopathicCommitBuilds sha1 = do
   liftIO $ map f <$> query conn sql (Only sha1)
   where
     f (build, step_name, queued_at, job_name, branch, universal_build_id, provider_icon_url, provider_label) = WebApi.UnmatchedBuild (Builds.NewBuildNumber build) step_name queued_at job_name branch (Builds.UniversalBuildId universal_build_id) provider_icon_url provider_label
-    sql = "SELECT build, step_name, queued_at, job_name, idiopathic_build_failures.branch, builds_with_reports.universal_build, ci_providers.icon_url, ci_providers.label FROM idiopathic_build_failures JOIN builds_with_reports ON idiopathic_build_failures.global_build_num = builds_with_reports.universal_build JOIN ci_providers ON builds_with_reports.provider = ci_providers.id WHERE vcs_revision = ?"
+    sql = "SELECT build, step_name, queued_at, job_name, idiopathic_build_failures.branch, builds_join_steps.universal_build, ci_providers.icon_url, ci_providers.label FROM idiopathic_build_failures JOIN builds_join_steps ON idiopathic_build_failures.global_build_num = builds_join_steps.universal_build JOIN ci_providers ON builds_join_steps.provider = ci_providers.id WHERE vcs_revision = ?"
 
 
 apiTimeoutCommitBuilds :: Text -> DbIO [WebApi.UnmatchedBuild]

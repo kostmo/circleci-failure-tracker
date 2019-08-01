@@ -40,7 +40,6 @@ data CommitInfoCounts = NewCommitInfoCounts {
     _failed_build_count  :: Int
   , _timeout_count       :: Int
   , _matched_build_count :: Int
-  , _code_breakage_count :: Int
   , _flaky_build_count   :: Int
   , _known_broken_count  :: Int
   } deriving Generic
@@ -108,7 +107,7 @@ getBuildInfo access_token build@(Builds.UniversalBuildId build_id) = do
         build_obj = Builds.NewBuild (Builds.NewBuildNumber build_num) (Builds.RawCommit vcs_revision) queued_at job_name branch
         maybe_breakage_obj = Nothing
 
-    sql = "SELECT step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch FROM builds_with_reports where universal_build = ?;"
+    sql = "SELECT step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch FROM builds_join_steps where universal_build = ?;"
 
 
 countRevisionBuilds ::
@@ -121,7 +120,6 @@ countRevisionBuilds conn_data access_token git_revision = do
   [Only failed_count] <- query conn failed_count_sql only_commit
   [Only matched_count] <- query conn matched_count_sql only_commit
   [Only timeout_count] <- query conn timeout_count_sql only_commit
-  [Only reported_count] <- query conn reported_broken_count_sql only_commit
 
   revision_builds <- SqlRead.getRevisionBuilds conn_data git_revision
   flaky_pattern_ids <- SqlRead.getFlakyPatternIds conn
@@ -140,7 +138,6 @@ countRevisionBuilds conn_data access_token git_revision = do
       failed_count
       timeout_count
       matched_count
-      reported_count
       flaky_build_count
       known_broken_count
 
@@ -151,7 +148,6 @@ countRevisionBuilds conn_data access_token git_revision = do
     timeout_count_sql = "SELECT COUNT(*) FROM builds_join_steps WHERE vcs_revision = ? AND is_timeout;"
     failed_count_sql = "SELECT COUNT(*) FROM global_builds WHERE vcs_revision = ?;"
     matched_count_sql = "SELECT COUNT(*) FROM best_pattern_match_augmented_builds WHERE vcs_revision = ?;"
-    reported_broken_count_sql = "SELECT COUNT(*) FROM builds_with_reports WHERE vcs_revision = ? AND is_broken;"
     known_broken_count_sql = "SELECT COUNT(*) FROM global_builds WHERE vcs_revision = ? AND job_name IN ?;"
 
 

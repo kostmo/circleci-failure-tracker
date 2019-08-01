@@ -6,8 +6,7 @@ import           Control.Monad                   (unless, when)
 import           Control.Monad.IO.Class          (liftIO)
 import           Control.Monad.Trans.Except      (ExceptT (ExceptT), except,
                                                   runExceptT)
-import           Control.Monad.Trans.Reader      (runReaderT)
-import           Control.Monad.Trans.Reader      (ReaderT)
+import           Control.Monad.Trans.Reader      (ReaderT, runReaderT)
 import           Data.Aeson                      (ToJSON)
 import           Data.Bifunctor                  (first)
 import qualified Data.ByteString.Lazy.Char8      as LBSC

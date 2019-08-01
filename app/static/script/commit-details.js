@@ -10,11 +10,9 @@ function populate_commit_info(commit_sha1) {
 			["Commit ancestry:", github_link],
 			["Failed build count:", counts_obj["failed_build_count"]],
 			["Matched build count:", counts_obj["matched_build_count"]],
-			["Ad hoc reported breakage count:", counts_obj["code_breakage_count"]],
 			["Flaky build count:", counts_obj["flaky_build_count"]],
 			["Timeout count:", counts_obj["timeout_count"]],
 			["Known code breakages count:", counts_obj["known_broken_count"]],
-
 		];
 
 		var stats_table = render_table_vertical_headers(items);
