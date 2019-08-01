@@ -396,8 +396,8 @@ stepFailureToTuple (Builds.UniversalBuildId universal_buildnum, visitation_resul
     in (Just stepname, is_timeout, universal_buildnum)
 
 
-populate_presumed_stable_branches :: Connection -> [Text] -> IO Int64
-populate_presumed_stable_branches conn =
+populatePresumedStableBranches :: Connection -> [Text] -> IO Int64
+populatePresumedStableBranches conn =
   executeMany conn sql . map Only
   where
     sql = "INSERT INTO presumed_stable_branches(branch) VALUES(?);"

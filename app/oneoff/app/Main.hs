@@ -38,7 +38,7 @@ mainAppCode args = do
 
   hSetBuffering stdout LineBuffering
 
-  conn <- DbPreparation.prepare_database connection_data False
+  conn <- DbPreparation.prepareDatabase connection_data False
 
 
   -- Experimental

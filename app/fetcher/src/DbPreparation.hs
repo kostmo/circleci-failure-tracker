@@ -42,15 +42,15 @@ allTableTruncations :: [Query]
 allTableTruncations = scanTruncations ++ buildDataTruncations
 
 
-prepare_database :: DbHelpers.DbConnectionData -> Bool -> IO Connection
-prepare_database conn_data wipe = do
+prepareDatabase :: DbHelpers.DbConnectionData -> Bool -> IO Connection
+prepareDatabase conn_data wipe = do
 
   conn <- DbHelpers.get_connection conn_data
 
   when wipe $ do
     scrub_tables conn
     PatternsFetch.populate_patterns conn_data
-    SqlWrite.populate_presumed_stable_branches conn Constants.presumedGoodBranches
+    SqlWrite.populatePresumedStableBranches conn Constants.presumedGoodBranches
     return ()
   return conn
 

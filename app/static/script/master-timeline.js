@@ -375,7 +375,18 @@ function define_column(col) {
 				cell.getElement().style.backgroundColor = "#f664";
 			}
 
-			if (detected_contiguous_breakage) {
+
+			if (detected_contiguous_breakage && detected_lateral_breakage) {
+
+				// Repeat 3 times wthin a cell
+				cell.getElement().style.backgroundSize = "33.3% 33.3%";
+
+				// checkers
+				const stripes_color_hex = "00c";
+				const stripes_opacity_fraction = 0.7; // between 0 and 1
+				cell.getElement().style.backgroundImage = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 8 8'%3E%3Cg fill='%239C92AC' fill-opacity='0.4'%3E%3Cpath fill-rule='evenodd' d='M0 0h4v4H0V0zm4 4h4v4H4V4z'/%3E%3C/g%3E%3C/svg%3E\")";
+
+			} else if (detected_contiguous_breakage) {
 				// Repeat 3 times wthin a cell
 				cell.getElement().style.backgroundSize = "33.3%";
 
@@ -383,6 +394,7 @@ function define_column(col) {
 				const stripes_color_hex = "00c";
 				const stripes_opacity_fraction = 0.7; // between 0 and 1
 				cell.getElement().style.backgroundImage = "url(\"data:image/svg+xml,%3Csvg width='40' height='1' viewBox='0 0 40 1' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0h20v1H0z' fill='%23" + stripes_color_hex + "' fill-opacity='" + stripes_opacity_fraction + "' fill-rule='evenodd'/%3E%3C/svg%3E\")";
+
 			} else if (detected_lateral_breakage) {
 
 				// Repeat 3 times wthin a cell
@@ -391,7 +403,8 @@ function define_column(col) {
 				// horizontal stripes
 				const stripes_color_hex = "00c";
 				const stripes_opacity_fraction = 0.7; // between 0 and 1
-				cell.getElement().style.backgroundImage = "url(\"data:image/svg+xml,%3Csvg width='1' height='40' viewBox='0 0 1 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0h1v20H0z' fill='%23" + stripes_color_hex + "' fill-opacity='" + stripes_opacity_fraction + "' fill-rule='evenodd'/%3E%3C/svg%3E\")";
+				cell.getElement().style.backgroundImage = "url(\"data:image/svg+xml,%3Csvg width='1' height='40' viewBox='0 0 1 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 20h1v20H0z' fill='%23" + stripes_color_hex + "' fill-opacity='" + stripes_opacity_fraction + "' fill-rule='evenodd'/%3E%3C/svg%3E\")";
+
 			}
 
 			const context_menu_items = get_context_menu_items_for_cell(cell);

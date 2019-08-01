@@ -47,7 +47,7 @@ mainAppCode args = do
   capability_count <- getNumCapabilities
   print $ "Num capabilities: " ++ show capability_count
 
-  conn <- DbPreparation.prepare_database connection_data $ wipeDatabase args
+  conn <- DbPreparation.prepareDatabase connection_data $ wipeDatabase args
 
 
   -- Experimental
