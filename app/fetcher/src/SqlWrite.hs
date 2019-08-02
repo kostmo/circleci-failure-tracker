@@ -141,12 +141,18 @@ storeCircleCiBuildsList conn builds_list = do
   universal_build_insertion_output_rows <- returning conn sqlInsertUniversalBuild $ map input_f universal_builds
 
   let zipped_output1 = zipWith (\(Only row_id) ubuild -> DbHelpers.WithId row_id ubuild) universal_build_insertion_output_rows universal_builds
-      zipped_output2 = zipWith Builds.StorableBuild zipped_output1 $ map fst builds_list
+      zipped_output2 = zipWith (\(DbHelpers.WithId ubuild_id _ubuild) rbuild -> DbHelpers.WithTypedId (Builds.UniversalBuildId ubuild_id) rbuild) zipped_output1 $ map fst builds_list
 
   storeBuildsList conn zipped_output2
 
   where
-    mk_ubuild (b, succeeded) = Builds.UniversalBuild (Builds.build_id b) circleCIProviderIndex "" succeeded (Builds.vcs_revision b)
+    mk_ubuild (b, succeeded) = Builds.UniversalBuild
+      (Builds.build_id b)
+      circleCIProviderIndex
+      "" -- ^ no build numbering namespace qualifier for CircleCI builds
+      succeeded
+      (Builds.vcs_revision b)
+
     universal_builds = map mk_ubuild builds_list
 
     input_f (Builds.UniversalBuild (Builds.NewBuildNumber provider_buildnum) provider_id build_namespace succeeded (Builds.RawCommit sha1)) = (provider_id, provider_buildnum, build_namespace, succeeded, sha1)
@@ -154,18 +160,18 @@ storeCircleCiBuildsList conn builds_list = do
 
 -- | This is idempotent; builds that are already present will not be overwritten
 --
--- TODO Need to make sure that legit values are not overwritten with NULL
-storeBuildsList :: Connection -> [Builds.StorableBuild] -> IO Int64
+-- Need to make sure that legit values are not overwritten with NULL
+storeBuildsList :: Connection -> [DbHelpers.WithTypedId Builds.UniversalBuildId Builds.Build] -> IO Int64
 storeBuildsList conn builds_list =
   executeMany conn sql $ map f builds_list
   where
-    f (Builds.StorableBuild universal_build rbuild) =
-      (queued_at_string, jobname, branch, DbHelpers.db_id universal_build, start_time, stop_time)
+    f (DbHelpers.WithTypedId (Builds.UniversalBuildId universal_build_id) rbuild) =
+      (queued_at_string, jobname, branch, universal_build_id, start_time, stop_time)
       where
         queued_at_string = T.pack $ formatTime defaultTimeLocale rfc822DateFormat queuedat
         (Builds.NewBuild _ _ queuedat jobname branch start_time stop_time) = rbuild
 
-    sql = "INSERT INTO builds(queued_at, job_name, branch, global_build_num, started_at, finished_at) VALUES(?,?,?,?,?,?) ON CONFLICT DO UPDATE SET branch = COALESCE(builds.branch, EXCLUDED.branch), queued_at = COALESCE(builds.queued_at, EXCLUDED.queued_at), started_at = COALESCE(builds.started_at, EXCLUDED.started_at), finished_at = COALESCE(builds.finished_at, EXCLUDED.finished_at);"
+    sql = "INSERT INTO builds(queued_at, job_name, branch, global_build_num, started_at, finished_at) VALUES(?,?,?,?,?,?) ON CONFLICT (global_build_num) DO UPDATE SET branch = COALESCE(builds.branch, EXCLUDED.branch), queued_at = COALESCE(builds.queued_at, EXCLUDED.queued_at), started_at = COALESCE(builds.started_at, EXCLUDED.started_at), finished_at = COALESCE(builds.finished_at, EXCLUDED.finished_at);"
 
 
 storeMatches ::

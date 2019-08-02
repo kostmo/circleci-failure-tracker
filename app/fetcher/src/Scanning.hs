@@ -53,6 +53,7 @@ scanBuilds scan_resources revisit whitelisted_builds_or_fetch_count = do
       visited_builds_list <- SqlRead.getRevisitableBuilds conn
       let whitelisted_visited = visited_filter visited_builds_list
       rescanVisitedBuilds scan_resources whitelisted_visited
+
     else do
       putStrLn "NOT rescanning previously-visited builds!"
       return []
@@ -95,14 +96,14 @@ rescanSingleBuild db_connection_data initiator build_to_scan = do
 
   case either_visitation_result of
     Right _ -> return ()
-    Left (Builds.BuildWithStepFailure _build_obj _step_failure) -> do
+    Left (Builds.BuildWithStepFailure build_obj _step_failure) -> do
 
       -- TODO It seems that this is irrelevant/redundant,
       -- since we just looked up the build from the database!
       --
       -- Perhaps instead we need to *update fields* of the stored record
       -- from information we obtained from an API fetch
-      SqlWrite.storeBuildsList conn [parent_build]
+      SqlWrite.storeBuildsList conn [DbHelpers.WithTypedId build_to_scan build_obj]
 
       scan_matches <- scanBuilds scan_resources True $ Left $ Set.singleton build_to_scan
 
@@ -214,12 +215,39 @@ catchupScan
       let matches = scanLogText lines_list applicable_patterns
 
       liftIO $ do
+        putStrLn $ unwords [
+            "Now storing"
+          , show $ length matches
+          , "matches for build"
+          , show buildnum
+          , "and step"
+          , show buildstep_id ++ "..."
+          ]
+
         SqlWrite.storeMatches scan_resources buildstep_id buildnum matches
+
+        putStrLn $ unwords [
+            "Finished storing"
+          , show $ length matches
+          , "matches."
+          ]
+
+
+        putStrLn $ unwords [
+            "Now storing largest scanned pattern ID:"
+          , show maximum_pattern_id
+          ]
 
         SqlWrite.insertLatestPatternBuildScan
           scan_resources
           buildstep_id
           maximum_pattern_id
+
+        putStrLn $ unwords [
+            "Stored largest scanned pattern ID"
+          , show maximum_pattern_id ++ "."
+          ]
+
 
       return matches
   where
@@ -240,8 +268,12 @@ rescanVisitedBuilds scan_resources visited_builds_list =
       , "(" ++ show (DbHelpers.db_id universal_build_with_id) ++ ")..."
       ]
 
-    either_matches <- catchupScan scan_resources build_step_id step_name (universal_build_with_id, Nothing) $
-      getPatternObjects scan_resources pattern_ids
+    either_matches <- catchupScan
+      scan_resources
+      build_step_id
+      step_name
+      (universal_build_with_id, Nothing) $
+        getPatternObjects scan_resources pattern_ids
 
     return (universal_build_with_id, Either.fromRight [] either_matches)
 
@@ -276,8 +308,11 @@ processUnvisitedBuilds scan_resources unvisited_builds_list =
       Right _ -> return $ Right []
       Left (Builds.BuildWithStepFailure _build_obj (Builds.NewBuildStepFailure step_name mode)) -> case mode of
         Builds.BuildTimeoutFailure             -> return $ Right []
-        Builds.ScannableFailure failure_output ->
-          catchupScan scan_resources build_step_id step_name (universal_build_obj, Just failure_output) $
+        Builds.ScannableFailure failure_output -> catchupScan
+          scan_resources
+          build_step_id
+          step_name
+          (universal_build_obj, Just failure_output) $
             ScanRecords.get_patterns_with_id scan_resources
 
     return (universal_build_obj, Either.fromRight [] either_matches)
@@ -344,7 +379,7 @@ getAndStoreLog
 
   maybe_console_log <- if overwrite
     then return Nothing
-    else SqlRead.readLog conn $ Builds.UniversalBuildId $ DbHelpers.db_id universal_build
+    else SqlRead.readLog conn universal_build_id
 
   case maybe_console_log of
     Just console_log -> return $ Right $ T.lines console_log  -- Log was already fetched
@@ -356,11 +391,18 @@ getAndStoreLog
             scan_resources
             (Builds.provider_buildnum $ DbHelpers.record universal_build)
 
-          return $ case visitation_result of
-            Right _ -> Left "This build didn't have a console log!"
-            Left (Builds.BuildWithStepFailure _build_obj (Builds.NewBuildStepFailure _step_name mode)) -> case mode of
-              Builds.BuildTimeoutFailure             -> Left "This build didn't have a console log because it was a timeout!"
-              Builds.ScannableFailure failure_output -> Right $ Builds.log_url failure_output
+          case visitation_result of
+            Right _ -> return $ Left "This build didn't have a console log!"
+            Left (Builds.BuildWithStepFailure build_obj (Builds.NewBuildStepFailure _step_name mode)) -> do
+
+              -- Store the build metadata again, because the first time may have been
+              -- obtained through the GitHub notification, which lacks build duration
+              -- and branch name.
+              SqlWrite.storeBuildsList conn [DbHelpers.WithTypedId universal_build_id build_obj]
+
+              return $ case mode of
+                Builds.BuildTimeoutFailure             -> Left "This build didn't have a console log because it was a timeout!"
+                Builds.ScannableFailure failure_output -> Right $ Builds.log_url failure_output
 
 
       liftIO $ putStrLn $ "Downloading log from: " ++ T.unpack download_url
@@ -399,6 +441,8 @@ getAndStoreLog
   where
     aws_sess = ScanRecords.aws_sess $ ScanRecords.fetching scan_resources
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
+
+    universal_build_id = Builds.UniversalBuildId $ DbHelpers.db_id universal_build
 
 
 -- | Strips bold markup and coloring

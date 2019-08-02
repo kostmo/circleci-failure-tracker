@@ -233,8 +233,11 @@ handleFailedStatuses
   builds_with_flaky_pattern_matches <- liftIO $ do
     conn <- DbHelpers.get_connection db_connection_data
     scan_resources <- Scanning.prepareScanResources conn maybe_initiator
-    SqlWrite.storeBuildsList conn circleci_failed_builds
-    scan_matches <- Scanning.scanBuilds scan_resources True $ Left $ Set.fromList scannable_build_numbers
+
+    SqlWrite.storeBuildsList conn $ map (\(Builds.StorableBuild (DbHelpers.WithId ubuild_id _ubuild) rbuild) -> DbHelpers.WithTypedId (Builds.UniversalBuildId ubuild_id) rbuild) circleci_failed_builds
+
+    scan_matches <- Scanning.scanBuilds scan_resources True $
+      Left $ Set.fromList scannable_build_numbers
 
     -- TODO - we should instead see if the "best matching pattern" is
     -- flaky, rather than checking if *any* matching pattern is a

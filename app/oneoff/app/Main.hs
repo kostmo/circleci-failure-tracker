@@ -42,13 +42,12 @@ mainAppCode args = do
 
 
   -- Experimental
-
   scan_resources <- Scanning.prepareScanResources conn $ Just Constants.defaultPatternAuthor
+
+  build_failure_result <- Scanning.getCircleCIFailedBuildInfo scan_resources $ Builds.NewBuildNumber 2340371
+  putStrLn $ "Build failure retrieval result: " ++ show build_failure_result
   return ()
   {-
-  my_scan_result <- Scanning.getCircleCIFailedBuildInfo scan_resources $ Builds.NewBuildNumber 2102088
-  putStrLn $ "My scan result: " ++ show my_scan_result
-
 
   either_logstore_result <- Scanning.getAndStoreLog
     scan_resources

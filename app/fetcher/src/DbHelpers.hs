@@ -44,6 +44,12 @@ instance ToJSON a => ToJSON (WithAuthorship a)
 instance FromJSON a => FromJSON (WithAuthorship a)
 
 
+data WithTypedId a b = WithTypedId {
+    typed_id     :: a
+  , typed_record :: b
+  } deriving Generic
+
+
 data WithId a = WithId {
     db_id  :: Int64
   , record :: a
