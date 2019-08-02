@@ -428,6 +428,10 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     get "/api/failed-commits-by-day" SqlRead.apiFailedCommitsByDay
 
+    get "/api/code-breakages-leftover-by-commit" SqlRead.apiLeftoverCodeBreakagesByCommit
+
+    get "/api/code-breakages-leftover-detected" SqlRead.apiLeftoverDetectedCodeBreakages
+
     get "/api/code-breakages-detected" SqlRead.apiDetectedCodeBreakages
 
     get "/api/code-breakages-annotated" SqlRead.apiAnnotatedCodeBreakages

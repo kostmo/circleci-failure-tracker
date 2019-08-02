@@ -766,6 +766,68 @@ getMasterCommits conn parent_offset_mode =
     sql_commit_id_bounds = "SELECT ordered_master_commits.id, ordered_master_commits.sha1, message, tree_sha1, author_name, author_email, author_date, committer_name, committer_email, committer_date FROM ordered_master_commits LEFT JOIN commit_metadata ON commit_metadata.sha1 = ordered_master_commits.sha1 WHERE id >= ? AND id <= ? ORDER BY id DESC"
 
 
+data NonannotatedBuildBreakages = NonannotatedBuildBreakages {
+    _detected_breakages :: BuildResults.DetectedBreakageModes
+  , _universal_build    :: DbHelpers.WithTypedId Builds.UniversalBuildId Builds.UniversalBuild
+  } deriving Generic
+
+instance ToJSON NonannotatedBuildBreakages where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+instance FromRow NonannotatedBuildBreakages where
+  fromRow = do
+    detected_directional_breakages <- fromRow
+
+    universal_build_id <- field
+
+    universal_build_obj <- fromRow
+
+    let wrapped_universal_build = DbHelpers.WithTypedId
+          (Builds.UniversalBuildId universal_build_id)
+          universal_build_obj
+
+    return $ NonannotatedBuildBreakages
+      detected_directional_breakages
+      wrapped_universal_build
+
+
+
+data CommitBreakageRegionCounts = CommitBreakageRegionCounts {
+    _commit            :: DbHelpers.WithId Builds.RawCommit
+  , _only_longitudinal :: Int64
+  , _only_lateral      :: Int64
+  , _both              :: Int64
+  } deriving Generic
+
+instance ToJSON CommitBreakageRegionCounts where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+instance FromRow CommitBreakageRegionCounts where
+  fromRow = do
+    commit_with_id <- fromRow
+    num1 <- field
+    num2 <- field
+    num3 <- field
+
+    return $ CommitBreakageRegionCounts
+      commit_with_id
+      num1
+      num2
+      num3
+
+
+apiLeftoverCodeBreakagesByCommit :: DbIO [CommitBreakageRegionCounts]
+apiLeftoverCodeBreakagesByCommit = runQuery
+  "SELECT id, vcs_revision, only_longitudinal_breakages, only_lateral_breakages, both_breakages FROM master_unmarked_breakage_regions_by_commit;"
+
+
+
+apiLeftoverDetectedCodeBreakages :: DbIO [NonannotatedBuildBreakages]
+apiLeftoverDetectedCodeBreakages = runQuery
+  "SELECT master_detected_breakages_without_annotations.contiguous_group_position, master_detected_breakages_without_annotations.contiguous_group_index, master_detected_breakages_without_annotations.contiguous_start_commit_index, master_detected_breakages_without_annotations.contiguous_end_commit_index, master_detected_breakages_without_annotations.contiguous_length, master_detected_breakages_without_annotations.cluster_id, master_detected_breakages_without_annotations.cluster_member_count, builds_join_steps.universal_build, builds_join_steps.build_num, builds_join_steps.provider, builds_join_steps.build_namespace, builds_join_steps.succeeded, builds_join_steps.vcs_revision FROM master_detected_breakages_without_annotations JOIN builds_join_steps ON master_detected_breakages_without_annotations.universal_build = builds_join_steps.universal_build;"
+
+
 instance FromRow BuildResults.SimpleBuildStatus where
   fromRow = do
     sha1 <- field
@@ -789,18 +851,15 @@ instance FromRow BuildResults.SimpleBuildStatus where
     span_end <- field
     specificity <- field
     is_serially_isolated <- field
-    contiguous_run_count <- field
-    contiguous_group_index <- field
-    contiguous_start_commit_index <- field
-    contiguous_end_commit_index <- field
-    contiguous_length <- field
+
+    maybe_started_at <- field
+    maybe_finished_at <- field
+
     universal_build_id <- field
     provider_id <- field
     build_namespace <- field
-    maybe_cluster_id <- field
-    maybe_cluster_member_count <- field
-    maybe_started_at <- field
-    maybe_finished_at <- field
+
+    detected_directional_breakages <- fromRow
 
     let
       failure_mode
@@ -810,16 +869,6 @@ instance FromRow BuildResults.SimpleBuildStatus where
         | is_matched = BuildResults.FailedStep step_name $ BuildResults.PatternMatch match_obj
         | otherwise = BuildResults.FailedStep step_name BuildResults.NoMatch
 
-      maybe_contiguous_member = BuildResults.ContiguousBreakageMember
-        <$> contiguous_run_count
-        <*> contiguous_group_index
-        <*> contiguous_start_commit_index
-        <*> contiguous_end_commit_index
-        <*> contiguous_length
-
-      maybe_lateral_breakage = BuildResults.LateralBreakageMember
-        <$> maybe_cluster_member_count
-        <*> maybe_cluster_id
 
       wrapped_build_num = Builds.NewBuildNumber build_num
       wrapped_commit = Builds.RawCommit sha1
@@ -857,8 +906,7 @@ instance FromRow BuildResults.SimpleBuildStatus where
       failure_mode
       is_flaky
       is_known_broken
-      maybe_contiguous_member
-      maybe_lateral_breakage
+      detected_directional_breakages
       is_serially_isolated
       ubuild_obj
 
@@ -889,7 +937,7 @@ apiMasterBuilds offset_limit = do
       code_breakage_ranges
 
   where
-    failures_sql = "SELECT sha1, succeeded, is_idiopathic, is_flaky, is_timeout, is_matched, is_known_broken, build_num, queued_at, job_name, branch, step_name, pattern_id, match_id, line_number, line_count, line_text, span_start, span_end, specificity, is_serially_isolated, contiguous_run_count, contiguous_group_index, contiguous_start_commit_index, contiguous_end_commit_index, contiguous_length, global_build, provider, build_namespace, cluster_id, cluster_member_count, started_at, finished_at FROM master_failures_raw_causes WHERE commit_index >= ? AND commit_index <= ?;"
+    failures_sql = "SELECT sha1, succeeded, is_idiopathic, is_flaky, is_timeout, is_matched, is_known_broken, build_num, queued_at, job_name, branch, step_name, pattern_id, match_id, line_number, line_count, line_text, span_start, span_end, specificity, is_serially_isolated, started_at, finished_at, global_build, provider, build_namespace, contiguous_run_count, contiguous_group_index, contiguous_start_commit_index, contiguous_end_commit_index, contiguous_length, cluster_id, cluster_member_count FROM master_failures_raw_causes WHERE commit_index >= ? AND commit_index <= ?;"
 
 
 apiDetectedCodeBreakages :: DbIO [BuildResults.DetectedBreakageSpan]

@@ -368,8 +368,8 @@ function define_column(col) {
 			const open_breakages = get_open_breakages(cell);
 			const has_open_breakage = open_breakages.length > 0;
 
-			const detected_contiguous_breakage = cell_value && cell_value.contiguous_breakage != null;
-			const detected_lateral_breakage = cell_value && cell_value.lateral_breakage != null;
+			const detected_contiguous_breakage = cell_value && cell_value.detected_breakages.longitudinal_breakage != null;
+			const detected_lateral_breakage = cell_value && cell_value.detected_breakages.lateral_breakage != null;
 
 			if (has_open_breakage) {
 				cell.getElement().style.backgroundColor = "#f664";

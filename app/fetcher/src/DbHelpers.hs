@@ -49,6 +49,8 @@ data WithTypedId a b = WithTypedId {
   , typed_record :: b
   } deriving Generic
 
+instance (ToJSON a, ToJSON b) => ToJSON (WithTypedId a b)
+
 
 data WithId a = WithId {
     db_id  :: Int64
@@ -60,7 +62,6 @@ instance FromJSON a => FromJSON (WithId a)
 
 instance FromRow a => FromRow (WithId a) where
   fromRow = WithId <$> field <*> fromRow
-
 
 
 data DbConnectionData = NewDbConnectionData {

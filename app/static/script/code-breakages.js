@@ -45,6 +45,22 @@ function gen_detected_breakages_table(element_id, data_url) {
 }
 
 
+function gen_nonannotated_detected_breakages_table(element_id, data_url) {
+
+	var table = new Tabulator("#" + element_id, {
+		height:"300px",
+		layout:"fitColumns",
+		placeholder:"No Data Set",
+		columns:[
+			{title: "Job count", field: "job_count",
+				width: 75,
+			},
+		],
+		ajaxURL: data_url,
+	});
+}
+
+
 function getModesSelectorValues(failure_modes_dict) {
 
 	var modes_by_revertibility = {};
@@ -103,6 +119,27 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 					width:40,
 					align:"center",
 				},
+				{title:"#",
+					headerSort: false,
+					formatter: function(cell, formatterParams, onRendered) {
+
+						const row_data = cell.getRow().getData();
+
+						const start_commit_index = row_data["start"]["record"]["payload"]["breakage_commit"]["db_id"];
+
+						var link_url = "/master-timeline.html";
+						if (row_data["end"] != null) {
+							const end_commit_index = row_data["end"]["record"]["payload"]["resolution_commit"]["db_id"];
+							link_url = "/master-timeline.html?min_commit_index=" + start_commit_index + "&max_commit_index=" + end_commit_index;
+						}
+
+						return link("<img src='/images/view-icon.png' style='width: 16;'/>", link_url);
+					},
+					width:40,
+					align:"center",
+				},
+
+
 			]},
 			{title: "Mode", width: 250, field: "start.record.payload.failure_mode.payload",
 				formatter: function(cell, formatterParams, onRendered) {
@@ -255,7 +292,6 @@ function gen_failure_modes_chart(container_id) {
 				data: data.rows,
 			}],
 		});
-
 	});
 }
 
@@ -278,7 +314,10 @@ function main() {
 
 	gen_failure_modes_chart("container-failure-modes");
 
+	gen_nonannotated_detected_breakages_table("detected-leftovers-table", "/api/code-breakages-leftover-detected");
 	gen_detected_breakages_table("detected-breakages-table", "/api/code-breakages-detected");
 
+	// TODO
+//	gen_nonannotated_commit_detected_breakages_table("detected-commit-leftovers-table", "/api/code-breakages-leftover-by-commit");
 }
 

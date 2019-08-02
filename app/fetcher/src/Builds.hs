@@ -20,7 +20,12 @@ masterName = "master"
 
 
 newtype RawCommit = RawCommit Text
- deriving (Generic, Show)
+ deriving (Generic, Show, FromRow)
+
+-- TODO do error handling: http://hackage.haskell.org/package/postgresql-simple-0.6.2/docs/Database-PostgreSQL-Simple-FromField.html
+instance FromField RawCommit where
+  fromField f mdata = RawCommit <$> fromField f mdata
+
 
 instance ToJSON RawCommit
 instance FromJSON RawCommit
@@ -71,6 +76,24 @@ data UniversalBuild = UniversalBuild {
 
 instance ToJSON UniversalBuild
 
+instance FromRow UniversalBuild where
+  fromRow = do
+    provider_buildnum <- field
+    provider_id <- field
+    build_namespace <- field
+    succeeded <- field
+    sha1 <- field
+
+    let wrapped_commit = Builds.RawCommit sha1
+        u_build_obj = UniversalBuild
+          provider_buildnum
+          provider_id
+          build_namespace
+          succeeded
+          wrapped_commit
+
+    return u_build_obj
+
 
 data StorableBuild = StorableBuild {
     universal_build :: DbHelpers.WithId UniversalBuild -- ^ this already came from database
@@ -83,11 +106,11 @@ instance ToJSON StorableBuild
 instance FromRow StorableBuild where
   fromRow = do
     global_build_num <- field
-    provider_buildnum <- field
-    provider_id <- field
-    build_namespace <- field
-    succeeded <- field
-    sha1 <- field
+
+    u_build_obj <- fromRow
+
+    let wrapped_commit = sha1 u_build_obj
+        provider_build_number = provider_buildnum u_build_obj
 
     queued_at <- field
     job_name <- field
@@ -95,16 +118,8 @@ instance FromRow StorableBuild where
     start_time <- field
     stop_time <- field
 
-    let wrapped_commit = Builds.RawCommit sha1
-        u_build_obj = UniversalBuild
-          provider_buildnum
-          provider_id
-          build_namespace
-          succeeded
-          wrapped_commit
-
-        inner_build_obj = NewBuild
-          provider_buildnum
+    let inner_build_obj = NewBuild
+          provider_build_number
           wrapped_commit
           queued_at
           job_name

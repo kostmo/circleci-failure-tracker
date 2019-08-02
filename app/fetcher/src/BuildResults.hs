@@ -58,13 +58,55 @@ instance ToJSON FailureMode where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
+readMaybeLongitudinalCluster = do
+  contiguous_run_count <- field
+  contiguous_group_index <- field
+  contiguous_start_commit_index <- field
+  contiguous_end_commit_index <- field
+  contiguous_length <- field
+
+  return $ BuildResults.ContiguousBreakageMember
+    <$> contiguous_run_count
+    <*> contiguous_group_index
+    <*> contiguous_start_commit_index
+    <*> contiguous_end_commit_index
+    <*> contiguous_length
+
+
+readMaybeLateralCluster = do
+  maybe_cluster_id <- field
+  maybe_cluster_member_count <- field
+
+  return $ BuildResults.LateralBreakageMember
+    <$> maybe_cluster_member_count
+    <*> maybe_cluster_id
+
+
+data DetectedBreakageModes = DetectedBreakageModes {
+    _longitudinal_breakage :: Maybe ContiguousBreakageMember
+  , _lateral_breakage      :: Maybe LateralBreakageMember
+  } deriving Generic
+
+instance ToJSON DetectedBreakageModes where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+instance FromRow DetectedBreakageModes where
+  fromRow = do
+
+    maybe_contiguous_member <- readMaybeLongitudinalCluster
+    maybe_lateral_breakage <- readMaybeLateralCluster
+
+    return $ DetectedBreakageModes
+      maybe_contiguous_member
+      maybe_lateral_breakage
+
+
 data SimpleBuildStatus = SimpleBuildStatus {
     _build               :: Builds.Build
   , _failure_mode        :: FailureMode
   , _is_flaky            :: Bool
   , _is_known_broken     :: Bool
-  , _contiguous_breakage :: Maybe ContiguousBreakageMember
-  , _lateral_breakage    :: Maybe LateralBreakageMember
+  , _detected_breakages  :: DetectedBreakageModes
   , _is_isolated_failure :: Bool
   , _universal_build     :: DbHelpers.WithId Builds.UniversalBuild
 --  , _ci_provider         :: DbHelpers.WithId Builds.CiProvider
