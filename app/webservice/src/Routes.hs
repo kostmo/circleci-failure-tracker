@@ -592,7 +592,9 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
           callback_func _user_alias = do
             conn <- DbHelpers.get_connection connection_data
 
+            putStrLn "getting global build"
             storable_build <- SqlRead.getGlobalBuild conn universal_build_id
+            putStrLn "got global build"
 
             -- TODO SqlRead.readLog should accept a universal build number
             maybe_log <- SqlRead.readLog conn $ Builds.UniversalBuildId $ DbHelpers.db_id $ Builds.universal_build storable_build

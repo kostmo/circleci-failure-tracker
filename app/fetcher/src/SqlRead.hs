@@ -141,7 +141,7 @@ getGlobalBuild conn (Builds.UniversalBuildId global_build_num) = do
   [x] <- query conn sql $ Only global_build_num
   return x
   where
-    sql = "SELECT global_build_num, build_number, provider, build_namespace, succeeded, vcs_revision, queued_at, job_name, branch FROM global_builds WHERE global_build_num = ?;"
+    sql = "SELECT global_build_num, build_number, provider, build_namespace, succeeded, vcs_revision, queued_at, job_name, branch, started_at, finished_at FROM global_builds WHERE global_build_num = ?;"
 
 
 getRevisitableBuilds ::
@@ -810,14 +810,12 @@ instance FromRow BuildResults.SimpleBuildStatus where
         | is_matched = BuildResults.FailedStep step_name $ BuildResults.PatternMatch match_obj
         | otherwise = BuildResults.FailedStep step_name BuildResults.NoMatch
 
-      maybe_contiguous_member = if is_serially_isolated
-        then Nothing
-        else Just $ BuildResults.ContiguousBreakageMember
-          contiguous_run_count
-          contiguous_group_index
-          contiguous_start_commit_index
-          contiguous_end_commit_index
-          contiguous_length
+      maybe_contiguous_member = BuildResults.ContiguousBreakageMember
+        <$> contiguous_run_count
+        <*> contiguous_group_index
+        <*> contiguous_start_commit_index
+        <*> contiguous_end_commit_index
+        <*> contiguous_length
 
       maybe_lateral_breakage = BuildResults.LateralBreakageMember
         <$> maybe_cluster_member_count
@@ -861,6 +859,7 @@ instance FromRow BuildResults.SimpleBuildStatus where
       is_known_broken
       maybe_contiguous_member
       maybe_lateral_breakage
+      is_serially_isolated
       ubuild_obj
 
 

@@ -202,7 +202,8 @@ CREATE TABLE public.log_metadata (
     line_count integer NOT NULL,
     byte_count integer NOT NULL,
     step integer NOT NULL,
-    content text
+    content text,
+    modified_by_ansi_stripping boolean
 );
 
 
@@ -520,7 +521,9 @@ CREATE VIEW public.builds_join_steps WITH (security_barrier='false') AS
     build_steps.universal_build,
     global_builds.provider,
     global_builds.succeeded,
-    global_builds.build_namespace
+    global_builds.build_namespace,
+    global_builds.started_at,
+    global_builds.finished_at
    FROM (public.build_steps
      JOIN public.global_builds ON ((build_steps.universal_build = global_builds.global_build_num)))
   ORDER BY global_builds.vcs_revision, global_builds.global_build_num DESC;
@@ -580,7 +583,9 @@ CREATE VIEW public.best_pattern_match_augmented_builds WITH (security_barrier='f
     builds_join_steps.universal_build,
     builds_join_steps.provider,
     builds_join_steps.succeeded,
-    builds_join_steps.build_namespace
+    builds_join_steps.build_namespace,
+    builds_join_steps.started_at,
+    builds_join_steps.finished_at
    FROM ((public.best_pattern_match_for_builds
      JOIN public.matches_with_log_metadata ON (((matches_with_log_metadata.pattern = best_pattern_match_for_builds.pattern_id) AND (matches_with_log_metadata.universal_build = best_pattern_match_for_builds.universal_build))))
      JOIN public.builds_join_steps ON ((builds_join_steps.universal_build = best_pattern_match_for_builds.universal_build)))
@@ -839,7 +844,9 @@ CREATE VIEW public.build_failure_causes WITH (security_barrier='false') AS
     builds_deduped.rebuild_count,
     builds_deduped.global_build,
     builds_deduped.provider,
-    builds_deduped.build_namespace
+    builds_deduped.build_namespace,
+    builds_deduped.started_at,
+    builds_deduped.finished_at
    FROM (((public.builds_deduped
      LEFT JOIN public.build_steps ON ((build_steps.universal_build = builds_deduped.global_build)))
      LEFT JOIN public.best_pattern_match_for_builds ON ((best_pattern_match_for_builds.universal_build = builds_deduped.global_build)))
@@ -1100,7 +1107,7 @@ ALTER TABLE public.known_breakage_summaries OWNER TO postgres;
 --
 
 CREATE VIEW public.master_contiguous_failures WITH (security_barrier='false') AS
- SELECT row_number() OVER (PARTITION BY quux.group_index, quux.job_name ORDER BY quux.commit_number DESC) AS run_length,
+ SELECT count(*) OVER (PARTITION BY quux.group_index, quux.job_name) AS run_length,
     quux.group_index,
     quux.global_build,
     quux.job_name,
@@ -1108,7 +1115,8 @@ CREATE VIEW public.master_contiguous_failures WITH (security_barrier='false') AS
     quux.id,
     first_value(quux.id) OVER (PARTITION BY quux.group_index, quux.job_name ORDER BY quux.commit_number DESC) AS start_commit_index,
     last_value(quux.id) OVER (PARTITION BY quux.group_index, quux.job_name ORDER BY quux.commit_number DESC) AS end_commit_index,
-    quux.global_build AS universal_build
+    quux.global_build AS universal_build,
+    row_number() OVER (PARTITION BY quux.group_index, quux.job_name ORDER BY quux.commit_number DESC) AS group_position
    FROM ( SELECT ((bar.delta_next = 1) OR (bar.delta_prev = 1)) AS contiguous_failure,
             COALESCE(sum((((bar.delta_next = 1) AND (bar.delta_prev <> 1)))::integer) OVER (PARTITION BY bar.job_name ORDER BY bar.commit_number DESC, bar.job_name), (0)::bigint) AS group_index,
             bar.delta_next,
@@ -1213,6 +1221,62 @@ CREATE VIEW public.master_contiguous_failure_blocks_with_commits AS
 ALTER TABLE public.master_contiguous_failure_blocks_with_commits OWNER TO postgres;
 
 --
+-- Name: master_intra_commit_failure_groups; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_intra_commit_failure_groups AS
+ SELECT foo.universal_build,
+    foo.commit_index,
+    foo.vcs_revision,
+    foo.cluster_member_count,
+    foo.cluster_id,
+    foo.step_name,
+    foo.pattern_id
+   FROM ( SELECT best_pattern_match_for_builds.universal_build,
+            ordered_master_commits.id AS commit_index,
+            builds_deduped.vcs_revision,
+            count(*) OVER (PARTITION BY ordered_master_commits.id, build_steps.name, best_pattern_match_for_builds.pattern_id) AS cluster_member_count,
+            dense_rank() OVER (ORDER BY ordered_master_commits.id DESC, build_steps.name, best_pattern_match_for_builds.pattern_id) AS cluster_id,
+            build_steps.name AS step_name,
+            best_pattern_match_for_builds.pattern_id
+           FROM (((public.builds_deduped
+             JOIN public.ordered_master_commits ON ((ordered_master_commits.sha1 = builds_deduped.vcs_revision)))
+             JOIN public.build_steps ON ((build_steps.universal_build = builds_deduped.global_build)))
+             JOIN public.best_pattern_match_for_builds ON ((best_pattern_match_for_builds.universal_build = builds_deduped.global_build)))
+          WHERE (NOT builds_deduped.succeeded)) foo
+  WHERE (foo.cluster_member_count > 1)
+  ORDER BY foo.cluster_id;
+
+
+ALTER TABLE public.master_intra_commit_failure_groups OWNER TO postgres;
+
+--
+-- Name: master_detected_adjacent_breakages; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_detected_adjacent_breakages AS
+ SELECT COALESCE(master_contiguous_failures.universal_build, master_intra_commit_failure_groups.universal_build) AS universal_build,
+    master_contiguous_failures.run_length AS contiguous_length,
+    master_contiguous_failures.group_position AS contiguous_group_position,
+    master_contiguous_failures.group_index AS contiguous_group_index,
+    master_contiguous_failures.start_commit_index AS contiguous_start_commit_index,
+    master_contiguous_failures.end_commit_index AS contiguous_end_commit_index,
+    master_intra_commit_failure_groups.cluster_id,
+    master_intra_commit_failure_groups.cluster_member_count
+   FROM (public.master_contiguous_failures
+     FULL JOIN public.master_intra_commit_failure_groups ON ((master_intra_commit_failure_groups.universal_build = master_contiguous_failures.universal_build)));
+
+
+ALTER TABLE public.master_detected_adjacent_breakages OWNER TO postgres;
+
+--
+-- Name: VIEW master_detected_adjacent_breakages; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.master_detected_adjacent_breakages IS 'Detects longitudinal (contiguous in commit sequence) and lateral (jobs within the same commit) groupings of failures.';
+
+
+--
 -- Name: master_failure_mode_attributions_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
 --
 
@@ -1290,40 +1354,10 @@ SELECT
 ALTER TABLE public.master_failures_by_commit OWNER TO postgres;
 
 --
--- Name: master_intra_commit_failure_groups; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.master_intra_commit_failure_groups AS
- SELECT foo.universal_build,
-    foo.commit_index,
-    foo.vcs_revision,
-    foo.cluster_member_count,
-    foo.cluster_id,
-    foo.step_name,
-    foo.pattern_id
-   FROM ( SELECT best_pattern_match_for_builds.universal_build,
-            ordered_master_commits.id AS commit_index,
-            builds_deduped.vcs_revision,
-            count(*) OVER (PARTITION BY ordered_master_commits.id, build_steps.name, best_pattern_match_for_builds.pattern_id) AS cluster_member_count,
-            dense_rank() OVER (ORDER BY ordered_master_commits.id DESC, build_steps.name, best_pattern_match_for_builds.pattern_id) AS cluster_id,
-            build_steps.name AS step_name,
-            best_pattern_match_for_builds.pattern_id
-           FROM (((public.builds_deduped
-             JOIN public.ordered_master_commits ON ((ordered_master_commits.sha1 = builds_deduped.vcs_revision)))
-             JOIN public.build_steps ON ((build_steps.universal_build = builds_deduped.global_build)))
-             JOIN public.best_pattern_match_for_builds ON ((best_pattern_match_for_builds.universal_build = builds_deduped.global_build)))
-          WHERE (NOT builds_deduped.succeeded)) foo
-  WHERE (foo.cluster_member_count > 1)
-  ORDER BY foo.cluster_id;
-
-
-ALTER TABLE public.master_intra_commit_failure_groups OWNER TO postgres;
-
---
 -- Name: master_failures_raw_causes; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.master_failures_raw_causes AS
+CREATE VIEW public.master_failures_raw_causes WITH (security_barrier='false') AS
  SELECT ordered_master_commits.sha1,
     build_failure_causes.succeeded,
     build_failure_causes.is_idiopathic,
@@ -1344,24 +1378,24 @@ CREATE VIEW public.master_failures_raw_causes AS
     COALESCE(best_pattern_match_augmented_builds.span_start, '-1'::integer) AS span_start,
     COALESCE(best_pattern_match_augmented_builds.span_end, '-1'::integer) AS span_end,
     COALESCE(best_pattern_match_augmented_builds.specificity, '-1'::integer) AS specificity,
-    (master_contiguous_failures.universal_build IS NULL) AS is_serially_isolated,
-    COALESCE(master_contiguous_failures.run_length, (1)::bigint) AS contiguous_run_count,
-    COALESCE(master_contiguous_failures.group_index, ('-1'::integer)::bigint) AS contiguous_group_index,
-    COALESCE(master_contiguous_failures.start_commit_index, '-1'::integer) AS contiguous_start_commit_index,
-    COALESCE(master_contiguous_failures.end_commit_index, '-1'::integer) AS contiguous_end_commit_index,
+    (master_detected_adjacent_breakages.universal_build IS NULL) AS is_serially_isolated,
+    master_detected_adjacent_breakages.contiguous_length AS contiguous_run_count,
+    master_detected_adjacent_breakages.contiguous_group_index,
+    master_detected_adjacent_breakages.contiguous_start_commit_index,
+    master_detected_adjacent_breakages.contiguous_end_commit_index,
     ordered_master_commits.id AS commit_index,
-    COALESCE(master_contiguous_failure_job_groups.run_length, (1)::bigint) AS contiguous_length,
+    master_detected_adjacent_breakages.contiguous_length,
     build_failure_causes.global_build,
     build_failure_causes.provider,
     build_failure_causes.build_namespace,
-    master_intra_commit_failure_groups.cluster_id,
-    master_intra_commit_failure_groups.cluster_member_count
-   FROM (((((public.ordered_master_commits
+    master_detected_adjacent_breakages.cluster_id,
+    master_detected_adjacent_breakages.cluster_member_count,
+    build_failure_causes.started_at,
+    build_failure_causes.finished_at
+   FROM (((public.ordered_master_commits
      JOIN public.build_failure_causes ON ((build_failure_causes.vcs_revision = ordered_master_commits.sha1)))
      LEFT JOIN public.best_pattern_match_augmented_builds ON ((build_failure_causes.global_build = best_pattern_match_augmented_builds.universal_build)))
-     LEFT JOIN public.master_contiguous_failures ON ((build_failure_causes.global_build = master_contiguous_failures.universal_build)))
-     LEFT JOIN public.master_contiguous_failure_job_groups ON (((build_failure_causes.job_name = master_contiguous_failure_job_groups.job_name) AND (master_contiguous_failures.group_index = master_contiguous_failure_job_groups.group_index))))
-     LEFT JOIN public.master_intra_commit_failure_groups ON ((build_failure_causes.global_build = master_intra_commit_failure_groups.universal_build)));
+     LEFT JOIN public.master_detected_adjacent_breakages ON ((build_failure_causes.global_build = master_detected_adjacent_breakages.universal_build)));
 
 
 ALTER TABLE public.master_failures_raw_causes OWNER TO postgres;
@@ -1370,16 +1404,7 @@ ALTER TABLE public.master_failures_raw_causes OWNER TO postgres;
 -- Name: VIEW master_failures_raw_causes; Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON VIEW public.master_failures_raw_causes IS '
-This uses the raw "build_failure_causes" table rather than the mutually-exclusive causes table.
-
-Sometimes a few of the columns are null. Those column values are conditionally extracted (and placed into Haskell records)                                              
-only when a boolean designator column indicates they should be. Therefore, one would think that Haskell "Maybe" types                                                   
-are not needed to represent the columns, since that lazy code branch will only be excuted when they are non-null.                                               
-However, it seems the postgres-simple library eagerly evaluates the entire row and attempts to apply                                                            
-the inferred type, even when some of the columns do not eventually get used.                                                                                    
-Therefore, we coalesce *all* all of the values to a nonsense value instead of allowing them to be null. 
-';
+COMMENT ON VIEW public.master_failures_raw_causes IS 'This uses the raw "build_failure_causes" table rather than the mutually-exclusive causes table.';
 
 
 --
@@ -2741,6 +2766,20 @@ GRANT ALL ON TABLE public.master_contiguous_failure_blocks_with_commits TO logan
 
 
 --
+-- Name: TABLE master_intra_commit_failure_groups; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_intra_commit_failure_groups TO logan;
+
+
+--
+-- Name: TABLE master_detected_adjacent_breakages; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_detected_adjacent_breakages TO logan;
+
+
+--
 -- Name: SEQUENCE master_failure_mode_attributions_id_seq; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -2766,13 +2805,6 @@ GRANT ALL ON SEQUENCE public.master_failure_modes_id_seq TO logan;
 --
 
 GRANT ALL ON TABLE public.master_failures_by_commit TO logan;
-
-
---
--- Name: TABLE master_intra_commit_failure_groups; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.master_intra_commit_failure_groups TO logan;
 
 
 --

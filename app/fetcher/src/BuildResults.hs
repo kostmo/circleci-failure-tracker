@@ -65,6 +65,7 @@ data SimpleBuildStatus = SimpleBuildStatus {
   , _is_known_broken     :: Bool
   , _contiguous_breakage :: Maybe ContiguousBreakageMember
   , _lateral_breakage    :: Maybe LateralBreakageMember
+  , _is_isolated_failure :: Bool
   , _universal_build     :: DbHelpers.WithId Builds.UniversalBuild
 --  , _ci_provider         :: DbHelpers.WithId Builds.CiProvider
   } deriving Generic
