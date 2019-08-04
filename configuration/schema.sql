@@ -38,6 +38,15 @@ SET xmloption = content;
 SET client_min_messages = warning;
 SET row_security = off;
 
+--
+-- Name: work_queues; Type: SCHEMA; Schema: -; Owner: postgres
+--
+
+CREATE SCHEMA work_queues;
+
+
+ALTER SCHEMA work_queues OWNER TO postgres;
+
 SET default_tablespace = '';
 
 SET default_with_oids = false;
@@ -63,6 +72,29 @@ ALTER TABLE public.build_steps OWNER TO postgres;
 COMMENT ON TABLE public.build_steps IS 'There should be zero or one build steps associated with a build, depending on whether the CircleCI JSON build structure indicates that one of the steps failed.
 
 This is known before the console logs are "scanned".';
+
+
+--
+-- Name: build_steps_deduped_mitigation; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.build_steps_deduped_mitigation WITH (security_barrier='false') AS
+ SELECT DISTINCT ON (build_steps.universal_build) build_steps.id,
+    build_steps.name,
+    build_steps.is_timeout,
+    build_steps.universal_build
+   FROM public.build_steps
+  ORDER BY build_steps.universal_build, build_steps.id DESC;
+
+
+ALTER TABLE public.build_steps_deduped_mitigation OWNER TO postgres;
+
+--
+-- Name: VIEW build_steps_deduped_mitigation; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.build_steps_deduped_mitigation IS 'TODO: Add uniqueness constraint on "universal_build" column in "build_steps" table
+Then remove this mitigation from "builds_join_steps" view';
 
 
 --
@@ -153,17 +185,46 @@ CREATE TABLE public.matches (
 ALTER TABLE public.matches OWNER TO postgres;
 
 --
+-- Name: matches_distinct; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.matches_distinct AS
+ SELECT DISTINCT ON (matches.build_step, matches.pattern, matches.line_number) matches.id,
+    matches.build_step,
+    matches.pattern,
+    matches.line_number,
+    matches.line_text,
+    matches.span_start,
+    matches.span_end,
+    matches.scan_id
+   FROM public.matches
+  ORDER BY matches.build_step, matches.pattern, matches.line_number, matches.scan_id DESC;
+
+
+ALTER TABLE public.matches_distinct OWNER TO postgres;
+
+--
+-- Name: VIEW matches_distinct; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.matches_distinct IS 'Somehow, certain logs got scanned by the same pattern more than once (e.g. universal build 716793),
+yielding multiple rows for the same pattern on the same line.
+
+This intermediate view eliminates those duplicate matches.';
+
+
+--
 -- Name: matches_for_build; Type: VIEW; Schema: public; Owner: postgres
 --
 
 CREATE VIEW public.matches_for_build WITH (security_barrier='false') AS
- SELECT matches.pattern AS pat,
+ SELECT matches_distinct.pattern AS pat,
     universal_builds.build_number AS build,
-    build_steps.name AS step_name,
+    build_steps_deduped_mitigation.name AS step_name,
     universal_builds.id AS universal_build
-   FROM ((public.matches
-     JOIN public.build_steps ON ((matches.build_step = build_steps.id)))
-     JOIN public.universal_builds ON ((universal_builds.id = build_steps.universal_build)));
+   FROM ((public.matches_distinct
+     JOIN public.build_steps_deduped_mitigation ON ((matches_distinct.build_step = build_steps_deduped_mitigation.id)))
+     JOIN public.universal_builds ON ((universal_builds.id = build_steps_deduped_mitigation.universal_build)));
 
 
 ALTER TABLE public.matches_for_build OWNER TO postgres;
@@ -217,7 +278,7 @@ CREATE VIEW public.match_positions WITH (security_barrier='false') AS
  SELECT foo.pattern,
     universal_builds.build_number AS build,
     log_metadata.step AS step_id,
-    build_steps.name AS step_name,
+    build_steps_deduped_mitigation.name AS step_name,
     foo.first_line,
     foo.last_line,
     log_metadata.line_count,
@@ -226,16 +287,16 @@ CREATE VIEW public.match_positions WITH (security_barrier='false') AS
     ((foo.last_line)::double precision / (log_metadata.line_count)::double precision) AS last_position_fraction,
     (log_metadata.line_count - (1 + foo.last_line)) AS lines_from_end,
     universal_builds.id AS universal_build
-   FROM (((( SELECT matches.pattern,
-            matches.build_step,
-            min(matches.line_number) AS first_line,
-            max(matches.line_number) AS last_line,
-            count(matches.line_number) AS matched_line_count
-           FROM public.matches
-          GROUP BY matches.pattern, matches.build_step) foo
+   FROM (((( SELECT matches_distinct.pattern,
+            matches_distinct.build_step,
+            min(matches_distinct.line_number) AS first_line,
+            max(matches_distinct.line_number) AS last_line,
+            count(matches_distinct.line_number) AS matched_line_count
+           FROM public.matches_distinct
+          GROUP BY matches_distinct.pattern, matches_distinct.build_step) foo
      JOIN public.log_metadata ON ((log_metadata.step = foo.build_step)))
-     JOIN public.build_steps ON ((build_steps.id = log_metadata.step)))
-     JOIN public.universal_builds ON ((universal_builds.id = build_steps.universal_build)))
+     JOIN public.build_steps_deduped_mitigation ON ((build_steps_deduped_mitigation.id = log_metadata.step)))
+     JOIN public.universal_builds ON ((universal_builds.id = build_steps_deduped_mitigation.universal_build)))
   ORDER BY foo.matched_line_count DESC, foo.pattern, universal_builds.id DESC;
 
 
@@ -510,22 +571,22 @@ ALTER TABLE public.aggregated_github_status_postings OWNER TO postgres;
 --
 
 CREATE VIEW public.builds_join_steps WITH (security_barrier='false') AS
- SELECT build_steps.id AS step_id,
-    build_steps.name AS step_name,
+ SELECT build_steps_deduped_mitigation.id AS step_id,
+    build_steps_deduped_mitigation.name AS step_name,
     global_builds.build_number AS build_num,
     global_builds.vcs_revision,
     global_builds.queued_at,
     global_builds.job_name,
     global_builds.branch,
-    build_steps.is_timeout,
-    build_steps.universal_build,
+    build_steps_deduped_mitigation.is_timeout,
+    build_steps_deduped_mitigation.universal_build,
     global_builds.provider,
     global_builds.succeeded,
     global_builds.build_namespace,
     global_builds.started_at,
     global_builds.finished_at
-   FROM (public.build_steps
-     JOIN public.global_builds ON ((build_steps.universal_build = global_builds.global_build_num)))
+   FROM (public.build_steps_deduped_mitigation
+     JOIN public.global_builds ON ((build_steps_deduped_mitigation.universal_build = global_builds.global_build_num)))
   ORDER BY global_builds.vcs_revision, global_builds.global_build_num DESC;
 
 
@@ -536,22 +597,22 @@ ALTER TABLE public.builds_join_steps OWNER TO postgres;
 --
 
 CREATE VIEW public.matches_with_log_metadata WITH (security_barrier='false') AS
- SELECT matches.id,
-    matches.build_step,
-    matches.pattern,
-    matches.line_number,
-    matches.line_text,
-    matches.span_start,
-    matches.span_end,
-    matches.scan_id,
+ SELECT matches_distinct.id,
+    matches_distinct.build_step,
+    matches_distinct.pattern,
+    matches_distinct.line_number,
+    matches_distinct.line_text,
+    matches_distinct.span_start,
+    matches_distinct.span_end,
+    matches_distinct.scan_id,
     log_metadata.line_count,
     log_metadata.byte_count,
     log_metadata.step,
     builds_join_steps.step_name,
     builds_join_steps.build_num,
     builds_join_steps.universal_build
-   FROM ((public.matches
-     LEFT JOIN public.log_metadata ON ((log_metadata.step = matches.build_step)))
+   FROM ((public.matches_distinct
+     LEFT JOIN public.log_metadata ON ((log_metadata.step = matches_distinct.build_step)))
      LEFT JOIN public.builds_join_steps ON ((builds_join_steps.step_id = log_metadata.step)));
 
 
@@ -815,7 +876,7 @@ ALTER TABLE public.known_broken_builds OWNER TO postgres;
 -- Name: VIEW known_broken_builds; Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON VIEW public.known_broken_builds IS 'These are only known broken *master* builds.
+COMMENT ON VIEW public.known_broken_builds IS 'These are *master* builds covered by the "code_breakage_spans" view.
 
 TODO: remove  provider-specific "build" column and eliminate the outer-most JOIN';
 
@@ -831,10 +892,10 @@ CREATE VIEW public.build_failure_causes WITH (security_barrier='false') AS
     builds_deduped.job_name,
     builds_deduped.branch,
     builds_deduped.succeeded,
-    (build_steps.universal_build IS NULL) AS is_idiopathic,
-    build_steps.id AS step_id,
-    build_steps.name AS step_name,
-    COALESCE(build_steps.is_timeout, false) AS is_timeout,
+    (build_steps_deduped_mitigation.universal_build IS NULL) AS is_idiopathic,
+    build_steps_deduped_mitigation.id AS step_id,
+    build_steps_deduped_mitigation.name AS step_name,
+    COALESCE(build_steps_deduped_mitigation.is_timeout, false) AS is_timeout,
     (best_pattern_match_for_builds.pattern_id IS NULL) AS is_unmatched,
     best_pattern_match_for_builds.pattern_id,
     COALESCE(best_pattern_match_for_builds.is_flaky, false) AS is_flaky,
@@ -848,7 +909,7 @@ CREATE VIEW public.build_failure_causes WITH (security_barrier='false') AS
     builds_deduped.started_at,
     builds_deduped.finished_at
    FROM (((public.builds_deduped
-     LEFT JOIN public.build_steps ON ((build_steps.universal_build = builds_deduped.global_build)))
+     LEFT JOIN public.build_steps_deduped_mitigation ON ((build_steps_deduped_mitigation.universal_build = builds_deduped.global_build)))
      LEFT JOIN public.best_pattern_match_for_builds ON ((best_pattern_match_for_builds.universal_build = builds_deduped.global_build)))
      LEFT JOIN public.known_broken_builds ON ((known_broken_builds.universal_build = builds_deduped.global_build)));
 
@@ -886,10 +947,33 @@ ALTER TABLE public.build_failure_causes_mutual_exclusion_known_broken OWNER TO p
 -- Name: VIEW build_failure_causes_mutual_exclusion_known_broken; Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON VIEW public.build_failure_causes_mutual_exclusion_known_broken IS 'The "known broken" cause shall dominate; it is made mutually-exclusive with all other causes for a given build failure because a known broken build is unreliable for other statistics collection.
+COMMENT ON VIEW public.build_failure_causes_mutual_exclusion_known_broken IS '
+TODO: rename to "build_failure_causes_disjoint"
+
+The "known broken" cause shall dominate; it is made mutually-exclusive with all other causes for a given build failure because a known broken build is unreliable for other statistics collection.
 
 Additionally, the "is_matched" field excludes "is_flaky", while the "is_unmatched" field excludes "is_timeout" and "is_idiopathic".  This means that the sum of all "is_flaky" + "is_matched" + "is_timeout" + "is_unmatched" + "is_known_broken" should be equal to the total failure count.';
 
+
+--
+-- Name: build_failure_disjoint_causes_by_commit; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.build_failure_disjoint_causes_by_commit AS
+ SELECT build_failure_causes_mutual_exclusion_known_broken.vcs_revision AS sha1,
+    count(build_failure_causes_mutual_exclusion_known_broken.vcs_revision) AS total,
+    COALESCE(sum((build_failure_causes_mutual_exclusion_known_broken.is_idiopathic)::integer), (0)::bigint) AS idiopathic,
+    COALESCE(sum((build_failure_causes_mutual_exclusion_known_broken.is_timeout)::integer), (0)::bigint) AS timeout,
+    COALESCE(sum((build_failure_causes_mutual_exclusion_known_broken.is_known_broken)::integer), (0)::bigint) AS known_broken,
+    COALESCE(sum((build_failure_causes_mutual_exclusion_known_broken.is_matched)::integer), (0)::bigint) AS pattern_matched,
+    COALESCE(sum((build_failure_causes_mutual_exclusion_known_broken.is_flaky)::integer), (0)::bigint) AS flaky,
+    COALESCE(sum((build_failure_causes_mutual_exclusion_known_broken.is_unmatched)::integer), (0)::bigint) AS pattern_unmatched,
+    COALESCE(sum((build_failure_causes_mutual_exclusion_known_broken.succeeded)::integer), (0)::bigint) AS succeeded
+   FROM public.build_failure_causes_mutual_exclusion_known_broken
+  GROUP BY build_failure_causes_mutual_exclusion_known_broken.vcs_revision;
+
+
+ALTER TABLE public.build_failure_disjoint_causes_by_commit OWNER TO postgres;
 
 --
 -- Name: build_steps_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
@@ -911,6 +995,31 @@ ALTER TABLE public.build_steps_id_seq OWNER TO postgres;
 --
 
 ALTER SEQUENCE public.build_steps_id_seq OWNED BY public.build_steps.id;
+
+
+--
+-- Name: cached_master_merge_base; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.cached_master_merge_base (
+    branch_commit character(40) NOT NULL,
+    master_commit character(40) NOT NULL,
+    computation_timestamp timestamp without time zone DEFAULT now() NOT NULL,
+    distance integer NOT NULL
+);
+
+
+ALTER TABLE public.cached_master_merge_base OWNER TO postgres;
+
+--
+-- Name: TABLE cached_master_merge_base; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.cached_master_merge_base IS 'Caches the computed "merge base" of a PR commit with the master branch.
+
+In general, it would be possible for the merge base to change over time if the master branch is advanced to a more recent ancestor (up to and including the HEAD) of the PR branch.  In practice, however, this will not happen in the Facebook mirrored repo configuration, as a novel commit is produced for every change to the master branch.
+
+Therefore, this cache of merge bases never needs to be invalidated.';
 
 
 --
@@ -1043,9 +1152,9 @@ CREATE VIEW public.idiopathic_build_failures WITH (security_barrier='false') AS
  SELECT global_builds.build_number AS build,
     global_builds.branch,
     global_builds.global_build_num
-   FROM (public.build_steps
-     JOIN public.global_builds ON ((build_steps.universal_build = global_builds.global_build_num)))
-  WHERE (build_steps.name IS NULL);
+   FROM (public.build_steps_deduped_mitigation
+     JOIN public.global_builds ON ((build_steps_deduped_mitigation.universal_build = global_builds.global_build_num)))
+  WHERE (build_steps_deduped_mitigation.name IS NULL);
 
 
 ALTER TABLE public.idiopathic_build_failures OWNER TO postgres;
@@ -1224,7 +1333,7 @@ ALTER TABLE public.master_contiguous_failure_blocks_with_commits OWNER TO postgr
 -- Name: master_intra_commit_failure_groups; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.master_intra_commit_failure_groups AS
+CREATE VIEW public.master_intra_commit_failure_groups WITH (security_barrier='false') AS
  SELECT foo.universal_build,
     foo.commit_index,
     foo.vcs_revision,
@@ -1235,13 +1344,13 @@ CREATE VIEW public.master_intra_commit_failure_groups AS
    FROM ( SELECT best_pattern_match_for_builds.universal_build,
             ordered_master_commits.id AS commit_index,
             builds_deduped.vcs_revision,
-            count(*) OVER (PARTITION BY ordered_master_commits.id, build_steps.name, best_pattern_match_for_builds.pattern_id) AS cluster_member_count,
-            dense_rank() OVER (ORDER BY ordered_master_commits.id DESC, build_steps.name, best_pattern_match_for_builds.pattern_id) AS cluster_id,
-            build_steps.name AS step_name,
+            count(*) OVER (PARTITION BY ordered_master_commits.id, build_steps_deduped_mitigation.name, best_pattern_match_for_builds.pattern_id) AS cluster_member_count,
+            dense_rank() OVER (ORDER BY ordered_master_commits.id DESC, build_steps_deduped_mitigation.name, best_pattern_match_for_builds.pattern_id) AS cluster_id,
+            build_steps_deduped_mitigation.name AS step_name,
             best_pattern_match_for_builds.pattern_id
            FROM (((public.builds_deduped
              JOIN public.ordered_master_commits ON ((ordered_master_commits.sha1 = builds_deduped.vcs_revision)))
-             JOIN public.build_steps ON ((build_steps.universal_build = builds_deduped.global_build)))
+             JOIN public.build_steps_deduped_mitigation ON ((build_steps_deduped_mitigation.universal_build = builds_deduped.global_build)))
              JOIN public.best_pattern_match_for_builds ON ((best_pattern_match_for_builds.universal_build = builds_deduped.global_build)))
           WHERE (NOT builds_deduped.succeeded)) foo
   WHERE (foo.cluster_member_count > 1)
@@ -1254,7 +1363,7 @@ ALTER TABLE public.master_intra_commit_failure_groups OWNER TO postgres;
 -- Name: master_detected_adjacent_breakages; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.master_detected_adjacent_breakages AS
+CREATE VIEW public.master_detected_adjacent_breakages WITH (security_barrier='false') AS
  SELECT COALESCE(master_contiguous_failures.universal_build, master_intra_commit_failure_groups.universal_build) AS universal_build,
     master_contiguous_failures.run_length AS contiguous_length,
     master_contiguous_failures.group_position AS contiguous_group_position,
@@ -1262,7 +1371,9 @@ CREATE VIEW public.master_detected_adjacent_breakages AS
     master_contiguous_failures.start_commit_index AS contiguous_start_commit_index,
     master_contiguous_failures.end_commit_index AS contiguous_end_commit_index,
     master_intra_commit_failure_groups.cluster_id,
-    master_intra_commit_failure_groups.cluster_member_count
+    master_intra_commit_failure_groups.cluster_member_count,
+    (master_contiguous_failures.universal_build IS NOT NULL) AS is_longitudinal_breakage,
+    (master_intra_commit_failure_groups.universal_build IS NOT NULL) AS is_lateral_breakage
    FROM (public.master_contiguous_failures
      FULL JOIN public.master_intra_commit_failure_groups ON ((master_intra_commit_failure_groups.universal_build = master_contiguous_failures.universal_build)));
 
@@ -1275,6 +1386,28 @@ ALTER TABLE public.master_detected_adjacent_breakages OWNER TO postgres;
 
 COMMENT ON VIEW public.master_detected_adjacent_breakages IS 'Detects longitudinal (contiguous in commit sequence) and lateral (jobs within the same commit) groupings of failures.';
 
+
+--
+-- Name: master_detected_breakages_without_annotations; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_detected_breakages_without_annotations WITH (security_barrier='false') AS
+ SELECT master_detected_adjacent_breakages.universal_build,
+    master_detected_adjacent_breakages.contiguous_group_position,
+    master_detected_adjacent_breakages.contiguous_group_index,
+    master_detected_adjacent_breakages.contiguous_start_commit_index,
+    master_detected_adjacent_breakages.contiguous_end_commit_index,
+    master_detected_adjacent_breakages.cluster_id,
+    master_detected_adjacent_breakages.cluster_member_count,
+    master_detected_adjacent_breakages.contiguous_length,
+    master_detected_adjacent_breakages.is_longitudinal_breakage,
+    master_detected_adjacent_breakages.is_lateral_breakage
+   FROM (public.master_detected_adjacent_breakages
+     LEFT JOIN public.known_broken_builds ON ((master_detected_adjacent_breakages.universal_build = known_broken_builds.universal_build)))
+  WHERE (known_broken_builds.universal_build IS NULL);
+
+
+ALTER TABLE public.master_detected_breakages_without_annotations OWNER TO postgres;
 
 --
 -- Name: master_failure_mode_attributions_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
@@ -1337,18 +1470,20 @@ ALTER SEQUENCE public.master_failure_modes_id_seq OWNED BY public.master_failure
 -- Name: master_failures_by_commit; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.master_failures_by_commit AS
-SELECT
-    NULL::character(40) AS sha1,
-    NULL::bigint AS total,
-    NULL::bigint AS idiopathic,
-    NULL::bigint AS timeout,
-    NULL::bigint AS known_broken,
-    NULL::bigint AS pattern_matched,
-    NULL::bigint AS flaky,
-    NULL::integer AS commit_index,
-    NULL::bigint AS pattern_unmatched,
-    NULL::bigint AS succeeded;
+CREATE VIEW public.master_failures_by_commit WITH (security_barrier='false') AS
+ SELECT ordered_master_commits.sha1,
+    COALESCE(build_failure_disjoint_causes_by_commit.total, (0)::bigint) AS total,
+    COALESCE(build_failure_disjoint_causes_by_commit.idiopathic, (0)::bigint) AS idiopathic,
+    COALESCE(build_failure_disjoint_causes_by_commit.timeout, (0)::bigint) AS timeout,
+    COALESCE(build_failure_disjoint_causes_by_commit.known_broken, (0)::bigint) AS known_broken,
+    COALESCE(build_failure_disjoint_causes_by_commit.pattern_matched, (0)::bigint) AS pattern_matched,
+    COALESCE(build_failure_disjoint_causes_by_commit.flaky, (0)::bigint) AS flaky,
+    ordered_master_commits.id AS commit_index,
+    COALESCE(build_failure_disjoint_causes_by_commit.pattern_unmatched, (0)::bigint) AS pattern_unmatched,
+    COALESCE(build_failure_disjoint_causes_by_commit.succeeded, (0)::bigint) AS succeeded
+   FROM (public.ordered_master_commits
+     LEFT JOIN public.build_failure_disjoint_causes_by_commit ON ((build_failure_disjoint_causes_by_commit.sha1 = ordered_master_commits.sha1)))
+  ORDER BY ordered_master_commits.id DESC;
 
 
 ALTER TABLE public.master_failures_by_commit OWNER TO postgres;
@@ -1466,6 +1601,83 @@ FIXME: "failure_count" is a misnomer; it is actually the total that includes suc
 
 
 --
+-- Name: master_ordered_commits_with_metadata; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_ordered_commits_with_metadata AS
+ SELECT ordered_master_commits.id,
+    ordered_master_commits.sha1,
+    commit_metadata.message,
+    commit_metadata.tree_sha1,
+    commit_metadata.author_name,
+    commit_metadata.author_email,
+    commit_metadata.author_date,
+    commit_metadata.committer_name,
+    commit_metadata.committer_email,
+    commit_metadata.committer_date
+   FROM (public.ordered_master_commits
+     JOIN public.commit_metadata ON ((commit_metadata.sha1 = ordered_master_commits.sha1)));
+
+
+ALTER TABLE public.master_ordered_commits_with_metadata OWNER TO postgres;
+
+--
+-- Name: master_unmarked_breakage_regions_by_commit; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_unmarked_breakage_regions_by_commit AS
+ SELECT bar.vcs_revision,
+    bar.only_longitudinal_breakages,
+    bar.only_lateral_breakages,
+    bar.both_breakages,
+    master_ordered_commits_with_metadata.id,
+    master_ordered_commits_with_metadata.sha1,
+    master_ordered_commits_with_metadata.message,
+    master_ordered_commits_with_metadata.tree_sha1,
+    master_ordered_commits_with_metadata.author_name,
+    master_ordered_commits_with_metadata.author_email,
+    master_ordered_commits_with_metadata.author_date,
+    master_ordered_commits_with_metadata.committer_name,
+    master_ordered_commits_with_metadata.committer_email,
+    master_ordered_commits_with_metadata.committer_date
+   FROM (( SELECT foo.vcs_revision,
+            sum(((foo.is_longitudinal_breakage AND (NOT foo.is_lateral_breakage)))::integer) AS only_longitudinal_breakages,
+            sum(((foo.is_lateral_breakage AND (NOT foo.is_longitudinal_breakage)))::integer) AS only_lateral_breakages,
+            sum(((foo.is_longitudinal_breakage AND foo.is_lateral_breakage))::integer) AS both_breakages
+           FROM ( SELECT master_detected_breakages_without_annotations.universal_build,
+                    master_detected_breakages_without_annotations.contiguous_group_position,
+                    master_detected_breakages_without_annotations.contiguous_group_index,
+                    master_detected_breakages_without_annotations.contiguous_start_commit_index,
+                    master_detected_breakages_without_annotations.contiguous_end_commit_index,
+                    master_detected_breakages_without_annotations.cluster_id,
+                    master_detected_breakages_without_annotations.cluster_member_count,
+                    master_detected_breakages_without_annotations.contiguous_length,
+                    master_detected_breakages_without_annotations.is_longitudinal_breakage,
+                    master_detected_breakages_without_annotations.is_lateral_breakage,
+                    builds_join_steps.step_id,
+                    builds_join_steps.step_name,
+                    builds_join_steps.build_num,
+                    builds_join_steps.vcs_revision,
+                    builds_join_steps.queued_at,
+                    builds_join_steps.job_name,
+                    builds_join_steps.branch,
+                    builds_join_steps.is_timeout,
+                    builds_join_steps.universal_build,
+                    builds_join_steps.provider,
+                    builds_join_steps.succeeded,
+                    builds_join_steps.build_namespace,
+                    builds_join_steps.started_at,
+                    builds_join_steps.finished_at
+                   FROM (public.master_detected_breakages_without_annotations
+                     JOIN public.builds_join_steps ON ((builds_join_steps.universal_build = master_detected_breakages_without_annotations.universal_build)))) foo(universal_build, contiguous_group_position, contiguous_group_index, contiguous_start_commit_index, contiguous_end_commit_index, cluster_id, cluster_member_count, contiguous_length, is_longitudinal_breakage, is_lateral_breakage, step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch, is_timeout, universal_build_1, provider, succeeded, build_namespace, started_at, finished_at)
+          GROUP BY foo.vcs_revision) bar
+     JOIN public.master_ordered_commits_with_metadata ON ((bar.vcs_revision = master_ordered_commits_with_metadata.sha1)))
+  ORDER BY master_ordered_commits_with_metadata.id DESC;
+
+
+ALTER TABLE public.master_unmarked_breakage_regions_by_commit OWNER TO postgres;
+
+--
 -- Name: match_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
 --
 
@@ -1532,14 +1744,14 @@ ALTER SEQUENCE public.ordered_master_commits_id_seq OWNED BY public.ordered_mast
 -- Name: pattern_build_job_occurrences; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.pattern_build_job_occurrences AS
+CREATE VIEW public.pattern_build_job_occurrences WITH (security_barrier='false') AS
  SELECT count(*) AS occurrence_count,
     builds_join_steps.job_name,
-    matches.pattern
-   FROM (public.matches
-     JOIN public.builds_join_steps ON ((builds_join_steps.step_id = matches.build_step)))
-  GROUP BY builds_join_steps.job_name, matches.pattern
-  ORDER BY (count(*)) DESC, matches.pattern DESC;
+    matches_distinct.pattern
+   FROM (public.matches_distinct
+     JOIN public.builds_join_steps ON ((builds_join_steps.step_id = matches_distinct.build_step)))
+  GROUP BY builds_join_steps.job_name, matches_distinct.pattern
+  ORDER BY (count(*)) DESC, matches_distinct.pattern DESC;
 
 
 ALTER TABLE public.pattern_build_job_occurrences OWNER TO postgres;
@@ -1550,12 +1762,12 @@ ALTER TABLE public.pattern_build_job_occurrences OWNER TO postgres;
 
 CREATE VIEW public.pattern_build_step_occurrences WITH (security_barrier='false') AS
  SELECT count(*) AS occurrence_count,
-    build_steps.name,
-    matches.pattern
-   FROM (public.matches
-     JOIN public.build_steps ON ((build_steps.id = matches.build_step)))
-  GROUP BY build_steps.name, matches.pattern
-  ORDER BY (count(*)) DESC, matches.pattern DESC;
+    build_steps_deduped_mitigation.name,
+    matches_distinct.pattern
+   FROM (public.matches_distinct
+     JOIN public.build_steps_deduped_mitigation ON ((build_steps_deduped_mitigation.id = matches_distinct.build_step)))
+  GROUP BY build_steps_deduped_mitigation.name, matches_distinct.pattern
+  ORDER BY (count(*)) DESC, matches_distinct.pattern DESC;
 
 
 ALTER TABLE public.pattern_build_step_occurrences OWNER TO postgres;
@@ -1692,10 +1904,10 @@ CREATE VIEW public.unattributed_failed_builds WITH (security_barrier='false') AS
  SELECT global_builds.build_number AS build,
     global_builds.branch,
     global_builds.global_build_num AS global_build
-   FROM (( SELECT build_steps.universal_build
-           FROM (public.build_steps
-             LEFT JOIN public.matches ON ((matches.build_step = build_steps.id)))
-          WHERE ((matches.pattern IS NULL) AND (build_steps.name IS NOT NULL) AND (NOT build_steps.is_timeout))) foo
+   FROM (( SELECT build_steps_deduped_mitigation.universal_build
+           FROM (public.build_steps_deduped_mitigation
+             LEFT JOIN public.matches_distinct ON ((matches_distinct.build_step = build_steps_deduped_mitigation.id)))
+          WHERE ((matches_distinct.pattern IS NULL) AND (build_steps_deduped_mitigation.name IS NOT NULL) AND (NOT build_steps_deduped_mitigation.is_timeout))) foo
      JOIN public.global_builds ON ((foo.universal_build = global_builds.global_build_num)));
 
 
@@ -1743,11 +1955,11 @@ CREATE VIEW public.unscanned_patterns WITH (security_barrier='false') AS
      JOIN ( SELECT string_agg((patterns.id)::text, ';'::text) AS unscanned_patterns_delimited,
             count(patterns.id) AS unscanned_pattern_count,
             foo.step_id
-           FROM (( SELECT build_steps.id AS step_id,
+           FROM (( SELECT build_steps_deduped_mitigation.id AS step_id,
                     COALESCE(scanned_patterns.newest_pattern, '-1'::integer) AS latest_pattern
-                   FROM (public.build_steps
-                     LEFT JOIN public.scanned_patterns ON ((scanned_patterns.step_id = build_steps.id)))
-                  WHERE ((build_steps.name IS NOT NULL) AND (NOT build_steps.is_timeout))) foo
+                   FROM (public.build_steps_deduped_mitigation
+                     LEFT JOIN public.scanned_patterns ON ((scanned_patterns.step_id = build_steps_deduped_mitigation.id)))
+                  WHERE ((build_steps_deduped_mitigation.name IS NOT NULL) AND (NOT build_steps_deduped_mitigation.is_timeout))) foo
              JOIN public.patterns ON ((patterns.id > foo.latest_pattern)))
           GROUP BY foo.step_id) bar ON ((builds_join_steps.step_id = bar.step_id)));
 
@@ -1766,8 +1978,8 @@ CREATE VIEW public.unvisited_builds WITH (security_barrier='false') AS
     universal_builds.commit_sha1,
     universal_builds.succeeded
    FROM (public.universal_builds
-     LEFT JOIN public.build_steps ON ((universal_builds.id = build_steps.universal_build)))
-  WHERE ((build_steps.universal_build IS NULL) AND (NOT COALESCE(universal_builds.succeeded, true)));
+     LEFT JOIN public.build_steps_deduped_mitigation ON ((universal_builds.id = build_steps_deduped_mitigation.universal_build)))
+  WHERE ((build_steps_deduped_mitigation.universal_build IS NULL) AND (NOT COALESCE(universal_builds.succeeded, true)));
 
 
 ALTER TABLE public.unvisited_builds OWNER TO postgres;
@@ -1870,6 +2082,14 @@ ALTER TABLE ONLY public.build_steps
 
 ALTER TABLE ONLY public.builds
     ADD CONSTRAINT builds_pkey PRIMARY KEY (global_build_num);
+
+
+--
+-- Name: cached_master_merge_base cached_master_merge_base_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.cached_master_merge_base
+    ADD CONSTRAINT cached_master_merge_base_pkey PRIMARY KEY (branch_commit);
 
 
 --
@@ -2115,6 +2335,13 @@ CREATE INDEX fk_ci_provider ON public.universal_builds USING btree (provider);
 
 
 --
+-- Name: fk_master_commit; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX fk_master_commit ON public.cached_master_merge_base USING btree (master_commit);
+
+
+--
 -- Name: fk_pattern_step; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -2220,24 +2447,11 @@ CREATE INDEX idx_universal_builds_succeeded ON public.universal_builds USING btr
 
 
 --
--- Name: master_failures_by_commit _RETURN; Type: RULE; Schema: public; Owner: postgres
+-- Name: cached_master_merge_base cached_master_merge_base_master_commit_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
-CREATE OR REPLACE VIEW public.master_failures_by_commit WITH (security_barrier='false') AS
- SELECT ordered_master_commits.sha1,
-    count(build_failure_causes_mutual_exclusion_known_broken.vcs_revision) AS total,
-    COALESCE(sum((build_failure_causes_mutual_exclusion_known_broken.is_idiopathic)::integer), (0)::bigint) AS idiopathic,
-    COALESCE(sum((build_failure_causes_mutual_exclusion_known_broken.is_timeout)::integer), (0)::bigint) AS timeout,
-    COALESCE(sum((build_failure_causes_mutual_exclusion_known_broken.is_known_broken)::integer), (0)::bigint) AS known_broken,
-    COALESCE(sum((build_failure_causes_mutual_exclusion_known_broken.is_matched)::integer), (0)::bigint) AS pattern_matched,
-    COALESCE(sum((build_failure_causes_mutual_exclusion_known_broken.is_flaky)::integer), (0)::bigint) AS flaky,
-    ordered_master_commits.id AS commit_index,
-    COALESCE(sum((build_failure_causes_mutual_exclusion_known_broken.is_unmatched)::integer), (0)::bigint) AS pattern_unmatched,
-    COALESCE(sum((build_failure_causes_mutual_exclusion_known_broken.succeeded)::integer), (0)::bigint) AS succeeded
-   FROM (public.ordered_master_commits
-     LEFT JOIN public.build_failure_causes_mutual_exclusion_known_broken ON ((build_failure_causes_mutual_exclusion_known_broken.vcs_revision = ordered_master_commits.sha1)))
-  GROUP BY ordered_master_commits.id
-  ORDER BY ordered_master_commits.id DESC;
+ALTER TABLE ONLY public.cached_master_merge_base
+    ADD CONSTRAINT cached_master_merge_base_master_commit_fkey FOREIGN KEY (master_commit) REFERENCES public.ordered_master_commits(sha1);
 
 
 --
@@ -2409,10 +2623,24 @@ ALTER TABLE ONLY public.universal_builds
 
 
 --
+-- Name: SCHEMA work_queues; Type: ACL; Schema: -; Owner: postgres
+--
+
+GRANT ALL ON SCHEMA work_queues TO logan;
+
+
+--
 -- Name: TABLE build_steps; Type: ACL; Schema: public; Owner: postgres
 --
 
 GRANT ALL ON TABLE public.build_steps TO logan;
+
+
+--
+-- Name: TABLE build_steps_deduped_mitigation; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.build_steps_deduped_mitigation TO logan;
 
 
 --
@@ -2441,6 +2669,13 @@ GRANT ALL ON TABLE public.global_builds TO logan;
 --
 
 GRANT ALL ON TABLE public.matches TO logan;
+
+
+--
+-- Name: TABLE matches_distinct; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.matches_distinct TO logan;
 
 
 --
@@ -2668,10 +2903,24 @@ GRANT ALL ON TABLE public.build_failure_causes_mutual_exclusion_known_broken TO 
 
 
 --
+-- Name: TABLE build_failure_disjoint_causes_by_commit; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.build_failure_disjoint_causes_by_commit TO logan;
+
+
+--
 -- Name: SEQUENCE build_steps_id_seq; Type: ACL; Schema: public; Owner: postgres
 --
 
 GRANT ALL ON SEQUENCE public.build_steps_id_seq TO logan;
+
+
+--
+-- Name: TABLE cached_master_merge_base; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.cached_master_merge_base TO logan;
 
 
 --
@@ -2780,6 +3029,13 @@ GRANT ALL ON TABLE public.master_detected_adjacent_breakages TO logan;
 
 
 --
+-- Name: TABLE master_detected_breakages_without_annotations; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_detected_breakages_without_annotations TO logan;
+
+
+--
 -- Name: SEQUENCE master_failure_mode_attributions_id_seq; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -2819,6 +3075,20 @@ GRANT ALL ON TABLE public.master_failures_raw_causes TO logan;
 --
 
 GRANT ALL ON TABLE public.master_failures_weekly_aggregation TO logan;
+
+
+--
+-- Name: TABLE master_ordered_commits_with_metadata; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_ordered_commits_with_metadata TO logan;
+
+
+--
+-- Name: TABLE master_unmarked_breakage_regions_by_commit; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_unmarked_breakage_regions_by_commit TO logan;
 
 
 --
@@ -2924,6 +3194,22 @@ GRANT ALL ON TABLE public.unscanned_patterns TO logan;
 --
 
 GRANT ALL ON TABLE public.unvisited_builds TO logan;
+
+
+--
+-- Name: DEFAULT PRIVILEGES FOR TABLES; Type: DEFAULT ACL; Schema: public; Owner: postgres
+--
+
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE ALL ON TABLES  FROM postgres;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON TABLES  TO logan;
+
+
+--
+-- Name: DEFAULT PRIVILEGES FOR TABLES; Type: DEFAULT ACL; Schema: work_queues; Owner: postgres
+--
+
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA work_queues REVOKE ALL ON TABLES  FROM postgres;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA work_queues GRANT ALL ON TABLES  TO logan;
 
 
 --

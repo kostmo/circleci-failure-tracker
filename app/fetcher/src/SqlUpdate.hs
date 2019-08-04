@@ -41,7 +41,6 @@ data CommitInfoCounts = NewCommitInfoCounts {
   , _timeout_count       :: Int
   , _matched_build_count :: Int
   , _flaky_build_count   :: Int
-  , _known_broken_count  :: Int
   } deriving Generic
 
 instance ToJSON CommitInfoCounts where
@@ -129,6 +128,9 @@ countRevisionBuilds ::
   -> IO (Either Text CommitInfo)
 countRevisionBuilds conn_data access_token git_revision = do
   conn <- DbHelpers.get_connection conn_data
+
+  -- TODO
+--  [(x, x, x, x)] <- query conn aggregate_causes_sql only_commit
   [Only failed_count] <- query conn failed_count_sql only_commit
   [Only matched_count] <- query conn matched_count_sql only_commit
   [Only timeout_count] <- query conn timeout_count_sql only_commit
@@ -143,31 +145,29 @@ countRevisionBuilds conn_data access_token git_revision = do
   runExceptT $ do
 
     breakages <- ExceptT $ findKnownBuildBreakages conn access_token pytorchRepoOwner $ Builds.RawCommit sha1
-    let all_broken_jobs = Set.unions $ map (SqlRead._jobs . DbHelpers.record) breakages
 
-    [Only known_broken_count] <- liftIO $ query conn known_broken_count_sql (sha1, In $ Set.toAscList all_broken_jobs)
     return $ NewCommitInfo breakages $ NewCommitInfoCounts
       failed_count
       timeout_count
       matched_count
       flaky_build_count
-      known_broken_count
 
   where
     sha1 = GitRev.sha1 git_revision
     only_commit = Only sha1
 
+--    aggregate_causes_sql = "SELECT total, idiopathic, timeout, pattern_matched, flaky, pattern_unmatched FROM build_failure_disjoint_causes_by_commit WHERE sha1 = ?"
     timeout_count_sql = "SELECT COUNT(*) FROM builds_join_steps WHERE vcs_revision = ? AND is_timeout;"
     failed_count_sql = "SELECT COUNT(*) FROM global_builds WHERE vcs_revision = ?;"
     matched_count_sql = "SELECT COUNT(*) FROM best_pattern_match_augmented_builds WHERE vcs_revision = ?;"
-    known_broken_count_sql = "SELECT COUNT(*) FROM global_builds WHERE vcs_revision = ? AND job_name IN ?;"
 
 
 -- | Find known build breakages applicable to the merge base
 -- of this PR commit
 findKnownBuildBreakages ::
      Connection
-  -> OAuth2.AccessToken -> DbHelpers.OwnerAndRepo
+  -> OAuth2.AccessToken
+  -> DbHelpers.OwnerAndRepo
   -> Builds.RawCommit
   -> IO (Either Text [DbHelpers.WithId SqlRead.CodeBreakage])
 findKnownBuildBreakages conn access_token owned_repo sha1 =

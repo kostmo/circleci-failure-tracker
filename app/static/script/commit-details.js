@@ -12,7 +12,6 @@ function populate_commit_info(commit_sha1) {
 			["Matched build count:", counts_obj["matched_build_count"]],
 			["Flaky build count:", counts_obj["flaky_build_count"]],
 			["Timeout count:", counts_obj["timeout_count"]],
-			["Known code breakages count:", counts_obj["known_broken_count"]],
 		];
 
 		var stats_table = render_table_vertical_headers(items);

@@ -445,17 +445,31 @@ insertLatestPatternBuildScan
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
 
 
+-- | TODO Fix uniqueness constraint on build_steps table,
+-- then use "ON CONFLICT" clause instead of a SELECT followed by INSERT
 insertBuildVisitation ::
      ScanRecords.ScanCatchupResources
   -> (DbHelpers.WithId Builds.UniversalBuild, Either Builds.BuildWithStepFailure ScanRecords.UnidentifiedBuildFailure)
   -> IO Builds.BuildStepId
 insertBuildVisitation scan_resources (ubuild, visitation_result) = do
 
-  [Only step_id] <- query conn sql $
-    stepFailureToTuple (Builds.UniversalBuildId $ DbHelpers.db_id ubuild, visitation_result)
-  return $ Builds.NewBuildStepId step_id
+  preexisting_rows <- query conn precheck_sql $ Only universal_build_id
+  let maybe_first_row = Safe.headMay preexisting_rows
+
+  row_step_id <- case maybe_first_row of
+    Nothing -> do
+      [Only step_id] <- query conn insertion_sql $
+        stepFailureToTuple (Builds.UniversalBuildId universal_build_id, visitation_result)
+      return step_id
+    Just (Only some_step_id) -> return some_step_id
+
+  return $ Builds.NewBuildStepId row_step_id
+
   where
-    sql = "INSERT INTO build_steps(name, is_timeout, universal_build) VALUES(?,?,?) RETURNING id;"
+    universal_build_id = DbHelpers.db_id ubuild
+
+    precheck_sql = "SELECT id FROM build_steps_deduped_mitigation WHERE universal_build = ? LIMIT 1;"
+    insertion_sql = "INSERT INTO build_steps(name, is_timeout, universal_build) VALUES(?,?,?) RETURNING id;"
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
 
 

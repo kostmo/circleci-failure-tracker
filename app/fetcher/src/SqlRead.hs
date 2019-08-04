@@ -514,11 +514,11 @@ instance ToJSON CodeBreakage where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
-get_master_commit_index ::
+getMasterCommitIndex ::
      Connection
   -> Builds.RawCommit
   -> IO (Either Text Int64)
-get_master_commit_index conn (Builds.RawCommit sha1) = do
+getMasterCommitIndex conn (Builds.RawCommit sha1) = do
   rows <- query conn sql $ Only sha1
   return $ maybeToEither ("Commit " <> sha1 <>" not found in master branch") $
     Safe.headMay $ map (\(Only x) -> x) rows
@@ -547,7 +547,7 @@ getSpanningBreakages ::
 getSpanningBreakages conn sha1 =
 
   runExceptT $ do
-    target_commit_index <- ExceptT $ get_master_commit_index conn sha1
+    target_commit_index <- ExceptT $ getMasterCommitIndex conn sha1
 
     rows <- liftIO $ query conn sql (target_commit_index, target_commit_index)
     return $ map f rows
@@ -609,12 +609,12 @@ apiAutocompleteTags = listFlat1X
 
 apiAutocompleteSteps :: Text -> DbIO [Text]
 apiAutocompleteSteps = listFlat1X
-  "SELECT name FROM (SELECT name, COUNT(*) AS freq FROM build_steps where name IS NOT NULL GROUP BY name ORDER BY freq DESC, name ASC) foo WHERE name ILIKE CONCAT(?,'%');"
+  "SELECT name FROM (SELECT name, COUNT(*) AS freq FROM build_steps_deduped_mitigation where name IS NOT NULL GROUP BY name ORDER BY freq DESC, name ASC) foo WHERE name ILIKE CONCAT(?,'%');"
 
 
 apiListSteps :: DbIO [Text]
 apiListSteps = listFlat
-  "SELECT name FROM build_steps WHERE name IS NOT NULL GROUP BY name ORDER BY COUNT(*) DESC, name ASC;"
+  "SELECT name FROM build_steps_deduped_mitigation WHERE name IS NOT NULL GROUP BY name ORDER BY COUNT(*) DESC, name ASC;"
 
 
 apiAutocompleteBranches :: Text -> DbIO [Text]
@@ -1021,10 +1021,10 @@ apiSummaryStats = do
  conn <- ask
  liftIO $ do
   [Only build_count] <- query_ conn "SELECT COUNT(*) FROM global_builds"
-  [Only visited_count] <- query_ conn "SELECT COUNT(*) FROM build_steps"
-  [Only explained_count] <- query_ conn "SELECT COUNT(*) FROM build_steps WHERE name IS NOT NULL"
-  [Only timeout_count] <- query_ conn "SELECT COUNT(*) FROM build_steps WHERE is_timeout"
-  [Only matched_steps_count] <- query_ conn "SELECT COUNT(*) FROM (SELECT build_step FROM public.matches GROUP BY build_step) x"
+  [Only visited_count] <- query_ conn "SELECT COUNT(*) FROM build_steps_deduped_mitigation"
+  [Only explained_count] <- query_ conn "SELECT COUNT(*) FROM build_steps_deduped_mitigation WHERE name IS NOT NULL"
+  [Only timeout_count] <- query_ conn "SELECT COUNT(*) FROM build_steps_deduped_mitigation WHERE is_timeout"
+  [Only matched_steps_count] <- query_ conn "SELECT COUNT(*) FROM (SELECT build_step FROM public.matches_distinct GROUP BY build_step) x"
   [Only unattributed_failed_builds] <- query_ conn "SELECT COUNT(*) FROM unattributed_failed_builds"
   [Only idiopathic_build_failures] <- query_ conn "SELECT COUNT(*) FROM idiopathic_build_failures"
   return $ SummaryStats build_count visited_count explained_count timeout_count matched_steps_count unattributed_failed_builds idiopathic_build_failures
@@ -1140,12 +1140,14 @@ instance ToJSON PatternOccurrence where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
-getBuildPatternMatches :: Builds.UniversalBuildId -> DbIO [MatchOccurrences.MatchOccurrencesForBuild]
+getBuildPatternMatches ::
+     Builds.UniversalBuildId
+  -> DbIO [MatchOccurrences.MatchOccurrencesForBuild]
 getBuildPatternMatches (Builds.UniversalBuildId build_id) = do
   conn <- ask
   liftIO $ query conn sql $ Only build_id
   where
-    sql = "SELECT step_name, pattern, matches_with_log_metadata.id, line_number, line_count, line_text, span_start, span_end, specificity FROM matches_with_log_metadata JOIN build_steps ON matches_with_log_metadata.build_step = build_steps.id JOIN patterns_augmented ON patterns_augmented.id = matches_with_log_metadata.pattern WHERE build_steps.universal_build = ? ORDER BY specificity DESC, patterns_augmented.id ASC, line_number ASC;"
+    sql = "SELECT step_name, pattern, matches_with_log_metadata.id, line_number, line_count, line_text, span_start, span_end, specificity FROM matches_with_log_metadata JOIN build_steps_deduped_mitigation ON matches_with_log_metadata.build_step = build_steps_deduped_mitigation.id JOIN patterns_augmented ON patterns_augmented.id = matches_with_log_metadata.pattern WHERE build_steps_deduped_mitigation.universal_build = ? ORDER BY specificity DESC, patterns_augmented.id ASC, line_number ASC;"
 
 
 data StorageStats = StorageStats {
