@@ -411,12 +411,12 @@ listBuilds sql = do
 
 apiUnmatchedBuilds :: DbIO [WebApi.BuildBranchRecord]
 apiUnmatchedBuilds = listBuilds
-  "SELECT build, branch, global_build FROM unattributed_failed_builds ORDER BY build DESC;"
+  "SELECT branch, global_build FROM unattributed_failed_builds ORDER BY build DESC;"
 
 
 apiIdiopathicBuilds :: DbIO [WebApi.BuildBranchRecord]
 apiIdiopathicBuilds = listBuilds
-  "SELECT build, branch, global_build_num FROM idiopathic_build_failures ORDER BY build DESC;"
+  "SELECT branch, global_build_num FROM idiopathic_build_failures ORDER BY build DESC;"
 
 
 apiUnmatchedCommitBuilds :: Text -> DbIO [WebApi.UnmatchedBuild]

@@ -940,32 +940,6 @@ CREATE VIEW public.build_failure_disjoint_causes_by_commit AS
 ALTER TABLE public.build_failure_disjoint_causes_by_commit OWNER TO postgres;
 
 --
--- Name: build_match_repetitions; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.build_match_repetitions WITH (security_barrier='false') AS
- SELECT global_builds.build_number AS build,
-    foo.pat,
-    foo.repetitions,
-    foo.universal_build
-   FROM (( SELECT matches_for_build.universal_build,
-            matches_for_build.pat,
-            count(*) AS repetitions
-           FROM public.matches_for_build
-          GROUP BY matches_for_build.pat, matches_for_build.universal_build) foo
-     JOIN public.global_builds ON ((foo.universal_build = global_builds.global_build_num)));
-
-
-ALTER TABLE public.build_match_repetitions OWNER TO postgres;
-
---
--- Name: VIEW build_match_repetitions; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON VIEW public.build_match_repetitions IS 'TODO: Get rid of provider-specific "build" column, which will allow us to eliminate the JOIN';
-
-
---
 -- Name: build_steps_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
 --
 
@@ -1139,8 +1113,7 @@ ALTER TABLE public.commit_metadata OWNER TO postgres;
 --
 
 CREATE VIEW public.idiopathic_build_failures WITH (security_barrier='false') AS
- SELECT global_builds.build_number AS build,
-    global_builds.branch,
+ SELECT global_builds.branch,
     global_builds.global_build_num
    FROM (public.build_steps_deduped_mitigation
      JOIN public.global_builds ON ((build_steps_deduped_mitigation.universal_build = global_builds.global_build_num)))
@@ -1891,8 +1864,7 @@ ALTER SEQUENCE public.scans_id_seq OWNED BY public.scans.id;
 --
 
 CREATE VIEW public.unattributed_failed_builds WITH (security_barrier='false') AS
- SELECT global_builds.build_number AS build,
-    global_builds.branch,
+ SELECT global_builds.branch,
     global_builds.global_build_num AS global_build
    FROM (( SELECT build_steps_deduped_mitigation.universal_build
            FROM (public.build_steps_deduped_mitigation
@@ -2896,13 +2868,6 @@ GRANT ALL ON TABLE public.build_failure_causes_disjoint TO logan;
 --
 
 GRANT ALL ON TABLE public.build_failure_disjoint_causes_by_commit TO logan;
-
-
---
--- Name: TABLE build_match_repetitions; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.build_match_repetitions TO logan;
 
 
 --
