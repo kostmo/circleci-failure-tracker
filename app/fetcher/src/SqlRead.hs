@@ -144,13 +144,8 @@ getGlobalBuild conn (Builds.UniversalBuildId global_build_num) = do
     sql = "SELECT global_build_num, build_number, provider, build_namespace, succeeded, vcs_revision, queued_at, job_name, branch, started_at, finished_at FROM global_builds WHERE global_build_num = ?;"
 
 
-getRevisitableBuilds ::
-     Connection
-  -> IO [(Builds.BuildStepId, Text, DbHelpers.WithId Builds.UniversalBuild, [Int64])]
-getRevisitableBuilds conn =
-  map f <$> query_ conn sql
-  where
-    f (delimited_pattern_ids, step_id, step_name, universal_build_id, build_num, provider_id, build_namespace, succeeded, vcs_revision) =
+
+common_xform (delimited_pattern_ids, step_id, step_name, universal_build_id, build_num, provider_id, build_namespace, succeeded, vcs_revision) =
       ( Builds.NewBuildStepId step_id
       , step_name
       , DbHelpers.WithId universal_build_id $ Builds.UniversalBuild
@@ -162,6 +157,24 @@ getRevisitableBuilds conn =
       , map read $ splitOn ";" delimited_pattern_ids
       )
 
+
+getRevisitableWhitelistedBuilds ::
+     Connection
+  -> [Builds.UniversalBuildId]
+  -> IO [(Builds.BuildStepId, Text, DbHelpers.WithId Builds.UniversalBuild, [Int64])]
+getRevisitableWhitelistedBuilds conn universal_build_ids = do
+  putStrLn $ unwords ["Inside", "getRevisitableWhitelistedBuilds"]
+  map common_xform <$> query conn sql (Only $ In $ map (\(Builds.UniversalBuildId x) -> x) universal_build_ids)
+  where
+    sql = "SELECT unscanned_patterns_delimited, step_id, step_name, universal_build, build_num, provider, build_namespace, succeeded, vcs_revision FROM unscanned_patterns WHERE universal_build IN ?;"
+
+
+getRevisitableBuilds ::
+     Connection
+  -> IO [(Builds.BuildStepId, Text, DbHelpers.WithId Builds.UniversalBuild, [Int64])]
+getRevisitableBuilds conn =
+  map common_xform <$> query_ conn sql
+  where
     sql = "SELECT unscanned_patterns_delimited, step_id, step_name, universal_build, build_num, provider, build_namespace, succeeded, vcs_revision FROM unscanned_patterns;"
 
 
@@ -240,7 +253,7 @@ apiTestFailures test_failure_pattern_id = do
   case Safe.headMay patterns_singleton of
     Nothing -> return $ Left "Could not find Test Failure pattern"
     Just test_failure_pattern -> do
-      pattern_occurrences <- get_best_pattern_matches_whitelisted_branches test_failure_pattern_id
+      pattern_occurrences <- getBestPatternMatchesWhitelistedBranches test_failure_pattern_id
       return $ Right $ Maybe.mapMaybe (repackage test_failure_pattern) pattern_occurrences
 
   where
@@ -623,8 +636,8 @@ apiAutocompleteBranches = listFlat1X
 
 
 -- Not used yet
-api_list_branches :: DbIO [Text]
-api_list_branches = listFlat
+apiListBranches :: DbIO [Text]
+apiListBranches = listFlat
   "SELECT branch, COUNT(*) AS count FROM global_builds WHERE branch != '' GROUP BY branch ORDER BY count DESC;"
 
 
@@ -955,8 +968,8 @@ apiAnnotatedCodeBreakages = runQuery
   "SELECT cause_id, cause_commit_index, cause_sha1, description, failure_mode_reporter, failure_mode_reported_at, failure_mode_id, cause_reporter, cause_reported_at, cause_jobs, resolution_id, resolved_commit_index, resolution_sha1, resolution_reporter, resolution_reported_at, breakage_commit_author, breakage_commit_message, resolution_commit_author, resolution_commit_message, breakage_commit_date, resolution_commit_date FROM known_breakage_summaries ORDER BY cause_commit_index DESC;"
 
 
-get_latest_master_commit_with_metadata :: DbIO (Either Text Builds.RawCommit)
-get_latest_master_commit_with_metadata = do
+getLatestMasterCommitWithMetadata :: DbIO (Either Text Builds.RawCommit)
+getLatestMasterCommitWithMetadata = do
   conn <- ask
   liftIO $ do
     rows <- query_ conn sql
@@ -1187,8 +1200,8 @@ pattern_occurrence_txform pattern_id = f
       universal_build_id
 
 
-get_best_pattern_matches :: ScanPatterns.PatternId -> DbIO [PatternOccurrence]
-get_best_pattern_matches pat@(ScanPatterns.PatternId pattern_id) = do
+getBestPatternMatches :: ScanPatterns.PatternId -> DbIO [PatternOccurrence]
+getBestPatternMatches pat@(ScanPatterns.PatternId pattern_id) = do
   conn <- ask
   liftIO $ map (pattern_occurrence_txform pat) <$> query conn sql (Only pattern_id)
 
@@ -1196,8 +1209,8 @@ get_best_pattern_matches pat@(ScanPatterns.PatternId pattern_id) = do
     sql = "SELECT build, step_name, match_id, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch, universal_build FROM best_pattern_match_augmented_builds WHERE pattern_id = ?;"
 
 
-get_best_pattern_matches_whitelisted_branches :: ScanPatterns.PatternId -> DbIO [PatternOccurrence]
-get_best_pattern_matches_whitelisted_branches pat@(ScanPatterns.PatternId pattern_id) = do
+getBestPatternMatchesWhitelistedBranches :: ScanPatterns.PatternId -> DbIO [PatternOccurrence]
+getBestPatternMatchesWhitelistedBranches pat@(ScanPatterns.PatternId pattern_id) = do
   conn <- ask
   liftIO $ map (pattern_occurrence_txform pat) <$> query conn sql (Only pattern_id)
   where

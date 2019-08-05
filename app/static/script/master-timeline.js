@@ -44,12 +44,19 @@ function gen_broken_jobs_table(element_id, data_url) {
 
 function get_timeline_data(parms) {
 
+	const start_time = new Date();
 	$("#scan-throbber").show();
+
 	$.getJSON('/api/master-timeline', parms, function (mydata) {
 
+		const end_time = new Date();
 		$("#scan-throbber").hide();
 		if (mydata.success) {
 
+			var time_diff = end_time.getTime() - start_time.getTime();
+			var seconds_diff = time_diff / 1000;
+
+			console.log("Fetched timeline data in " + seconds_diff.toFixed(1) + " seconds.");
 			gen_timeline_table("master-timeline-table", mydata.payload);
 
 		} else {
@@ -249,6 +256,14 @@ function mark_failure_cause_common(clicked_job_name, api_url) {
 		const rows = tabulator.getRows();
 		rows.forEach(function(row) {
 			row.toggleSelect();
+		});
+	});
+
+
+	$('#dialog-select-none-button').click(function(e) {
+		const rows = tabulator.getRows();
+		rows.forEach(function(row) {
+			row.deselect();
 		});
 	});
 
@@ -473,6 +488,15 @@ function define_column(col) {
 	return col_dict;
 }
 
+
+function top_page() {
+	$('#offset-input').val(0);
+
+	const radios = $('input:radio[name=pagination-mode]');
+	radios.filter('[value=start-by-offset]').prop('checked', true);
+
+	url_from_form();
+}
 
 function next_page() {
 

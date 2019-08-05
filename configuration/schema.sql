@@ -2321,13 +2321,6 @@ CREATE INDEX cause_fk ON public.code_breakage_resolution USING btree (cause);
 
 
 --
--- Name: fk_build_step_id; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX fk_build_step_id ON public.matches USING btree (build_step);
-
-
---
 -- Name: fk_ci_provider; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -2353,13 +2346,6 @@ CREATE INDEX fk_pattern_step ON public.pattern_step_applicability USING btree (p
 --
 
 CREATE INDEX fk_patternid ON public.scans USING btree (latest_pattern_id);
-
-
---
--- Name: fk_scan_id; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX fk_scan_id ON public.matches USING btree (scan_id);
 
 
 --
@@ -2430,6 +2416,27 @@ CREATE INDEX fki_fk_ubuild ON public.build_steps USING btree (universal_build);
 --
 
 CREATE INDEX fki_master_failure_mode_fk ON public.code_breakage_cause USING btree (failure_mode);
+
+
+--
+-- Name: idx_is_timeout; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_is_timeout ON public.build_steps USING btree (is_timeout);
+
+
+--
+-- Name: idx_line_number; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_line_number ON public.matches USING btree (line_number);
+
+
+--
+-- Name: idx_step_name; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_step_name ON public.build_steps USING btree (name);
 
 
 --

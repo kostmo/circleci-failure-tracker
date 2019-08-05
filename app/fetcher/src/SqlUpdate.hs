@@ -158,7 +158,9 @@ countRevisionBuilds conn_data access_token git_revision = do
 
 --    aggregate_causes_sql = "SELECT total, idiopathic, timeout, pattern_matched, flaky, pattern_unmatched FROM build_failure_disjoint_causes_by_commit WHERE sha1 = ?"
     timeout_count_sql = "SELECT COUNT(*) FROM builds_join_steps WHERE vcs_revision = ? AND is_timeout;"
-    failed_count_sql = "SELECT COUNT(*) FROM global_builds WHERE vcs_revision = ?;"
+
+    failed_count_sql = "SELECT COUNT(*) FROM builds_deduped WHERE vcs_revision = ?;"
+
     matched_count_sql = "SELECT COUNT(*) FROM best_pattern_match_augmented_builds WHERE vcs_revision = ?;"
 
 

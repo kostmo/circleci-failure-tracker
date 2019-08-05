@@ -50,7 +50,9 @@ scanBuilds scan_resources revisit whitelisted_builds_or_fetch_count = do
 
   rescan_matches <- if revisit
     then do
-      visited_builds_list <- SqlRead.getRevisitableBuilds conn
+      visited_builds_list <- case whitelisted_builds_or_fetch_count of
+        Left whitelisted_build_ids -> SqlRead.getRevisitableWhitelistedBuilds conn $ Set.toAscList whitelisted_build_ids
+        Right _ -> SqlRead.getRevisitableBuilds conn
       let whitelisted_visited = visited_filter visited_builds_list
       rescanVisitedBuilds scan_resources whitelisted_visited
 

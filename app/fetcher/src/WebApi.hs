@@ -51,7 +51,7 @@ data UnmatchedBuild = UnmatchedBuild {
   , _step_name              :: Text
   , _queued_at              :: UTCTime
   , _job_name               :: Text
-  , _branch                 :: Text
+  , _branch                 :: Maybe Text
   , _universal_build_number :: Builds.UniversalBuildId
   , _provider_icon_url      :: Text
   , _provider_label         :: Text

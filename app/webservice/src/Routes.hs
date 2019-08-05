@@ -420,7 +420,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
     let get x y = jsonDbGet connection_data x y
         get1 x y = jsonDbGet1 connection_data x y
 
-    get "/api/latest-master-commit-with-metadata" $ WebApi.toJsonEither <$> SqlRead.get_latest_master_commit_with_metadata
+    get "/api/latest-master-commit-with-metadata" $ WebApi.toJsonEither <$> SqlRead.getLatestMasterCommitWithMetadata
 
     get "/api/status-posted-commits-by-day" SqlRead.apiStatusPostedCommitsByDay
 
@@ -502,7 +502,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     get1 "/api/build-pattern-matches" "build_id" $ SqlRead.getBuildPatternMatches . Builds.UniversalBuildId
 
-    get1 "/api/best-pattern-matches" "pattern_id" $ SqlRead.get_best_pattern_matches . ScanPatterns.PatternId
+    get1 "/api/best-pattern-matches" "pattern_id" $ SqlRead.getBestPatternMatches . ScanPatterns.PatternId
 
     get1 "/api/pattern-matches" "pattern_id" $ SqlRead.getPatternMatches . ScanPatterns.PatternId
 
