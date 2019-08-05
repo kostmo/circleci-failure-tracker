@@ -884,10 +884,10 @@ CREATE VIEW public.build_failure_causes WITH (security_barrier='false') AS
 ALTER TABLE public.build_failure_causes OWNER TO postgres;
 
 --
--- Name: build_failure_causes_mutual_exclusion_known_broken; Type: VIEW; Schema: public; Owner: postgres
+-- Name: build_failure_causes_disjoint; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.build_failure_causes_mutual_exclusion_known_broken WITH (security_barrier='false') AS
+CREATE VIEW public.build_failure_causes_disjoint WITH (security_barrier='false') AS
  SELECT build_failure_causes.build_num,
     build_failure_causes.succeeded,
     (build_failure_causes.is_idiopathic AND (NOT build_failure_causes.is_known_broken)) AS is_idiopathic,
@@ -908,16 +908,13 @@ CREATE VIEW public.build_failure_causes_mutual_exclusion_known_broken WITH (secu
    FROM public.build_failure_causes;
 
 
-ALTER TABLE public.build_failure_causes_mutual_exclusion_known_broken OWNER TO postgres;
+ALTER TABLE public.build_failure_causes_disjoint OWNER TO postgres;
 
 --
--- Name: VIEW build_failure_causes_mutual_exclusion_known_broken; Type: COMMENT; Schema: public; Owner: postgres
+-- Name: VIEW build_failure_causes_disjoint; Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON VIEW public.build_failure_causes_mutual_exclusion_known_broken IS '
-TODO: rename to "build_failure_causes_disjoint"
-
-The "known broken" cause shall dominate; it is made mutually-exclusive with all other causes for a given build failure because a known broken build is unreliable for other statistics collection.
+COMMENT ON VIEW public.build_failure_causes_disjoint IS 'The "known broken" cause shall dominate; it is made mutually-exclusive with all other causes for a given build failure because a known broken build is unreliable for other statistics collection.
 
 Additionally, the "is_matched" field excludes "is_flaky", while the "is_unmatched" field excludes "is_timeout" and "is_idiopathic".  This means that the sum of all "is_flaky" + "is_matched" + "is_timeout" + "is_unmatched" + "is_known_broken" should be equal to the total failure count.';
 
@@ -927,17 +924,17 @@ Additionally, the "is_matched" field excludes "is_flaky", while the "is_unmatche
 --
 
 CREATE VIEW public.build_failure_disjoint_causes_by_commit AS
- SELECT build_failure_causes_mutual_exclusion_known_broken.vcs_revision AS sha1,
-    count(build_failure_causes_mutual_exclusion_known_broken.vcs_revision) AS total,
-    COALESCE(sum((build_failure_causes_mutual_exclusion_known_broken.is_idiopathic)::integer), (0)::bigint) AS idiopathic,
-    COALESCE(sum((build_failure_causes_mutual_exclusion_known_broken.is_timeout)::integer), (0)::bigint) AS timeout,
-    COALESCE(sum((build_failure_causes_mutual_exclusion_known_broken.is_known_broken)::integer), (0)::bigint) AS known_broken,
-    COALESCE(sum((build_failure_causes_mutual_exclusion_known_broken.is_matched)::integer), (0)::bigint) AS pattern_matched,
-    COALESCE(sum((build_failure_causes_mutual_exclusion_known_broken.is_flaky)::integer), (0)::bigint) AS flaky,
-    COALESCE(sum((build_failure_causes_mutual_exclusion_known_broken.is_unmatched)::integer), (0)::bigint) AS pattern_unmatched,
-    COALESCE(sum((build_failure_causes_mutual_exclusion_known_broken.succeeded)::integer), (0)::bigint) AS succeeded
-   FROM public.build_failure_causes_mutual_exclusion_known_broken
-  GROUP BY build_failure_causes_mutual_exclusion_known_broken.vcs_revision;
+ SELECT build_failure_causes_disjoint.vcs_revision AS sha1,
+    count(build_failure_causes_disjoint.vcs_revision) AS total,
+    COALESCE(sum((build_failure_causes_disjoint.is_idiopathic)::integer), (0)::bigint) AS idiopathic,
+    COALESCE(sum((build_failure_causes_disjoint.is_timeout)::integer), (0)::bigint) AS timeout,
+    COALESCE(sum((build_failure_causes_disjoint.is_known_broken)::integer), (0)::bigint) AS known_broken,
+    COALESCE(sum((build_failure_causes_disjoint.is_matched)::integer), (0)::bigint) AS pattern_matched,
+    COALESCE(sum((build_failure_causes_disjoint.is_flaky)::integer), (0)::bigint) AS flaky,
+    COALESCE(sum((build_failure_causes_disjoint.is_unmatched)::integer), (0)::bigint) AS pattern_unmatched,
+    COALESCE(sum((build_failure_causes_disjoint.succeeded)::integer), (0)::bigint) AS succeeded
+   FROM public.build_failure_causes_disjoint
+  GROUP BY build_failure_causes_disjoint.vcs_revision;
 
 
 ALTER TABLE public.build_failure_disjoint_causes_by_commit OWNER TO postgres;
@@ -1239,18 +1236,18 @@ CREATE VIEW public.master_contiguous_failures WITH (security_barrier='false') AS
                     foo.job_name,
                     foo.sha1,
                     foo.id
-                   FROM ( SELECT lag(blah.commit_number) OVER (PARTITION BY build_failure_causes_mutual_exclusion_known_broken.job_name ORDER BY blah.commit_number DESC, build_failure_causes_mutual_exclusion_known_broken.job_name) AS prev_commit_number,
-                            lead(blah.commit_number) OVER (PARTITION BY build_failure_causes_mutual_exclusion_known_broken.job_name ORDER BY blah.commit_number DESC, build_failure_causes_mutual_exclusion_known_broken.job_name) AS next_commit_number,
+                   FROM ( SELECT lag(blah.commit_number) OVER (PARTITION BY build_failure_causes_disjoint.job_name ORDER BY blah.commit_number DESC, build_failure_causes_disjoint.job_name) AS prev_commit_number,
+                            lead(blah.commit_number) OVER (PARTITION BY build_failure_causes_disjoint.job_name ORDER BY blah.commit_number DESC, build_failure_causes_disjoint.job_name) AS next_commit_number,
                             blah.commit_number,
-                            build_failure_causes_mutual_exclusion_known_broken.global_build,
-                            build_failure_causes_mutual_exclusion_known_broken.job_name,
+                            build_failure_causes_disjoint.global_build,
+                            build_failure_causes_disjoint.job_name,
                             blah.sha1,
                             blah.id
                            FROM (( SELECT ordered_master_commits.id,
                                     ordered_master_commits.sha1,
                                     row_number() OVER (ORDER BY ordered_master_commits.id DESC) AS commit_number
                                    FROM public.ordered_master_commits) blah
-                             JOIN public.build_failure_causes_mutual_exclusion_known_broken ON ((build_failure_causes_mutual_exclusion_known_broken.vcs_revision = blah.sha1)))) foo) bar) quux
+                             JOIN public.build_failure_causes_disjoint ON ((build_failure_causes_disjoint.vcs_revision = blah.sha1)))) foo) bar) quux
   WHERE quux.contiguous_failure
   ORDER BY quux.job_name, quux.commit_number;
 
@@ -2888,10 +2885,10 @@ GRANT ALL ON TABLE public.build_failure_causes TO logan;
 
 
 --
--- Name: TABLE build_failure_causes_mutual_exclusion_known_broken; Type: ACL; Schema: public; Owner: postgres
+-- Name: TABLE build_failure_causes_disjoint; Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON TABLE public.build_failure_causes_mutual_exclusion_known_broken TO logan;
+GRANT ALL ON TABLE public.build_failure_causes_disjoint TO logan;
 
 
 --

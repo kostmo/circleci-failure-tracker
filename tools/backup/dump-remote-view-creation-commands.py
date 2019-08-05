@@ -3,13 +3,20 @@
 import os
 import re
 import sys
+
+import argparse
 import json
 
 CURRENT_DIR = os.path.dirname(__file__)
 REPO_ROOT_DIR = os.path.abspath(os.path.join(CURRENT_DIR, "../.."))
 
 
-RUNNING_BACKUP = False
+def parse_args():
+    parser = argparse.ArgumentParser(description='Manipulate VIEWs in the database')
+
+    parser.add_argument('--backup', dest='backup', action="store_true", help='Backs up the views.  When false, creates the views in the database.')
+
+    return parser.parse_args()
 
 
 def get_view_names():
@@ -47,7 +54,6 @@ def dump_view_creation_script():
         "pg_dump",
         "-h",
         db_hostname,
-#        "--create",
         "-s",
         "-U",
         "postgres",
@@ -64,7 +70,6 @@ def dump_view_creation_script():
 
     print("CLI string:", cli_string)
     os.system(cli_string)
-
 
 
 def run_view_creation_script():
@@ -92,10 +97,11 @@ def run_view_creation_script():
     os.system(cli_string)
 
 
-
 if __name__ == "__main__":
 
-    if RUNNING_BACKUP:
+    options = parse_args()
+
+    if options.backup:
         dump_view_creation_script()
     else:
         run_view_creation_script()
