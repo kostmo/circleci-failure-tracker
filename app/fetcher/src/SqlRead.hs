@@ -1200,13 +1200,14 @@ pattern_occurrence_txform pattern_id = f
       universal_build_id
 
 
+-- | Limit is arbitrary
 getBestPatternMatches :: ScanPatterns.PatternId -> DbIO [PatternOccurrence]
 getBestPatternMatches pat@(ScanPatterns.PatternId pattern_id) = do
   conn <- ask
   liftIO $ map (pattern_occurrence_txform pat) <$> query conn sql (Only pattern_id)
 
   where
-    sql = "SELECT build, step_name, match_id, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch, universal_build FROM best_pattern_match_augmented_builds WHERE pattern_id = ?;"
+    sql = "SELECT build, step_name, match_id, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch, universal_build FROM best_pattern_match_augmented_builds WHERE pattern_id = ? LIMIT 100;"
 
 
 getBestPatternMatchesWhitelistedBranches :: ScanPatterns.PatternId -> DbIO [PatternOccurrence]

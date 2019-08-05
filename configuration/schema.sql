@@ -98,73 +98,19 @@ Then remove this mitigation from "builds_join_steps" view';
 
 
 --
--- Name: builds; Type: TABLE; Schema: public; Owner: postgres
+-- Name: log_metadata; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE TABLE public.builds (
-    queued_at timestamp with time zone,
-    job_name text NOT NULL,
-    branch character varying,
-    succeeded boolean,
-    started_at timestamp with time zone,
-    finished_at timestamp with time zone,
-    global_build_num integer NOT NULL
+CREATE TABLE public.log_metadata (
+    line_count integer NOT NULL,
+    byte_count integer NOT NULL,
+    step integer NOT NULL,
+    content text,
+    modified_by_ansi_stripping boolean
 );
 
 
-ALTER TABLE public.builds OWNER TO postgres;
-
---
--- Name: TABLE builds; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON TABLE public.builds IS 'In contrast with the "universal_builds" table, this is information that may be fetched using a provider-specific API and may be populated asynchronously from the "universal_builds" info which is available from the GitHub status notification.';
-
-
---
--- Name: universal_builds; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.universal_builds (
-    id integer NOT NULL,
-    build_number integer,
-    build_namespace text,
-    provider integer,
-    commit_sha1 character(40) NOT NULL,
-    succeeded boolean NOT NULL
-);
-
-
-ALTER TABLE public.universal_builds OWNER TO postgres;
-
---
--- Name: TABLE universal_builds; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON TABLE public.universal_builds IS 'Currently, these records are stored even if the build succeeds.';
-
-
---
--- Name: global_builds; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.global_builds WITH (security_barrier='false') AS
- SELECT builds.global_build_num,
-    universal_builds.succeeded,
-    universal_builds.commit_sha1 AS vcs_revision,
-    builds.job_name,
-    builds.branch,
-    universal_builds.build_number,
-    universal_builds.build_namespace,
-    builds.queued_at,
-    builds.started_at,
-    builds.finished_at,
-    universal_builds.provider
-   FROM (public.universal_builds
-     JOIN public.builds ON ((builds.global_build_num = universal_builds.id)));
-
-
-ALTER TABLE public.global_builds OWNER TO postgres;
+ALTER TABLE public.log_metadata OWNER TO postgres;
 
 --
 -- Name: matches; Type: TABLE; Schema: public; Owner: postgres
@@ -214,61 +160,27 @@ This intermediate view eliminates those duplicate matches.';
 
 
 --
--- Name: matches_for_build; Type: VIEW; Schema: public; Owner: postgres
+-- Name: universal_builds; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.matches_for_build WITH (security_barrier='false') AS
- SELECT matches_distinct.pattern AS pat,
-    universal_builds.build_number AS build,
-    build_steps_deduped_mitigation.name AS step_name,
-    universal_builds.id AS universal_build
-   FROM ((public.matches_distinct
-     JOIN public.build_steps_deduped_mitigation ON ((matches_distinct.build_step = build_steps_deduped_mitigation.id)))
-     JOIN public.universal_builds ON ((universal_builds.id = build_steps_deduped_mitigation.universal_build)));
-
-
-ALTER TABLE public.matches_for_build OWNER TO postgres;
-
---
--- Name: build_match_repetitions; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.build_match_repetitions WITH (security_barrier='false') AS
- SELECT global_builds.build_number AS build,
-    foo.pat,
-    foo.repetitions,
-    foo.universal_build
-   FROM (( SELECT matches_for_build.universal_build,
-            matches_for_build.pat,
-            count(*) AS repetitions
-           FROM public.matches_for_build
-          GROUP BY matches_for_build.pat, matches_for_build.universal_build) foo
-     JOIN public.global_builds ON ((foo.universal_build = global_builds.global_build_num)));
-
-
-ALTER TABLE public.build_match_repetitions OWNER TO postgres;
-
---
--- Name: VIEW build_match_repetitions; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON VIEW public.build_match_repetitions IS 'TODO: Get rid of provider-specific "build" column, which will allow us to eliminate the JOIN';
-
-
---
--- Name: log_metadata; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.log_metadata (
-    line_count integer NOT NULL,
-    byte_count integer NOT NULL,
-    step integer NOT NULL,
-    content text,
-    modified_by_ansi_stripping boolean
+CREATE TABLE public.universal_builds (
+    id integer NOT NULL,
+    build_number integer,
+    build_namespace text,
+    provider integer,
+    commit_sha1 character(40) NOT NULL,
+    succeeded boolean NOT NULL
 );
 
 
-ALTER TABLE public.log_metadata OWNER TO postgres;
+ALTER TABLE public.universal_builds OWNER TO postgres;
+
+--
+-- Name: TABLE universal_builds; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.universal_builds IS 'Currently, these records are stored even if the build succeeds.';
+
 
 --
 -- Name: match_positions; Type: VIEW; Schema: public; Owner: postgres
@@ -489,29 +401,100 @@ CREATE VIEW public.flaky_patterns_augmented AS
 ALTER TABLE public.flaky_patterns_augmented OWNER TO postgres;
 
 --
+-- Name: matches_for_build; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.matches_for_build WITH (security_barrier='false') AS
+ SELECT matches_distinct.pattern AS pat,
+    universal_builds.build_number AS build,
+    build_steps_deduped_mitigation.name AS step_name,
+    universal_builds.id AS universal_build,
+    matches_distinct.id AS match_id
+   FROM ((public.matches_distinct
+     JOIN public.build_steps_deduped_mitigation ON ((matches_distinct.build_step = build_steps_deduped_mitigation.id)))
+     JOIN public.universal_builds ON ((universal_builds.id = build_steps_deduped_mitigation.universal_build)));
+
+
+ALTER TABLE public.matches_for_build OWNER TO postgres;
+
+--
 -- Name: best_pattern_match_for_builds; Type: VIEW; Schema: public; Owner: postgres
 --
 
 CREATE VIEW public.best_pattern_match_for_builds WITH (security_barrier='false') AS
- SELECT DISTINCT ON (build_match_repetitions.universal_build) build_match_repetitions.build,
-    build_match_repetitions.pat AS pattern_id,
+ SELECT DISTINCT ON (matches_for_build.universal_build) matches_for_build.build,
+    matches_for_build.pat AS pattern_id,
     patterns.expression,
     patterns.regex,
     patterns.has_nondeterministic_values,
     patterns.is_retired,
     patterns.specificity,
-    count(build_match_repetitions.pat) OVER (PARTITION BY build_match_repetitions.universal_build) AS distinct_matching_pattern_count,
-    sum(build_match_repetitions.repetitions) OVER (PARTITION BY build_match_repetitions.universal_build) AS total_pattern_matches,
+    NULL::bigint AS distinct_matching_pattern_count,
+    (count(matches_for_build.match_id) OVER (PARTITION BY matches_for_build.universal_build))::numeric AS total_pattern_matches,
     (EXISTS ( SELECT flaky_patterns_augmented.id
            FROM public.flaky_patterns_augmented
-          WHERE (flaky_patterns_augmented.pattern = build_match_repetitions.pat))) AS is_flaky,
-    build_match_repetitions.universal_build
-   FROM (public.build_match_repetitions
-     JOIN public.patterns ON ((build_match_repetitions.pat = patterns.id)))
-  ORDER BY build_match_repetitions.universal_build, patterns.specificity DESC, patterns.is_retired, patterns.regex, patterns.id DESC;
+          WHERE (flaky_patterns_augmented.pattern = matches_for_build.pat))) AS is_flaky,
+    matches_for_build.universal_build,
+    matches_for_build.match_id
+   FROM (public.matches_for_build
+     JOIN public.patterns ON ((matches_for_build.pat = patterns.id)))
+  ORDER BY matches_for_build.universal_build, patterns.specificity DESC, patterns.is_retired, patterns.regex, patterns.id DESC, matches_for_build.match_id DESC;
 
 
 ALTER TABLE public.best_pattern_match_for_builds OWNER TO postgres;
+
+--
+-- Name: VIEW best_pattern_match_for_builds; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.best_pattern_match_for_builds IS 'TODO: Fix computation of "distinct_matching_pattern_count" column';
+
+
+--
+-- Name: builds; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.builds (
+    queued_at timestamp with time zone,
+    job_name text NOT NULL,
+    branch character varying,
+    succeeded boolean,
+    started_at timestamp with time zone,
+    finished_at timestamp with time zone,
+    global_build_num integer NOT NULL
+);
+
+
+ALTER TABLE public.builds OWNER TO postgres;
+
+--
+-- Name: TABLE builds; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.builds IS 'In contrast with the "universal_builds" table, this is information that may be fetched using a provider-specific API and may be populated asynchronously from the "universal_builds" info which is available from the GitHub status notification.';
+
+
+--
+-- Name: global_builds; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.global_builds WITH (security_barrier='false') AS
+ SELECT builds.global_build_num,
+    universal_builds.succeeded,
+    universal_builds.commit_sha1 AS vcs_revision,
+    builds.job_name,
+    builds.branch,
+    universal_builds.build_number,
+    universal_builds.build_namespace,
+    builds.queued_at,
+    builds.started_at,
+    builds.finished_at,
+    universal_builds.provider
+   FROM (public.universal_builds
+     JOIN public.builds ON ((builds.global_build_num = universal_builds.id)));
+
+
+ALTER TABLE public.global_builds OWNER TO postgres;
 
 --
 -- Name: aggregated_build_matches; Type: VIEW; Schema: public; Owner: postgres
@@ -612,8 +595,8 @@ CREATE VIEW public.matches_with_log_metadata WITH (security_barrier='false') AS
     builds_join_steps.build_num,
     builds_join_steps.universal_build
    FROM ((public.matches_distinct
-     LEFT JOIN public.log_metadata ON ((log_metadata.step = matches_distinct.build_step)))
-     LEFT JOIN public.builds_join_steps ON ((builds_join_steps.step_id = log_metadata.step)));
+     JOIN public.log_metadata ON ((log_metadata.step = matches_distinct.build_step)))
+     JOIN public.builds_join_steps ON ((builds_join_steps.step_id = log_metadata.step)));
 
 
 ALTER TABLE public.matches_with_log_metadata OWNER TO postgres;
@@ -648,8 +631,8 @@ CREATE VIEW public.best_pattern_match_augmented_builds WITH (security_barrier='f
     builds_join_steps.started_at,
     builds_join_steps.finished_at
    FROM ((public.best_pattern_match_for_builds
-     JOIN public.matches_with_log_metadata ON (((matches_with_log_metadata.pattern = best_pattern_match_for_builds.pattern_id) AND (matches_with_log_metadata.universal_build = best_pattern_match_for_builds.universal_build))))
-     JOIN public.builds_join_steps ON ((builds_join_steps.universal_build = best_pattern_match_for_builds.universal_build)))
+     JOIN public.matches_with_log_metadata ON ((matches_with_log_metadata.id = best_pattern_match_for_builds.match_id)))
+     JOIN public.builds_join_steps ON ((builds_join_steps.step_id = matches_with_log_metadata.build_step)))
   ORDER BY best_pattern_match_for_builds.universal_build DESC, matches_with_log_metadata.line_number;
 
 
@@ -974,6 +957,32 @@ CREATE VIEW public.build_failure_disjoint_causes_by_commit AS
 
 
 ALTER TABLE public.build_failure_disjoint_causes_by_commit OWNER TO postgres;
+
+--
+-- Name: build_match_repetitions; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.build_match_repetitions WITH (security_barrier='false') AS
+ SELECT global_builds.build_number AS build,
+    foo.pat,
+    foo.repetitions,
+    foo.universal_build
+   FROM (( SELECT matches_for_build.universal_build,
+            matches_for_build.pat,
+            count(*) AS repetitions
+           FROM public.matches_for_build
+          GROUP BY matches_for_build.pat, matches_for_build.universal_build) foo
+     JOIN public.global_builds ON ((foo.universal_build = global_builds.global_build_num)));
+
+
+ALTER TABLE public.build_match_repetitions OWNER TO postgres;
+
+--
+-- Name: VIEW build_match_repetitions; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.build_match_repetitions IS 'TODO: Get rid of provider-specific "build" column, which will allow us to eliminate the JOIN';
+
 
 --
 -- Name: build_steps_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
@@ -2419,6 +2428,13 @@ CREATE INDEX fki_master_failure_mode_fk ON public.code_breakage_cause USING btre
 
 
 --
+-- Name: idx_github_status_post_description; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_github_status_post_description ON public.created_github_statuses USING btree (description);
+
+
+--
 -- Name: idx_is_timeout; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -2430,6 +2446,13 @@ CREATE INDEX idx_is_timeout ON public.build_steps USING btree (is_timeout);
 --
 
 CREATE INDEX idx_line_number ON public.matches USING btree (line_number);
+
+
+--
+-- Name: idx_specificity; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_specificity ON public.patterns USING btree (specificity);
 
 
 --
@@ -2651,24 +2674,10 @@ GRANT ALL ON TABLE public.build_steps_deduped_mitigation TO logan;
 
 
 --
--- Name: TABLE builds; Type: ACL; Schema: public; Owner: postgres
+-- Name: TABLE log_metadata; Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON TABLE public.builds TO logan;
-
-
---
--- Name: TABLE universal_builds; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.universal_builds TO logan;
-
-
---
--- Name: TABLE global_builds; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.global_builds TO logan;
+GRANT ALL ON TABLE public.log_metadata TO logan;
 
 
 --
@@ -2686,24 +2695,10 @@ GRANT ALL ON TABLE public.matches_distinct TO logan;
 
 
 --
--- Name: TABLE matches_for_build; Type: ACL; Schema: public; Owner: postgres
+-- Name: TABLE universal_builds; Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON TABLE public.matches_for_build TO logan;
-
-
---
--- Name: TABLE build_match_repetitions; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.build_match_repetitions TO logan;
-
-
---
--- Name: TABLE log_metadata; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.log_metadata TO logan;
+GRANT ALL ON TABLE public.universal_builds TO logan;
 
 
 --
@@ -2777,10 +2772,31 @@ GRANT ALL ON TABLE public.flaky_patterns_augmented TO logan;
 
 
 --
+-- Name: TABLE matches_for_build; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.matches_for_build TO logan;
+
+
+--
 -- Name: TABLE best_pattern_match_for_builds; Type: ACL; Schema: public; Owner: postgres
 --
 
 GRANT ALL ON TABLE public.best_pattern_match_for_builds TO logan;
+
+
+--
+-- Name: TABLE builds; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.builds TO logan;
+
+
+--
+-- Name: TABLE global_builds; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.global_builds TO logan;
 
 
 --
@@ -2914,6 +2930,13 @@ GRANT ALL ON TABLE public.build_failure_causes_mutual_exclusion_known_broken TO 
 --
 
 GRANT ALL ON TABLE public.build_failure_disjoint_causes_by_commit TO logan;
+
+
+--
+-- Name: TABLE build_match_repetitions; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.build_match_repetitions TO logan;
 
 
 --

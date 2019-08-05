@@ -63,7 +63,7 @@ instance ToJSON UnmatchedBuild where
 
 data BuildBranchRecord = BuildBranchRecord {
     _build_number       :: Builds.BuildNumber
-  , _branch             :: Text
+  , _branch             :: Maybe Text
   , _universal_build_id :: Builds.UniversalBuildId
   } deriving (Generic, FromRow)
 
