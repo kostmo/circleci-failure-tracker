@@ -699,19 +699,11 @@ CREATE TABLE public.code_breakage_cause (
     sha1 character(40) NOT NULL,
     description text,
     reporter text,
-    reported_at timestamp with time zone DEFAULT now(),
-    failure_mode integer
+    reported_at timestamp with time zone DEFAULT now()
 );
 
 
 ALTER TABLE public.code_breakage_cause OWNER TO postgres;
-
---
--- Name: TABLE code_breakage_cause; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON TABLE public.code_breakage_cause IS 'TODO: "failure_mode" column is deprecated; this is now in its own table.';
-
 
 --
 -- Name: code_breakage_resolution; Type: TABLE; Schema: public; Owner: postgres
@@ -786,8 +778,7 @@ CREATE VIEW public.code_breakage_spans WITH (security_barrier='false') AS
             code_breakage_cause.id AS cause_id,
             ordered_master_commits.id AS commit_index,
             code_breakage_cause.description,
-            code_breakage_cause.sha1,
-            code_breakage_cause.failure_mode
+            code_breakage_cause.sha1
            FROM (public.code_breakage_cause
              JOIN public.ordered_master_commits ON ((ordered_master_commits.sha1 = code_breakage_cause.sha1)))) foo
      LEFT JOIN ( SELECT code_breakage_resolution.reporter,
@@ -2421,13 +2412,6 @@ CREATE INDEX fki_fk_ubuild ON public.build_steps USING btree (universal_build);
 
 
 --
--- Name: fki_master_failure_mode_fk; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX fki_master_failure_mode_fk ON public.code_breakage_cause USING btree (failure_mode);
-
-
---
 -- Name: idx_github_status_post_description; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -2570,14 +2554,6 @@ ALTER TABLE ONLY public.build_steps
 
 ALTER TABLE ONLY public.log_metadata
     ADD CONSTRAINT log_metadata_step_fkey FOREIGN KEY (step) REFERENCES public.build_steps(id) ON DELETE CASCADE;
-
-
---
--- Name: code_breakage_cause master_failure_mode_fk; Type: FK CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.code_breakage_cause
-    ADD CONSTRAINT master_failure_mode_fk FOREIGN KEY (failure_mode) REFERENCES public.master_failure_modes(id) ON DELETE CASCADE;
 
 
 --
