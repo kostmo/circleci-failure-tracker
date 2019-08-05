@@ -826,22 +826,17 @@ COMMENT ON VIEW public.master_commit_known_breakage_causes IS 'This is just an i
 --
 
 CREATE VIEW public.known_broken_builds WITH (security_barrier='false') AS
- SELECT global_builds.build_number AS build_num,
-    blarg.cause_count,
-    blarg.causes,
-    global_builds.global_build_num AS universal_build
-   FROM (( SELECT global_builds_1.global_build_num,
-            count(*) AS cause_count,
-            string_agg((foo.cause_id)::text, ';'::text) AS causes
-           FROM (public.global_builds global_builds_1
-             JOIN ( SELECT master_commit_known_breakage_causes.sha1,
-                    code_breakage_affected_jobs.job,
-                    master_commit_known_breakage_causes.cause_id
-                   FROM (public.master_commit_known_breakage_causes
-                     JOIN public.code_breakage_affected_jobs ON ((code_breakage_affected_jobs.cause = master_commit_known_breakage_causes.cause_id)))) foo ON (((global_builds_1.vcs_revision = foo.sha1) AND (global_builds_1.job_name = foo.job))))
-          WHERE (NOT COALESCE(global_builds_1.succeeded, false))
-          GROUP BY global_builds_1.global_build_num) blarg
-     JOIN public.global_builds ON ((global_builds.global_build_num = blarg.global_build_num)));
+ SELECT global_builds_1.global_build_num AS universal_build,
+    count(*) AS cause_count,
+    string_agg((foo.cause_id)::text, ';'::text) AS causes
+   FROM (public.global_builds global_builds_1
+     JOIN ( SELECT master_commit_known_breakage_causes.sha1,
+            code_breakage_affected_jobs.job,
+            master_commit_known_breakage_causes.cause_id
+           FROM (public.master_commit_known_breakage_causes
+             JOIN public.code_breakage_affected_jobs ON ((code_breakage_affected_jobs.cause = master_commit_known_breakage_causes.cause_id)))) foo ON (((global_builds_1.vcs_revision = foo.sha1) AND (global_builds_1.job_name = foo.job))))
+  WHERE (NOT COALESCE(global_builds_1.succeeded, false))
+  GROUP BY global_builds_1.global_build_num;
 
 
 ALTER TABLE public.known_broken_builds OWNER TO postgres;
@@ -850,9 +845,7 @@ ALTER TABLE public.known_broken_builds OWNER TO postgres;
 -- Name: VIEW known_broken_builds; Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON VIEW public.known_broken_builds IS 'These are *master* builds covered by the "code_breakage_spans" view.
-
-TODO: remove  provider-specific "build" column and eliminate the outer-most JOIN';
+COMMENT ON VIEW public.known_broken_builds IS 'These are *master* builds covered by the "code_breakage_spans" view.';
 
 
 --
