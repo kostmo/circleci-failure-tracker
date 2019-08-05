@@ -27,8 +27,13 @@ def generate_dockerrun_aws_json(output_path, nondefault_cli_arglist):
         json.dump(json_object, fh, indent=4, sort_keys=True)
 
 
-def generate_app_nondefault_cli_arglist(app_credentials_json, db_credentials_json, personal_token):
-    return [
+def generate_app_nondefault_cli_arglist(
+        app_credentials_json,
+        db_credentials_json,
+        personal_token,
+        is_notification_ingester):
+
+    arg_list = [
         "--github-client-id",
         app_credentials_json["github-client-id"],
         "--github-client-secret",
@@ -44,3 +49,8 @@ def generate_app_nondefault_cli_arglist(app_credentials_json, db_credentials_jso
         "--github-personal-access-token",
         personal_token,
     ]
+
+    if is_notification_ingester:
+        arg_list.append("--no-ssl")
+
+    return arg_list

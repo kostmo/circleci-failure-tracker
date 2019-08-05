@@ -29,7 +29,7 @@ def parse_args():
     # (or something similar, like localtunnel: https://localtunnel.github.io/www/) for exposing the app
     # on a local port.
     parser.add_argument('--prod-app', dest='prod_app', action="store_true", help='For production deployment (default is local).  Implies --remote-db')
-    
+
     parser.add_argument('--prod-db', dest='prod_db', action="store_true", help='Use production (remote) database (default is local)')
 
     parser.add_argument('--credentials-json-basedir', dest='credentials_json_basedir',
@@ -39,6 +39,10 @@ def parse_args():
     parser.add_argument('--dockerrun-json-output-path', dest='dockerrun_json',
                         default="Dockerrun.aws.json",
                         help='Path to write Dockerrun.aws.json file')
+
+
+    parser.add_argument('--notification-ingester', dest='notification_ingester', action="store_true", help='Build for the notification ingester application')
+
 
     return parser.parse_args()
 
@@ -67,7 +71,8 @@ if __name__ == "__main__":
         nondefault_cli_arglist = args_assembly.generate_app_nondefault_cli_arglist(
             json.load(fh_app),
             json.load(fh_db),
-            personal_access_token)
+            personal_access_token,
+            options.notification_ingester)
 
         if options.prod_app:
             args_assembly.generate_dockerrun_aws_json(options.dockerrun_json, nondefault_cli_arglist)

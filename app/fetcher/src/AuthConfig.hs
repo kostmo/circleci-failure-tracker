@@ -21,6 +21,7 @@ data GithubConfig = NewGithubConfig {
   , personal_access_token :: AccessToken
   , webhook_secret        :: Text
   , admin_password        :: Text
+  , no_ssl                :: Bool
   }
 
 

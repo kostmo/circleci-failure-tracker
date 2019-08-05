@@ -98,6 +98,98 @@ Then remove this mitigation from "builds_join_steps" view';
 
 
 --
+-- Name: builds; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.builds (
+    queued_at timestamp with time zone,
+    job_name text NOT NULL,
+    branch character varying,
+    succeeded boolean,
+    started_at timestamp with time zone,
+    finished_at timestamp with time zone,
+    global_build_num integer NOT NULL
+);
+
+
+ALTER TABLE public.builds OWNER TO postgres;
+
+--
+-- Name: TABLE builds; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.builds IS 'In contrast with the "universal_builds" table, this is information that may be fetched using a provider-specific API and may be populated asynchronously from the "universal_builds" info which is available from the GitHub status notification.';
+
+
+--
+-- Name: universal_builds; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.universal_builds (
+    id integer NOT NULL,
+    build_number integer,
+    build_namespace text,
+    provider integer,
+    commit_sha1 character(40) NOT NULL,
+    succeeded boolean NOT NULL
+);
+
+
+ALTER TABLE public.universal_builds OWNER TO postgres;
+
+--
+-- Name: TABLE universal_builds; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.universal_builds IS 'Currently, these records are stored even if the build succeeds.';
+
+
+--
+-- Name: global_builds; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.global_builds WITH (security_barrier='false') AS
+ SELECT builds.global_build_num,
+    universal_builds.succeeded,
+    universal_builds.commit_sha1 AS vcs_revision,
+    builds.job_name,
+    builds.branch,
+    universal_builds.build_number,
+    universal_builds.build_namespace,
+    builds.queued_at,
+    builds.started_at,
+    builds.finished_at,
+    universal_builds.provider
+   FROM (public.universal_builds
+     JOIN public.builds ON ((builds.global_build_num = universal_builds.id)));
+
+
+ALTER TABLE public.global_builds OWNER TO postgres;
+
+--
+-- Name: builds_deduped; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.builds_deduped WITH (security_barrier='false') AS
+ SELECT DISTINCT ON (global_builds.provider, global_builds.job_name, global_builds.vcs_revision) global_builds.build_number AS build_num,
+    global_builds.vcs_revision,
+    global_builds.queued_at,
+    global_builds.job_name,
+    global_builds.branch,
+    global_builds.succeeded,
+    global_builds.started_at,
+    global_builds.finished_at,
+    count(*) OVER (PARTITION BY global_builds.provider, global_builds.job_name, global_builds.vcs_revision) AS rebuild_count,
+    global_builds.global_build_num AS global_build,
+    global_builds.provider,
+    global_builds.build_namespace
+   FROM public.global_builds
+  ORDER BY global_builds.provider, global_builds.job_name, global_builds.vcs_revision, global_builds.global_build_num DESC;
+
+
+ALTER TABLE public.builds_deduped OWNER TO postgres;
+
+--
 -- Name: log_metadata; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -157,29 +249,6 @@ COMMENT ON VIEW public.matches_distinct IS 'Somehow, certain logs got scanned by
 yielding multiple rows for the same pattern on the same line.
 
 This intermediate view eliminates those duplicate matches.';
-
-
---
--- Name: universal_builds; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.universal_builds (
-    id integer NOT NULL,
-    build_number integer,
-    build_namespace text,
-    provider integer,
-    commit_sha1 character(40) NOT NULL,
-    succeeded boolean NOT NULL
-);
-
-
-ALTER TABLE public.universal_builds OWNER TO postgres;
-
---
--- Name: TABLE universal_builds; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON TABLE public.universal_builds IS 'Currently, these records are stored even if the build succeeds.';
 
 
 --
@@ -406,13 +475,14 @@ ALTER TABLE public.flaky_patterns_augmented OWNER TO postgres;
 
 CREATE VIEW public.matches_for_build WITH (security_barrier='false') AS
  SELECT matches_distinct.pattern AS pat,
-    universal_builds.build_number AS build,
+    builds_deduped.build_num AS build,
     build_steps_deduped_mitigation.name AS step_name,
-    universal_builds.id AS universal_build,
-    matches_distinct.id AS match_id
+    builds_deduped.global_build AS universal_build,
+    matches_distinct.id AS match_id,
+    matches_distinct.build_step AS step_id
    FROM ((public.matches_distinct
      JOIN public.build_steps_deduped_mitigation ON ((matches_distinct.build_step = build_steps_deduped_mitigation.id)))
-     JOIN public.universal_builds ON ((universal_builds.id = build_steps_deduped_mitigation.universal_build)));
+     JOIN public.builds_deduped ON ((builds_deduped.global_build = build_steps_deduped_mitigation.universal_build)));
 
 
 ALTER TABLE public.matches_for_build OWNER TO postgres;
@@ -435,7 +505,8 @@ CREATE VIEW public.best_pattern_match_for_builds WITH (security_barrier='false')
            FROM public.flaky_patterns_augmented
           WHERE (flaky_patterns_augmented.pattern = matches_for_build.pat))) AS is_flaky,
     matches_for_build.universal_build,
-    matches_for_build.match_id
+    matches_for_build.match_id,
+    matches_for_build.step_id
    FROM (public.matches_for_build
      JOIN public.patterns ON ((matches_for_build.pat = patterns.id)))
   ORDER BY matches_for_build.universal_build, patterns.specificity DESC, patterns.is_retired, patterns.regex, patterns.id DESC, matches_for_build.match_id DESC;
@@ -449,52 +520,6 @@ ALTER TABLE public.best_pattern_match_for_builds OWNER TO postgres;
 
 COMMENT ON VIEW public.best_pattern_match_for_builds IS 'TODO: Fix computation of "distinct_matching_pattern_count" column';
 
-
---
--- Name: builds; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.builds (
-    queued_at timestamp with time zone,
-    job_name text NOT NULL,
-    branch character varying,
-    succeeded boolean,
-    started_at timestamp with time zone,
-    finished_at timestamp with time zone,
-    global_build_num integer NOT NULL
-);
-
-
-ALTER TABLE public.builds OWNER TO postgres;
-
---
--- Name: TABLE builds; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON TABLE public.builds IS 'In contrast with the "universal_builds" table, this is information that may be fetched using a provider-specific API and may be populated asynchronously from the "universal_builds" info which is available from the GitHub status notification.';
-
-
---
--- Name: global_builds; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.global_builds WITH (security_barrier='false') AS
- SELECT builds.global_build_num,
-    universal_builds.succeeded,
-    universal_builds.commit_sha1 AS vcs_revision,
-    builds.job_name,
-    builds.branch,
-    universal_builds.build_number,
-    universal_builds.build_namespace,
-    builds.queued_at,
-    builds.started_at,
-    builds.finished_at,
-    universal_builds.provider
-   FROM (public.universal_builds
-     JOIN public.builds ON ((builds.global_build_num = universal_builds.id)));
-
-
-ALTER TABLE public.global_builds OWNER TO postgres;
 
 --
 -- Name: aggregated_build_matches; Type: VIEW; Schema: public; Owner: postgres
@@ -556,21 +581,21 @@ ALTER TABLE public.aggregated_github_status_postings OWNER TO postgres;
 CREATE VIEW public.builds_join_steps WITH (security_barrier='false') AS
  SELECT build_steps_deduped_mitigation.id AS step_id,
     build_steps_deduped_mitigation.name AS step_name,
-    global_builds.build_number AS build_num,
-    global_builds.vcs_revision,
-    global_builds.queued_at,
-    global_builds.job_name,
-    global_builds.branch,
+    builds_deduped.build_num,
+    builds_deduped.vcs_revision,
+    builds_deduped.queued_at,
+    builds_deduped.job_name,
+    builds_deduped.branch,
     build_steps_deduped_mitigation.is_timeout,
     build_steps_deduped_mitigation.universal_build,
-    global_builds.provider,
-    global_builds.succeeded,
-    global_builds.build_namespace,
-    global_builds.started_at,
-    global_builds.finished_at
+    builds_deduped.provider,
+    builds_deduped.succeeded,
+    builds_deduped.build_namespace,
+    builds_deduped.started_at,
+    builds_deduped.finished_at
    FROM (public.build_steps_deduped_mitigation
-     JOIN public.global_builds ON ((build_steps_deduped_mitigation.universal_build = global_builds.global_build_num)))
-  ORDER BY global_builds.vcs_revision, global_builds.global_build_num DESC;
+     JOIN public.builds_deduped ON ((build_steps_deduped_mitigation.universal_build = builds_deduped.global_build)))
+  ORDER BY builds_deduped.vcs_revision, builds_deduped.global_build DESC;
 
 
 ALTER TABLE public.builds_join_steps OWNER TO postgres;
@@ -639,6 +664,14 @@ CREATE VIEW public.best_pattern_match_augmented_builds WITH (security_barrier='f
 ALTER TABLE public.best_pattern_match_augmented_builds OWNER TO postgres;
 
 --
+-- Name: VIEW best_pattern_match_augmented_builds; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.best_pattern_match_augmented_builds IS 'TODO: Remove 3 fields:
+is_broken, reporter, report_timestamp';
+
+
+--
 -- Name: broken_revisions_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
 --
 
@@ -652,29 +685,6 @@ CREATE SEQUENCE public.broken_revisions_id_seq
 
 
 ALTER TABLE public.broken_revisions_id_seq OWNER TO postgres;
-
---
--- Name: builds_deduped; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.builds_deduped WITH (security_barrier='false') AS
- SELECT DISTINCT ON (global_builds.provider, global_builds.job_name, global_builds.vcs_revision) global_builds.build_number AS build_num,
-    global_builds.vcs_revision,
-    global_builds.queued_at,
-    global_builds.job_name,
-    global_builds.branch,
-    global_builds.succeeded,
-    global_builds.started_at,
-    global_builds.finished_at,
-    count(*) OVER (PARTITION BY global_builds.provider, global_builds.job_name, global_builds.vcs_revision) AS rebuild_count,
-    global_builds.global_build_num AS global_build,
-    global_builds.provider,
-    global_builds.build_namespace
-   FROM public.global_builds
-  ORDER BY global_builds.provider, global_builds.job_name, global_builds.vcs_revision, global_builds.build_number DESC;
-
-
-ALTER TABLE public.builds_deduped OWNER TO postgres;
 
 --
 -- Name: code_breakage_affected_jobs; Type: TABLE; Schema: public; Owner: postgres
@@ -2612,6 +2622,34 @@ GRANT ALL ON TABLE public.build_steps_deduped_mitigation TO logan;
 
 
 --
+-- Name: TABLE builds; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.builds TO logan;
+
+
+--
+-- Name: TABLE universal_builds; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.universal_builds TO logan;
+
+
+--
+-- Name: TABLE global_builds; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.global_builds TO logan;
+
+
+--
+-- Name: TABLE builds_deduped; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.builds_deduped TO logan;
+
+
+--
 -- Name: TABLE log_metadata; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -2630,13 +2668,6 @@ GRANT ALL ON TABLE public.matches TO logan;
 --
 
 GRANT ALL ON TABLE public.matches_distinct TO logan;
-
-
---
--- Name: TABLE universal_builds; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.universal_builds TO logan;
 
 
 --
@@ -2724,20 +2755,6 @@ GRANT ALL ON TABLE public.best_pattern_match_for_builds TO logan;
 
 
 --
--- Name: TABLE builds; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.builds TO logan;
-
-
---
--- Name: TABLE global_builds; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.global_builds TO logan;
-
-
---
 -- Name: TABLE aggregated_build_matches; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -2784,13 +2801,6 @@ GRANT ALL ON TABLE public.best_pattern_match_augmented_builds TO logan;
 --
 
 GRANT ALL ON SEQUENCE public.broken_revisions_id_seq TO logan;
-
-
---
--- Name: TABLE builds_deduped; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.builds_deduped TO logan;
 
 
 --

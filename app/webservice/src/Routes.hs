@@ -202,7 +202,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     S.middleware $ staticPolicy $ noDots >-> addBase static_base
 
-    unless (AuthConfig.is_local github_config) $
+    unless (AuthConfig.no_ssl github_config || AuthConfig.is_local github_config) $
       S.middleware forceSSL
 
 

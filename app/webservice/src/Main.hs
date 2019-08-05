@@ -32,6 +32,7 @@ data CommandLineArgs = NewCommandLineArgs {
   , gitHubWebhookSecret       :: Text
   , runningLocally            :: Bool
   , adminPassword             :: Text
+  , noSSL                     :: Bool
   }
 
 
@@ -89,6 +90,7 @@ mainAppCode args = do
       access_token
       (gitHubWebhookSecret args)
       (adminPassword args)
+      (noSSL args)
 
     connection_data = DbHelpers.NewDbConnectionData {
         DbHelpers.dbHostname = dbHostname args
@@ -120,7 +122,8 @@ myCliParser = NewCommandLineArgs
     <> help "Webserver is being run locally, so don't redirect HTTP to HTTPS")
   <*> strOption   (long "admin-password" <> metavar "ADMIN_PASSWORD"
     <> help "Admin password")
-
+  <*> switch      (long "no-ssl"
+    <> help "Do not redirect HTTP to HTTPS")
 
 main :: IO ()
 main = execParser opts >>= mainAppCode
