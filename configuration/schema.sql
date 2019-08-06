@@ -226,7 +226,7 @@ ALTER TABLE public.matches OWNER TO postgres;
 -- Name: matches_distinct; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.matches_distinct AS
+CREATE VIEW public.matches_distinct WITH (security_barrier='false') AS
  SELECT DISTINCT ON (matches.build_step, matches.pattern, matches.line_number) matches.id,
     matches.build_step,
     matches.pattern,
@@ -236,7 +236,7 @@ CREATE VIEW public.matches_distinct AS
     matches.span_end,
     matches.scan_id
    FROM public.matches
-  ORDER BY matches.build_step, matches.pattern, matches.line_number, matches.scan_id DESC;
+  ORDER BY matches.build_step, matches.pattern, matches.line_number, matches.id DESC;
 
 
 ALTER TABLE public.matches_distinct OWNER TO postgres;
@@ -248,7 +248,9 @@ ALTER TABLE public.matches_distinct OWNER TO postgres;
 COMMENT ON VIEW public.matches_distinct IS 'Somehow, certain logs got scanned by the same pattern more than once (e.g. universal build 716793),
 yielding multiple rows for the same pattern on the same line.
 
-This intermediate view eliminates those duplicate matches.';
+This intermediate view eliminates those duplicate matches.
+
+BEWARE: This should not be used in conjunction with "best_match_*" views, as the best match may select one that was excluded by the distinct filter.';
 
 
 --
@@ -479,7 +481,8 @@ CREATE VIEW public.matches_for_build WITH (security_barrier='false') AS
     build_steps_deduped_mitigation.name AS step_name,
     builds_deduped.global_build AS universal_build,
     matches_distinct.id AS match_id,
-    matches_distinct.build_step AS step_id
+    matches_distinct.build_step AS step_id,
+    builds_deduped.vcs_revision
    FROM ((public.matches_distinct
      JOIN public.build_steps_deduped_mitigation ON ((matches_distinct.build_step = build_steps_deduped_mitigation.id)))
      JOIN public.builds_deduped ON ((builds_deduped.global_build = build_steps_deduped_mitigation.universal_build)));
@@ -506,7 +509,8 @@ CREATE VIEW public.best_pattern_match_for_builds WITH (security_barrier='false')
           WHERE (flaky_patterns_augmented.pattern = matches_for_build.pat))) AS is_flaky,
     matches_for_build.universal_build,
     matches_for_build.match_id,
-    matches_for_build.step_id
+    matches_for_build.step_id,
+    matches_for_build.vcs_revision
    FROM (public.matches_for_build
      JOIN public.patterns ON ((matches_for_build.pat = patterns.id)))
   ORDER BY matches_for_build.universal_build, patterns.specificity DESC, patterns.is_retired, patterns.regex, patterns.id DESC, matches_for_build.match_id DESC;
@@ -632,7 +636,7 @@ ALTER TABLE public.matches_with_log_metadata OWNER TO postgres;
 
 CREATE VIEW public.best_pattern_match_augmented_builds WITH (security_barrier='false') AS
  SELECT DISTINCT ON (best_pattern_match_for_builds.universal_build) best_pattern_match_for_builds.build,
-    matches_with_log_metadata.step_name,
+    builds_join_steps.step_name,
     matches_with_log_metadata.line_number,
     matches_with_log_metadata.line_count,
     matches_with_log_metadata.line_text,
@@ -657,7 +661,7 @@ CREATE VIEW public.best_pattern_match_augmented_builds WITH (security_barrier='f
     builds_join_steps.finished_at
    FROM ((public.best_pattern_match_for_builds
      JOIN public.matches_with_log_metadata ON ((matches_with_log_metadata.id = best_pattern_match_for_builds.match_id)))
-     JOIN public.builds_join_steps ON ((builds_join_steps.step_id = matches_with_log_metadata.build_step)))
+     JOIN public.builds_join_steps ON ((builds_join_steps.step_id = best_pattern_match_for_builds.step_id)))
   ORDER BY best_pattern_match_for_builds.universal_build DESC, matches_with_log_metadata.line_number;
 
 
@@ -2626,6 +2630,7 @@ GRANT ALL ON TABLE public.build_steps_deduped_mitigation TO logan;
 --
 
 GRANT ALL ON TABLE public.builds TO logan;
+GRANT SELECT ON TABLE public.builds TO readonly_user;
 
 
 --
@@ -2633,6 +2638,7 @@ GRANT ALL ON TABLE public.builds TO logan;
 --
 
 GRANT ALL ON TABLE public.universal_builds TO logan;
+GRANT SELECT ON TABLE public.universal_builds TO readonly_user;
 
 
 --
@@ -2899,6 +2905,7 @@ GRANT ALL ON TABLE public.cached_master_merge_base TO logan;
 --
 
 GRANT ALL ON TABLE public.ci_providers TO logan;
+GRANT SELECT ON TABLE public.ci_providers TO readonly_user;
 
 
 --
