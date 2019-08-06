@@ -634,7 +634,7 @@ ALTER TABLE public.matches_with_log_metadata OWNER TO postgres;
 -- Name: best_pattern_match_augmented_builds; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.best_pattern_match_augmented_builds WITH (security_barrier='false') AS
+CREATE VIEW public.best_pattern_match_augmented_builds AS
  SELECT DISTINCT ON (best_pattern_match_for_builds.universal_build) best_pattern_match_for_builds.build,
     builds_join_steps.step_name,
     matches_with_log_metadata.line_number,
@@ -648,9 +648,6 @@ CREATE VIEW public.best_pattern_match_augmented_builds WITH (security_barrier='f
     builds_join_steps.branch,
     best_pattern_match_for_builds.pattern_id,
     best_pattern_match_for_builds.specificity,
-    NULL::boolean AS is_broken,
-    NULL::text AS reporter,
-    NULL::timestamp with time zone AS report_timestamp,
     matches_with_log_metadata.id AS match_id,
     best_pattern_match_for_builds.is_flaky,
     builds_join_steps.universal_build,
@@ -666,14 +663,6 @@ CREATE VIEW public.best_pattern_match_augmented_builds WITH (security_barrier='f
 
 
 ALTER TABLE public.best_pattern_match_augmented_builds OWNER TO postgres;
-
---
--- Name: VIEW best_pattern_match_augmented_builds; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON VIEW public.best_pattern_match_augmented_builds IS 'TODO: Remove 3 fields:
-is_broken, reporter, report_timestamp';
-
 
 --
 -- Name: broken_revisions_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
@@ -1472,7 +1461,7 @@ ALTER TABLE public.master_failures_by_commit OWNER TO postgres;
 -- Name: master_failures_raw_causes; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.master_failures_raw_causes WITH (security_barrier='false') AS
+CREATE VIEW public.master_failures_raw_causes AS
  SELECT ordered_master_commits.sha1,
     build_failure_causes.succeeded,
     build_failure_causes.is_idiopathic,
@@ -1519,7 +1508,7 @@ ALTER TABLE public.master_failures_raw_causes OWNER TO postgres;
 -- Name: VIEW master_failures_raw_causes; Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON VIEW public.master_failures_raw_causes IS 'This uses the raw "build_failure_causes" table rather than the mutually-exclusive causes table.';
+COMMENT ON VIEW public.master_failures_raw_causes IS 'This uses the raw "build_failure_causes" table rather than the disjoint causes table.';
 
 
 --
