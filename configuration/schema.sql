@@ -916,9 +916,10 @@ CREATE VIEW public.build_failure_causes_disjoint WITH (security_barrier='false')
     build_failure_causes.job_name,
     build_failure_causes.branch,
     build_failure_causes.is_known_broken,
-    (build_failure_causes.is_matched AND (NOT build_failure_causes.is_known_broken) AND (NOT build_failure_causes.is_flaky)) AS is_matched,
+    (build_failure_causes.is_matched AND (NOT build_failure_causes.is_known_broken)) AS is_matched,
     build_failure_causes.rebuild_count,
-    build_failure_causes.global_build
+    build_failure_causes.global_build,
+    (build_failure_causes.is_matched AND (NOT build_failure_causes.is_known_broken) AND (NOT build_failure_causes.is_flaky)) AS is_matched_other
    FROM public.build_failure_causes;
 
 
@@ -930,14 +931,14 @@ ALTER TABLE public.build_failure_causes_disjoint OWNER TO postgres;
 
 COMMENT ON VIEW public.build_failure_causes_disjoint IS 'The "known broken" cause shall dominate; it is made mutually-exclusive with all other causes for a given build failure because a known broken build is unreliable for other statistics collection.
 
-Additionally, the "is_matched" field excludes "is_flaky", while the "is_unmatched" field excludes "is_timeout" and "is_idiopathic".  This means that the sum of all "is_flaky" + "is_matched" + "is_timeout" + "is_unmatched" + "is_known_broken" should be equal to the total failure count.';
+Additionally, the "is_matched_other" field excludes "is_flaky", while the "is_unmatched" field excludes "is_timeout" and "is_idiopathic".  This means that the sum of all "is_flaky" + "is_matched_other" + "is_timeout" + "is_idiopathic" + "is_unmatched" + "is_known_broken" should be equal to the total failure count.';
 
 
 --
 -- Name: build_failure_disjoint_causes_by_commit; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.build_failure_disjoint_causes_by_commit AS
+CREATE VIEW public.build_failure_disjoint_causes_by_commit WITH (security_barrier='false') AS
  SELECT build_failure_causes_disjoint.vcs_revision AS sha1,
     count(build_failure_causes_disjoint.vcs_revision) AS total,
     COALESCE(sum((build_failure_causes_disjoint.is_idiopathic)::integer), (0)::bigint) AS idiopathic,
@@ -946,7 +947,8 @@ CREATE VIEW public.build_failure_disjoint_causes_by_commit AS
     COALESCE(sum((build_failure_causes_disjoint.is_matched)::integer), (0)::bigint) AS pattern_matched,
     COALESCE(sum((build_failure_causes_disjoint.is_flaky)::integer), (0)::bigint) AS flaky,
     COALESCE(sum((build_failure_causes_disjoint.is_unmatched)::integer), (0)::bigint) AS pattern_unmatched,
-    COALESCE(sum((build_failure_causes_disjoint.succeeded)::integer), (0)::bigint) AS succeeded
+    COALESCE(sum((build_failure_causes_disjoint.succeeded)::integer), (0)::bigint) AS succeeded,
+    COALESCE(sum((build_failure_causes_disjoint.is_matched_other)::integer), (0)::bigint) AS pattern_matched_other
    FROM public.build_failure_causes_disjoint
   GROUP BY build_failure_causes_disjoint.vcs_revision;
 
@@ -1457,7 +1459,8 @@ CREATE VIEW public.master_failures_by_commit WITH (security_barrier='false') AS
     COALESCE(build_failure_disjoint_causes_by_commit.flaky, (0)::bigint) AS flaky,
     ordered_master_commits.id AS commit_index,
     COALESCE(build_failure_disjoint_causes_by_commit.pattern_unmatched, (0)::bigint) AS pattern_unmatched,
-    COALESCE(build_failure_disjoint_causes_by_commit.succeeded, (0)::bigint) AS succeeded
+    COALESCE(build_failure_disjoint_causes_by_commit.succeeded, (0)::bigint) AS succeeded,
+    COALESCE(build_failure_disjoint_causes_by_commit.pattern_matched_other, (0)::bigint) AS pattern_matched_other
    FROM (public.ordered_master_commits
      LEFT JOIN public.build_failure_disjoint_causes_by_commit ON ((build_failure_disjoint_causes_by_commit.sha1 = ordered_master_commits.sha1)))
   ORDER BY ordered_master_commits.id DESC;
@@ -1524,45 +1527,65 @@ COMMENT ON VIEW public.master_failures_raw_causes IS 'This uses the raw "build_f
 --
 
 CREATE VIEW public.master_failures_weekly_aggregation WITH (security_barrier='false') AS
- SELECT sum(foo.has_failure) AS had_failure,
-    sum(foo.has_idiopathic) AS had_idiopathic,
-    sum(foo.has_timeout) AS had_timeout,
-    sum(foo.has_known_broken) AS had_known_broken,
-    sum(foo.has_pattern_matched) AS had_pattern_matched,
-    sum(foo.has_flaky) AS had_flaky,
-    date_trunc('week'::text, foo.committer_date) AS week,
-    count(*) AS commit_count,
-    sum(foo.failure_count) AS failure_count,
-    sum(foo.idiopathic_count) AS idiopathic_count,
-    sum(foo.timeout_count) AS timeout_count,
-    sum(foo.known_broken_count) AS known_broken_count,
-    sum(foo.pattern_matched_count) AS pattern_matched_count,
-    sum(foo.flaky_count) AS flaky_count,
-    min(foo.commit_index) AS earliest_commit_index,
-    max(foo.commit_index) AS latest_commit_index,
-    sum(foo.pattern_unmatched_count) AS pattern_unmatched_count,
-    sum(foo.succeeded_count) AS succeeded_count
-   FROM ( SELECT ((master_failures_by_commit.total > 0))::integer AS has_failure,
-            ((master_failures_by_commit.idiopathic > 0))::integer AS has_idiopathic,
-            ((master_failures_by_commit.timeout > 0))::integer AS has_timeout,
-            ((master_failures_by_commit.known_broken > 0))::integer AS has_known_broken,
-            ((master_failures_by_commit.pattern_matched > 0))::integer AS has_pattern_matched,
-            ((master_failures_by_commit.flaky > 0))::integer AS has_flaky,
-            master_failures_by_commit.total AS failure_count,
-            master_failures_by_commit.succeeded AS succeeded_count,
-            master_failures_by_commit.idiopathic AS idiopathic_count,
-            master_failures_by_commit.timeout AS timeout_count,
-            master_failures_by_commit.known_broken AS known_broken_count,
-            master_failures_by_commit.pattern_matched AS pattern_matched_count,
-            master_failures_by_commit.pattern_unmatched AS pattern_unmatched_count,
-            master_failures_by_commit.flaky AS flaky_count,
-            commit_metadata.committer_date,
-            master_failures_by_commit.commit_index
-           FROM (public.master_failures_by_commit
-             JOIN public.commit_metadata ON ((master_failures_by_commit.sha1 = commit_metadata.sha1)))
-          ORDER BY master_failures_by_commit.commit_index DESC) foo
-  GROUP BY (date_trunc('week'::text, foo.committer_date))
-  ORDER BY (date_trunc('week'::text, foo.committer_date)) DESC;
+ SELECT blarg.had_failure,
+    blarg.had_idiopathic,
+    blarg.had_timeout,
+    blarg.had_known_broken,
+    blarg.had_pattern_matched,
+    blarg.had_flaky,
+    blarg.week,
+    blarg.commit_count,
+    blarg.failure_count,
+    blarg.idiopathic_count,
+    blarg.timeout_count,
+    blarg.known_broken_count,
+    blarg.pattern_matched_count,
+    blarg.flaky_count,
+    blarg.earliest_commit_index,
+    blarg.latest_commit_index,
+    blarg.pattern_unmatched_count,
+    blarg.succeeded_count,
+    (((((blarg.flaky_count + blarg.pattern_matched_count) + blarg.timeout_count) + blarg.idiopathic_count) + blarg.pattern_unmatched_count) + blarg.known_broken_count) AS total_failures_sanity_check_sum,
+    ((((((blarg.flaky_count + blarg.pattern_matched_count) + blarg.timeout_count) + blarg.idiopathic_count) + blarg.pattern_unmatched_count) + blarg.known_broken_count) = blarg.failure_count) AS sanity_check_is_failure_count_equal
+   FROM ( SELECT sum(foo.has_failure) AS had_failure,
+            sum(foo.has_idiopathic) AS had_idiopathic,
+            sum(foo.has_timeout) AS had_timeout,
+            sum(foo.has_known_broken) AS had_known_broken,
+            sum(foo.has_pattern_matched) AS had_pattern_matched,
+            sum(foo.has_flaky) AS had_flaky,
+            date_trunc('week'::text, foo.committer_date) AS week,
+            count(*) AS commit_count,
+            sum(foo.failure_count) AS failure_count,
+            sum(foo.idiopathic_count) AS idiopathic_count,
+            sum(foo.timeout_count) AS timeout_count,
+            sum(foo.known_broken_count) AS known_broken_count,
+            sum(foo.pattern_matched_count) AS pattern_matched_count,
+            sum(foo.flaky_count) AS flaky_count,
+            min(foo.commit_index) AS earliest_commit_index,
+            max(foo.commit_index) AS latest_commit_index,
+            sum(foo.pattern_unmatched_count) AS pattern_unmatched_count,
+            sum(foo.succeeded_count) AS succeeded_count
+           FROM ( SELECT ((master_failures_by_commit.total > 0))::integer AS has_failure,
+                    ((master_failures_by_commit.idiopathic > 0))::integer AS has_idiopathic,
+                    ((master_failures_by_commit.timeout > 0))::integer AS has_timeout,
+                    ((master_failures_by_commit.known_broken > 0))::integer AS has_known_broken,
+                    ((master_failures_by_commit.pattern_matched_other > 0))::integer AS has_pattern_matched,
+                    ((master_failures_by_commit.flaky > 0))::integer AS has_flaky,
+                    master_failures_by_commit.total AS failure_count,
+                    master_failures_by_commit.succeeded AS succeeded_count,
+                    master_failures_by_commit.idiopathic AS idiopathic_count,
+                    master_failures_by_commit.timeout AS timeout_count,
+                    master_failures_by_commit.known_broken AS known_broken_count,
+                    master_failures_by_commit.pattern_matched_other AS pattern_matched_count,
+                    master_failures_by_commit.pattern_unmatched AS pattern_unmatched_count,
+                    master_failures_by_commit.flaky AS flaky_count,
+                    commit_metadata.committer_date,
+                    master_failures_by_commit.commit_index
+                   FROM (public.master_failures_by_commit
+                     JOIN public.commit_metadata ON ((master_failures_by_commit.sha1 = commit_metadata.sha1)))
+                  ORDER BY master_failures_by_commit.commit_index DESC) foo
+          GROUP BY (date_trunc('week'::text, foo.committer_date))
+          ORDER BY (date_trunc('week'::text, foo.committer_date)) DESC) blarg;
 
 
 ALTER TABLE public.master_failures_weekly_aggregation OWNER TO postgres;

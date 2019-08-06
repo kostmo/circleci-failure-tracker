@@ -9,7 +9,6 @@ import           Control.Monad.Trans.Except (ExceptT (ExceptT), except,
                                              runExceptT)
 import           Control.Monad.Trans.Reader (ask)
 import           Data.Aeson
-import           Data.Coerce                (coerce)
 import           Data.Either.Utils          (maybeToEither)
 import qualified Data.Set                   as Set
 import           Data.Text                  (Text)
@@ -21,13 +20,10 @@ import qualified Safe
 
 import qualified Builds
 import qualified BuildSteps
-import qualified CommitBuilds
 import qualified Constants
 import qualified DbHelpers
 import qualified GitRev
 import qualified JsonUtils
-import qualified MatchOccurrences
-import qualified ScanPatterns
 import qualified SqlRead
 import qualified SqlWrite
 
@@ -37,10 +33,14 @@ pytorchRepoOwner = DbHelpers.OwnerAndRepo Constants.project_name Constants.repo_
 
 
 data CommitInfoCounts = NewCommitInfoCounts {
-    _failed_build_count  :: Int
-  , _timeout_count       :: Int
-  , _matched_build_count :: Int
-  , _flaky_build_count   :: Int
+    _failed_build_count        :: Int
+  , _timeout_count             :: Int
+  , _total_matched_build_count :: Int
+  , _flaky_build_count         :: Int
+  , _other_matched_build_count :: Int
+  , _idiopathic_count          :: Int
+  , _unmatched_count           :: Int
+  , _known_broken_count        :: Int
   } deriving Generic
 
 instance ToJSON CommitInfoCounts where
@@ -129,39 +129,28 @@ countRevisionBuilds ::
 countRevisionBuilds conn_data access_token git_revision = do
   conn <- DbHelpers.get_connection conn_data
 
-  -- TODO
---  [(x, x, x, x)] <- query conn aggregate_causes_sql only_commit
-  [Only failed_count] <- query conn failed_count_sql only_commit
-  [Only matched_count] <- query conn matched_count_sql only_commit
-  [Only timeout_count] <- query conn timeout_count_sql only_commit
 
-  revision_builds <- SqlRead.getRevisionBuilds conn_data git_revision
-  flaky_pattern_ids <- SqlRead.getFlakyPatternIds conn
-
-  let is_flaky = (`Set.member` flaky_pattern_ids) . coerce . MatchOccurrences._pattern_id . CommitBuilds._match
-      flaky_builds = filter is_flaky revision_builds
-      flaky_build_count = length flaky_builds
+  [(total, idiopathic, timeout, known_broken, pattern_matched, pattern_matched_other, flaky, pattern_unmatched, succeeded)] <- query conn aggregate_causes_sql only_commit
 
   runExceptT $ do
 
     breakages <- ExceptT $ findKnownBuildBreakages conn access_token pytorchRepoOwner $ Builds.RawCommit sha1
 
     return $ NewCommitInfo breakages $ NewCommitInfoCounts
-      failed_count
-      timeout_count
-      matched_count
-      flaky_build_count
+      (total - succeeded)
+      timeout
+      pattern_matched
+      flaky
+      pattern_matched_other
+      idiopathic
+      pattern_unmatched
+      known_broken
 
   where
     sha1 = GitRev.sha1 git_revision
     only_commit = Only sha1
 
---    aggregate_causes_sql = "SELECT total, idiopathic, timeout, pattern_matched, flaky, pattern_unmatched FROM build_failure_disjoint_causes_by_commit WHERE sha1 = ?"
-    timeout_count_sql = "SELECT COUNT(*) FROM builds_join_steps WHERE vcs_revision = ? AND is_timeout;"
-
-    failed_count_sql = "SELECT COUNT(*) FROM builds_deduped WHERE vcs_revision = ?;"
-
-    matched_count_sql = "SELECT COUNT(*) FROM best_pattern_match_augmented_builds WHERE vcs_revision = ?;"
+    aggregate_causes_sql = "SELECT total, idiopathic, timeout, known_broken, pattern_matched, pattern_matched_other, flaky, pattern_unmatched, succeeded FROM build_failure_disjoint_causes_by_commit WHERE sha1 = ? LIMIT 1;"
 
 
 -- | Find known build breakages applicable to the merge base

@@ -9,9 +9,13 @@ function populate_commit_info(commit_sha1) {
 		var items = [
 			["Commit ancestry:", github_link],
 			["Failed build count:", counts_obj["failed_build_count"]],
-			["Matched build count:", counts_obj["matched_build_count"]],
+			["Total matched build count:", counts_obj["total_matched_build_count"]],
 			["Flaky build count:", counts_obj["flaky_build_count"]],
+			["Other matched build count:", counts_obj["other_matched_build_count"]],
+			["Unmatched count (excluding timeouts/no logs):", counts_obj["unmatched_count"]],
 			["Timeout count:", counts_obj["timeout_count"]],
+			["No logs count:", counts_obj["idiopathic_count"]],
+			["Known broken count:", counts_obj["known_broken_count"]],
 		];
 
 		var stats_table = render_table_vertical_headers(items);
@@ -24,7 +28,7 @@ function populate_commit_info(commit_sha1) {
 		} else if (counts_obj["failed_build_count"] == counts_obj["flaky_build_count"]) {
 			analysis_text = render_tag("span", "All of the CircleCI build failures were due to intermittent causes. Consider rerunning them.", {"style": "color: green;"});
 
-		} else if (counts_obj["failed_build_count"] == counts_obj["matched_build_count"]) {
+		} else if (counts_obj["failed_build_count"] == counts_obj["total_matched_build_count"]) {
 			analysis_text = "All of the CircleCI build failures matched with predefined patterns.";
 		} else {
 			analysis_text = "Some of the build failure causes weren't determined. Please investigate below.";
