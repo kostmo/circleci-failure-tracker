@@ -50,7 +50,7 @@ def generate_app_nondefault_cli_arglist(
         personal_token,
     ]
 
-    if is_notification_ingester:
-        arg_list.append("--no-ssl")
+#    if is_notification_ingester:
+#        arg_list.append("--no-ssl")
 
     return arg_list

@@ -21,7 +21,7 @@ data GithubConfig = NewGithubConfig {
   , personal_access_token :: AccessToken
   , webhook_secret        :: Text
   , admin_password        :: Text
-  , no_ssl                :: Bool
+  , no_force_ssl          :: Bool
   }
 
 
@@ -47,7 +47,7 @@ githubKey auth_config = OAuth2 {
   where
     callback_url = if is_local auth_config
       then [uri|http://localhost:3001/api/github-auth-callback|]
-      else [uri|https://circle.pytorch.org/api/github-auth-callback|]
+      else [uri|https://dr.pytorch.org/api/github-auth-callback|]
 
 
 getLoginUrl :: GithubConfig -> Text

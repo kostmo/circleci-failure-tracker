@@ -52,7 +52,7 @@ fullMasterRefName = "refs/heads/" <> Builds.masterName
 
 
 webserverBaseUrl :: LT.Text
-webserverBaseUrl = "https://circle.pytorch.org"
+webserverBaseUrl = "https://dr.pytorch.org"
 
 
 circleciDomain :: String
