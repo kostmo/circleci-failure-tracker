@@ -12,6 +12,7 @@ import qualified Data.ByteString.Char8             as BS
 import           Data.Either.Utils                 (maybeToEither)
 import           Data.Foldable                     (for_)
 import qualified Data.Maybe                        as Maybe
+import           Data.Set                          (Set)
 import           Data.Text                         (Text)
 import qualified Data.Text                         as T
 import qualified Data.Text.Lazy                    as TL
@@ -409,6 +410,25 @@ populatePresumedStableBranches conn =
   executeMany conn sql . map Only
   where
     sql = "INSERT INTO presumed_stable_branches(branch) VALUES(?);"
+
+
+cacheAllMergeBases ::
+     Connection
+  -> Set Builds.RawCommit
+  -> OAuth2.AccessToken
+  -> DbHelpers.OwnerAndRepo
+  -> [Builds.RawCommit]
+  -> IO ()
+cacheAllMergeBases conn all_master_commits access_token owned_repo commits =
+
+  mapM_ f commits
+
+  where
+    f = SqlRead.findMasterAncestorWithPrecomputation
+      (Just all_master_commits)
+      conn
+      access_token
+      owned_repo
 
 
 storeLogInfo ::

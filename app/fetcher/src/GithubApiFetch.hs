@@ -119,7 +119,8 @@ recursePaginated
       <> "&page=" <> show page_offset
 
 
--- | Verifies that the commit chain is linear.
+-- | Returns an error if the commit chain is not linear,
+-- otherwise returns a tuple ()
 getCommitsRecurse ::
      GitHubApiSupport
   -> Int -- ^ commit fetch limit
@@ -225,36 +226,41 @@ getCommits
     return combined_list
 
 
--- | This only works if the commit history is linear!
+-- | NOTE: This method assumes that the commit history is linear!
+-- Returns the merge base commit and the distance between
+-- the merge base and the starting commit.
+--
+-- WARNING: Accuracy of the "distance" result has not been verified.
 findAncestor ::
      OAuth2.AccessToken -- ^ token
   -> DbHelpers.OwnerAndRepo
   -> Builds.RawCommit  -- ^ starting commit
-  -> Set T.Text  -- ^ known commits
-  -> IO (Either TL.Text Builds.RawCommit)
+  -> Set Builds.RawCommit  -- ^ known commits
+  -> IO (Either TL.Text (Builds.RawCommit, Int))
 findAncestor
     token
     owner_and_repo
     t@(Builds.RawCommit target_sha1)
     known_commit_set =
 
-  if Set.member target_sha1 known_commit_set
-    then return $ Right t
+  if Set.member t known_commit_set
+    then return $ Right (t, 0)
     else do
       mgr <- newManager tlsManagerSettings
 
       runExceptT $ do
-        (_combined_list, first_known_commit) <- ExceptT $ getCommitsRecurse
+        (combined_list, maybe_first_known_commit) <- ExceptT $ getCommitsRecurse
           (GitHubApiSupport mgr token)
           maxGitHubCommitFetchCount
           (githubCommitsApiPrefix owner_and_repo)
           0
           target_sha1
-          (`Set.member` known_commit_set)
+          ((`Set.member` known_commit_set) . Builds.RawCommit)
           []
 
-        let maybe_ancestor = Builds.RawCommit . GitHubRecords.extractCommitSha <$> first_known_commit
-        except $ maybeToEither "No merge base found" maybe_ancestor
+        ancestor_commit_obj <- except $ maybeToEither "No merge base found" maybe_first_known_commit
+        let ancestor_commit = Builds.RawCommit $ GitHubRecords.extractCommitSha ancestor_commit_obj
+        return (ancestor_commit, length combined_list)
 
 
 getBuildStatuses ::

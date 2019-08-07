@@ -346,7 +346,10 @@ handleStatusWebhook
       [org, repo] -> Right $ DbHelpers.OwnerAndRepo org repo
       _ -> Left $ "un-parseable owner/repo text: " <> owner_repo_text
 
-    maybe_previously_posted_status <- liftIO $ SqlRead.get_posted_github_status db_connection_data owned_repo sha1
+    maybe_previously_posted_status <- liftIO $ SqlRead.getPostedGithubStatus
+      db_connection_data
+      owned_repo
+      sha1
 
     let computation = do
           runExceptT $
@@ -397,7 +400,7 @@ genFlakinessStatus (Builds.RawCommit sha1) flaky_count pre_broken_count total_fa
 
   where
     optional_kb_metric = if pre_broken_count > 0
-      then [show pre_broken_count <> "/" <> show total_failcount <> " pre-broken"]
+      then [show pre_broken_count <> "/" <> show total_failcount <> " broken upstream"]
       else []
 
     metrics = intercalate ", " $ [

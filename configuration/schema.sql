@@ -131,7 +131,8 @@ CREATE TABLE public.universal_builds (
     build_namespace text,
     provider integer,
     commit_sha1 character(40) NOT NULL,
-    succeeded boolean NOT NULL
+    succeeded boolean NOT NULL,
+    stored_at timestamp with time zone DEFAULT now()
 );
 
 

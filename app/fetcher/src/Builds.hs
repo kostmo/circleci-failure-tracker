@@ -20,7 +20,7 @@ masterName = "master"
 
 
 newtype RawCommit = RawCommit Text
- deriving (Generic, Show, FromRow)
+ deriving (Generic, Eq, Ord, Show, FromRow)
 
 -- TODO do error handling: http://hackage.haskell.org/package/postgresql-simple-0.6.2/docs/Database-PostgreSQL-Simple-FromField.html
 instance FromField RawCommit where

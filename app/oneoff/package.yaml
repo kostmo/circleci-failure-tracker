@@ -25,4 +25,6 @@ executables:
     dependencies:
     - fetcher
     - text
+    - hoauth2
+    - shake
     - optparse-applicative

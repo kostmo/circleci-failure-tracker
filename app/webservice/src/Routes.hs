@@ -324,7 +324,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
           callback_func :: AuthStages.Username -> IO (Either (AuthStages.BackendFailure Text) Text)
           callback_func user_alias = do
-            maybe_previously_posted_status <- liftIO $ SqlRead.get_posted_github_status connection_data owned_repo commit
+            maybe_previously_posted_status <- liftIO $ SqlRead.getPostedGithubStatus connection_data owned_repo commit
 
             run_result <- runExceptT $
               StatusUpdate.handleFailedStatuses
@@ -523,6 +523,18 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       json_result <- liftIO $ do
         conn <- DbHelpers.get_connection connection_data
         runReaderT (SqlRead.apiCommitRangeJobs $ SqlRead.InclusiveSpan first_index last_index) conn
+
+      S.json json_result
+
+
+    S.get "/api/universal-builds" $ do
+
+      starting_id <- S.param "start-id"
+      limit <- S.param "limit"
+
+      json_result <- liftIO $ do
+        conn <- DbHelpers.get_connection connection_data
+        SqlRead.getUniversalBuilds conn (Builds.UniversalBuildId starting_id) limit
 
       S.json json_result
 

@@ -153,6 +153,42 @@ countRevisionBuilds conn_data access_token git_revision = do
     aggregate_causes_sql = "SELECT total, idiopathic, timeout, known_broken, pattern_matched, pattern_matched_other, flaky, pattern_unmatched, succeeded FROM build_failure_disjoint_causes_by_commit WHERE sha1 = ? LIMIT 1;"
 
 
+-- TODO This is not finished!
+diagnoseCommitsBatch ::
+     Connection
+  -> OAuth2.AccessToken
+  -> DbHelpers.OwnerAndRepo
+  -> [Builds.RawCommit]
+  -> IO (Either Text ())
+diagnoseCommitsBatch conn access_token owned_repo sha1_list = do
+
+  runExceptT $ do
+
+    -- First, ensure knowledge of "master" branch lineage
+    -- is up-to-date
+    ExceptT $ SqlWrite.populateLatestMasterCommits conn access_token owned_repo
+
+    all_master_commits <- liftIO $ SqlRead.getAllMasterCommits conn
+
+    non_master_failed_commits <- liftIO $ query_ conn commit_list_sql
+
+    -- NOTE: Some subset of these may be accessible from
+    -- the local repo. We can make a first path with the
+    -- local repo and then obtain the rest via the GitHub API.
+    liftIO $ SqlWrite.cacheAllMergeBases
+      conn
+      all_master_commits
+      access_token
+      owned_repo
+      non_master_failed_commits
+
+    mapM_ (ExceptT . findKnownBuildBreakages conn access_token owned_repo) sha1_list
+
+  where
+    -- Excludes commits from the master branch and commits that are already cached
+    commit_list_sql = "SELECT DISTINCT vcs_revision FROM builds_join_steps LEFT JOIN ordered_master_commits ON ordered_master_commits.sha1 = builds_join_steps.vcs_revision LEFT JOIN cached_master_merge_base ON cached_master_merge_base.branch_commit = builds_join_steps.vcs_revision WHERE ordered_master_commits.sha1 IS NULL AND cached_master_merge_base.branch_commit IS NULL AND NOT succeeded AND NOT is_timeout;"
+
+
 -- | Find known build breakages applicable to the merge base
 -- of this PR commit
 findKnownBuildBreakages ::
@@ -164,10 +200,6 @@ findKnownBuildBreakages ::
 findKnownBuildBreakages conn access_token owned_repo sha1 =
 
   runExceptT $ do
-
-    -- First, ensure knowledge of "master" branch lineage
-    -- is up-to-date
-    ExceptT $ SqlWrite.populateLatestMasterCommits conn access_token owned_repo
 
     -- Second, find which "master" commit is the most recent
     -- ancestor of the given PR commit.
