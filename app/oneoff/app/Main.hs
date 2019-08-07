@@ -1,13 +1,12 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-import           Control.Concurrent        (getNumCapabilities)
-import qualified Data.Maybe                as Maybe
-import           Data.Text                 (Text)
-import qualified Data.Text                 as T
-import qualified Development.Shake.Command as Command
-import qualified Network.OAuth.OAuth2      as OAuth2
+import           Control.Concurrent   (getNumCapabilities)
+import qualified Data.Maybe           as Maybe
+import           Data.Text            (Text)
+import qualified Data.Text            as T
+import qualified Network.OAuth.OAuth2 as OAuth2
 import           Options.Applicative
-import           System.Exit               (ExitCode (ExitFailure, ExitSuccess))
+
 import           System.IO
 
 import qualified BuildRetrieval
@@ -15,6 +14,7 @@ import qualified Builds
 import qualified Constants
 import qualified DbHelpers
 import qualified DbPreparation
+import qualified MergeBase
 import qualified Scanning
 import qualified SqlRead
 import qualified SqlUpdate
@@ -45,27 +45,6 @@ myCliParser = NewCommandLineArgs
 
 
 
-gitMergeBase :: FilePath -> Builds.RawCommit -> IO (Either Int Builds.RawCommit)
-gitMergeBase git_dir (Builds.RawCommit commit_sha1) = do
-  (Command.Exit exit_status, Command.Stdout out) <- Command.cmd $ unwords [
-      "git"
-    , "--git-dir"
-    , git_dir
-    , "merge-base"
-    , "origin/master"
-    , T.unpack commit_sha1
-    ]
-
-  putStrLn $ unwords [
-      "My output:"
-    , out
-    ]
-
-  return $ case exit_status of
-    ExitSuccess      -> Right $ Builds.RawCommit $ T.pack out
-    ExitFailure code -> Left code
-
-
 mainAppCode :: CommandLineArgs -> IO ()
 mainAppCode args = do
 
@@ -73,7 +52,14 @@ mainAppCode args = do
 
 
 
-  gitMergeBase (repoGitDir args) (Builds.RawCommit "8145d809db2a52267b32f0e56f02607307a39532")
+  mb_result <- MergeBase.gitMergeBase
+    (repoGitDir args)
+    (Builds.RawCommit "145d809db2a52267b32f0e56f02607307a39532")
+
+  putStrLn $ unwords [
+      "MB result:"
+    , show mb_result
+    ]
 
 
 
@@ -108,15 +94,18 @@ mainAppCode args = do
 
 
   batch_diagnosis_result <- SqlUpdate.diagnoseCommitsBatch
+    (Just $ repoGitDir args)
     conn
     oauth_access_token
     owned_repo
+    {-
     [ Builds.RawCommit "60a4ef30747ef3fcc780d4327e7b44de0a330b2d" -- (master) has no breakage
     , Builds.RawCommit "43c4bcba1d0b336736ce14e939907c47834d32c7" -- (master) has a known breakage
 
     , Builds.RawCommit "8145d809db2a52267b32f0e56f02607307a39532" -- (PR) has no breakage
 --    , Builds.RawCommit "" -- (PR) has a known breakage
     ]
+    -}
 
   putStrLn $ unwords [
       "Batch diagnosis result:"

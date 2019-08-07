@@ -454,8 +454,6 @@ function define_column(col) {
 			  .catch(err => {
 			    console.log('Something went wrong', err);
 			  });
-
-
 		},
 		headerTooltip: "Click to copy to clipboard",
 		cellContext: function(e, cell) {
@@ -585,6 +583,12 @@ function get_column_definitions(raw_column_list) {
 }
 
 
+const MAX_HORIZONTAL_LETTERS = 5;
+
+// empirically, < 3 leaves enough space to fit all header names horizontally
+const MIN_HEADER_GROUPING_COLUMNS = 3;
+
+
 function generate_column_tree_base(column_names) {
 
 	const collator = new Intl.Collator(undefined, {numeric: true, sensitivity: 'base'});
@@ -614,8 +618,8 @@ function generate_column_tree_recursive(column_name_suffix_pairs, depth) {
 
 		const grouped_col_pairs = colname_pair_by_prefix[col_prefix];
 
-		// empirically, < 3 leaves enough space to fit all header names horizontally
-		if (grouped_col_pairs.length < 3) {
+
+		if (grouped_col_pairs.length < MIN_HEADER_GROUPING_COLUMNS) {
 
 			for (var col_pair of grouped_col_pairs) {
 				column_list.push(define_column(col_pair[0]));
@@ -629,7 +633,7 @@ function generate_column_tree_recursive(column_name_suffix_pairs, depth) {
 
 			if (subcolumn_definitions.length == 1) {
 				column_group_definition = {
-					title: col_prefix + "<br/>" + subcolumn_definitions[0]["title"],
+					title: truncate_overlong_horizontal_heading(col_prefix) + "<br/>" + subcolumn_definitions[0]["title"],
 					columns: subcolumn_definitions[0]["columns"],
 				}
 			} else {
@@ -644,6 +648,16 @@ function generate_column_tree_recursive(column_name_suffix_pairs, depth) {
 	}
 
 	return column_list;
+}
+
+
+function truncate_overlong_horizontal_heading(heading) {
+
+	if (heading.length > MAX_HORIZONTAL_LETTERS) {
+		return heading.substring(0, MAX_HORIZONTAL_LETTERS - 1) + "&hellip;"
+	} else {
+		return heading;
+	}
 }
 
 

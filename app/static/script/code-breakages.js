@@ -138,8 +138,6 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 					width:40,
 					align:"center",
 				},
-
-
 			]},
 			{title: "Mode", width: 250, field: "start.record.payload.failure_mode.payload",
 				formatter: function(cell, formatterParams, onRendered) {
@@ -169,7 +167,6 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 					post_modification("/api/code-breakage-description-update", data_dict);
 				},
 			},
-
 			{title: "Affected jobs", columns: [
 				{title: "Count",
 					width: 75,
@@ -202,7 +199,7 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 					var data_obj = cell.getRow().getData();
 					var start_index = data_obj["start"]["record"]["payload"]["breakage_commit"]["db_id"];
 
-					var end_index = data_obj["end"]["record"]["payload"]["resolution_commit"]["db_id"];
+					var end_index = data_obj["end"] != null && data_obj["end"]["record"]["payload"]["resolution_commit"]["db_id"];
 					if (end_index) {
 						var span_count = end_index - start_index;
 						return span_count;
@@ -246,7 +243,9 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 						return "";
 					},
 				},
+
 			]},
+
 		],
 		ajaxURL: data_url,
 	});

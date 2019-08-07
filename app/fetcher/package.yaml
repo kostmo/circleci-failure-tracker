@@ -47,6 +47,7 @@ library:
     - github
     - regex-compat
     - MissingH 
+    - shake
 
 executables:
   run-scanner:

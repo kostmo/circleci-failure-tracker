@@ -4,6 +4,7 @@ module SqlWrite where
 
 import           Control.Applicative               ((<|>))
 import           Control.Exception                 (throwIO)
+import           Control.Monad                     (unless)
 import           Control.Monad.IO.Class            (liftIO)
 import           Control.Monad.Trans.Except        (ExceptT (ExceptT), except,
                                                     runExceptT)
@@ -13,6 +14,7 @@ import           Data.Either.Utils                 (maybeToEither)
 import           Data.Foldable                     (for_)
 import qualified Data.Maybe                        as Maybe
 import           Data.Set                          (Set)
+import qualified Data.Set                          as Set
 import           Data.Text                         (Text)
 import qualified Data.Text                         as T
 import qualified Data.Text.Lazy                    as TL
@@ -35,6 +37,7 @@ import qualified Commits
 import qualified DbHelpers
 import qualified GithubApiFetch
 import qualified GitHubRecords
+import qualified MergeBase
 import qualified ScanPatterns
 import qualified ScanRecords
 import qualified SqlRead
@@ -61,6 +64,119 @@ storeCommitMetadata conn commit_list =
     f (Commits.CommitMetadata (Builds.RawCommit sha1) message tree_sha1 author_name author_email author_date committer_name committer_email committer_date) = (sha1, message, tree_sha1, author_name, author_email, author_date, committer_name, committer_email, committer_date)
 
     insertion_sql = "INSERT INTO commit_metadata(sha1, message, tree_sha1, author_name, author_email, author_date, committer_name, committer_email, committer_date) VALUES(?,?,?,?,?,?,?,?,?);"
+
+    catcher _ (UniqueViolation some_error) = return $ Left $
+      "Insertion error: " <> T.pack (BS.unpack some_error)
+    catcher e _                            = throwIO e
+
+
+-- | Caches the result.
+--
+-- In general, it would be possible for the merge base to change
+-- over time if the master branch is advanced to a more recent
+-- ancestor (up to and including the HEAD) of the PR branch.
+-- In practice, however, this will not happen in the Facebook-mirrored
+-- repo configuration, as a novel commit is produced for every change
+-- to the master branch.
+--
+-- Therefore, this cache of merge bases never needs to be invalidated.
+findMasterAncestorWithPrecomputation ::
+     Maybe (Set Builds.RawCommit) -- ^ all master commits; passing this in can save time in a loop
+  -> Connection
+  -> OAuth2.AccessToken
+  -> DbHelpers.OwnerAndRepo
+  -> Builds.RawCommit
+  -> IO (Either Text Builds.RawCommit)
+findMasterAncestorWithPrecomputation maybe_all_master_commits conn access_token owner_and_repo sha1@(Builds.RawCommit unwrapped_sha1) =
+
+  -- This is another optimization:
+  -- if we have pre-computed the master commit list, we
+  -- may get lucky and find that the requested commit is a member, in which
+  -- case we can avoid a database lookup to the merge-base cache.
+  if Set.member sha1 $ Maybe.fromMaybe Set.empty maybe_all_master_commits
+  then do
+    putStrLn $ unwords [
+        "Bypassed cache since"
+      , T.unpack unwrapped_sha1
+      , "is a master commit!"
+      ]
+
+    return $ Right sha1
+  else do
+
+    known_merge_base_rows <- query conn cached_merge_bases_sql $ Only unwrapped_sha1
+    let maybe_cached_merge_base = Safe.headMay $ map (\(Only x) -> x) known_merge_base_rows
+
+    case maybe_cached_merge_base of
+      Just cached_merge_base -> do
+        putStrLn $ unwords [
+            "Retrieved merge base of"
+          , show sha1
+          , "from cache as"
+          , show cached_merge_base
+          ]
+
+        return $ Right cached_merge_base
+      Nothing -> do
+
+        -- Optimization: we can make use of pre-computed commit set
+        -- if we're processing several commit ancestors.  Otherwise,
+        -- single ancestor retrievals may not need the master commit list
+        -- if the answer is in the cache already.
+        known_commit_set <- case maybe_all_master_commits of
+          Nothing -> SqlRead.getAllMasterCommits conn
+          Just x  -> return x
+
+        runExceptT $ do
+
+          (merge_base_commit@(Builds.RawCommit unwrapped_merge_base), distance) <- ExceptT $ first TL.toStrict <$> GithubApiFetch.findAncestor
+            access_token
+            owner_and_repo
+            sha1
+            known_commit_set
+
+          -- Distance 0 means it was a member of the master branch.
+          unless (distance == 0) $ liftIO $ do
+            execute conn merge_base_insertion_sql (unwrapped_sha1, unwrapped_merge_base, distance)
+            putStrLn $ unwords [
+                "Stored merge base of"
+              , T.unpack unwrapped_sha1
+              , "to cache as"
+              , T.unpack unwrapped_merge_base
+              , "with distance"
+              , show distance
+              ]
+
+          return merge_base_commit
+
+  where
+    cached_merge_bases_sql = "SELECT master_commit FROM cached_master_merge_base WHERE branch_commit = ?;"
+
+    merge_base_insertion_sql = "INSERT INTO cached_master_merge_base(branch_commit, master_commit, distance) VALUES(?,?,?);"
+
+
+findMasterAncestor ::
+     Connection
+  -> OAuth2.AccessToken
+  -> DbHelpers.OwnerAndRepo
+  -> Builds.RawCommit
+  -> IO (Either Text Builds.RawCommit)
+findMasterAncestor = findMasterAncestorWithPrecomputation Nothing
+
+
+storeCachedMergeBases ::
+     Connection
+  -> [MergeBase.CommitMergeBase]
+  -> IO (Either Text Int64)
+storeCachedMergeBases conn merge_base_records = do
+  catchViolation catcher $ do
+    count <- executeMany conn insertion_sql $ map f merge_base_records
+    return $ Right count
+
+  where
+    f (MergeBase.CommitMergeBase (Builds.RawCommit branch_commit) (Builds.RawCommit master_commit) distance) = (branch_commit, master_commit, distance)
+
+    insertion_sql = "INSERT INTO cached_master_merge_base(branch_commit, master_commit, distance) VALUES(?,?,?);"
 
     catcher _ (UniqueViolation some_error) = return $ Left $
       "Insertion error: " <> T.pack (BS.unpack some_error)
@@ -421,14 +537,23 @@ cacheAllMergeBases ::
   -> IO ()
 cacheAllMergeBases conn all_master_commits access_token owned_repo commits =
 
-  mapM_ f commits
+  mapM_ f $ zip [1..] commits
 
   where
-    f = SqlRead.findMasterAncestorWithPrecomputation
-      (Just all_master_commits)
-      conn
-      access_token
-      owned_repo
+    f (i, x) = do
+      findMasterAncestorWithPrecomputation
+        (Just all_master_commits)
+        conn
+        access_token
+        owned_repo
+        x
+
+      putStrLn $ unwords [
+        "Progress:"
+        , show i
+        , "/"
+        , length commits
+        ]
 
 
 storeLogInfo ::

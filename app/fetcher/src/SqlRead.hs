@@ -5,13 +5,12 @@
 
 module SqlRead where
 
-import           Control.Monad                        (forM, unless)
+import           Control.Monad                        (forM)
 import           Control.Monad.IO.Class               (liftIO)
 import           Control.Monad.Trans.Except           (ExceptT (ExceptT),
                                                        except, runExceptT)
 import           Control.Monad.Trans.Reader           (ReaderT, ask)
 import           Data.Aeson
-import           Data.Bifunctor                       (first)
 import           Data.Either.Utils                    (maybeToEither)
 import           Data.List                            (sort, sortOn)
 import           Data.List.Split                      (splitOn)
@@ -21,7 +20,6 @@ import           Data.Set                             (Set)
 import qualified Data.Set                             as Set
 import           Data.Text                            (Text)
 import qualified Data.Text                            as T
-import qualified Data.Text.Lazy                       as TL
 import           Data.Time                            (UTCTime)
 import           Data.Time.Calendar                   (Day)
 import           Data.Tuple                           (swap)
@@ -31,7 +29,6 @@ import           Database.PostgreSQL.Simple.FromRow   (field, fromRow)
 import           Database.PostgreSQL.Simple.ToField   (ToField)
 import           GHC.Generics
 import           GHC.Int                              (Int64)
-import qualified Network.OAuth.OAuth2                 as OAuth2
 import qualified Safe
 
 import qualified BuildResults
@@ -39,7 +36,6 @@ import qualified Builds
 import qualified CommitBuilds
 import qualified Commits
 import qualified DbHelpers
-import qualified GithubApiFetch
 import qualified GitRev
 import qualified JsonUtils
 import qualified MatchOccurrences
@@ -504,106 +500,12 @@ getLatestKnownMasterCommit conn = do
     sql = "SELECT sha1 FROM ordered_master_commits ORDER BY id DESC LIMIT 1;"
 
 
--- | Caches the result.
---
--- In general, it would be possible for the merge base to change
--- over time if the master branch is advanced to a more recent
--- ancestor (up to and including the HEAD) of the PR branch.
--- In practice, however, this will not happen in the Facebook-mirrored
--- repo configuration, as a novel commit is produced for every change
--- to the master branch.
---
--- Therefore, this cache of merge bases never needs to be invalidated.
-findMasterAncestorWithPrecomputation ::
-     Maybe (Set Builds.RawCommit) -- ^ all master commits; passing this in can save time in a loop
-  -> Connection
-  -> OAuth2.AccessToken
-  -> DbHelpers.OwnerAndRepo
-  -> Builds.RawCommit
-  -> IO (Either Text Builds.RawCommit)
-findMasterAncestorWithPrecomputation maybe_all_master_commits conn access_token owner_and_repo sha1@(Builds.RawCommit unwrapped_sha1) =
-
-  -- This is another optimization:
-  -- if we have pre-computed the master commit list, we
-  -- may get lucky and find that the requested commit is a member, in which
-  -- case we can avoid a database lookup to the merge-base cache.
-  if Set.member sha1 $ Maybe.fromMaybe Set.empty maybe_all_master_commits
-  then do
-    putStrLn $ unwords [
-        "Bypassed cache since"
-      , T.unpack unwrapped_sha1
-      , "is a master commit!"
-      ]
-
-    return $ Right sha1
-  else do
-
-    known_merge_base_rows <- query conn cached_merge_bases_sql $ Only unwrapped_sha1
-    let maybe_cached_merge_base = Safe.headMay $ map (\(Only x) -> x) known_merge_base_rows
-
-    case maybe_cached_merge_base of
-      Just cached_merge_base -> do
-        putStrLn $ unwords [
-            "Retrieved merge base of"
-          , show sha1
-          , "from cache as"
-          , show cached_merge_base
-          ]
-
-        return $ Right cached_merge_base
-      Nothing -> do
-
-        -- Optimization: we can make use of pre-computed commit set
-        -- if we're processing several commit ancestors.  Otherwise,
-        -- single ancestor retrievals may not need the master commit list
-        -- if the answer is in the cache already.
-        known_commit_set <- case maybe_all_master_commits of
-          Nothing -> getAllMasterCommits conn
-          Just x  -> return x
-
-        runExceptT $ do
-
-          (merge_base_commit@(Builds.RawCommit unwrapped_merge_base), distance) <- ExceptT $ first TL.toStrict <$> GithubApiFetch.findAncestor
-            access_token
-            owner_and_repo
-            sha1
-            known_commit_set
-
-          -- Distance 0 means it was a member of the master branch.
-          unless (distance == 0) $ liftIO $ do
-            execute conn merge_base_insertion_sql (unwrapped_sha1, unwrapped_merge_base, distance)
-            putStrLn $ unwords [
-                "Stored merge base of"
-              , T.unpack unwrapped_sha1
-              , "to cache as"
-              , T.unpack unwrapped_merge_base
-              , "with distance"
-              , show distance
-              ]
-
-          return merge_base_commit
-
-  where
-    cached_merge_bases_sql = "SELECT master_commit FROM cached_master_merge_base WHERE branch_commit = ?;"
-
-    merge_base_insertion_sql = "INSERT INTO cached_master_merge_base(branch_commit, master_commit, distance) VALUES(?,?,?);"
-
-
 getAllMasterCommits :: Connection -> IO (Set Builds.RawCommit)
 getAllMasterCommits conn = do
   master_commit_rows <- query_ conn master_commit_retrieval_sql
   return $ Set.fromList $ map (\(Only x) -> x) master_commit_rows
   where
     master_commit_retrieval_sql = "SELECT sha1 FROM ordered_master_commits;"
-
-
-findMasterAncestor ::
-     Connection
-  -> OAuth2.AccessToken
-  -> DbHelpers.OwnerAndRepo
-  -> Builds.RawCommit
-  -> IO (Either Text Builds.RawCommit)
-findMasterAncestor = findMasterAncestorWithPrecomputation Nothing
 
 
 data CodeBreakage = CodeBreakage {

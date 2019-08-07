@@ -24,6 +24,7 @@ import qualified Constants
 import qualified DbHelpers
 import qualified GitRev
 import qualified JsonUtils
+import qualified MergeBase
 import qualified SqlRead
 import qualified SqlWrite
 
@@ -155,12 +156,12 @@ countRevisionBuilds conn_data access_token git_revision = do
 
 -- TODO This is not finished!
 diagnoseCommitsBatch ::
-     Connection
+     Maybe FilePath
+  -> Connection
   -> OAuth2.AccessToken
   -> DbHelpers.OwnerAndRepo
-  -> [Builds.RawCommit]
   -> IO (Either Text ())
-diagnoseCommitsBatch conn access_token owned_repo sha1_list = do
+diagnoseCommitsBatch maybe_local_repo_path conn access_token owned_repo =
 
   runExceptT $ do
 
@@ -168,9 +169,30 @@ diagnoseCommitsBatch conn access_token owned_repo sha1_list = do
     -- is up-to-date
     ExceptT $ SqlWrite.populateLatestMasterCommits conn access_token owned_repo
 
-    all_master_commits <- liftIO $ SqlRead.getAllMasterCommits conn
+    non_master_uncached_failed_commits <- liftIO $ query_ conn commit_list_sql
 
-    non_master_failed_commits <- liftIO $ query_ conn commit_list_sql
+    unprocessed_commits <- ExceptT $ case maybe_local_repo_path of
+      Just repo_git_dir -> runExceptT $ do
+        (unprocessed, computed_commits) <- liftIO $ MergeBase.computeMergeBasesLocally
+          repo_git_dir
+          non_master_uncached_failed_commits
+
+        liftIO $ putStrLn $ unwords [
+          "Computeded"
+          , show $ length computed_commits
+          , "merge bases locally, with"
+          , show $ length unprocessed
+          , "left over."
+          ]
+
+        ExceptT $ SqlWrite.storeCachedMergeBases conn computed_commits
+
+        return unprocessed
+
+      Nothing -> return $ return $ non_master_uncached_failed_commits
+
+
+    all_master_commits <- liftIO $ SqlRead.getAllMasterCommits conn
 
     -- NOTE: Some subset of these may be accessible from
     -- the local repo. We can make a first path with the
@@ -180,9 +202,9 @@ diagnoseCommitsBatch conn access_token owned_repo sha1_list = do
       all_master_commits
       access_token
       owned_repo
-      non_master_failed_commits
+      unprocessed_commits
 
-    mapM_ (ExceptT . findKnownBuildBreakages conn access_token owned_repo) sha1_list
+--    mapM_ (ExceptT . findKnownBuildBreakages conn access_token owned_repo) sha1_list
 
   where
     -- Excludes commits from the master branch and commits that are already cached
@@ -203,7 +225,11 @@ findKnownBuildBreakages conn access_token owned_repo sha1 =
 
     -- Second, find which "master" commit is the most recent
     -- ancestor of the given PR commit.
-    nearest_ancestor <- ExceptT $ SqlRead.findMasterAncestor conn access_token owned_repo sha1
+    nearest_ancestor <- ExceptT $ SqlWrite.findMasterAncestor
+      conn
+      access_token
+      owned_repo
+      sha1
 
     -- Third, find whether that commit is within the
     -- [start, end) span of any known breakages
