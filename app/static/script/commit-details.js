@@ -63,7 +63,19 @@ function gen_builds_table(element_id, data_url) {
 					return gen_line_number_cell_with_count(cell, cell.getRow().getData()["match"]["line_count"]);
 				},
 			},
-			{title: "Job", width: 300, field: "build.build_record.job_name"},
+			{title: "Job", width: 300, field: "build.build_record.job_name",
+				tooltip: "Click to copy",
+				cellClick: function(e, cell) {
+
+					navigator.clipboard.writeText( cell.getValue() )
+					  .then(() => {
+					    // Success!
+					  })
+					  .catch(err => {
+					    console.log('Something went wrong', err);
+					  });
+				},
+			},
 			{title: "Step", width: 250, field: "match.build_step"},
 			{title: "Build", field: "build.build_record.build_id",
 				formatter: function(cell, formatterParams, onRendered) {

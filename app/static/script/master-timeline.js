@@ -447,19 +447,17 @@ function define_column(col) {
 
 			console.log("Column name: " + columnField);
 
-			// TODO make header
-/*
-			const el = document.createElement('textarea');
-			el.value = cell_value;
-			el.setAttribute('readonly', '');
-			el.style.position = 'absolute';
-			el.style.left = '-9999px';
-			document.body.appendChild(el);
-			el.select();
-			document.execCommand('copy');
-			document.body.removeChild(el);
-*/
+			navigator.clipboard.writeText( columnField )
+			  .then(() => {
+			    // Success!
+			  })
+			  .catch(err => {
+			    console.log('Something went wrong', err);
+			  });
+
+
 		},
+		headerTooltip: "Click to copy to clipboard",
 		cellContext: function(e, cell) {
 
 			const dropdown_element = document.getElementById("myDropdown");
