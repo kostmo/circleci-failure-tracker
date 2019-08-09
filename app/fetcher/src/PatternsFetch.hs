@@ -17,13 +17,13 @@ import qualified SqlWrite
 
 
 -- | For seeding initial data
-populate_patterns ::
+populatePatterns ::
      DbHelpers.DbConnectionData
   -> IO (Either String [Int64])
-populate_patterns connection_data = runExceptT $ do
+populatePatterns connection_data = runExceptT $ do
   response <- ExceptT $ FetchHelpers.safeGetUrl $ NW.get url_string
   decoded_json <- except $ eitherDecode $ NC.responseBody response
-  ExceptT $ fmap (first T.unpack) $ SqlWrite.restore_patterns connection_data decoded_json
+  ExceptT $ fmap (first T.unpack) $ SqlWrite.restorePatterns connection_data decoded_json
 
   where
     url_string = "https://raw.githubusercontent.com/kostmo/circleci-failure-tracker/master/data/patterns-dump.json"

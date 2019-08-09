@@ -49,7 +49,7 @@ updateCircleCIBuildsList ::
 updateCircleCIBuildsList conn branch_names fetch_count age_days = do
 
   builds_lists <- for branch_names $ \branch_name -> do
-    putStrLn $ unwords [
+    MyUtils.debugList [
         "Fetching builds list for branch"
       , MyUtils.quote branch_name ++ "..."
       ]
@@ -116,10 +116,10 @@ fetchCircleCIBuildsRecurse sess branch_name offset earliest_requested_time max_b
   if max_build_count > 0
     then do
 
-      putStrLn $ unwords [
+      MyUtils.debugList [
           "Getting builds starting at"
         , show offset
-        , "(" ++ show max_build_count ++ " left)"
+        , MyUtils.parens $ show max_build_count ++ " left"
         ]
 
       builds <- getSingleBuildList sess branch_name builds_per_page offset
@@ -129,11 +129,11 @@ fetchCircleCIBuildsRecurse sess branch_name offset earliest_requested_time max_b
 
       case Safe.minimumMay $ map Builds.queued_at builds of
         Nothing ->
-          putStrLn "No more builds found."
+          MyUtils.debugStr "No more builds found."
 
         -- TODO use this time value
         Just earliest_build_time ->
-          putStrLn $ "Earliest build time found: " ++ show earliest_build_time
+          MyUtils.debugList ["Earliest build time found:", show earliest_build_time]
 
 
       let next_offset = offset + fetched_build_count
@@ -142,7 +142,12 @@ fetchCircleCIBuildsRecurse sess branch_name offset earliest_requested_time max_b
       -- then we know that was the last page of available builds.
       more_builds <- if fetched_build_count < builds_per_page
         then do
-          putStrLn $ "The earliest build for branch \"" ++ branch_name ++ "\" has been retrieved."
+          MyUtils.debugList [
+            "The earliest build for branch"
+            , MyUtils.quote branch_name
+            , "has been retrieved."
+            ]
+
           return []
         else fetchCircleCIBuildsRecurse sess branch_name next_offset earliest_requested_time builds_left
       return $ builds ++ more_builds
@@ -172,7 +177,7 @@ getSingleBuildList sess branch_name limit offset = do
 
       return builds_list
     Left err_message -> do
-      putStrLn $ "PROBLEM: Failed in getSingleBuildList with message: " ++ err_message
+      MyUtils.debugList ["PROBLEM: Failed in getSingleBuildList with message:",  err_message]
       return []
 
   where

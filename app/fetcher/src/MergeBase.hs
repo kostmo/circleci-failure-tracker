@@ -1,5 +1,3 @@
-{-# LANGUAGE DeriveGeneric #-}
-
 module MergeBase where
 
 import           Control.Monad              (void)
@@ -86,6 +84,8 @@ exitStatusToEither exit_status out err =
     ExitFailure _code -> Left $ strip err
 
 
+-- | Note that Pull Request refs are not fetched by default,
+-- so we supply a refspec argument
 fetchRefs :: FilePath -> IO (Either T.Text ())
 fetchRefs git_dir = do
   (Command.Exit exit_status, Command.Stdout out, Command.Stderr err) <- Command.cmd $ unwords [
@@ -93,12 +93,26 @@ fetchRefs git_dir = do
     , "--git-dir"
     , git_dir
     , "fetch"
+    , "--no-recurse-submodules"
     , "origin"
+    , "refs/pull/*:refs/remotes/origin/pr/*"
     ]
 
   return $ first T.pack $ void $ exitStatusToEither exit_status out err
 
 
+-- | Some subset of commits that were built by CI will not be fetchable to
+-- our local repository, since.
+--
+-- With the right server settings, it may be possible to fetch those commits
+-- individually with the commit as the argument to "git fetch".
+-- However, GitHub server does not appear to be set up to allow this, yielding
+-- the following error:
+--
+--    error: Server does not allow request for unadvertised object
+--
+-- The commit still exists, orphaned, on the server side, so GitHub API will
+-- have to be used for that subset of commits.
 computeMergeBasesLocally ::
      FilePath -- ^ repo git dir
   -> [Builds.RawCommit]

@@ -32,6 +32,7 @@ import qualified CircleBuild
 import qualified Constants
 import qualified DbHelpers
 import qualified FetchHelpers
+import qualified MyUtils
 import qualified ScanPatterns
 import qualified ScanRecords
 import qualified ScanUtils
@@ -110,14 +111,13 @@ rescanSingleBuild db_connection_data initiator build_to_scan = do
       scan_matches <- scanBuilds scan_resources True $ Left $ Set.singleton build_to_scan
 
       let total_match_count = sum $ map (length . snd) scan_matches
-      putStrLn $ unwords [
+      MyUtils.debugList [
           "Found"
         , show total_match_count
         , "matches across"
         , show $ length scan_matches
         , "builds."
         ]
-      return ()
 
 
 getSingleBuildUrl :: Builds.BuildNumber -> String
@@ -127,14 +127,14 @@ getSingleBuildUrl (Builds.NewBuildNumber build_number) = intercalate "/"
   ]
 
 
-getStepFailure :: Value -> Either Builds.BuildStepFailure ()
-getStepFailure step_val =
+getStepFailure :: (Int, Value) -> Either Builds.BuildStepFailure ()
+getStepFailure (step_index, step_val) =
   mapM_ get_failure my_array
   where
     my_array = step_val ^. key "actions" . _Array
     stepname = step_val ^. key "name" . _String
 
-    step_fail = Left . Builds.NewBuildStepFailure stepname
+    step_fail = Left . Builds.NewBuildStepFailure stepname step_index
 
     get_failure x
       | x ^. key "failed" . _Bool = step_fail $
@@ -217,43 +217,15 @@ catchupScan
       let matches = scanLogText lines_list applicable_patterns
 
       liftIO $ do
-        putStrLn $ unwords [
-            "Now storing"
-          , show $ length matches
-          , "matches for build"
-          , show buildnum
-          , "and step"
-          , show buildstep_id ++ "..."
-          ]
 
-        SqlWrite.storeMatches scan_resources buildstep_id buildnum matches
+        MyUtils.timeThis $ SqlWrite.storeMatches scan_resources buildstep_id matches
 
-        putStrLn $ unwords [
-            "Finished storing"
-          , show $ length matches
-          , "matches."
-          ]
-
-
-        putStrLn $ unwords [
-            "Now storing largest scanned pattern ID:"
-          , show maximum_pattern_id
-          ]
-
-        SqlWrite.insertLatestPatternBuildScan
+        MyUtils.timeThis $ SqlWrite.insertLatestPatternBuildScan
           scan_resources
           buildstep_id
           maximum_pattern_id
 
-        putStrLn $ unwords [
-            "Stored largest scanned pattern ID"
-          , show maximum_pattern_id ++ "."
-          ]
-
-
       return matches
-  where
-    buildnum = Builds.provider_buildnum $ DbHelpers.record universal_build_obj
 
 
 rescanVisitedBuilds ::
@@ -263,11 +235,11 @@ rescanVisitedBuilds ::
 rescanVisitedBuilds scan_resources visited_builds_list =
 
   for (zip [1::Int ..] visited_builds_list) $ \(idx, (build_step_id, step_name, universal_build_with_id, pattern_ids)) -> do
-    putStrLn $ unwords [
+    MyUtils.debugList [
         "Visiting"
       , show idx ++ "/" ++ show visited_count
       , "previously-visited builds"
-      , "(" ++ show (DbHelpers.db_id universal_build_with_id) ++ ")..."
+      , MyUtils.parens (show (DbHelpers.db_id universal_build_with_id)) ++ "..."
       ]
 
     either_matches <- catchupScan
@@ -294,11 +266,12 @@ processUnvisitedBuilds ::
 processUnvisitedBuilds scan_resources unvisited_builds_list =
 
   for (zip [1::Int ..] unvisited_builds_list) $ \(idx, universal_build_obj) -> do
-    putStrLn $ unwords [
+    MyUtils.debugList [
         "Visiting"
       , show idx ++ "/" ++ show unvisited_count
       , "unvisited builds..."
       ]
+
     visitation_result <- getCircleCIFailedBuildInfo
       scan_resources
       (Builds.provider_buildnum $ DbHelpers.record universal_build_obj)
@@ -308,7 +281,7 @@ processUnvisitedBuilds scan_resources unvisited_builds_list =
 
     either_matches <- case visitation_result of
       Right _ -> return $ Right []
-      Left (Builds.BuildWithStepFailure _build_obj (Builds.NewBuildStepFailure step_name mode)) -> case mode of
+      Left (Builds.BuildWithStepFailure _build_obj (Builds.NewBuildStepFailure step_name _step_index mode)) -> case mode of
         Builds.BuildTimeoutFailure             -> return $ Right []
         Builds.ScannableFailure failure_output -> catchupScan
           scan_resources
@@ -336,7 +309,7 @@ getCircleCIFailedBuildInfo ::
   -> IO (Either Builds.BuildWithStepFailure ScanRecords.UnidentifiedBuildFailure)
 getCircleCIFailedBuildInfo scan_resources build_number = do
 
-  putStrLn $ "Fetching from: " ++ fetch_url
+  MyUtils.debugList ["Fetching from:", fetch_url]
 
   either_r <- runExceptT $ do
     r <- ExceptT $ FetchHelpers.safeGetUrl $ Sess.getWith opts sess fetch_url
@@ -351,7 +324,7 @@ getCircleCIFailedBuildInfo scan_resources build_number = do
       -- We expect to short circuit here and return a build step failure,
       -- but if we don't, we proceed
       -- to the NoFailedSteps return value.
-      first (Builds.BuildWithStepFailure $ CircleBuild.toBuild build_number r) $ mapM_ getStepFailure steps_list
+      first (Builds.BuildWithStepFailure $ CircleBuild.toBuild build_number r) $ mapM_ getStepFailure $ zip [0..] steps_list
       return ScanRecords.NoFailedSteps
 
     Left err_message -> do
@@ -395,7 +368,7 @@ getAndStoreLog
 
           case visitation_result of
             Right _ -> return $ Left "This build didn't have a console log!"
-            Left (Builds.BuildWithStepFailure build_obj (Builds.NewBuildStepFailure _step_name mode)) -> do
+            Left (Builds.BuildWithStepFailure build_obj (Builds.NewBuildStepFailure _step_name _step_index mode)) -> do
 
               -- Store the build metadata again, because the first time may have been
               -- obtained through the GitHub notification, which lacks build duration
@@ -406,12 +379,14 @@ getAndStoreLog
                 Builds.BuildTimeoutFailure             -> Left "This build didn't have a console log because it was a timeout!"
                 Builds.ScannableFailure failure_output -> Right $ Builds.log_url failure_output
 
-
-      liftIO $ putStrLn $ "Downloading log from: " ++ T.unpack download_url
+      liftIO $ MyUtils.debugList [
+          "Downloading log from:"
+        , T.unpack download_url
+        ]
 
       log_download_result <- ExceptT $ FetchHelpers.safeGetUrl $ Sess.get aws_sess $ T.unpack download_url
 
-      liftIO $ putStrLn "Log downloaded."
+      liftIO $ MyUtils.debugStr "Log downloaded."
 
       let parent_elements = log_download_result ^. NW.responseBody . _Array
           -- for some reason the log is sometimes split into sections,
@@ -427,7 +402,7 @@ getAndStoreLog
           byte_count = T.length ansi_stripped_log
 
       liftIO $ do
-        putStrLn "Storing log to database..."
+        MyUtils.debugStr "Storing log to database..."
 
         SqlWrite.storeLogInfo scan_resources build_step_id $
           ScanRecords.LogInfo
@@ -436,7 +411,7 @@ getAndStoreLog
             ansi_stripped_log
             (ansi_stripped_log /= raw_console_log)
 
-        putStrLn "Log stored."
+        MyUtils.debugStr "Log stored."
 
       return lines_list
 

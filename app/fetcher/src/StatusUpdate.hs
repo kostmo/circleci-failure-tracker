@@ -183,11 +183,11 @@ handleFailedStatuses
 
   liftIO $ do
     current_time <- Clock.getCurrentTime
-    putStrLn $ "Processing at " ++ show current_time
+    MyUtils.debugList ["Processing at ", show current_time]
 
   build_statuses_list_any_source <- ExceptT $ GithubApiFetch.getBuildStatuses access_token owned_repo sha1
 
-  liftIO $ putStrLn $ "Build statuses count: " ++ show (length build_statuses_list_any_source)
+  liftIO $ MyUtils.debugList ["Build statuses count:", show $ length build_statuses_list_any_source]
 
   let statuses_list_not_mine = filter is_not_my_own_context build_statuses_list_any_source
 
@@ -199,7 +199,7 @@ handleFailedStatuses
 
   -- debug info:
   let provider_keys = map (DbHelpers.db_id . snd) statuses_by_ci_providers
-  liftIO $ putStrLn $ unwords ["Provider DB keys:", show provider_keys]
+  liftIO $ MyUtils.debugList ["Provider DB keys:", show provider_keys]
 
   -- Only store succeeded or failed builds; ignore pending or aborted
   stored_build_tuples <- liftIO $ storeUniversalBuilds
@@ -287,7 +287,7 @@ handlePushWebhook
     access_token
     push_event = do
 
-  putStrLn $ unwords [
+  MyUtils.debugList [
       "Got repo push event for ref"
     , T.unpack refname
     , "at head:"

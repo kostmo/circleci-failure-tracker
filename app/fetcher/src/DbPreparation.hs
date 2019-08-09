@@ -49,7 +49,7 @@ prepareDatabase conn_data wipe = do
 
   when wipe $ do
     scrub_tables conn
-    PatternsFetch.populate_patterns conn_data
+    PatternsFetch.populatePatterns conn_data
     SqlWrite.populatePresumedStableBranches conn Constants.presumedGoodBranches
     return ()
   return conn

@@ -52,17 +52,6 @@ mainAppCode args = do
 
 
 
-  mb_result <- MergeBase.gitMergeBase
-    (repoGitDir args)
-    (Builds.RawCommit "145d809db2a52267b32f0e56f02607307a39532")
-
-  putStrLn $ unwords [
-      "MB result:"
-    , show mb_result
-    ]
-
-
-
   conn <- DbPreparation.prepareDatabase connection_data False
 
 

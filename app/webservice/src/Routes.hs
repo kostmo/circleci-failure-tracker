@@ -662,7 +662,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
     S.post "/api/patterns-restore" $ do
       body_json <- S.jsonData
 
-      let callback_func _user_alias = SqlWrite.restore_patterns connection_data body_json
+      let callback_func _user_alias = SqlWrite.restorePatterns connection_data body_json
 
       rq <- S.request
       insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func

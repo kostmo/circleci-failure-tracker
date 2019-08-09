@@ -64,7 +64,7 @@ mainAppCode args = do
 
 
   build_matches <- Scanning.scanBuilds scan_resources (rescanVisited args) $ Right fetch_count
-  putStrLn $ "Scanned " ++ show (length build_matches) ++ " builds."
+  putStrLn $ unwords ["Scanned", show $ length build_matches, "builds."]
 
   where
     fetch_count = buildCount args

@@ -38,11 +38,13 @@ import qualified DbHelpers
 import qualified GithubApiFetch
 import qualified GitHubRecords
 import qualified MergeBase
+import qualified MyUtils
 import qualified ScanPatterns
 import qualified ScanRecords
 import qualified SqlRead
 
 
+circleCIProviderIndex :: Int64
 circleCIProviderIndex = 3
 
 
@@ -95,7 +97,7 @@ findMasterAncestorWithPrecomputation maybe_all_master_commits conn access_token 
   -- case we can avoid a database lookup to the merge-base cache.
   if Set.member sha1 $ Maybe.fromMaybe Set.empty maybe_all_master_commits
   then do
-    putStrLn $ unwords [
+    MyUtils.debugList [
         "Bypassed cache since"
       , T.unpack unwrapped_sha1
       , "is a master commit!"
@@ -109,7 +111,7 @@ findMasterAncestorWithPrecomputation maybe_all_master_commits conn access_token 
 
     case maybe_cached_merge_base of
       Just cached_merge_base -> do
-        putStrLn $ unwords [
+        MyUtils.debugList [
             "Retrieved merge base of"
           , show sha1
           , "from cache as"
@@ -138,7 +140,7 @@ findMasterAncestorWithPrecomputation maybe_all_master_commits conn access_token 
           -- Distance 0 means it was a member of the master branch.
           unless (distance == 0) $ liftIO $ do
             execute conn merge_base_insertion_sql (unwrapped_sha1, unwrapped_merge_base, distance)
-            putStrLn $ unwords [
+            MyUtils.debugList [
                 "Stored merge base of"
               , T.unpack unwrapped_sha1
               , "to cache as"
@@ -207,7 +209,7 @@ populateLatestMasterCommits conn access_token owned_repo = do
     let fetched_commits_oldest_first = reverse fetched_commits_newest_first
 
     commit_insertion_count <- ExceptT $ storeMasterCommits conn $ map GitHubRecords.extractCommitSha fetched_commits_oldest_first
-    liftIO $ putStrLn $ unwords [
+    liftIO $ MyUtils.debugList [
           "Inserted "
         , show commit_insertion_count
         , "commits"
@@ -294,11 +296,25 @@ storeBuildsList conn builds_list =
 storeMatches ::
      ScanRecords.ScanCatchupResources
   -> Builds.BuildStepId
-  -> Builds.BuildNumber
   -> [ScanPatterns.ScanMatch]
   -> IO Int64
-storeMatches scan_resources (Builds.NewBuildStepId build_step_id) _build_num scoped_matches =
-  executeMany conn insertion_sql $ map to_tuple scoped_matches
+storeMatches scan_resources (Builds.NewBuildStepId build_step_id) scoped_matches = do
+
+  MyUtils.debugList [
+      "Now storing"
+    , show $ length scoped_matches
+    , show build_step_id ++ "..."
+    ]
+
+  count <- executeMany conn insertion_sql $ map to_tuple scoped_matches
+
+  MyUtils.debugList [
+      "Finished storing"
+    , show $ length scoped_matches
+    , "matches."
+    ]
+
+  return count
 
   where
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
@@ -499,11 +515,11 @@ insertSinglePattern conn either_pattern = do
     applicable_step_insertion_sql = "INSERT INTO pattern_step_applicability(step_name, pattern) VALUES(?,?);"
 
 
-restore_patterns ::
+restorePatterns ::
      DbHelpers.DbConnectionData
   -> [DbHelpers.WithAuthorship ScanPatterns.DbPattern]
   -> IO (Either Text [Int64])
-restore_patterns conn_data pattern_list = do
+restorePatterns conn_data pattern_list = do
   conn <- DbHelpers.get_connection conn_data
   eithers <- for pattern_list $ apiNewPattern conn . Right
   return $ sequenceA eithers
@@ -511,14 +527,14 @@ restore_patterns conn_data pattern_list = do
 
 stepFailureToTuple ::
      (Builds.UniversalBuildId, Either Builds.BuildWithStepFailure ScanRecords.UnidentifiedBuildFailure)
-  -> (Maybe Text, Bool, Int64)
+  -> (Maybe Text, Bool, Int64, Int)
 stepFailureToTuple (Builds.UniversalBuildId universal_buildnum, visitation_result) = case visitation_result of
-  Right _ -> (Nothing, False, universal_buildnum)
-  Left (Builds.BuildWithStepFailure _build_obj (Builds.NewBuildStepFailure stepname mode)) -> let
+  Right _ -> (Nothing, False, universal_buildnum, -1)
+  Left (Builds.BuildWithStepFailure _build_obj (Builds.NewBuildStepFailure stepname step_index mode)) -> let
     is_timeout = case mode of
       Builds.BuildTimeoutFailure              -> True
       Builds.ScannableFailure _failure_output -> False
-    in (Just stepname, is_timeout, universal_buildnum)
+    in (Just stepname, is_timeout, universal_buildnum, step_index)
 
 
 populatePresumedStableBranches :: Connection -> [Text] -> IO Int64
@@ -548,11 +564,11 @@ cacheAllMergeBases conn all_master_commits access_token owned_repo commits =
         owned_repo
         x
 
-      putStrLn $ unwords [
+      MyUtils.debugList [
         "Progress:"
         , show i
         , "/"
-        , length commits
+        , show $ length commits
         ]
 
 
@@ -580,41 +596,40 @@ insertLatestPatternBuildScan ::
 insertLatestPatternBuildScan
     scan_resources
     (Builds.NewBuildStepId step_id)
-    pattern_id = do
+    maximum_pattern_id = do
 
-  execute conn sql (ScanRecords.scan_id scan_resources, step_id, pattern_id)
-  return ()
+  MyUtils.debugList [
+      "Now storing largest scanned pattern ID:"
+    , show maximum_pattern_id
+    ]
+
+  execute conn sql (ScanRecords.scan_id scan_resources, step_id, maximum_pattern_id)
+
+  MyUtils.debugList [
+      "Stored largest scanned pattern ID"
+    , show maximum_pattern_id ++ "."
+    ]
 
   where
     sql = "INSERT INTO scanned_patterns(scan, step_id, newest_pattern) VALUES(?,?,?);"
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
 
 
--- | TODO Fix uniqueness constraint on build_steps table,
--- then use "ON CONFLICT" clause instead of a SELECT followed by INSERT
 insertBuildVisitation ::
      ScanRecords.ScanCatchupResources
   -> (DbHelpers.WithId Builds.UniversalBuild, Either Builds.BuildWithStepFailure ScanRecords.UnidentifiedBuildFailure)
   -> IO Builds.BuildStepId
 insertBuildVisitation scan_resources (ubuild, visitation_result) = do
 
-  preexisting_rows <- query conn precheck_sql $ Only universal_build_id
-  let maybe_first_row = Safe.headMay preexisting_rows
+  [Only step_id] <- query conn insertion_sql $
+    stepFailureToTuple (Builds.UniversalBuildId universal_build_id, visitation_result)
 
-  row_step_id <- case maybe_first_row of
-    Nothing -> do
-      [Only step_id] <- query conn insertion_sql $
-        stepFailureToTuple (Builds.UniversalBuildId universal_build_id, visitation_result)
-      return step_id
-    Just (Only some_step_id) -> return some_step_id
-
-  return $ Builds.NewBuildStepId row_step_id
+  return $ Builds.NewBuildStepId step_id
 
   where
     universal_build_id = DbHelpers.db_id ubuild
 
-    precheck_sql = "SELECT id FROM build_steps_deduped_mitigation WHERE universal_build = ? LIMIT 1;"
-    insertion_sql = "INSERT INTO build_steps(name, is_timeout, universal_build) VALUES(?,?,?) RETURNING id;"
+    insertion_sql = "INSERT INTO build_steps(name, is_timeout, universal_build, step_index) VALUES(?,?,?,?) ON CONFLICT ON CONSTRAINT build_steps_universal_build_step_index_key DO UPDATE SET name = excluded.name, is_timeout = excluded.is_timeout RETURNING id;"
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
 
 

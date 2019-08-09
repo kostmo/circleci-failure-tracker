@@ -48,6 +48,8 @@ library:
     - regex-compat
     - MissingH 
     - shake
+    - clock
+    - formatting
 
 executables:
   run-scanner:

@@ -8,6 +8,11 @@ import           Data.Text       (Text)
 
 import qualified AuthStages
 
+
+printDebug :: Bool
+printDebug = True
+
+
 defaultPatternAuthor :: AuthStages.Username
 defaultPatternAuthor = AuthStages.Username "kostmo"
 

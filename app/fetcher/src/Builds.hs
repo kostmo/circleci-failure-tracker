@@ -154,6 +154,7 @@ data BuildWithStepFailure = BuildWithStepFailure {
 
 data BuildStepFailure = NewBuildStepFailure {
     step_name    :: Text
+  , step_index   :: Int
   , failure_mode :: BuildFailureMode
   } deriving Show
 
