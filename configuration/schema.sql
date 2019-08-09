@@ -1384,18 +1384,15 @@ CREATE VIEW public.master_contiguous_failures WITH (security_barrier='false') AS
                     foo.job_name,
                     foo.sha1,
                     foo.id
-                   FROM ( SELECT lag(blah.commit_number) OVER (PARTITION BY build_failure_causes_disjoint.job_name ORDER BY blah.commit_number DESC, build_failure_causes_disjoint.job_name) AS prev_commit_number,
-                            lead(blah.commit_number) OVER (PARTITION BY build_failure_causes_disjoint.job_name ORDER BY blah.commit_number DESC, build_failure_causes_disjoint.job_name) AS next_commit_number,
-                            blah.commit_number,
+                   FROM ( SELECT lag(master_commits_contiguously_indexed.commit_number) OVER (PARTITION BY build_failure_causes_disjoint.job_name ORDER BY master_commits_contiguously_indexed.commit_number DESC, build_failure_causes_disjoint.job_name) AS prev_commit_number,
+                            lead(master_commits_contiguously_indexed.commit_number) OVER (PARTITION BY build_failure_causes_disjoint.job_name ORDER BY master_commits_contiguously_indexed.commit_number DESC, build_failure_causes_disjoint.job_name) AS next_commit_number,
+                            master_commits_contiguously_indexed.commit_number,
                             build_failure_causes_disjoint.global_build,
                             build_failure_causes_disjoint.job_name,
-                            blah.sha1,
-                            blah.id
-                           FROM (( SELECT ordered_master_commits.id,
-                                    ordered_master_commits.sha1,
-                                    row_number() OVER (ORDER BY ordered_master_commits.id DESC) AS commit_number
-                                   FROM public.ordered_master_commits) blah
-                             JOIN public.build_failure_causes_disjoint ON ((build_failure_causes_disjoint.vcs_revision = blah.sha1)))) foo) bar) quux
+                            master_commits_contiguously_indexed.sha1,
+                            master_commits_contiguously_indexed.id
+                           FROM (public.master_commits_contiguously_indexed
+                             JOIN public.build_failure_causes_disjoint ON ((build_failure_causes_disjoint.vcs_revision = master_commits_contiguously_indexed.sha1)))) foo) bar) quux
   WHERE quux.contiguous_failure
   ORDER BY quux.job_name, quux.commit_number;
 
