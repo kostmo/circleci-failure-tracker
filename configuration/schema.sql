@@ -59,7 +59,8 @@ CREATE TABLE public.build_steps (
     id integer NOT NULL,
     name text,
     is_timeout boolean,
-    universal_build integer NOT NULL
+    universal_build integer NOT NULL,
+    step_index integer DEFAULT '-1'::integer NOT NULL
 );
 
 
@@ -75,6 +76,13 @@ This is known before the console logs are "scanned".';
 
 
 --
+-- Name: COLUMN build_steps.step_index; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.build_steps.step_index IS 'Note that this numbering of steps is only implicit in the CircleCI API result; it is distinct from both the steps->actions->index field and the steps->actions->step field.';
+
+
+--
 -- Name: build_steps_deduped_mitigation; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -82,9 +90,10 @@ CREATE VIEW public.build_steps_deduped_mitigation WITH (security_barrier='false'
  SELECT DISTINCT ON (build_steps.universal_build) build_steps.id,
     build_steps.name,
     build_steps.is_timeout,
-    build_steps.universal_build
+    build_steps.universal_build,
+    build_steps.step_index
    FROM public.build_steps
-  ORDER BY build_steps.universal_build, build_steps.id DESC;
+  ORDER BY build_steps.universal_build DESC, build_steps.step_index DESC;
 
 
 ALTER TABLE public.build_steps_deduped_mitigation OWNER TO postgres;
@@ -93,8 +102,7 @@ ALTER TABLE public.build_steps_deduped_mitigation OWNER TO postgres;
 -- Name: VIEW build_steps_deduped_mitigation; Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON VIEW public.build_steps_deduped_mitigation IS 'TODO: Add uniqueness constraint on "universal_build" column in "build_steps" table
-Then remove this mitigation from "builds_join_steps" view';
+COMMENT ON VIEW public.build_steps_deduped_mitigation IS 'TODO: remove this mitigation from "builds_join_steps" view';
 
 
 --
@@ -938,7 +946,8 @@ CREATE VIEW public.build_failure_disjoint_causes_by_commit WITH (security_barrie
     COALESCE(sum((build_failure_causes_disjoint.is_flaky)::integer), (0)::bigint) AS flaky,
     COALESCE(sum((build_failure_causes_disjoint.is_unmatched)::integer), (0)::bigint) AS pattern_unmatched,
     COALESCE(sum((build_failure_causes_disjoint.succeeded)::integer), (0)::bigint) AS succeeded,
-    COALESCE(sum((build_failure_causes_disjoint.is_matched_other)::integer), (0)::bigint) AS pattern_matched_other
+    COALESCE(sum((build_failure_causes_disjoint.is_matched_other)::integer), (0)::bigint) AS pattern_matched_other,
+    (count(build_failure_causes_disjoint.vcs_revision) - COALESCE(sum((build_failure_causes_disjoint.succeeded)::integer), (0)::bigint)) AS failed
    FROM public.build_failure_causes_disjoint
   GROUP BY build_failure_causes_disjoint.vcs_revision;
 
@@ -1450,7 +1459,8 @@ CREATE VIEW public.master_failures_by_commit WITH (security_barrier='false') AS
     ordered_master_commits.id AS commit_index,
     COALESCE(build_failure_disjoint_causes_by_commit.pattern_unmatched, (0)::bigint) AS pattern_unmatched,
     COALESCE(build_failure_disjoint_causes_by_commit.succeeded, (0)::bigint) AS succeeded,
-    COALESCE(build_failure_disjoint_causes_by_commit.pattern_matched_other, (0)::bigint) AS pattern_matched_other
+    COALESCE(build_failure_disjoint_causes_by_commit.pattern_matched_other, (0)::bigint) AS pattern_matched_other,
+    COALESCE(build_failure_disjoint_causes_by_commit.failed, (0)::bigint) AS failed
    FROM (public.ordered_master_commits
      LEFT JOIN public.build_failure_disjoint_causes_by_commit ON ((build_failure_disjoint_causes_by_commit.sha1 = ordered_master_commits.sha1)))
   ORDER BY ordered_master_commits.id DESC;
@@ -1513,6 +1523,51 @@ COMMENT ON VIEW public.master_failures_raw_causes IS 'This uses the raw "build_f
 
 
 --
+-- Name: master_failures_raw_causes_materialized; Type: MATERIALIZED VIEW; Schema: public; Owner: logan
+--
+
+CREATE MATERIALIZED VIEW public.master_failures_raw_causes_materialized AS
+ SELECT master_failures_raw_causes.sha1,
+    master_failures_raw_causes.succeeded,
+    master_failures_raw_causes.is_idiopathic,
+    master_failures_raw_causes.is_flaky,
+    master_failures_raw_causes.is_timeout,
+    master_failures_raw_causes.is_matched,
+    master_failures_raw_causes.is_known_broken,
+    master_failures_raw_causes.build_num,
+    master_failures_raw_causes.queued_at,
+    master_failures_raw_causes.job_name,
+    master_failures_raw_causes.branch,
+    master_failures_raw_causes.step_name,
+    master_failures_raw_causes.pattern_id,
+    master_failures_raw_causes.match_id,
+    master_failures_raw_causes.line_number,
+    master_failures_raw_causes.line_count,
+    master_failures_raw_causes.line_text,
+    master_failures_raw_causes.span_start,
+    master_failures_raw_causes.span_end,
+    master_failures_raw_causes.specificity,
+    master_failures_raw_causes.is_serially_isolated,
+    master_failures_raw_causes.contiguous_run_count,
+    master_failures_raw_causes.contiguous_group_index,
+    master_failures_raw_causes.contiguous_start_commit_index,
+    master_failures_raw_causes.contiguous_end_commit_index,
+    master_failures_raw_causes.commit_index,
+    master_failures_raw_causes.contiguous_length,
+    master_failures_raw_causes.global_build,
+    master_failures_raw_causes.provider,
+    master_failures_raw_causes.build_namespace,
+    master_failures_raw_causes.cluster_id,
+    master_failures_raw_causes.cluster_member_count,
+    master_failures_raw_causes.started_at,
+    master_failures_raw_causes.finished_at
+   FROM public.master_failures_raw_causes
+  WITH NO DATA;
+
+
+ALTER TABLE public.master_failures_raw_causes_materialized OWNER TO logan;
+
+--
 -- Name: master_failures_weekly_aggregation; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -1555,13 +1610,13 @@ CREATE VIEW public.master_failures_weekly_aggregation WITH (security_barrier='fa
             max(foo.commit_index) AS latest_commit_index,
             sum(foo.pattern_unmatched_count) AS pattern_unmatched_count,
             sum(foo.succeeded_count) AS succeeded_count
-           FROM ( SELECT ((master_failures_by_commit.total > 0))::integer AS has_failure,
+           FROM ( SELECT ((master_failures_by_commit.failed > 0))::integer AS has_failure,
                     ((master_failures_by_commit.idiopathic > 0))::integer AS has_idiopathic,
                     ((master_failures_by_commit.timeout > 0))::integer AS has_timeout,
                     ((master_failures_by_commit.known_broken > 0))::integer AS has_known_broken,
                     ((master_failures_by_commit.pattern_matched_other > 0))::integer AS has_pattern_matched,
                     ((master_failures_by_commit.flaky > 0))::integer AS has_flaky,
-                    master_failures_by_commit.total AS failure_count,
+                    master_failures_by_commit.failed AS failure_count,
                     master_failures_by_commit.succeeded AS succeeded_count,
                     master_failures_by_commit.idiopathic AS idiopathic_count,
                     master_failures_by_commit.timeout AS timeout_count,
@@ -1833,6 +1888,216 @@ ALTER SEQUENCE public.pattern_step_applicability_id_seq OWNED BY public.pattern_
 
 
 --
+-- Name: pr_merge_bases; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.pr_merge_bases AS
+ SELECT cached_master_merge_base.branch_commit,
+    cached_master_merge_base.master_commit,
+    cached_master_merge_base.computation_timestamp,
+    cached_master_merge_base.distance,
+    m1.id,
+    m1.sha1
+   FROM (public.cached_master_merge_base
+     LEFT JOIN public.ordered_master_commits m1 ON ((m1.sha1 = cached_master_merge_base.branch_commit)))
+  WHERE (m1.sha1 IS NULL);
+
+
+ALTER TABLE public.pr_merge_bases OWNER TO postgres;
+
+--
+-- Name: VIEW pr_merge_bases; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.pr_merge_bases IS 'This view simply excludes master commits.
+
+NOTE: as a sanity check, all of the master commits should have "distance = 0".';
+
+
+--
+-- Name: upstream_downstream_builds; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.upstream_downstream_builds AS
+ SELECT pr_merge_bases.distance AS merge_base_distance,
+    upstream_builds.universal_build AS upstream_universal_build,
+    upstream_builds.step_id AS upstream_step_id,
+    upstream_builds.step_name AS upstream_step_name,
+    upstream_builds.provider AS upstream_provider,
+    upstream_builds.build_num AS upstream_provider_build_number,
+    upstream_builds.job_name AS upstream_job_name,
+    downstream_builds.universal_build AS downstream_universal_build,
+    downstream_builds.step_id AS downstream_step_id,
+    downstream_builds.step_name AS downstream_step_name,
+    downstream_builds.provider AS downstream_provider,
+    downstream_builds.build_num AS downstream_provider_build_number,
+    downstream_builds.job_name AS downstream_job_name
+   FROM (((public.known_broken_builds
+     JOIN public.builds_join_steps upstream_builds ON ((known_broken_builds.universal_build = upstream_builds.universal_build)))
+     JOIN public.pr_merge_bases ON ((upstream_builds.vcs_revision = pr_merge_bases.master_commit)))
+     JOIN public.builds_join_steps downstream_builds ON ((downstream_builds.vcs_revision = pr_merge_bases.branch_commit)));
+
+
+ALTER TABLE public.upstream_downstream_builds OWNER TO postgres;
+
+--
+-- Name: pr_dependent_breakages_basic; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.pr_dependent_breakages_basic AS
+ SELECT upstream_downstream_builds.merge_base_distance,
+    upstream_downstream_builds.upstream_provider AS provider,
+    upstream_downstream_builds.upstream_job_name AS job_name,
+    upstream_downstream_builds.upstream_step_name AS step_name,
+    upstream_downstream_builds.upstream_universal_build,
+    upstream_downstream_builds.upstream_step_id,
+    upstream_downstream_builds.upstream_provider_build_number,
+    upstream_downstream_builds.downstream_universal_build,
+    upstream_downstream_builds.downstream_step_id,
+    upstream_downstream_builds.downstream_provider_build_number
+   FROM public.upstream_downstream_builds
+  WHERE ((upstream_downstream_builds.upstream_provider = upstream_downstream_builds.downstream_provider) AND (upstream_downstream_builds.upstream_job_name = upstream_downstream_builds.downstream_job_name) AND (upstream_downstream_builds.upstream_step_name = upstream_downstream_builds.downstream_step_name));
+
+
+ALTER TABLE public.pr_dependent_breakages_basic OWNER TO postgres;
+
+--
+-- Name: VIEW pr_dependent_breakages_basic; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.pr_dependent_breakages_basic IS 'Filters "upstream_downstream_builds" by equality on provider, job name, and step name';
+
+
+--
+-- Name: pr_dependent_breakages_with_patterns; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.pr_dependent_breakages_with_patterns AS
+ SELECT upstream_best_match.match_id AS upstream_match_id,
+    upstream_best_match.pattern_id AS upstream_pattern_id,
+    downstream_best_match.match_id AS downstream_match_id,
+    downstream_best_match.pattern_id AS downstream_pattern_id,
+    (upstream_best_match.pattern_id = downstream_best_match.pattern_id) AS same_pattern,
+    pr_dependent_breakages_basic.provider,
+    pr_dependent_breakages_basic.job_name,
+    pr_dependent_breakages_basic.step_name,
+    pr_dependent_breakages_basic.merge_base_distance,
+    pr_dependent_breakages_basic.upstream_universal_build,
+    pr_dependent_breakages_basic.upstream_step_id,
+    pr_dependent_breakages_basic.upstream_provider_build_number,
+    pr_dependent_breakages_basic.downstream_universal_build,
+    pr_dependent_breakages_basic.downstream_step_id,
+    pr_dependent_breakages_basic.downstream_provider_build_number
+   FROM ((public.pr_dependent_breakages_basic
+     LEFT JOIN public.best_pattern_match_for_builds upstream_best_match ON ((pr_dependent_breakages_basic.upstream_universal_build = upstream_best_match.universal_build)))
+     LEFT JOIN public.best_pattern_match_for_builds downstream_best_match ON ((pr_dependent_breakages_basic.downstream_universal_build = downstream_best_match.universal_build)));
+
+
+ALTER TABLE public.pr_dependent_breakages_with_patterns OWNER TO postgres;
+
+--
+-- Name: pr_disjoint_failure_causes_by_commit; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.pr_disjoint_failure_causes_by_commit WITH (security_barrier='false') AS
+ SELECT pr_merge_bases.master_commit,
+    build_failure_disjoint_causes_by_commit.sha1,
+    build_failure_disjoint_causes_by_commit.total,
+    build_failure_disjoint_causes_by_commit.idiopathic,
+    build_failure_disjoint_causes_by_commit.timeout,
+    build_failure_disjoint_causes_by_commit.known_broken,
+    build_failure_disjoint_causes_by_commit.pattern_matched,
+    build_failure_disjoint_causes_by_commit.flaky,
+    build_failure_disjoint_causes_by_commit.pattern_unmatched,
+    build_failure_disjoint_causes_by_commit.succeeded,
+    build_failure_disjoint_causes_by_commit.pattern_matched_other,
+    build_failure_disjoint_causes_by_commit.failed,
+    m2.id AS commit_index
+   FROM ((public.pr_merge_bases
+     JOIN public.build_failure_disjoint_causes_by_commit ON ((build_failure_disjoint_causes_by_commit.sha1 = pr_merge_bases.branch_commit)))
+     JOIN public.ordered_master_commits m2 ON ((m2.sha1 = pr_merge_bases.master_commit)));
+
+
+ALTER TABLE public.pr_disjoint_failure_causes_by_commit OWNER TO postgres;
+
+--
+-- Name: VIEW pr_disjoint_failure_causes_by_commit; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.pr_disjoint_failure_causes_by_commit IS 'This tracks disjoint causes of PR builds.  This specifically excludes build from the master branch.';
+
+
+--
+-- Name: pr_failures_merge_base_aggregation; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.pr_failures_merge_base_aggregation AS
+ SELECT blarg.had_failure,
+    blarg.had_idiopathic,
+    blarg.had_timeout,
+    blarg.had_known_broken,
+    blarg.had_pattern_matched,
+    blarg.had_flaky,
+    blarg.commit_count,
+    blarg.failure_count,
+    blarg.idiopathic_count,
+    blarg.timeout_count,
+    blarg.known_broken_count,
+    blarg.pattern_matched_count,
+    blarg.flaky_count,
+    blarg.earliest_commit_index,
+    blarg.latest_commit_index,
+    blarg.pattern_unmatched_count,
+    blarg.succeeded_count,
+    (((((blarg.flaky_count + blarg.pattern_matched_count) + blarg.timeout_count) + blarg.idiopathic_count) + blarg.pattern_unmatched_count) + blarg.known_broken_count) AS total_failures_sanity_check_sum,
+    ((((((blarg.flaky_count + blarg.pattern_matched_count) + blarg.timeout_count) + blarg.idiopathic_count) + blarg.pattern_unmatched_count) + blarg.known_broken_count) = blarg.failure_count) AS sanity_check_is_failure_count_equal
+   FROM ( SELECT sum(foo.has_failure) AS had_failure,
+            sum(foo.has_idiopathic) AS had_idiopathic,
+            sum(foo.has_timeout) AS had_timeout,
+            sum(foo.has_known_broken) AS had_known_broken,
+            sum(foo.has_pattern_matched) AS had_pattern_matched,
+            sum(foo.has_flaky) AS had_flaky,
+            count(*) AS commit_count,
+            sum(foo.failure_count) AS failure_count,
+            sum(foo.idiopathic_count) AS idiopathic_count,
+            sum(foo.timeout_count) AS timeout_count,
+            sum(foo.known_broken_count) AS known_broken_count,
+            sum(foo.pattern_matched_count) AS pattern_matched_count,
+            sum(foo.flaky_count) AS flaky_count,
+            min(foo.commit_index) AS earliest_commit_index,
+            max(foo.commit_index) AS latest_commit_index,
+            sum(foo.pattern_unmatched_count) AS pattern_unmatched_count,
+            sum(foo.succeeded_count) AS succeeded_count
+           FROM ( SELECT ((pr_disjoint_failure_causes_by_commit.failed > 0))::integer AS has_failure,
+                    ((pr_disjoint_failure_causes_by_commit.idiopathic > 0))::integer AS has_idiopathic,
+                    ((pr_disjoint_failure_causes_by_commit.timeout > 0))::integer AS has_timeout,
+                    ((pr_disjoint_failure_causes_by_commit.known_broken > 0))::integer AS has_known_broken,
+                    ((pr_disjoint_failure_causes_by_commit.pattern_matched_other > 0))::integer AS has_pattern_matched,
+                    ((pr_disjoint_failure_causes_by_commit.flaky > 0))::integer AS has_flaky,
+                    pr_disjoint_failure_causes_by_commit.failed AS failure_count,
+                    pr_disjoint_failure_causes_by_commit.succeeded AS succeeded_count,
+                    pr_disjoint_failure_causes_by_commit.idiopathic AS idiopathic_count,
+                    pr_disjoint_failure_causes_by_commit.timeout AS timeout_count,
+                    pr_disjoint_failure_causes_by_commit.known_broken AS known_broken_count,
+                    pr_disjoint_failure_causes_by_commit.pattern_matched_other AS pattern_matched_count,
+                    pr_disjoint_failure_causes_by_commit.pattern_unmatched AS pattern_unmatched_count,
+                    pr_disjoint_failure_causes_by_commit.flaky AS flaky_count,
+                    pr_disjoint_failure_causes_by_commit.commit_index
+                   FROM public.pr_disjoint_failure_causes_by_commit) foo
+          GROUP BY foo.commit_index
+          ORDER BY foo.commit_index DESC) blarg;
+
+
+ALTER TABLE public.pr_failures_merge_base_aggregation OWNER TO postgres;
+
+--
+-- Name: VIEW pr_failures_merge_base_aggregation; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.pr_failures_merge_base_aggregation IS 'TODO: Use this view';
+
+
+--
 -- Name: presumed_stable_branches; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -2063,6 +2328,14 @@ ALTER TABLE ONLY public.universal_builds ALTER COLUMN id SET DEFAULT nextval('pu
 
 ALTER TABLE ONLY public.build_steps
     ADD CONSTRAINT build_steps_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: build_steps build_steps_universal_build_step_index_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.build_steps
+    ADD CONSTRAINT build_steps_universal_build_step_index_key UNIQUE (universal_build, step_index);
 
 
 --
@@ -3136,6 +3409,48 @@ GRANT ALL ON SEQUENCE public.pattern_id_seq TO logan;
 --
 
 GRANT ALL ON SEQUENCE public.pattern_step_applicability_id_seq TO logan;
+
+
+--
+-- Name: TABLE pr_merge_bases; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.pr_merge_bases TO logan;
+
+
+--
+-- Name: TABLE upstream_downstream_builds; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.upstream_downstream_builds TO logan;
+
+
+--
+-- Name: TABLE pr_dependent_breakages_basic; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.pr_dependent_breakages_basic TO logan;
+
+
+--
+-- Name: TABLE pr_dependent_breakages_with_patterns; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.pr_dependent_breakages_with_patterns TO logan;
+
+
+--
+-- Name: TABLE pr_disjoint_failure_causes_by_commit; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.pr_disjoint_failure_causes_by_commit TO logan;
+
+
+--
+-- Name: TABLE pr_failures_merge_base_aggregation; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.pr_failures_merge_base_aggregation TO logan;
 
 
 --

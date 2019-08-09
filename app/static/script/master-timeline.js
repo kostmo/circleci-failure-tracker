@@ -3,6 +3,12 @@ var breakage_starts_by_job_name = {};
 var grid_table = null;
 
 
+const MAX_HORIZONTAL_LETTERS = 5;
+const FITTABLE_LETTERS_PER_COLUMN = 2; // empirically determined
+
+// empirically, < 3 leaves enough space to fit all header names horizontally
+const MIN_HEADER_GROUPING_COLUMNS = 3;
+
 const PULL_REQUEST_URL_PREFIX = "https://github.com/pytorch/pytorch/pull/";
 
 
@@ -197,7 +203,7 @@ function mark_failure_resolution(commit_sha1, active_breakages) {
 
 			if (data.success) {
 				alert("submitted report with ID: " + data.payload);
-				url_from_form();
+				update_url_from_form();
 			} else {
 				alert("Error: " + data.error.message);
 			}
@@ -311,7 +317,7 @@ function mark_failure_cause_common(clicked_job_name, api_url) {
 
 					if (data.success) {
 						alert("submitted report with ID: " + data.payload);
-						url_from_form();
+						update_url_from_form();
 					} else {
 						alert("Error: " + data.error.message);
 					}
@@ -491,7 +497,7 @@ function top_page() {
 	const radios = $('input:radio[name=pagination-mode]');
 	radios.filter('[value=start-by-offset]').prop('checked', true);
 
-	url_from_form();
+	update_url_from_form();
 }
 
 function next_page() {
@@ -501,7 +507,7 @@ function next_page() {
 
 	$('#offset-input').val(old_offset + count);
 
-	url_from_form();
+	update_url_from_form();
 }
 
 
@@ -583,12 +589,6 @@ function get_column_definitions(raw_column_list) {
 }
 
 
-const MAX_HORIZONTAL_LETTERS = 5;
-
-// empirically, < 3 leaves enough space to fit all header names horizontally
-const MIN_HEADER_GROUPING_COLUMNS = 3;
-
-
 function generate_column_tree_base(column_names) {
 
 	const collator = new Intl.Collator(undefined, {numeric: true, sensitivity: 'base'});
@@ -632,8 +632,10 @@ function generate_column_tree_recursive(column_name_suffix_pairs, depth) {
 			var column_group_definition;
 
 			if (subcolumn_definitions.length == 1) {
+
+				const truncation_threshold = MAX_HORIZONTAL_LETTERS + FITTABLE_LETTERS_PER_COLUMN * Math.max(0, grouped_col_pairs.length - MIN_HEADER_GROUPING_COLUMNS);
 				column_group_definition = {
-					title: truncate_overlong_horizontal_heading(col_prefix) + "<br/>" + subcolumn_definitions[0]["title"],
+					title: truncate_overlong_horizontal_heading(col_prefix, truncation_threshold) + "<br/>" + subcolumn_definitions[0]["title"],
 					columns: subcolumn_definitions[0]["columns"],
 				}
 			} else {
@@ -651,10 +653,10 @@ function generate_column_tree_recursive(column_name_suffix_pairs, depth) {
 }
 
 
-function truncate_overlong_horizontal_heading(heading) {
+function truncate_overlong_horizontal_heading(heading, truncation_threshold) {
 
-	if (heading.length > MAX_HORIZONTAL_LETTERS) {
-		return heading.substring(0, MAX_HORIZONTAL_LETTERS - 1) + "&hellip;"
+	if (heading.length > truncation_threshold) {
+		return heading.substring(0, truncation_threshold - 1) + "&hellip;"
 	} else {
 		return heading;
 	}
@@ -764,7 +766,7 @@ function render_timeline_table() {
 }
 
 
-function url_from_form() {
+function update_url_from_form() {
 
 	var url_parms;
 
