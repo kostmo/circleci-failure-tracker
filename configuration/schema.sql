@@ -840,7 +840,8 @@ COMMENT ON VIEW public.master_commit_known_breakage_causes IS 'This is just an i
 CREATE VIEW public.known_broken_builds WITH (security_barrier='false') AS
  SELECT global_builds_1.global_build_num AS universal_build,
     count(*) AS cause_count,
-    string_agg((foo.cause_id)::text, ';'::text) AS causes
+    string_agg((foo.cause_id)::text, ';'::text) AS causes,
+    min(foo.cause_id) AS first_cause
    FROM (public.global_builds global_builds_1
      JOIN ( SELECT master_commit_known_breakage_causes.sha1,
             code_breakage_affected_jobs.job,
@@ -1153,6 +1154,134 @@ CREATE VIEW public.job_failure_frequencies WITH (security_barrier='false') AS
 ALTER TABLE public.job_failure_frequencies OWNER TO postgres;
 
 --
+-- Name: pr_merge_bases; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.pr_merge_bases AS
+ SELECT cached_master_merge_base.branch_commit,
+    cached_master_merge_base.master_commit,
+    cached_master_merge_base.computation_timestamp,
+    cached_master_merge_base.distance,
+    m1.id,
+    m1.sha1
+   FROM (public.cached_master_merge_base
+     LEFT JOIN public.ordered_master_commits m1 ON ((m1.sha1 = cached_master_merge_base.branch_commit)))
+  WHERE (m1.sha1 IS NULL);
+
+
+ALTER TABLE public.pr_merge_bases OWNER TO postgres;
+
+--
+-- Name: VIEW pr_merge_bases; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.pr_merge_bases IS 'This view simply excludes master commits.
+
+NOTE: as a sanity check, all of the master commits should have "distance = 0".';
+
+
+--
+-- Name: upstream_downstream_builds; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.upstream_downstream_builds WITH (security_barrier='false') AS
+ SELECT pr_merge_bases.distance AS merge_base_distance,
+    upstream_builds.universal_build AS upstream_universal_build,
+    upstream_builds.step_id AS upstream_step_id,
+    upstream_builds.step_name AS upstream_step_name,
+    upstream_builds.provider AS upstream_provider,
+    upstream_builds.build_num AS upstream_provider_build_number,
+    upstream_builds.job_name AS upstream_job_name,
+    downstream_builds.universal_build AS downstream_universal_build,
+    downstream_builds.step_id AS downstream_step_id,
+    downstream_builds.step_name AS downstream_step_name,
+    downstream_builds.provider AS downstream_provider,
+    downstream_builds.build_num AS downstream_provider_build_number,
+    downstream_builds.job_name AS downstream_job_name,
+    known_broken_builds.first_cause,
+    upstream_builds.vcs_revision AS upstream_sha1,
+    downstream_builds.vcs_revision AS downstream_sha1
+   FROM (((public.known_broken_builds
+     JOIN public.builds_join_steps upstream_builds ON ((known_broken_builds.universal_build = upstream_builds.universal_build)))
+     JOIN public.pr_merge_bases ON ((upstream_builds.vcs_revision = pr_merge_bases.master_commit)))
+     JOIN public.builds_join_steps downstream_builds ON ((downstream_builds.vcs_revision = pr_merge_bases.branch_commit)));
+
+
+ALTER TABLE public.upstream_downstream_builds OWNER TO postgres;
+
+--
+-- Name: pr_dependent_breakages_basic; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.pr_dependent_breakages_basic WITH (security_barrier='false') AS
+ SELECT upstream_downstream_builds.merge_base_distance,
+    upstream_downstream_builds.upstream_provider AS provider,
+    upstream_downstream_builds.upstream_job_name AS job_name,
+    upstream_downstream_builds.upstream_step_name AS step_name,
+    upstream_downstream_builds.upstream_universal_build,
+    upstream_downstream_builds.upstream_step_id,
+    upstream_downstream_builds.upstream_provider_build_number,
+    upstream_downstream_builds.downstream_universal_build,
+    upstream_downstream_builds.downstream_step_id,
+    upstream_downstream_builds.downstream_provider_build_number,
+    upstream_downstream_builds.first_cause,
+    upstream_downstream_builds.upstream_sha1,
+    upstream_downstream_builds.downstream_sha1
+   FROM public.upstream_downstream_builds
+  WHERE ((upstream_downstream_builds.upstream_provider = upstream_downstream_builds.downstream_provider) AND (upstream_downstream_builds.upstream_job_name = upstream_downstream_builds.downstream_job_name) AND (upstream_downstream_builds.upstream_step_name = upstream_downstream_builds.downstream_step_name));
+
+
+ALTER TABLE public.pr_dependent_breakages_basic OWNER TO postgres;
+
+--
+-- Name: VIEW pr_dependent_breakages_basic; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.pr_dependent_breakages_basic IS 'Filters "upstream_downstream_builds" by equality on provider, job name, and step name';
+
+
+--
+-- Name: pr_impact_counts; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.pr_impact_counts AS
+ SELECT bar.first_cause,
+    bar.upstream_sha1,
+    bar.downstream_sha1,
+    bar.failed_downstream_build_count_for_cause,
+    bar.failed_downstream_build_count_for_upstream_commit,
+    count(*) OVER (PARTITION BY bar.first_cause, bar.upstream_sha1) AS downstream_broken_commit_count_for_upstream_commit,
+    count(*) OVER (PARTITION BY bar.first_cause) AS downstream_broken_commit_count_for_cause
+   FROM ( SELECT DISTINCT ON (foo.first_cause, foo.upstream_sha1, foo.downstream_sha1) foo.first_cause,
+            foo.upstream_sha1,
+            foo.downstream_sha1,
+            foo.failed_downstream_build_count_for_cause,
+            foo.failed_downstream_build_count_for_upstream_commit
+           FROM ( SELECT pr_dependent_breakages_basic.first_cause,
+                    pr_dependent_breakages_basic.upstream_sha1,
+                    pr_dependent_breakages_basic.downstream_sha1,
+                    count(*) OVER (PARTITION BY pr_dependent_breakages_basic.first_cause) AS failed_downstream_build_count_for_cause,
+                    count(*) OVER (PARTITION BY pr_dependent_breakages_basic.first_cause, pr_dependent_breakages_basic.upstream_sha1) AS failed_downstream_build_count_for_upstream_commit,
+                    count(*) OVER (PARTITION BY pr_dependent_breakages_basic.first_cause, pr_dependent_breakages_basic.upstream_sha1, pr_dependent_breakages_basic.downstream_sha1) AS failed_downstream_build_count_for_downstream_commit
+                   FROM public.pr_dependent_breakages_basic) foo) bar;
+
+
+ALTER TABLE public.pr_impact_counts OWNER TO postgres;
+
+--
+-- Name: pr_impact_cause_summary; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.pr_impact_cause_summary AS
+ SELECT DISTINCT ON (pr_impact_counts.first_cause) pr_impact_counts.first_cause,
+    pr_impact_counts.failed_downstream_build_count_for_cause,
+    pr_impact_counts.downstream_broken_commit_count_for_cause
+   FROM public.pr_impact_counts;
+
+
+ALTER TABLE public.pr_impact_cause_summary OWNER TO postgres;
+
+--
 -- Name: known_breakage_summaries; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -1177,14 +1306,17 @@ CREATE VIEW public.known_breakage_summaries WITH (security_barrier='false') AS
     COALESCE(meta2.committer_date, now()) AS resolution_commit_date,
     COALESCE(code_breakage_spans.failure_mode, 1) AS failure_mode_id,
     COALESCE(code_breakage_spans.failure_mode_reporter, ''::text) AS failure_mode_reporter,
-    COALESCE(code_breakage_spans.failure_mode_reported_at, now()) AS failure_mode_reported_at
-   FROM (((public.code_breakage_spans
+    COALESCE(code_breakage_spans.failure_mode_reported_at, now()) AS failure_mode_reported_at,
+    COALESCE(pr_impact_cause_summary.failed_downstream_build_count_for_cause, (0)::bigint) AS failed_downstream_build_count,
+    COALESCE(pr_impact_cause_summary.downstream_broken_commit_count_for_cause, (0)::bigint) AS downstream_broken_commit_count
+   FROM ((((public.code_breakage_spans
      LEFT JOIN ( SELECT code_breakage_affected_jobs.cause,
             string_agg(code_breakage_affected_jobs.job, ';'::text) AS jobs
            FROM public.code_breakage_affected_jobs
           GROUP BY code_breakage_affected_jobs.cause) foo ON ((foo.cause = code_breakage_spans.cause_id)))
      LEFT JOIN public.commit_metadata meta1 ON ((meta1.sha1 = code_breakage_spans.cause_sha1)))
-     LEFT JOIN public.commit_metadata meta2 ON ((meta2.sha1 = code_breakage_spans.resolution_sha1)));
+     LEFT JOIN public.commit_metadata meta2 ON ((meta2.sha1 = code_breakage_spans.resolution_sha1)))
+     LEFT JOIN public.pr_impact_cause_summary ON ((pr_impact_cause_summary.first_cause = code_breakage_spans.cause_id)));
 
 
 ALTER TABLE public.known_breakage_summaries OWNER TO postgres;
@@ -1888,91 +2020,10 @@ ALTER SEQUENCE public.pattern_step_applicability_id_seq OWNED BY public.pattern_
 
 
 --
--- Name: pr_merge_bases; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.pr_merge_bases AS
- SELECT cached_master_merge_base.branch_commit,
-    cached_master_merge_base.master_commit,
-    cached_master_merge_base.computation_timestamp,
-    cached_master_merge_base.distance,
-    m1.id,
-    m1.sha1
-   FROM (public.cached_master_merge_base
-     LEFT JOIN public.ordered_master_commits m1 ON ((m1.sha1 = cached_master_merge_base.branch_commit)))
-  WHERE (m1.sha1 IS NULL);
-
-
-ALTER TABLE public.pr_merge_bases OWNER TO postgres;
-
---
--- Name: VIEW pr_merge_bases; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON VIEW public.pr_merge_bases IS 'This view simply excludes master commits.
-
-NOTE: as a sanity check, all of the master commits should have "distance = 0".';
-
-
---
--- Name: upstream_downstream_builds; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.upstream_downstream_builds AS
- SELECT pr_merge_bases.distance AS merge_base_distance,
-    upstream_builds.universal_build AS upstream_universal_build,
-    upstream_builds.step_id AS upstream_step_id,
-    upstream_builds.step_name AS upstream_step_name,
-    upstream_builds.provider AS upstream_provider,
-    upstream_builds.build_num AS upstream_provider_build_number,
-    upstream_builds.job_name AS upstream_job_name,
-    downstream_builds.universal_build AS downstream_universal_build,
-    downstream_builds.step_id AS downstream_step_id,
-    downstream_builds.step_name AS downstream_step_name,
-    downstream_builds.provider AS downstream_provider,
-    downstream_builds.build_num AS downstream_provider_build_number,
-    downstream_builds.job_name AS downstream_job_name
-   FROM (((public.known_broken_builds
-     JOIN public.builds_join_steps upstream_builds ON ((known_broken_builds.universal_build = upstream_builds.universal_build)))
-     JOIN public.pr_merge_bases ON ((upstream_builds.vcs_revision = pr_merge_bases.master_commit)))
-     JOIN public.builds_join_steps downstream_builds ON ((downstream_builds.vcs_revision = pr_merge_bases.branch_commit)));
-
-
-ALTER TABLE public.upstream_downstream_builds OWNER TO postgres;
-
---
--- Name: pr_dependent_breakages_basic; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.pr_dependent_breakages_basic AS
- SELECT upstream_downstream_builds.merge_base_distance,
-    upstream_downstream_builds.upstream_provider AS provider,
-    upstream_downstream_builds.upstream_job_name AS job_name,
-    upstream_downstream_builds.upstream_step_name AS step_name,
-    upstream_downstream_builds.upstream_universal_build,
-    upstream_downstream_builds.upstream_step_id,
-    upstream_downstream_builds.upstream_provider_build_number,
-    upstream_downstream_builds.downstream_universal_build,
-    upstream_downstream_builds.downstream_step_id,
-    upstream_downstream_builds.downstream_provider_build_number
-   FROM public.upstream_downstream_builds
-  WHERE ((upstream_downstream_builds.upstream_provider = upstream_downstream_builds.downstream_provider) AND (upstream_downstream_builds.upstream_job_name = upstream_downstream_builds.downstream_job_name) AND (upstream_downstream_builds.upstream_step_name = upstream_downstream_builds.downstream_step_name));
-
-
-ALTER TABLE public.pr_dependent_breakages_basic OWNER TO postgres;
-
---
--- Name: VIEW pr_dependent_breakages_basic; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON VIEW public.pr_dependent_breakages_basic IS 'Filters "upstream_downstream_builds" by equality on provider, job name, and step name';
-
-
---
 -- Name: pr_dependent_breakages_with_patterns; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.pr_dependent_breakages_with_patterns AS
+CREATE VIEW public.pr_dependent_breakages_with_patterns WITH (security_barrier='false') AS
  SELECT upstream_best_match.match_id AS upstream_match_id,
     upstream_best_match.pattern_id AS upstream_pattern_id,
     downstream_best_match.match_id AS downstream_match_id,
@@ -1987,13 +2038,25 @@ CREATE VIEW public.pr_dependent_breakages_with_patterns AS
     pr_dependent_breakages_basic.upstream_provider_build_number,
     pr_dependent_breakages_basic.downstream_universal_build,
     pr_dependent_breakages_basic.downstream_step_id,
-    pr_dependent_breakages_basic.downstream_provider_build_number
+    pr_dependent_breakages_basic.downstream_provider_build_number,
+    pr_dependent_breakages_basic.first_cause,
+    pr_dependent_breakages_basic.upstream_sha1,
+    pr_dependent_breakages_basic.downstream_sha1
    FROM ((public.pr_dependent_breakages_basic
      LEFT JOIN public.best_pattern_match_for_builds upstream_best_match ON ((pr_dependent_breakages_basic.upstream_universal_build = upstream_best_match.universal_build)))
      LEFT JOIN public.best_pattern_match_for_builds downstream_best_match ON ((pr_dependent_breakages_basic.downstream_universal_build = downstream_best_match.universal_build)));
 
 
 ALTER TABLE public.pr_dependent_breakages_with_patterns OWNER TO postgres;
+
+--
+-- Name: VIEW pr_dependent_breakages_with_patterns; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.pr_dependent_breakages_with_patterns IS 'FIXME: We aren''t using this for aggregation, because summing the "same_pattern" boolean as an integer seems to be freezing the query.
+
+Instead pr_dependent_breakages_basic is being used for aggregation.';
+
 
 --
 -- Name: pr_disjoint_failure_causes_by_commit; Type: VIEW; Schema: public; Owner: postgres
@@ -2024,7 +2087,9 @@ ALTER TABLE public.pr_disjoint_failure_causes_by_commit OWNER TO postgres;
 -- Name: VIEW pr_disjoint_failure_causes_by_commit; Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON VIEW public.pr_disjoint_failure_causes_by_commit IS 'This tracks disjoint causes of PR builds.  This specifically excludes build from the master branch.';
+COMMENT ON VIEW public.pr_disjoint_failure_causes_by_commit IS 'This tracks disjoint causes of PR builds.  This specifically excludes build from the master branch.
+
+TODO: this is only used for pr_failures_merge_base_aggregation';
 
 
 --
@@ -3244,6 +3309,41 @@ GRANT ALL ON TABLE public.job_failure_frequencies TO logan;
 
 
 --
+-- Name: TABLE pr_merge_bases; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.pr_merge_bases TO logan;
+
+
+--
+-- Name: TABLE upstream_downstream_builds; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.upstream_downstream_builds TO logan;
+
+
+--
+-- Name: TABLE pr_dependent_breakages_basic; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.pr_dependent_breakages_basic TO logan;
+
+
+--
+-- Name: TABLE pr_impact_counts; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.pr_impact_counts TO logan;
+
+
+--
+-- Name: TABLE pr_impact_cause_summary; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.pr_impact_cause_summary TO logan;
+
+
+--
 -- Name: TABLE known_breakage_summaries; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -3409,27 +3509,6 @@ GRANT ALL ON SEQUENCE public.pattern_id_seq TO logan;
 --
 
 GRANT ALL ON SEQUENCE public.pattern_step_applicability_id_seq TO logan;
-
-
---
--- Name: TABLE pr_merge_bases; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.pr_merge_bases TO logan;
-
-
---
--- Name: TABLE upstream_downstream_builds; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.upstream_downstream_builds TO logan;
-
-
---
--- Name: TABLE pr_dependent_breakages_basic; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.pr_dependent_breakages_basic TO logan;
 
 
 --

@@ -959,7 +959,7 @@ apiListFailureModes = runQuery
 
 apiAnnotatedCodeBreakages :: DbIO [BuildResults.BreakageSpan Text]
 apiAnnotatedCodeBreakages = runQuery
-  "SELECT cause_id, cause_commit_index, cause_sha1, description, failure_mode_reporter, failure_mode_reported_at, failure_mode_id, cause_reporter, cause_reported_at, cause_jobs, resolution_id, resolved_commit_index, resolution_sha1, resolution_reporter, resolution_reported_at, breakage_commit_author, breakage_commit_message, resolution_commit_author, resolution_commit_message, breakage_commit_date, resolution_commit_date FROM known_breakage_summaries ORDER BY cause_commit_index DESC;"
+  "SELECT cause_id, cause_commit_index, cause_sha1, description, failure_mode_reporter, failure_mode_reported_at, failure_mode_id, cause_reporter, cause_reported_at, cause_jobs, resolution_id, resolved_commit_index, resolution_sha1, resolution_reporter, resolution_reported_at, breakage_commit_author, breakage_commit_message, resolution_commit_author, resolution_commit_message, breakage_commit_date, resolution_commit_date, failed_downstream_build_count, downstream_broken_commit_count FROM known_breakage_summaries ORDER BY cause_commit_index DESC;"
 
 
 getLatestMasterCommitWithMetadata :: DbIO (Either Text Builds.RawCommit)

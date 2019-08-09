@@ -167,6 +167,16 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 					post_modification("/api/code-breakage-description-update", data_dict);
 				},
 			},
+			{title: "Downstream Impact", columns: [
+				{title: "Commits",
+					field: "impact_stats.downstream_broken_commit_count",
+					width: 75,
+				},
+				{title: "Builds",
+					field: "impact_stats.failed_downstream_build_count",
+					width: 75,
+				},
+			]},
 			{title: "Affected jobs", columns: [
 				{title: "Count",
 					width: 75,

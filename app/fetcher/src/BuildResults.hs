@@ -150,9 +150,19 @@ instance ToJSON BreakageEnd where
 type BreakageEndRecord = DbHelpers.WithId (DbHelpers.WithAuthorship BreakageEnd)
 
 
+data BreakageImpactStats = BreakageImpactStats {
+    _failed_downstream_build_count  :: Int
+  , _downstream_broken_commit_count :: Int
+  } deriving Generic
+
+instance ToJSON BreakageImpactStats where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
 data BreakageSpan a = BreakageSpan {
     _start :: DbHelpers.WithId (DbHelpers.WithAuthorship (BreakageStart a))
   , _end   :: Maybe BreakageEndRecord
+  , _impact_stats :: BreakageImpactStats
   } deriving Generic
 
 instance (ToJSON a) => ToJSON (BreakageSpan a) where
@@ -183,6 +193,9 @@ instance FromRow (BreakageSpan Text) where
     breakage_commit_date <- field
     resolution_commit_date <- field
 
+    failed_downstream_build_count <- field
+    downstream_broken_commit_count <- field
+
     let cause_commit_metadata = DbHelpers.WithAuthorship breakage_commit_author breakage_commit_date breakage_commit_message
         cause = DbHelpers.WithId cause_id $ DbHelpers.WithAuthorship cause_reporter cause_reported_at $
           BuildResults.BreakageStart
@@ -204,7 +217,11 @@ instance FromRow (BreakageSpan Text) where
 
           return end_record
 
-    return $ BuildResults.BreakageSpan cause maybe_resolution
+        impact_stats = BreakageImpactStats
+          failed_downstream_build_count
+          downstream_broken_commit_count
+
+    return $ BreakageSpan cause maybe_resolution impact_stats
 
 
 data MasterBuildsResponse = MasterBuildsResponse {
