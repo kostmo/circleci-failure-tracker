@@ -202,21 +202,23 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 					},
 				},
 			]},
-			{title: "Span", width: 100,
+			{title: "Span", width: 100, field: "spanned_commit_count",
 				headerSort: false,
-				formatter: function(cell, formatterParams, onRendered) {
+/*				formatter: function(cell, formatterParams, onRendered) {
 
 					var data_obj = cell.getRow().getData();
 					var start_index = data_obj["start"]["record"]["payload"]["breakage_commit"]["db_id"];
 
 					var end_index = data_obj["end"] != null && data_obj["end"]["record"]["payload"]["resolution_commit"]["db_id"];
 					if (end_index) {
+						// FIXME THIS LOGIC IS INCORRECT; DB IDs are not guaranteed contiguous
 						var span_count = end_index - start_index;
 						return span_count;
 					} else {
 						return "ongoing";
 					}
 				},
+*/
 			},
 			{title: "Start", columns: [
 				{title: "commit", width: 300, field: "start.record.payload.breakage_commit.record",
@@ -253,9 +255,7 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 						return "";
 					},
 				},
-
 			]},
-
 		],
 		ajaxURL: data_url,
 	});

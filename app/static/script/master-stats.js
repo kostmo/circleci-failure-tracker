@@ -84,9 +84,6 @@ function normalized_build_failure_count_highchart(series_list) {
 }
 
 
-
-
-
 function normalized_commit_failure_count_highchart(series_list) {
 
 	Highcharts.chart('container-normalized-commit-failures-by-week', {

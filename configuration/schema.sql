@@ -733,21 +733,6 @@ CREATE TABLE public.code_breakage_resolution (
 ALTER TABLE public.code_breakage_resolution OWNER TO postgres;
 
 --
--- Name: master_failure_mode_attributions; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.master_failure_mode_attributions (
-    cause_id integer NOT NULL,
-    reporter text NOT NULL,
-    mode_id integer NOT NULL,
-    reported_at timestamp with time zone,
-    id integer NOT NULL
-);
-
-
-ALTER TABLE public.master_failure_mode_attributions OWNER TO postgres;
-
---
 -- Name: ordered_master_commits; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -767,40 +752,73 @@ COMMENT ON TABLE public.ordered_master_commits IS 'Warning: the "id" column may 
 
 
 --
+-- Name: master_commits_contiguously_indexed; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_commits_contiguously_indexed AS
+ SELECT ordered_master_commits.id,
+    ordered_master_commits.sha1,
+    row_number() OVER (ORDER BY ordered_master_commits.id) AS commit_number
+   FROM public.ordered_master_commits;
+
+
+ALTER TABLE public.master_commits_contiguously_indexed OWNER TO postgres;
+
+--
+-- Name: master_failure_mode_attributions; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.master_failure_mode_attributions (
+    cause_id integer NOT NULL,
+    reporter text NOT NULL,
+    mode_id integer NOT NULL,
+    reported_at timestamp with time zone,
+    id integer NOT NULL
+);
+
+
+ALTER TABLE public.master_failure_mode_attributions OWNER TO postgres;
+
+--
 -- Name: code_breakage_spans; Type: VIEW; Schema: public; Owner: postgres
 --
 
 CREATE VIEW public.code_breakage_spans WITH (security_barrier='false') AS
  SELECT DISTINCT ON (foo.cause_id) foo.cause_id,
-    foo.commit_index AS cause_commit_index,
+    foo.commit_id AS cause_commit_index,
     foo.sha1 AS cause_sha1,
     foo.description,
     foo.reporter AS cause_reporter,
     foo.reported_at AS cause_reported_at,
     bar.resolution_id,
-    bar.commit_index AS resolved_commit_index,
+    bar.commit_id AS resolved_commit_index,
     bar.sha1 AS resolution_sha1,
     bar.reporter AS resolution_reporter,
     bar.reported_at AS resolution_reported_at,
     barx.mode_id AS failure_mode,
     barx.reporter AS failure_mode_reporter,
-    barx.reported_at AS failure_mode_reported_at
+    barx.reported_at AS failure_mode_reported_at,
+    foo.commit_number AS cause_commit_number,
+    bar.commit_number AS resolution_commit_number,
+    (bar.commit_number - foo.commit_number) AS spanned_commit_count
    FROM ((( SELECT code_breakage_cause.reporter,
             code_breakage_cause.reported_at,
             code_breakage_cause.id AS cause_id,
-            ordered_master_commits.id AS commit_index,
+            master_commits_contiguously_indexed.id AS commit_id,
+            master_commits_contiguously_indexed.commit_number,
             code_breakage_cause.description,
             code_breakage_cause.sha1
            FROM (public.code_breakage_cause
-             JOIN public.ordered_master_commits ON ((ordered_master_commits.sha1 = code_breakage_cause.sha1)))) foo
+             JOIN public.master_commits_contiguously_indexed ON ((master_commits_contiguously_indexed.sha1 = code_breakage_cause.sha1)))) foo
      LEFT JOIN ( SELECT code_breakage_resolution.reporter,
             code_breakage_resolution.reported_at,
             code_breakage_resolution.id AS resolution_id,
             code_breakage_resolution.cause AS cause_id,
-            ordered_master_commits.id AS commit_index,
+            master_commits_contiguously_indexed.id AS commit_id,
+            master_commits_contiguously_indexed.commit_number,
             code_breakage_resolution.sha1
            FROM (public.code_breakage_resolution
-             JOIN public.ordered_master_commits ON ((ordered_master_commits.sha1 = code_breakage_resolution.sha1)))) bar ON ((foo.cause_id = bar.cause_id)))
+             JOIN public.master_commits_contiguously_indexed ON ((master_commits_contiguously_indexed.sha1 = code_breakage_resolution.sha1)))) bar ON ((foo.cause_id = bar.cause_id)))
      LEFT JOIN ( SELECT DISTINCT ON (master_failure_mode_attributions.cause_id) master_failure_mode_attributions.cause_id,
             master_failure_mode_attributions.reporter,
             master_failure_mode_attributions.reported_at,
@@ -811,6 +829,13 @@ CREATE VIEW public.code_breakage_spans WITH (security_barrier='false') AS
 
 
 ALTER TABLE public.code_breakage_spans OWNER TO postgres;
+
+--
+-- Name: VIEW code_breakage_spans; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.code_breakage_spans IS 'TODO: rename cause_commit_index to cause_commit_id and resolved_commit_index to resolved_commit_id';
+
 
 --
 -- Name: master_commit_known_breakage_causes; Type: VIEW; Schema: public; Owner: postgres
@@ -1308,7 +1333,10 @@ CREATE VIEW public.known_breakage_summaries WITH (security_barrier='false') AS
     COALESCE(code_breakage_spans.failure_mode_reporter, ''::text) AS failure_mode_reporter,
     COALESCE(code_breakage_spans.failure_mode_reported_at, now()) AS failure_mode_reported_at,
     COALESCE(pr_impact_cause_summary.failed_downstream_build_count_for_cause, (0)::bigint) AS failed_downstream_build_count,
-    COALESCE(pr_impact_cause_summary.downstream_broken_commit_count_for_cause, (0)::bigint) AS downstream_broken_commit_count
+    COALESCE(pr_impact_cause_summary.downstream_broken_commit_count_for_cause, (0)::bigint) AS downstream_broken_commit_count,
+    code_breakage_spans.cause_commit_number,
+    code_breakage_spans.resolution_commit_number,
+    code_breakage_spans.spanned_commit_count
    FROM ((((public.code_breakage_spans
      LEFT JOIN ( SELECT code_breakage_affected_jobs.cause,
             string_agg(code_breakage_affected_jobs.job, ';'::text) AS jobs
@@ -2304,6 +2332,22 @@ CREATE VIEW public.unvisited_builds WITH (security_barrier='false') AS
 ALTER TABLE public.unvisited_builds OWNER TO postgres;
 
 --
+-- Name: upstream_breakages_weekly_aggregation; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.upstream_breakages_weekly_aggregation AS
+ SELECT date_trunc('week'::text, known_breakage_summaries.breakage_commit_date) AS week,
+    count(*) AS distinct_breakages,
+    sum(known_breakage_summaries.downstream_broken_commit_count) AS downstream_broken_commit_count,
+    sum(known_breakage_summaries.failed_downstream_build_count) AS downstream_broken_build_count
+   FROM public.known_breakage_summaries
+  GROUP BY (date_trunc('week'::text, known_breakage_summaries.breakage_commit_date))
+  ORDER BY (date_trunc('week'::text, known_breakage_summaries.breakage_commit_date)) DESC;
+
+
+ALTER TABLE public.upstream_breakages_weekly_aggregation OWNER TO postgres;
+
+--
 -- Name: build_steps id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
@@ -3182,17 +3226,24 @@ GRANT ALL ON TABLE public.code_breakage_resolution TO logan;
 
 
 --
--- Name: TABLE master_failure_mode_attributions; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.master_failure_mode_attributions TO logan;
-
-
---
 -- Name: TABLE ordered_master_commits; Type: ACL; Schema: public; Owner: postgres
 --
 
 GRANT ALL ON TABLE public.ordered_master_commits TO logan;
+
+
+--
+-- Name: TABLE master_commits_contiguously_indexed; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_commits_contiguously_indexed TO logan;
+
+
+--
+-- Name: TABLE master_failure_mode_attributions; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_failure_mode_attributions TO logan;
 
 
 --
@@ -3579,6 +3630,13 @@ GRANT ALL ON TABLE public.unscanned_patterns TO logan;
 --
 
 GRANT ALL ON TABLE public.unvisited_builds TO logan;
+
+
+--
+-- Name: TABLE upstream_breakages_weekly_aggregation; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.upstream_breakages_weekly_aggregation TO logan;
 
 
 --
