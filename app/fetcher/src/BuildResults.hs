@@ -9,6 +9,7 @@ import           Data.Aeson
 import           Data.Set                           (Set)
 import           Data.Text                          (Text)
 import qualified Data.Text                          as T
+import           Data.Time                          (UTCTime)
 import           Database.PostgreSQL.Simple         (FromRow)
 import           Database.PostgreSQL.Simple.FromRow (field, fromRow)
 import           GHC.Generics
@@ -150,9 +151,19 @@ instance ToJSON BreakageEnd where
 type BreakageEndRecord = DbHelpers.WithId (DbHelpers.WithAuthorship BreakageEnd)
 
 
+data WeeklyBreakageImpactStats = WeeklyBreakageImpactStats {
+    _week           :: UTCTime
+  , _incident_count :: Int
+  , _impact         :: BreakageImpactStats
+  } deriving Generic
+
+instance ToJSON WeeklyBreakageImpactStats where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
 data BreakageImpactStats = BreakageImpactStats {
-    _failed_downstream_build_count  :: Int
-  , _downstream_broken_commit_count :: Int
+    _downstream_broken_commit_count :: Int
+  , _failed_downstream_build_count  :: Int
   } deriving Generic
 
 instance ToJSON BreakageImpactStats where
@@ -193,9 +204,8 @@ instance FromRow (BreakageSpan Text) where
     resolution_commit_message <- field
     breakage_commit_date <- field
     resolution_commit_date <- field
-
-    failed_downstream_build_count <- field
     downstream_broken_commit_count <- field
+    failed_downstream_build_count <- field
     spanned_commit_count <- field
 
     let cause_commit_metadata = DbHelpers.WithAuthorship breakage_commit_author breakage_commit_date breakage_commit_message
@@ -220,8 +230,8 @@ instance FromRow (BreakageSpan Text) where
           return end_record
 
         impact_stats = BreakageImpactStats
-          failed_downstream_build_count
           downstream_broken_commit_count
+          failed_downstream_build_count
 
     return $ BreakageSpan cause maybe_resolution impact_stats spanned_commit_count
 

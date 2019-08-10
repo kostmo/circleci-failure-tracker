@@ -492,6 +492,23 @@ masterWeeklyFailureStats week_count = do
       WeeklyStats.MasterWeeklyStats commit_count had_failure had_idiopathic had_timeout had_known_broken had_pattern_matched had_flaky failure_count idiopathic_count timeout_count known_broken_count pattern_matched_count pattern_unmatched_count flaky_count week $ WeeklyStats.InclusiveNumericBounds earliest_commit_index latest_commit_index
 
 
+-- | Uses OFFSET 1 so we only ever show full weeks
+downstreamWeeklyFailureStats :: Int -> DbIO [BuildResults.WeeklyBreakageImpactStats]
+downstreamWeeklyFailureStats week_count = do
+
+  conn <- ask
+  xs <- liftIO $ query conn sql $ Only week_count
+  return $ reverse $ map f xs
+  where
+    f (week, distinct_breakages, downstream_broken_commit_count, downstream_broken_build_count) = BuildResults.WeeklyBreakageImpactStats
+      week
+      distinct_breakages $ BuildResults.BreakageImpactStats
+        downstream_broken_commit_count
+        downstream_broken_build_count
+
+    sql = "SELECT week, distinct_breakages, downstream_broken_commit_count, downstream_broken_build_count FROM upstream_breakages_weekly_aggregation ORDER BY week DESC LIMIT ? OFFSET 1;"
+
+
 getLatestKnownMasterCommit :: Connection -> IO (Maybe Text)
 getLatestKnownMasterCommit conn = do
   rows <- query_ conn sql
@@ -959,7 +976,7 @@ apiListFailureModes = runQuery
 
 apiAnnotatedCodeBreakages :: DbIO [BuildResults.BreakageSpan Text]
 apiAnnotatedCodeBreakages = runQuery
-  "SELECT cause_id, cause_commit_index, cause_sha1, description, failure_mode_reporter, failure_mode_reported_at, failure_mode_id, cause_reporter, cause_reported_at, cause_jobs, resolution_id, resolved_commit_index, resolution_sha1, resolution_reporter, resolution_reported_at, breakage_commit_author, breakage_commit_message, resolution_commit_author, resolution_commit_message, breakage_commit_date, resolution_commit_date, failed_downstream_build_count, downstream_broken_commit_count, spanned_commit_count FROM known_breakage_summaries ORDER BY cause_commit_index DESC;"
+  "SELECT cause_id, cause_commit_index, cause_sha1, description, failure_mode_reporter, failure_mode_reported_at, failure_mode_id, cause_reporter, cause_reported_at, cause_jobs, resolution_id, resolved_commit_index, resolution_sha1, resolution_reporter, resolution_reported_at, breakage_commit_author, breakage_commit_message, resolution_commit_author, resolution_commit_message, breakage_commit_date, resolution_commit_date, downstream_broken_commit_count, failed_downstream_build_count, spanned_commit_count FROM known_breakage_summaries ORDER BY cause_commit_index DESC;"
 
 
 getLatestMasterCommitWithMetadata :: DbIO (Either Text Builds.RawCommit)

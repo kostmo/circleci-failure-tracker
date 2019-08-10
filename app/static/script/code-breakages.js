@@ -15,6 +15,73 @@ function render_commit_cell(cell, position) {
 }
 
 
+function downstream_impact_by_week(html_element_id, api_url) {
+
+//	var weeks_count = $('#weeks-count-input').val();
+	const weeks_count = 8; // TODO Create UI element
+
+	$.getJSON(api_url, {"weeks": weeks_count}, function (data) {
+
+		var pointlist = [];
+		for (var datum of data) {
+			pointlist.push([Date.parse(datum["week"]), datum["impact"]["downstream_broken_commit_count"]]);
+		}
+
+		var series_list = [{
+				name: "Commits broken by upstream",
+				data: pointlist,
+			}];
+
+
+		Highcharts.chart(html_element_id, {
+			chart: {
+				type: 'line'
+			},
+			title: {
+				text: 'Downstream collateral by Week'
+			},
+			subtitle: {
+				text: 'Showing only full weeks, starting on labeled day'
+			},
+			xAxis: {
+				type: 'datetime',
+				dateTimeLabelFormats: { // don't display the dummy year
+					month: '%e. %b',
+					year: '%b'
+				},
+				title: {
+					text: 'Date'
+				}
+			},
+			yAxis: [
+				{
+					title: {
+						text: 'Broken commits',
+					},
+				},
+			],
+			tooltip: {
+				useHTML: true,
+				style: {
+					pointerEvents: 'auto'
+				},
+			},
+			plotOptions: {
+				line: {
+					marker: {
+						enabled: true
+					}
+				},
+			},
+			credits: {
+				enabled: false
+			},
+			series: series_list,
+		});
+	});
+}
+
+
 function gen_detected_breakages_table(element_id, data_url) {
 
 	var table = new Tabulator("#" + element_id, {
@@ -204,21 +271,6 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 			]},
 			{title: "Span", width: 100, field: "spanned_commit_count",
 				headerSort: false,
-/*				formatter: function(cell, formatterParams, onRendered) {
-
-					var data_obj = cell.getRow().getData();
-					var start_index = data_obj["start"]["record"]["payload"]["breakage_commit"]["db_id"];
-
-					var end_index = data_obj["end"] != null && data_obj["end"]["record"]["payload"]["resolution_commit"]["db_id"];
-					if (end_index) {
-						// FIXME THIS LOGIC IS INCORRECT; DB IDs are not guaranteed contiguous
-						var span_count = end_index - start_index;
-						return span_count;
-					} else {
-						return "ongoing";
-					}
-				},
-*/
 			},
 			{title: "Start", columns: [
 				{title: "commit", width: 300, field: "start.record.payload.breakage_commit.record",
@@ -325,6 +377,8 @@ function main() {
 
 	gen_nonannotated_detected_breakages_table("detected-leftovers-table", "/api/code-breakages-leftover-detected");
 	gen_detected_breakages_table("detected-breakages-table", "/api/code-breakages-detected");
+
+	downstream_impact_by_week("container-downstream-impact-by-week", "/api/downstream-impact-weekly");
 
 	// TODO
 //	gen_nonannotated_commit_detected_breakages_table("detected-commit-leftovers-table", "/api/code-breakages-leftover-by-commit");

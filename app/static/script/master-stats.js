@@ -14,22 +14,6 @@ function normalized_build_failure_count_highchart(series_list) {
 		subtitle: {
 			text: 'Showing only full weeks, starting on labeled day'
 		},
-		annotations: [{
-			labelOptions: {
-				backgroundColor: 'rgba(255,255,255,0.5)',
-				verticalAlign: 'top',
-				y: 15
-			},
-			labels: [{
-				point: {
-					xAxis: 0,
-					yAxis: 0,
-					x: new Date('2019-06-10T00:00:00Z'),
-					y: 400,
-				},
-				text: 'Start data collection',
-			}],
-		}],
 		xAxis: {
 			type: 'datetime',
 			dateTimeLabelFormats: { // don't display the dummy year
@@ -97,22 +81,6 @@ function normalized_commit_failure_count_highchart(series_list) {
 		subtitle: {
 			text: 'Showing only full weeks, starting on labeled day'
 		},
-		annotations: [{
-			labelOptions: {
-				backgroundColor: 'rgba(255,255,255,0.5)',
-				verticalAlign: 'top',
-				y: 15
-			},
-			labels: [{
-				point: {
-					xAxis: 0,
-					yAxis: 0,
-					x: new Date('2019-06-10T00:00:00Z'),
-					y: 400,
-				},
-				text: 'Start data collection',
-			}],
-		}],
 		xAxis: {
 			type: 'datetime',
 			dateTimeLabelFormats: { // don't display the dummy year
@@ -231,22 +199,6 @@ function separated_causes_timeline_highchart(series_list) {
 		subtitle: {
 			text: 'Showing only full weeks, starting on labeled day'
 		},
-		annotations: [{
-			labelOptions: {
-				backgroundColor: 'rgba(255,255,255,0.5)',
-				verticalAlign: 'top',
-				y: 15
-			},
-			labels: [{
-				point: {
-					xAxis: 0,
-					yAxis: 0,
-					x: new Date('2019-06-10T00:00:00Z'),
-					y: 400,
-				},
-				text: 'Start data collection',
-			}],
-		}],
 		xAxis: {
 			type: 'datetime',
 			dateTimeLabelFormats: { // don't display the dummy year

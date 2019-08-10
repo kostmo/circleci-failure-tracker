@@ -3,7 +3,7 @@
 module Routes where
 
 import           Control.Monad                   (unless, when)
-import           Control.Monad.IO.Class          (liftIO)
+import           Control.Monad.IO.Class          (MonadIO, liftIO)
 import           Control.Monad.Trans.Except      (ExceptT (ExceptT), except,
                                                   runExceptT)
 import           Control.Monad.Trans.Reader      (ReaderT, runReaderT)
@@ -82,14 +82,11 @@ checkboxIsTrue = (== ("true" :: Text))
 getMutablePatternParms :: ScottyTypes.ActionT LT.Text IO MutablePatternParms
 getMutablePatternParms = do
   is_nondeterministic <- checkboxIsTrue <$> S.param "is_nondeterministic"
-  description <- S.param "description"
-  specificity <- S.param "specificity"
-  tags <- S.param "tags"
-  return $ MutablePatternParms
-    is_nondeterministic
-    description
-    tags
-    specificity
+
+  MutablePatternParms is_nondeterministic
+    <$> S.param "description"
+    <*> S.param "tags"
+    <*> S.param "specificity"
 
 
 patternFromParms :: ScottyTypes.ActionT LT.Text IO ScanPatterns.Pattern
@@ -171,28 +168,41 @@ jsonDbGet :: ToJSON a =>
   -> ReaderT Connection IO a
   -> S.ScottyM ()
 jsonDbGet connection_data endpoint_path f =
-  S.get endpoint_path $ do
-    conn <- liftIO $ DbHelpers.get_connection connection_data
-    x <- liftIO $ runReaderT f conn
-    S.json x
+  S.get endpoint_path $ jsonDbGetInner connection_data f
 
 
+jsonDbGetInner :: ToJSON a =>
+     DbHelpers.DbConnectionData
+  -> ReaderT Connection IO a
+  -> ScottyTypes.ActionT LT.Text IO ()
+jsonDbGetInner connection_data f = do
+  inner <- jsonDbGetInner2 connection_data f
+  S.json inner
+
+
+jsonDbGetInner2 :: MonadIO m =>
+     DbHelpers.DbConnectionData
+  -> ReaderT Connection IO b
+  -> m b
+jsonDbGetInner2 connection_data f = do
+  conn <- liftIO $ DbHelpers.get_connection connection_data
+  liftIO $ runReaderT f conn
+
+
+jsonDbGet1 :: (S.Parsable t, ToJSON a) =>
+     DbHelpers.DbConnectionData
+  -> ScottyTypes.RoutePattern
+  -> LT.Text
+  -> (t -> ReaderT Connection IO a)
+  -> S.ScottyM ()
 jsonDbGet1 connection_data endpoint_path parm_name f =
+
   S.get endpoint_path $ do
     parm1 <- S.param parm_name
 
-    conn <- liftIO $ DbHelpers.get_connection connection_data
-    x <- liftIO $ runReaderT (f parm1) conn
+    x <- jsonDbGetInner2 connection_data (f parm1)
     S.json x
 
-
-jsonDbGet1Either connection_data endpoint_path parm_name f =
-  S.get endpoint_path $ do
-    parm1 <- S.param parm_name
-
-    conn <- liftIO $ DbHelpers.get_connection connection_data
-    x <- liftIO $ runReaderT (f parm1) conn
-    S.json $ WebApi.toJsonEither x
 
 
 scottyApp :: PersistenceData -> SetupData -> ScottyTypes.ScottyT LT.Text IO ()
@@ -417,9 +427,6 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
     S.get "/logout" $ Auth.logoutH cache
 
 
-    let get x y = jsonDbGet connection_data x y
-        get1 x y = jsonDbGet1 connection_data x y
-
     get "/api/latest-master-commit-with-metadata" $ WebApi.toJsonEither <$> SqlRead.getLatestMasterCommitWithMetadata
 
     get "/api/status-posted-commits-by-day" SqlRead.apiStatusPostedCommitsByDay
@@ -486,6 +493,8 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     get1 "/api/branch-suggest" "term" SqlRead.apiAutocompleteBranches
 
+    get1 "/api/downstream-impact-weekly" "weeks" SqlRead.downstreamWeeklyFailureStats
+
     get1 "/api/master-weekly-failure-stats" "weeks" SqlRead.masterWeeklyFailureStats
 
     get1 "/api/unmatched-builds-for-commit" "sha1" SqlRead.apiUnmatchedCommitBuilds
@@ -510,9 +519,11 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
 
     get1 "/api/best-build-match" "build_id" $ SqlRead.getBestBuildMatch . Builds.UniversalBuildId
 
-    jsonDbGet1Either connection_data "/api/test-failures" "pattern_id" $ SqlRead.apiTestFailures . ScanPatterns.PatternId
+    jsonDbGet1 connection_data "/api/test-failures" "pattern_id" $
+      fmap WebApi.toJsonEither . SqlRead.apiTestFailures . ScanPatterns.PatternId
 
-    jsonDbGet1Either connection_data "/api/single-build-info" "build_id" $ SqlUpdate.getBuildInfo (AuthConfig.personal_access_token github_config) . Builds.UniversalBuildId
+    jsonDbGet1 connection_data "/api/single-build-info" "build_id" $
+      fmap WebApi.toJsonEither . SqlUpdate.getBuildInfo (AuthConfig.personal_access_token github_config) . Builds.UniversalBuildId
 
 
     S.get "/api/list-master-commit-range-jobs" $ do
@@ -612,7 +623,6 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
             storable_build <- SqlRead.getGlobalBuild conn universal_build_id
             putStrLn "got global build"
 
-            -- TODO SqlRead.readLog should accept a universal build number
             maybe_log <- SqlRead.readLog conn $ Builds.UniversalBuildId $ DbHelpers.db_id $ Builds.universal_build storable_build
             return $ maybeToEither "log not in database" maybe_log
 
@@ -723,4 +733,7 @@ scottyApp (PersistenceData cache session store) (SetupData static_base github_co
       S.setHeader "Content-Type" "text/html; charset=utf-8"
       S.file $ static_base </> "index.html"
 
+  where
+    get x y = jsonDbGet connection_data x y
+    get1 x y = jsonDbGet1 connection_data x y
 
