@@ -9,10 +9,11 @@ import           GHC.Generics
 import           GHC.Int      (Int64)
 
 import qualified AuthStages
+import qualified Builds
 
 
 data BreakageReport = NewBreakageReport {
-    sha1        :: Text
+    sha1        :: Builds.RawCommit
   , description :: Text
   , reporter    :: AuthStages.Username
   } deriving Generic

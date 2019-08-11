@@ -5,6 +5,7 @@ module Scanning where
 import           Control.Lens               hiding ((<.>))
 import           Control.Monad.IO.Class     (liftIO)
 import           Control.Monad.Trans.Except (ExceptT (ExceptT), runExceptT)
+import           Control.Monad.Trans.Reader (ask)
 import           Data.Aeson                 (Value)
 import           Data.Aeson.Lens            (key, _Array, _Bool, _String)
 import           Data.Bifunctor             (first)
@@ -80,15 +81,24 @@ scanBuilds scan_resources revisit whitelisted_builds_or_fetch_count = do
         , filter $ \universal_build_with_id -> (Builds.UniversalBuildId $ DbHelpers.db_id universal_build_with_id) `Set.member` whitelisted_builds)
 
 
--- | Note that the Left/Right convention is backwards!
+rescanSingleBuildWrapped ::
+     Builds.UniversalBuildId
+  -> SqlRead.AuthDbIO (Either a Int64)
+rescanSingleBuildWrapped build_to_scan = do
+  SqlRead.AuthConnection conn user <- ask
+  liftIO $ rescanSingleBuild conn user build_to_scan
+  return $ Right 0
+
+
 rescanSingleBuild ::
-     DbHelpers.DbConnectionData
+     Connection
   -> AuthStages.Username
   -> Builds.UniversalBuildId
   -> IO ()
-rescanSingleBuild db_connection_data initiator build_to_scan = do
-  putStrLn $ "Rescanning build: " ++ show build_to_scan
-  conn <- DbHelpers.get_connection db_connection_data
+rescanSingleBuild conn initiator build_to_scan = do
+
+  MyUtils.debugList ["Rescanning build:", show build_to_scan]
+
   scan_resources <- prepareScanResources conn $ Just initiator
 
   parent_build <- SqlRead.getGlobalBuild conn build_to_scan
@@ -97,6 +107,7 @@ rescanSingleBuild db_connection_data initiator build_to_scan = do
     scan_resources
     (Builds.provider_buildnum $ DbHelpers.record $ Builds.universal_build parent_build)
 
+  -- Note that the Left/Right convention is backwards!
   case either_visitation_result of
     Right _ -> return ()
     Left (Builds.BuildWithStepFailure build_obj _step_failure) -> do
@@ -108,7 +119,8 @@ rescanSingleBuild db_connection_data initiator build_to_scan = do
       -- from information we obtained from an API fetch
       SqlWrite.storeBuildsList conn [DbHelpers.WithTypedId build_to_scan build_obj]
 
-      scan_matches <- scanBuilds scan_resources True $ Left $ Set.singleton build_to_scan
+      scan_matches <- scanBuilds scan_resources True $
+        Left $ Set.singleton build_to_scan
 
       let total_match_count = sum $ map (length . snd) scan_matches
       MyUtils.debugList [
@@ -190,7 +202,11 @@ catchupScan
     (universal_build_obj, maybe_console_output_url)
     scannable_patterns = do
 
-  putStrLn $ "\tThere are " ++ show (length scannable_patterns) ++ " scannable patterns"
+  MyUtils.debugList [
+      "\tThere are"
+    , show $ length scannable_patterns
+    , "scannable patterns"
+    ]
 
   let is_pattern_applicable p = not pat_is_retired && (null appl_steps || elem step_name appl_steps)
         where
@@ -199,7 +215,11 @@ catchupScan
           appl_steps = ScanPatterns.applicable_steps pat_record
       applicable_patterns = filter is_pattern_applicable scannable_patterns
 
-  putStrLn $ "\t\twith " ++ show (length applicable_patterns) ++ " applicable to this step"
+  MyUtils.debugList [
+      "\t\twith"
+    , show $ length applicable_patterns
+    , "applicable to this step"
+    ]
 
   -- | We only access the console log if there is at least one
   -- pattern to scan:
@@ -333,7 +353,7 @@ getCircleCIFailedBuildInfo scan_resources build_number = do
 
   where
     fetch_url = getSingleBuildUrl build_number
-    opts = defaults & header "Accept" .~ [Constants.json_mime_type]
+    opts = defaults & header "Accept" .~ [Constants.jsonMimeType]
     sess = ScanRecords.circle_sess $ ScanRecords.fetching scan_resources
 
 

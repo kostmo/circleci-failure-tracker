@@ -29,12 +29,13 @@ presumedGoodBranches = [
   ]
 
 
-app_name :: FilePath
-app_name = "circleci-failure-tracker"
+-- | Not used
+appName :: FilePath
+appName = "circleci-failure-tracker"
 
 
-json_mime_type :: ByteString
-json_mime_type = "application/json"
+jsonMimeType :: ByteString
+jsonMimeType = "application/json"
 
 
 project_name :: String

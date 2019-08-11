@@ -8,6 +8,7 @@ import           Control.Monad                     (unless)
 import           Control.Monad.IO.Class            (liftIO)
 import           Control.Monad.Trans.Except        (ExceptT (ExceptT), except,
                                                     runExceptT)
+import           Control.Monad.Trans.Reader        (ask, runReaderT)
 import           Data.Bifunctor                    (first)
 import qualified Data.ByteString.Char8             as BS
 import           Data.Either.Utils                 (maybeToEither)
@@ -350,144 +351,135 @@ insertSingleCIProvider conn hostname = do
 
 
 getAndStoreCIProviders ::
-     DbHelpers.DbConnectionData
+     Connection
   -> [(String, a)]
   -> IO [(a, DbHelpers.WithId String)]
-getAndStoreCIProviders conn_data failed_statuses_by_hostname = do
-  conn <- DbHelpers.get_connection conn_data
-  mapM (traverse (insertSingleCIProvider conn) . swap) failed_statuses_by_hostname
+getAndStoreCIProviders conn =
+  mapM $ traverse (insertSingleCIProvider conn) . swap
 
 
-insert_posted_github_status ::
-     DbHelpers.DbConnectionData
+insertPostedGithubStatus ::
+     Connection
   -> Builds.RawCommit
   -> DbHelpers.OwnerAndRepo
   -> ApiPost.StatusPostResult
   -> IO Int64
-insert_posted_github_status conn_data (Builds.RawCommit git_sha1) (DbHelpers.OwnerAndRepo owner repo) (ApiPost.StatusPostResult id url state desc target_url context created_at updated_at) = do
-  conn <- DbHelpers.get_connection conn_data
+insertPostedGithubStatus conn (Builds.RawCommit git_sha1) (DbHelpers.OwnerAndRepo owner repo) (ApiPost.StatusPostResult id url state desc target_url context created_at updated_at) = do
+
   [Only pattern_id] <- query conn sql (id, git_sha1, owner, repo, url, state, desc, target_url, context, created_at, updated_at)
   return pattern_id
   where
     sql = "INSERT INTO created_github_statuses(id, sha1, project, repo, url, state, description, target_url, context, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?) RETURNING id;"
 
 
-add_pattern_tag ::
-     DbHelpers.DbConnectionData
-  -> ScanPatterns.PatternId
+addPatternTag ::
+     ScanPatterns.PatternId
   -> Text
-  -> IO (Either Text Int64)
-add_pattern_tag conn_data (ScanPatterns.PatternId pattern_id) tag = do
-  conn <- DbHelpers.get_connection conn_data
-  Right <$> execute conn sql (pattern_id, tag)
+  -> SqlRead.DbIO (Either Text Int64)
+addPatternTag (ScanPatterns.PatternId pattern_id) tag = do
+  conn <- ask
+  liftIO $ Right <$> execute conn sql (pattern_id, tag)
   where
     sql = "INSERT INTO pattern_tags(pattern, tag) VALUES(?,?);"
 
 
-remove_pattern_tag ::
-     DbHelpers.DbConnectionData
-  -> ScanPatterns.PatternId
+removePatternTag ::
+     ScanPatterns.PatternId
   -> Text
-  -> IO (Either Text Int64)
-remove_pattern_tag conn_data (ScanPatterns.PatternId pattern_id) tag = do
-  conn <- DbHelpers.get_connection conn_data
-  Right <$> execute conn sql (pattern_id, tag)
+  -> SqlRead.DbIO (Either Text Int64)
+removePatternTag (ScanPatterns.PatternId pattern_id) tag = do
+  conn <- ask
+  liftIO $ Right <$> execute conn sql (pattern_id, tag)
   where
     sql = "DELETE FROM pattern_tags WHERE pattern = ? AND tag = ?;"
 
 
 deleteCodeBreakage ::
-     DbHelpers.DbConnectionData
-  -> Int64
-  -> IO (Either Text Int64)
-deleteCodeBreakage conn_data cause_id = do
-  conn <- DbHelpers.get_connection conn_data
-  Right <$> execute conn sql (Only cause_id)
+     Int64
+  -> SqlRead.DbIO (Either Text Int64)
+deleteCodeBreakage cause_id = do
+  conn <- ask
+  liftIO $ Right <$> execute conn sql (Only cause_id)
   where
     sql = "DELETE FROM code_breakage_cause WHERE id = ?;"
 
 
 deleteCodeBreakageJob ::
-     DbHelpers.DbConnectionData
-  -> Int64
+     Int64
   -> Text
-  -> IO (Either Text Int64)
-deleteCodeBreakageJob conn_data cause_id job = do
-  conn <- DbHelpers.get_connection conn_data
-  Right <$> execute conn sql (cause_id, job)
+  -> SqlRead.DbIO (Either Text Int64)
+deleteCodeBreakageJob cause_id job = do
+  conn <- ask
+  liftIO $ Right <$> execute conn sql (cause_id, job)
   where
     sql = "DELETE FROM code_breakage_affected_jobs WHERE cause = ? AND job = ?;"
 
 
 updateCodeBreakageDescription ::
-     DbHelpers.DbConnectionData
-  -> Int64
+     Int64
   -> Text
-  -> IO (Either Text Int64)
-updateCodeBreakageDescription conn_data cause_id description = do
-  conn <- DbHelpers.get_connection conn_data
-  Right <$> execute conn sql (description, cause_id)
+  -> SqlRead.DbIO (Either Text Int64)
+updateCodeBreakageDescription cause_id description = do
+  conn <- ask
+  liftIO $ Right <$> execute conn sql (description, cause_id)
   where
     sql = "UPDATE code_breakage_cause SET description = ? WHERE id = ?;"
 
 
 updateCodeBreakageMode ::
-     Connection
-  -> AuthStages.Username
-  -> Int64 -- ^ cause
+     Int64 -- ^ cause
   -> Int64 -- ^ mode
-  -> IO (Either Text Int64)
-updateCodeBreakageMode conn (AuthStages.Username author) cause_id mode =
-  Right <$> execute conn insertion_sql (cause_id, author, mode)
+  -> SqlRead.AuthDbIO (Either Text Int64)
+updateCodeBreakageMode cause_id mode = do
+  SqlRead.AuthConnection conn (AuthStages.Username author) <- ask
+  liftIO $ Right <$> execute conn insertion_sql (cause_id, author, mode)
   where
     insertion_sql = "INSERT INTO master_failure_mode_attributions(cause_id, reporter, mode_id) VALUES(?,?,?);"
 
 
 updatePatternDescription ::
-     DbHelpers.DbConnectionData
-  -> ScanPatterns.PatternId
+     ScanPatterns.PatternId
   -> Text
-  -> IO (Either Text Int64)
-updatePatternDescription conn_data (ScanPatterns.PatternId pattern_id) description = do
-  conn <- DbHelpers.get_connection conn_data
-  Right <$> execute conn sql (description, pattern_id)
+  -> SqlRead.DbIO (Either Text Int64)
+updatePatternDescription (ScanPatterns.PatternId pattern_id) description = do
+  conn <- ask
+  liftIO $ Right <$> execute conn sql (description, pattern_id)
   where
     sql = "UPDATE patterns SET description = ? WHERE id = ?;"
 
 
 updatePatternSpecificity ::
-     DbHelpers.DbConnectionData
-  -> ScanPatterns.PatternId
+     ScanPatterns.PatternId
   -> Int
-  -> IO (Either Text Int64)
-updatePatternSpecificity conn_data (ScanPatterns.PatternId pattern_id) specificity = do
-  conn <- DbHelpers.get_connection conn_data
-  Right <$> execute conn sql (specificity, pattern_id)
+  -> SqlRead.DbIO (Either Text Int64)
+updatePatternSpecificity (ScanPatterns.PatternId pattern_id) specificity = do
+  conn <- ask
+  liftIO $ Right <$> execute conn sql (specificity, pattern_id)
   where
     sql = "UPDATE patterns SET specificity = ? WHERE id = ?;"
 
 
 insertSinglePattern ::
-     Connection
-  -> Either (ScanPatterns.Pattern, AuthStages.Username) (DbHelpers.WithAuthorship ScanPatterns.DbPattern)
-  -> IO Int64
-insertSinglePattern conn either_pattern = do
+     Either (ScanPatterns.Pattern, AuthStages.Username) (DbHelpers.WithAuthorship ScanPatterns.DbPattern)
+  -> SqlRead.DbIO Int64
+insertSinglePattern either_pattern = do
+  conn <- ask
+  liftIO $ do
+    [Only pattern_id] <- case maybe_id of
+      Nothing -> query conn pattern_insertion_sql (is_regex, pattern_text, description, is_retired, has_nondeterminisic_values, specificity, lines_from_end)
+      Just record_id -> query conn pattern_insertion_with_id_sql (record_id :: Int64, is_regex, pattern_text, description, is_retired, has_nondeterminisic_values, specificity, lines_from_end)
 
-  [Only pattern_id] <- case maybe_id of
-    Nothing -> query conn pattern_insertion_sql (is_regex, pattern_text, description, is_retired, has_nondeterminisic_values, specificity, lines_from_end)
-    Just record_id -> query conn pattern_insertion_with_id_sql (record_id :: Int64, is_regex, pattern_text, description, is_retired, has_nondeterminisic_values, specificity, lines_from_end)
+    case maybe_timestamp of
+      Just timestamp -> execute conn authorship_insertion_with_timestamp_sql (pattern_id, author, timestamp)
+      Nothing -> execute conn authorship_insertion_sql (pattern_id, author)
 
-  case maybe_timestamp of
-    Just timestamp -> execute conn authorship_insertion_with_timestamp_sql (pattern_id, author, timestamp)
-    Nothing -> execute conn authorship_insertion_sql (pattern_id, author)
+    for_ tags $ \tag ->
+      execute conn tag_insertion_sql (tag, pattern_id)
 
-  for_ tags $ \tag ->
-    execute conn tag_insertion_sql (tag, pattern_id)
+    for_ applicable_steps $ \applicable_step ->
+      execute conn applicable_step_insertion_sql (applicable_step, pattern_id)
 
-  for_ applicable_steps $ \applicable_step ->
-    execute conn applicable_step_insertion_sql (applicable_step, pattern_id)
-
-  return pattern_id
+    return pattern_id
 
   where
     pattern_text = ScanPatterns.pattern_text expression_obj
@@ -516,12 +508,10 @@ insertSinglePattern conn either_pattern = do
 
 
 restorePatterns ::
-     DbHelpers.DbConnectionData
-  -> [DbHelpers.WithAuthorship ScanPatterns.DbPattern]
-  -> IO (Either Text [Int64])
-restorePatterns conn_data pattern_list = do
-  conn <- DbHelpers.get_connection conn_data
-  eithers <- for pattern_list $ apiNewPattern conn . Right
+     [DbHelpers.WithAuthorship ScanPatterns.DbPattern]
+  -> SqlRead.DbIO (Either Text [Int64])
+restorePatterns pattern_list = do
+  eithers <- for pattern_list $ apiNewPattern . Right
   return $ sequenceA eithers
 
 
@@ -646,6 +636,58 @@ insertScanId conn maybe_initiator (ScanPatterns.PatternId pattern_id)  = do
     sql = "INSERT INTO scans(latest_pattern_id, initiator) VALUES(?,?) RETURNING id;"
 
 
+reportBreakage ::
+     SqlRead.AuthConnection
+  -> String
+  -> Int64
+  -> Bool
+  -> Builds.RawCommit
+  -> Builds.RawCommit
+  -> Text
+  -> ExceptT Text IO Int64
+reportBreakage
+    auth_conn@(SqlRead.AuthConnection conn user_alias)
+    jobs_delimited
+    failure_mode_id
+    is_still_ongoing
+    last_affected_sha1
+    breakage_sha1
+    notes = do
+
+  cause_id <- ExceptT $ SqlWrite.apiCodeBreakageCauseInsert
+    conn
+    breakage_report
+    jobs_list
+
+  ExceptT $ runReaderT
+    (SqlWrite.updateCodeBreakageMode cause_id failure_mode_id)
+    auth_conn
+
+  liftIO $ unless is_still_ongoing $ do
+    runExceptT $ do
+
+      (Builds.RawCommit resolution_sha1) <- ExceptT $
+        SqlRead.getNextMasterCommit conn last_affected_sha1
+
+      ExceptT $ SqlWrite.apiCodeBreakageResolutionInsert conn $
+        Breakages.NewResolutionReport
+          resolution_sha1
+          cause_id
+          user_alias
+
+    return ()
+
+  return cause_id
+
+  where
+    breakage_report = Breakages.NewBreakageReport
+      breakage_sha1
+      notes
+      user_alias
+
+    jobs_list = DbHelpers.cleanSemicolonDelimitedList jobs_delimited
+
+
 apiCodeBreakageCauseInsert ::
      Connection
   -> Breakages.BreakageReport
@@ -653,7 +695,7 @@ apiCodeBreakageCauseInsert ::
   -> IO (Either Text Int64)
 apiCodeBreakageCauseInsert
     conn
-    (Breakages.NewBreakageReport sha1 description (AuthStages.Username author_username))
+    (Breakages.NewBreakageReport (Builds.RawCommit sha1) description (AuthStages.Username author_username))
     job_names =
 
   catchViolation catcher $ do
@@ -671,6 +713,23 @@ apiCodeBreakageCauseInsert
 
     catcher _ (UniqueViolation some_error) = return $ Left $ "Insertion error: " <> T.pack (BS.unpack some_error)
     catcher e _                                  = throwIO e
+
+
+apiCodeBreakageResolutionInsertMultiple sha1 cause_ids_delimited = do
+
+  SqlRead.AuthConnection conn user_alias <- ask
+  let gen_resolution_report cause_id = Breakages.NewResolutionReport
+        sha1
+        cause_id
+        user_alias
+
+  liftIO $ do
+    insertion_eithers <- mapM (SqlWrite.apiCodeBreakageResolutionInsert conn . gen_resolution_report) cause_id_list
+    return $ sequenceA insertion_eithers
+
+  where
+    cause_id_list = map (read . T.unpack) $
+      DbHelpers.cleanSemicolonDelimitedList cause_ids_delimited
 
 
 apiCodeBreakageResolutionInsert ::
@@ -728,7 +787,7 @@ copyPattern conn_data pattern_id@(ScanPatterns.PatternId pat_id) username field_
 
   runExceptT $ do
 
-    p <- except $ maybeToEither (T.pack $ "Pattern with ID " ++ show pat_id ++ " not found.") $ Safe.headMay pattern_rows
+    p <- except $ maybeToEither (T.pack $ unwords ["Pattern with ID", show pat_id, "not found."]) $ Safe.headMay pattern_rows
 
     let (p_is_regex, p_has_nondeterministic_values, p_expression_text, p_description, p_tags_concatenated, p_steps_concatenated, p_specificity, p_maybe_lines_from_end) = p
         expression_text = Maybe.fromMaybe p_expression_text $ pat_expression field_overrides
@@ -744,7 +803,7 @@ copyPattern conn_data pattern_id@(ScanPatterns.PatternId pat_id) username field_
           (pat_lines_from_end field_overrides <|> p_maybe_lines_from_end)
 
     ExceptT $ do
-      new_id <- apiNewPattern conn $ Left (new_pattern, username)
+      new_id <- runReaderT (apiNewPattern $ Left (new_pattern, username)) conn
       retirePattern conn pattern_id
       return new_id
 
@@ -752,14 +811,24 @@ copyPattern conn_data pattern_id@(ScanPatterns.PatternId pat_id) username field_
     sql = "SELECT regex, has_nondeterministic_values, expression, description, tags, steps, specificity, lines_from_end FROM patterns_augmented WHERE id = ?;"
 
 
-apiNewPattern ::
-     Connection
-  -> Either (ScanPatterns.Pattern, AuthStages.Username) (DbHelpers.WithAuthorship ScanPatterns.DbPattern)
-  -> IO (Either Text Int64)
-apiNewPattern conn new_pattern =
+apiNewPatternWrapped ::
+     ScanPatterns.Pattern
+  -> SqlRead.AuthDbIO (Either Text Int64)
+apiNewPatternWrapped new_pattern = do
+  SqlRead.AuthConnection conn user <- ask
+  liftIO $ runReaderT (apiNewPattern $ Left (new_pattern, user)) conn
 
-  catchViolation catcher $ do
-    record_id <- insertSinglePattern conn new_pattern
+
+-- | TODO Is there a nicer way to propagate
+-- the ReaderT inside the catchViolation function
+-- without deconstructing/reconstructing it?
+apiNewPattern ::
+     Either (ScanPatterns.Pattern, AuthStages.Username) (DbHelpers.WithAuthorship ScanPatterns.DbPattern)
+  -> SqlRead.DbIO (Either Text Int64)
+apiNewPattern new_pattern = do
+  conn <- ask
+  liftIO $ catchViolation catcher $ do
+    record_id <- runReaderT (insertSinglePattern new_pattern) conn
     return $ Right record_id
 
   where

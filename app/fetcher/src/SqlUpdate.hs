@@ -123,17 +123,15 @@ getBuildInfo access_token build@(Builds.UniversalBuildId build_id) = do
 
 
 countRevisionBuilds ::
-     DbHelpers.DbConnectionData
-  -> OAuth2.AccessToken
+     OAuth2.AccessToken
   -> GitRev.GitSha1
-  -> IO (Either Text CommitInfo)
-countRevisionBuilds conn_data access_token git_revision = do
-  conn <- DbHelpers.get_connection conn_data
+  -> SqlRead.DbIO (Either Text CommitInfo)
+countRevisionBuilds access_token git_revision = do
+  conn <- ask
 
+  [(total, idiopathic, timeout, known_broken, pattern_matched, pattern_matched_other, flaky, pattern_unmatched, succeeded)] <- liftIO $ query conn aggregate_causes_sql only_commit
 
-  [(total, idiopathic, timeout, known_broken, pattern_matched, pattern_matched_other, flaky, pattern_unmatched, succeeded)] <- query conn aggregate_causes_sql only_commit
-
-  runExceptT $ do
+  liftIO $ runExceptT $ do
 
     breakages <- ExceptT $ findKnownBuildBreakages conn access_token pytorchRepoOwner $ Builds.RawCommit sha1
 

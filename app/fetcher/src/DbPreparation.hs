@@ -1,9 +1,9 @@
-{-# LANGUAGE DeriveGeneric     #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module DbPreparation where
 
 import           Control.Monad              (when)
+import           Control.Monad.Trans.Reader (runReaderT)
 import           Data.Foldable              (for_)
 import           Database.PostgreSQL.Simple
 
@@ -48,17 +48,17 @@ prepareDatabase conn_data wipe = do
   conn <- DbHelpers.get_connection conn_data
 
   when wipe $ do
-    scrub_tables conn
-    PatternsFetch.populatePatterns conn_data
+    scrubTables conn
+    runReaderT PatternsFetch.populatePatterns conn
     SqlWrite.populatePresumedStableBranches conn Constants.presumedGoodBranches
     return ()
   return conn
 
 
-scrub_tables :: Connection -> IO ()
-scrub_tables conn = do
+scrubTables :: Connection -> IO ()
+scrubTables conn =
 
-  for_ table_truncation_commands $ \table_truncation_command -> do
+  for_ table_truncation_commands $ \table_truncation_command ->
     execute_ conn table_truncation_command
 
   where

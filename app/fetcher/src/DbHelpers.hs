@@ -9,6 +9,7 @@ import qualified Data.HashMap.Strict                as HashMap
 import           Data.List                          (intercalate)
 import           Data.List.Split                    (splitOn)
 import           Data.Text                          (Text)
+import qualified Data.Text                          as T
 import           Data.Time                          (UTCTime)
 import           Database.PostgreSQL.Simple
 import           Database.PostgreSQL.Simple.FromRow (field, fromRow)
@@ -20,6 +21,9 @@ data OwnerAndRepo = OwnerAndRepo {
     owner :: String
   , repo  :: String
   }
+
+
+cleanSemicolonDelimitedList = filter (not . T.null) . map (T.strip . T.pack) . splitOn ";"
 
 
 splitAggText :: String -> [String]

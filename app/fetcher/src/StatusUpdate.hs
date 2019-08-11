@@ -22,6 +22,7 @@ import qualified Data.Text.Lazy                as LT
 import qualified Data.Time.Clock               as Clock
 import           Data.Traversable              (for)
 import           Data.Tuple                    (swap)
+import           Database.PostgreSQL.Simple    (Connection)
 import qualified GitHub.Data.Webhooks.Validate as GHValidate
 import qualified Network.OAuth.OAuth2          as OAuth2
 import qualified Network.URI                   as URI
@@ -113,14 +114,14 @@ getCircleciFailure sha1 event_setter = do
     url_text = StatusEventQuery._target_url event_setter
 
 
--- | TODO return Left for each universal build that violated its uniqueness constraint
+-- | TODO return Left for each universal build that
+-- violated its uniqueness constraint
 storeUniversalBuilds ::
-     DbHelpers.DbConnectionData
+     Connection
   -> Builds.RawCommit
   -> [([StatusEventQuery.GitHubStatusEventGetter], DbHelpers.WithId String)]
   -> IO [(Builds.StorableBuild, (StatusEventQuery.GitHubStatusEventGetter, String))]
-storeUniversalBuilds conn_data commit statuses_by_ci_providers = do
-  conn <- DbHelpers.get_connection conn_data
+storeUniversalBuilds conn commit statuses_by_ci_providers = do
 
   result_lists <- for statuses_by_ci_providers $ \(statuses, provider_with_id) -> do
 
@@ -153,6 +154,7 @@ extractUniversalBuild commit provider_with_id status_object = case DbHelpers.rec
           did_succeed
           commit
     return (circle_build, uni_build)
+
   "ci.pytorch.org" -> Nothing
   "travis-ci.org"  -> Nothing
   _                -> Nothing
@@ -166,7 +168,7 @@ extractUniversalBuild commit provider_with_id status_object = case DbHelpers.rec
 -- * Scan each CircleCI build that needs to be scanned.
 -- * For each match, check if that match's pattern is tagged as "flaky".
 handleFailedStatuses ::
-     DbHelpers.DbConnectionData
+     Connection
   -> OAuth2.AccessToken
   -> Maybe AuthStages.Username -- ^ scan initiator
   -> DbHelpers.OwnerAndRepo
@@ -174,7 +176,7 @@ handleFailedStatuses ::
   -> Maybe (Text, Text)
   -> ExceptT LT.Text IO ()
 handleFailedStatuses
-    db_connection_data
+    conn
     access_token
     maybe_initiator
     owned_repo
@@ -185,9 +187,15 @@ handleFailedStatuses
     current_time <- Clock.getCurrentTime
     MyUtils.debugList ["Processing at ", show current_time]
 
-  build_statuses_list_any_source <- ExceptT $ GithubApiFetch.getBuildStatuses access_token owned_repo sha1
+  build_statuses_list_any_source <- ExceptT $ GithubApiFetch.getBuildStatuses
+    access_token
+    owned_repo
+    sha1
 
-  liftIO $ MyUtils.debugList ["Build statuses count:", show $ length build_statuses_list_any_source]
+  liftIO $ MyUtils.debugList [
+      "Build statuses count:"
+    , show $ length build_statuses_list_any_source
+    ]
 
   let statuses_list_not_mine = filter is_not_my_own_context build_statuses_list_any_source
 
@@ -195,15 +203,12 @@ handleFailedStatuses
 
       statuses_by_hostname = groupStatusesByHostname succeeded_or_failed_statuses
 
-  statuses_by_ci_providers <- liftIO $ SqlWrite.getAndStoreCIProviders db_connection_data statuses_by_hostname
+  statuses_by_ci_providers <- liftIO $ SqlWrite.getAndStoreCIProviders conn statuses_by_hostname
 
-  -- debug info:
-  let provider_keys = map (DbHelpers.db_id . snd) statuses_by_ci_providers
-  liftIO $ MyUtils.debugList ["Provider DB keys:", show provider_keys]
 
   -- Only store succeeded or failed builds; ignore pending or aborted
   stored_build_tuples <- liftIO $ storeUniversalBuilds
-    db_connection_data
+    conn
     sha1
     statuses_by_ci_providers
 
@@ -217,7 +222,10 @@ handleFailedStatuses
 
       circleci_failcount = length circleci_failed_builds
 
-  liftIO $ putStrLn $ "Failed CircleCI build count: " ++ show circleci_failcount
+  liftIO $ MyUtils.debugList [
+      "Failed CircleCI build count:"
+    , show circleci_failcount
+    ]
 
   -- XXX TEMPORARILY DISABLED FOR PERFORMANCE REASONS
   let known_breakages = []
@@ -231,7 +239,6 @@ handleFailedStatuses
 
 
   builds_with_flaky_pattern_matches <- liftIO $ do
-    conn <- DbHelpers.get_connection db_connection_data
     scan_resources <- Scanning.prepareScanResources conn maybe_initiator
 
     SqlWrite.storeBuildsList conn $ map (\(Builds.StorableBuild (DbHelpers.WithId ubuild_id _ubuild) rbuild) -> DbHelpers.WithTypedId (Builds.UniversalBuildId ubuild_id) rbuild) circleci_failed_builds
@@ -264,7 +271,12 @@ handleFailedStatuses
           sha1
           status_setter_data
 
-        liftIO $ SqlWrite.insert_posted_github_status db_connection_data sha1 owned_repo post_result
+        liftIO $ SqlWrite.insertPostedGithubStatus
+          conn
+          sha1
+          owned_repo
+          post_result
+
         return ()
 
   case maybe_previously_posted_status of
@@ -331,11 +343,17 @@ handleStatusWebhook
     maybe_initiator
     status_event = do
 
-  liftIO $ putStrLn $ "Notified status context was: " ++ notified_status_context_string
+  liftIO $ MyUtils.debugList [
+      "Notified status context was:"
+    , notified_status_context_string
+    ]
 
   let notified_status_url_string = LT.unpack $ Webhooks.target_url status_event
   when (circleCIContextPrefix `T.isPrefixOf` notified_status_context_text) $
-    liftIO $ putStrLn $ "CircleCI URL was: " ++ notified_status_url_string
+    liftIO $ MyUtils.debugList [
+        "CircleCI URL was:"
+      , notified_status_url_string
+      ]
 
   let owner_repo_text = Webhooks.name status_event
       splitted = splitOn "/" $ LT.unpack owner_repo_text
@@ -346,15 +364,18 @@ handleStatusWebhook
       [org, repo] -> Right $ DbHelpers.OwnerAndRepo org repo
       _ -> Left $ "un-parseable owner/repo text: " <> owner_repo_text
 
-    maybe_previously_posted_status <- liftIO $ SqlRead.getPostedGithubStatus
-      db_connection_data
-      owned_repo
-      sha1
+    maybe_previously_posted_status <- liftIO $ do
+      conn <- DbHelpers.get_connection db_connection_data
+      SqlRead.getPostedGithubStatus
+        conn
+        owned_repo
+        sha1
 
     let computation = do
+          conn <- DbHelpers.get_connection db_connection_data
           runExceptT $
             handleFailedStatuses
-              db_connection_data
+              conn
               access_token
               maybe_initiator
               owned_repo
@@ -381,6 +402,7 @@ handleStatusWebhook
     context_text = Webhooks.context status_event
     notified_status_context_string = LT.unpack context_text
     notified_status_context_text = LT.toStrict context_text
+
     is_not_my_own_context = notified_status_context_text /= myAppStatusContext
     sha1 = Builds.RawCommit $ LT.toStrict $ Webhooks.sha status_event
 

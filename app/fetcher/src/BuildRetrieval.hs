@@ -133,7 +133,10 @@ fetchCircleCIBuildsRecurse sess branch_name offset earliest_requested_time max_b
 
         -- TODO use this time value
         Just earliest_build_time ->
-          MyUtils.debugList ["Earliest build time found:", show earliest_build_time]
+          MyUtils.debugList [
+              "Earliest build time found:"
+            , show earliest_build_time
+            ]
 
 
       let next_offset = offset + fetched_build_count
@@ -183,7 +186,7 @@ getSingleBuildList sess branch_name limit offset = do
   where
     fetch_url = getBuildListUrl branch_name
     opts = defaults
-      & header "Accept" .~ [Constants.json_mime_type]
+      & header "Accept" .~ [Constants.jsonMimeType]
       & param "shallow" .~ ["true"]
       & param "filter" .~ ["failed"]
       & param "offset" .~ [T.pack $ show offset]

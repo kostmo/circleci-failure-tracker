@@ -31,6 +31,7 @@ import           GHC.Generics
 import           GHC.Int                              (Int64)
 import qualified Safe
 
+import qualified AuthStages
 import qualified BuildResults
 import qualified Builds
 import qualified CommitBuilds
@@ -48,6 +49,16 @@ import qualified WeeklyStats
 
 
 type DbIO a = ReaderT Connection IO a
+
+
+type AuthDbIO a = ReaderT AuthConnection IO a
+
+
+-- | For use with ReaderT
+data AuthConnection = AuthConnection {
+    getConn :: Connection
+  , getUser :: AuthStages.Username
+  }
 
 
 runQuery sql = do
@@ -129,12 +140,12 @@ getUnvisitedBuildIds conn maybe_limit = do
 
 
 getUniversalBuilds ::
-     Connection
-  -> Builds.UniversalBuildId -- ^ oldest build number
+     Builds.UniversalBuildId -- ^ oldest build number
   -> Int -- ^ limit
-  -> IO [DbHelpers.WithId Builds.UniversalBuild]
-getUniversalBuilds conn (Builds.UniversalBuildId oldest_universal_build_num) limit =
-  query conn sql (oldest_universal_build_num, limit)
+  -> DbIO [DbHelpers.WithId Builds.UniversalBuild]
+getUniversalBuilds (Builds.UniversalBuildId oldest_universal_build_num) limit = do
+  conn <- ask
+  liftIO $ query conn sql (oldest_universal_build_num, limit)
   where
     sql = "SELECT id, build_number, provider, build_namespace, succeeded, commit_sha1 FROM universal_builds WHERE id >= ? ORDER BY id ASC LIMIT ?;"
 
@@ -337,11 +348,10 @@ apiCommitJobs (Builds.RawCommit sha1) = do
 
 
 getNextMasterCommit ::
-     DbHelpers.DbConnectionData
+     Connection
   -> Builds.RawCommit
   -> IO (Either Text Builds.RawCommit)
-getNextMasterCommit conn_data (Builds.RawCommit current_git_revision) = do
-  conn <- DbHelpers.get_connection conn_data
+getNextMasterCommit conn (Builds.RawCommit current_git_revision) = do
   rows <- query conn sql $ Only current_git_revision
 
   let mapped_rows = map (\(Only x) -> Builds.RawCommit x) rows
@@ -719,12 +729,11 @@ instance FromRow CommitBuilds.CommitBuild where
 
 
 getRevisionBuilds ::
-     DbHelpers.DbConnectionData
-  -> GitRev.GitSha1
-  -> IO [CommitBuilds.CommitBuild]
-getRevisionBuilds conn_data git_revision = do
-  conn <- DbHelpers.get_connection conn_data
-  query conn sql $ Only $ GitRev.sha1 git_revision
+     GitRev.GitSha1
+  -> DbIO [CommitBuilds.CommitBuild]
+getRevisionBuilds git_revision = do
+  conn <- ask
+  liftIO $ query conn sql $ Only $ GitRev.sha1 git_revision
 
   where
     sql = "SELECT step_name, match_id, build, vcs_revision, queued_at, job_name, branch, pattern_id, line_number, line_count, line_text, span_start, span_end, specificity, universal_build, provider, build_namespace, succeeded, label, icon_url, started_at, finished_at FROM best_pattern_match_augmented_builds JOIN ci_providers ON ci_providers.id = best_pattern_match_augmented_builds.provider WHERE vcs_revision = ?;"
@@ -999,25 +1008,26 @@ instance ToJSON ScanTestResponse where
 
 
 apiNewPatternTest ::
-     DbHelpers.DbConnectionData
-  -> Builds.UniversalBuildId
+     Builds.UniversalBuildId
   -> ScanPatterns.Pattern
-  -> IO (Either String ScanTestResponse)
-apiNewPatternTest conn_data universal_build_id new_pattern = do
-
-  conn <- DbHelpers.get_connection conn_data
-
-  storable_build <- SqlRead.getGlobalBuild conn universal_build_id
+  -> DbIO (Either String ScanTestResponse)
+apiNewPatternTest universal_build_id new_pattern = do
+  conn <- ask
+  storable_build <- liftIO $ SqlRead.getGlobalBuild conn universal_build_id
   let provider_build_number = Builds.build_id $ Builds.build_record storable_build
 
   -- TODO consolidate with Scanning.scan_log
   -- TODO SqlRead.readLog should accept a universal build number
-  maybe_console_log <- SqlRead.readLog conn universal_build_id
+  maybe_console_log <- liftIO $ SqlRead.readLog conn universal_build_id
 
   return $ case maybe_console_log of
     Just console_log -> Right $ ScanTestResponse (length $ T.lines console_log) $
-      Maybe.mapMaybe apply_pattern $ zip [0::Int ..] $ map T.stripEnd $ T.lines console_log
-    Nothing -> Left $ "No log found for build number " ++ show provider_build_number
+      Maybe.mapMaybe apply_pattern $ zip [0::Int ..] $
+        map T.stripEnd $ T.lines console_log
+    Nothing -> Left $ unwords [
+        "No log found for build number"
+      , show provider_build_number
+      ]
 
   where
     apply_pattern :: (Int, Text) -> Maybe ScanPatterns.ScanMatch
@@ -1229,13 +1239,11 @@ getBestPatternMatchesWhitelistedBranches pat@(ScanPatterns.PatternId pattern_id)
 
 
 getPostedGithubStatus ::
-     DbHelpers.DbConnectionData
+     Connection
   -> DbHelpers.OwnerAndRepo
   -> Builds.RawCommit
   -> IO (Maybe (Text, Text))
-getPostedGithubStatus conn_data (DbHelpers.OwnerAndRepo project repo) (Builds.RawCommit sha1) = do
-
-  conn <- DbHelpers.get_connection conn_data
+getPostedGithubStatus conn (DbHelpers.OwnerAndRepo project repo) (Builds.RawCommit sha1) = do
 
   xs <- query conn sql (sha1, project, repo)
   return $ Safe.headMay xs
@@ -1272,37 +1280,36 @@ instance ToJSON LogContext where
 
 
 logContextFunc ::
-     DbHelpers.DbConnectionData
-  -> MatchOccurrences.MatchId
+     MatchOccurrences.MatchId
   -> Int
-  -> IO (Either Text LogContext)
-logContextFunc connection_data (MatchOccurrences.MatchId match_id) context_linecount = do
-  conn <- DbHelpers.get_connection connection_data
+  -> DbIO (Either Text LogContext)
+logContextFunc (MatchOccurrences.MatchId match_id) context_linecount = do
+  conn <- ask
+  liftIO $ do
+    xs <- query conn sql $ Only match_id
+    let maybe_first_row = Safe.headMay xs
 
-  xs <- query conn sql $ Only match_id
-  let maybe_first_row = Safe.headMay xs
+    runExceptT $ do
+      first_row <- except $ maybeToEither (T.pack $ unwords ["Match ID", show match_id, "not found"]) maybe_first_row
 
-  runExceptT $ do
-    first_row <- except $ maybeToEither (T.pack $ unwords ["Match ID", show match_id, "not found"]) maybe_first_row
+      let (build_num, line_number, span_start, span_end, line_text, universal_build) = first_row
+          match_info = ScanPatterns.NewMatchDetails line_text line_number $ ScanPatterns.NewMatchSpan span_start span_end
+          wrapped_build_num = Builds.NewBuildNumber build_num
 
-    let (build_num, line_number, span_start, span_end, line_text, universal_build) = first_row
-        match_info = ScanPatterns.NewMatchDetails line_text line_number $ ScanPatterns.NewMatchSpan span_start span_end
-        wrapped_build_num = Builds.NewBuildNumber build_num
+      maybe_log <- liftIO $ SqlRead.readLog conn universal_build
+      console_log <- except $ maybeToEither "log not in database" maybe_log
 
-    maybe_log <- liftIO $ SqlRead.readLog conn universal_build
-    console_log <- except $ maybeToEither "log not in database" maybe_log
+      let log_lines = T.lines console_log
 
-    let log_lines = T.lines console_log
+          first_context_line = max 0 $ line_number - context_linecount
 
-        first_context_line = max 0 $ line_number - context_linecount
+          tuples = zip [first_context_line..] $ take (2 * context_linecount + 1) $ drop first_context_line log_lines
 
-        tuples = zip [first_context_line..] $ take (2 * context_linecount + 1) $ drop first_context_line log_lines
-
-    return $ LogContext
-      match_info
-      tuples
-      wrapped_build_num
-      universal_build
+      return $ LogContext
+        match_info
+        tuples
+        wrapped_build_num
+        universal_build
 
   where
     sql = "SELECT build_num, line_number, span_start, span_end, line_text, universal_build FROM matches_with_log_metadata WHERE id = ?"
