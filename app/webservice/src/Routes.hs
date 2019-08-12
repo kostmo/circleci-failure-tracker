@@ -7,6 +7,7 @@ import           Control.Monad.IO.Class          (liftIO)
 import           Control.Monad.Trans.Except      (ExceptT (ExceptT), except,
                                                   runExceptT)
 import           Control.Monad.Trans.Reader      (runReaderT)
+import           Data.Aeson                      (ToJSON)
 import           Data.Default                    (def)
 import           Data.Either.Utils               (maybeToEither)
 import           Data.String                     (fromString)
@@ -94,10 +95,10 @@ scottyApp
         <$> (Builds.RawCommit <$> S.param "sha1")
 
   S.post "/api/populate-master-commits" $
-    FrontendHelpers.postWithAdminToken connection_data github_config SqlWrite.storeMasterCommits
+    FrontendHelpers.requireAdminToken connection_data github_config SqlWrite.storeMasterCommits
 
   S.post "/api/populate-master-commit-metadata" $
-    FrontendHelpers.postWithAdminToken connection_data github_config SqlWrite.storeCommitMetadata
+    FrontendHelpers.requireAdminToken connection_data github_config SqlWrite.storeCommitMetadata
 
 
     -- TODO FINISH ME
@@ -419,4 +420,6 @@ scottyApp
     post x y = S.post x $
       FrontendHelpers.jsonAuthorizedDbInteract connection_data session github_config y
 
+    withAuth :: ToJSON a => ScottyTypes.ActionT LT.Text IO (SqlRead.AuthDbIO (Either Text a))
+                      -> ScottyTypes.ActionT LT.Text IO ()
     withAuth = FrontendHelpers.postWithAuthentication connection_data github_config session

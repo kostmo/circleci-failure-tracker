@@ -3,7 +3,7 @@
 module FrontendHelpers where
 
 import           Control.Monad              (when)
-import           Control.Monad.IO.Class     (liftIO)
+import           Control.Monad.IO.Class     (MonadIO, liftIO)
 import           Control.Monad.Trans.Except (ExceptT (ExceptT), except,
                                              runExceptT)
 import           Control.Monad.Trans.Reader (ReaderT, ask, runReaderT)
@@ -234,12 +234,12 @@ breakageResolutionReport connection_data session github_config = do
     S.json $ WebApi.toJsonEither insertion_result
 
 
-postWithAdminToken :: (FromJSON t, ToJSON b) =>
+requireAdminToken :: (FromJSON t, ToJSON b) =>
      DbHelpers.DbConnectionData
   -> AuthConfig.GithubConfig
   -> (Connection -> t -> IO (Either Text b))
   -> ScottyTypes.ActionT LT.Text IO ()
-postWithAdminToken connection_data github_config f = do
+requireAdminToken connection_data github_config f = do
     body_json <- S.jsonData
     maybe_auth_header <- S.header "token"
 
@@ -255,6 +255,12 @@ postWithAdminToken connection_data github_config f = do
     S.json $ WebApi.toJsonEither insertion_result
 
 
+postWithAuthentication :: ToJSON a =>
+     DbHelpers.DbConnectionData
+  -> AuthConfig.GithubConfig
+  -> Vault.Key (Session IO String String)
+  -> ScottyTypes.ActionT LT.Text IO (ReaderT SqlRead.AuthConnection IO (Either Text a))
+  -> ScottyTypes.ActionT LT.Text IO ()
 postWithAuthentication connection_data github_config session f = do
 
   func <- f
@@ -267,6 +273,10 @@ postWithAuthentication connection_data github_config session f = do
   S.json $ DbInsertion.toInsertionResponse github_config insertion_result
 
 
+rescanCommitCallback :: (MonadIO m) =>
+     AuthConfig.GithubConfig
+  -> Builds.RawCommit
+  -> ReaderT SqlRead.AuthConnection m (Either Text Text)
 rescanCommitCallback github_config commit = do
   SqlRead.AuthConnection conn user_alias <- ask
 
@@ -285,7 +295,7 @@ rescanCommitCallback github_config commit = do
         commit
         maybe_previously_posted_status
 
-    return $ first LT.toStrict $ run_result $> 0
+    return $ first LT.toStrict $ run_result $> "Commit rescan complete."
 
   where
     owned_repo = DbHelpers.OwnerAndRepo Constants.project_name Constants.repo_name

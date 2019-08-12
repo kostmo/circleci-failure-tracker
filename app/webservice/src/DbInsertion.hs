@@ -7,7 +7,7 @@ module DbInsertion (toInsertionResponse) where
 import           Data.Aeson
 import           Data.Text    (Text)
 import           GHC.Generics
-import           GHC.Int      (Int64)
+
 
 import qualified AuthConfig
 import qualified AuthStages
@@ -39,10 +39,10 @@ backendFailureToResponse auth_config failure_mode =
       in JsonUtils.ErrorDetails db_failure_reason inner
 
 
-toInsertionResponse ::
+toInsertionResponse :: ToJSON a =>
      AuthConfig.GithubConfig
-  -> Either (AuthStages.BackendFailure Text) Int64
-  -> WebApi.JsonEither BackendFailureResponse Int64
+  -> Either (AuthStages.BackendFailure Text) a
+  -> WebApi.JsonEither BackendFailureResponse a
 toInsertionResponse auth_config interaction_result = case interaction_result of
   Right record_id   -> WebApi.JsonEither True Nothing $ Just record_id
   Left failure_mode -> backendFailureToResponse auth_config failure_mode

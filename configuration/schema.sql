@@ -1350,6 +1350,21 @@ CREATE VIEW public.known_breakage_summaries WITH (security_barrier='false') AS
 ALTER TABLE public.known_breakage_summaries OWNER TO postgres;
 
 --
+-- Name: latest_pattern_scanned_for_build_step; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.latest_pattern_scanned_for_build_step AS
+ SELECT DISTINCT ON (build_steps_deduped_mitigation.id) build_steps_deduped_mitigation.id AS step_id,
+    COALESCE(scanned_patterns.newest_pattern, '-1'::integer) AS latest_pattern
+   FROM (public.build_steps_deduped_mitigation
+     LEFT JOIN public.scanned_patterns ON ((scanned_patterns.step_id = build_steps_deduped_mitigation.id)))
+  WHERE ((build_steps_deduped_mitigation.name IS NOT NULL) AND (NOT build_steps_deduped_mitigation.is_timeout))
+  ORDER BY build_steps_deduped_mitigation.id, COALESCE(scanned_patterns.newest_pattern, '-1'::integer) DESC;
+
+
+ALTER TABLE public.latest_pattern_scanned_for_build_step OWNER TO postgres;
+
+--
 -- Name: master_contiguous_failures; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -2299,11 +2314,9 @@ CREATE VIEW public.unscanned_patterns WITH (security_barrier='false') AS
      JOIN ( SELECT string_agg((patterns.id)::text, ';'::text) AS unscanned_patterns_delimited,
             count(patterns.id) AS unscanned_pattern_count,
             foo.step_id
-           FROM (( SELECT build_steps_deduped_mitigation.id AS step_id,
-                    COALESCE(scanned_patterns.newest_pattern, '-1'::integer) AS latest_pattern
-                   FROM (public.build_steps_deduped_mitigation
-                     LEFT JOIN public.scanned_patterns ON ((scanned_patterns.step_id = build_steps_deduped_mitigation.id)))
-                  WHERE ((build_steps_deduped_mitigation.name IS NOT NULL) AND (NOT build_steps_deduped_mitigation.is_timeout))) foo
+           FROM (( SELECT latest_pattern_scanned_for_build_step.step_id,
+                    latest_pattern_scanned_for_build_step.latest_pattern
+                   FROM public.latest_pattern_scanned_for_build_step) foo
              JOIN public.patterns ON ((patterns.id > foo.latest_pattern)))
           GROUP BY foo.step_id) bar ON ((builds_join_steps.step_id = bar.step_id)));
 
@@ -2335,8 +2348,8 @@ ALTER TABLE public.unvisited_builds OWNER TO postgres;
 CREATE VIEW public.upstream_breakages_weekly_aggregation AS
  SELECT date_trunc('week'::text, known_breakage_summaries.breakage_commit_date) AS week,
     count(*) AS distinct_breakages,
-    sum(known_breakage_summaries.downstream_broken_commit_count) AS downstream_broken_commit_count,
-    sum(known_breakage_summaries.failed_downstream_build_count) AS downstream_broken_build_count
+    (sum(known_breakage_summaries.downstream_broken_commit_count))::integer AS downstream_broken_commit_count,
+    (sum(known_breakage_summaries.failed_downstream_build_count))::integer AS downstream_broken_build_count
    FROM public.known_breakage_summaries
   GROUP BY (date_trunc('week'::text, known_breakage_summaries.breakage_commit_date))
   ORDER BY (date_trunc('week'::text, known_breakage_summaries.breakage_commit_date)) DESC;
@@ -3396,6 +3409,13 @@ GRANT ALL ON TABLE public.pr_impact_cause_summary TO logan;
 --
 
 GRANT ALL ON TABLE public.known_breakage_summaries TO logan;
+
+
+--
+-- Name: TABLE latest_pattern_scanned_for_build_step; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.latest_pattern_scanned_for_build_step TO logan;
 
 
 --

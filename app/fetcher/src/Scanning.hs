@@ -83,11 +83,11 @@ scanBuilds scan_resources revisit whitelisted_builds_or_fetch_count = do
 
 rescanSingleBuildWrapped ::
      Builds.UniversalBuildId
-  -> SqlRead.AuthDbIO (Either a Int64)
+  -> SqlRead.AuthDbIO (Either a T.Text)
 rescanSingleBuildWrapped build_to_scan = do
   SqlRead.AuthConnection conn user <- ask
   liftIO $ rescanSingleBuild conn user build_to_scan
-  return $ Right 0
+  return $ Right "Build rescan complete."
 
 
 rescanSingleBuild ::
