@@ -2,7 +2,7 @@ module ScanRecords where
 
 import           Data.HashMap.Strict        (HashMap)
 import qualified Data.HashMap.Strict        as HashMap
-import           Data.Text                  (Text)
+import           Data.Text.Lazy             (Text)
 import           Database.PostgreSQL.Simple (Connection)
 import           GHC.Int                    (Int64)
 import qualified Network.Wreq.Session       as Sess
@@ -16,10 +16,11 @@ data UnidentifiedBuildFailure = NetworkProblem String | NoFailedSteps
 
 
 data LogInfo = LogInfo {
-    log_byte_count             :: Int
+    log_byte_count             :: Int64
   , log_line_count             :: Int
   , log_content                :: Text
   , modified_by_ansi_stripping :: Bool
+  , was_truncated_for_size     :: Bool
   }
 
 
@@ -38,5 +39,5 @@ data ScanCatchupResources = ScanCatchupResources {
   }
 
 
-get_patterns_with_id :: ScanCatchupResources -> [ScanPatterns.DbPattern]
-get_patterns_with_id = map (uncurry DbHelpers.WithId) . HashMap.toList . patterns_by_id
+getPatternsWithId :: ScanCatchupResources -> [ScanPatterns.DbPattern]
+getPatternsWithId = map (uncurry DbHelpers.WithId) . HashMap.toList . patterns_by_id

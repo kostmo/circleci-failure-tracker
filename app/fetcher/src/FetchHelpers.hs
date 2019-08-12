@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 module FetchHelpers where
 
 import qualified Control.Exception     as E
@@ -13,7 +11,7 @@ import           Network.Wreq          as NW
 safeGetUrl ::
      IO (Response LBS.ByteString)
   -> IO (Either String (Response LBS.ByteString))
-safeGetUrl f = do
+safeGetUrl f =
   (Right <$> f) `E.catch` handler
   where
     handler :: HttpException -> IO (Either String (Response LBS.ByteString))

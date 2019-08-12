@@ -207,7 +207,8 @@ CREATE TABLE public.log_metadata (
     byte_count integer NOT NULL,
     step integer NOT NULL,
     content text,
-    modified_by_ansi_stripping boolean
+    modified_by_ansi_stripping boolean,
+    was_truncated_for_size boolean DEFAULT false NOT NULL
 );
 
 
@@ -2886,7 +2887,7 @@ ALTER TABLE ONLY public.code_breakage_resolution
 --
 
 ALTER TABLE ONLY public.builds
-    ADD CONSTRAINT fk_global_buildnum FOREIGN KEY (global_build_num) REFERENCES public.universal_builds(id);
+    ADD CONSTRAINT fk_global_buildnum FOREIGN KEY (global_build_num) REFERENCES public.universal_builds(id) ON DELETE CASCADE;
 
 
 --
@@ -2926,7 +2927,7 @@ ALTER TABLE ONLY public.scanned_patterns
 --
 
 ALTER TABLE ONLY public.build_steps
-    ADD CONSTRAINT fk_ubuild FOREIGN KEY (universal_build) REFERENCES public.universal_builds(id);
+    ADD CONSTRAINT fk_ubuild FOREIGN KEY (universal_build) REFERENCES public.universal_builds(id) ON DELETE CASCADE;
 
 
 --

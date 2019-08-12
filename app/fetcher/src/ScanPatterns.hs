@@ -6,6 +6,7 @@ module ScanPatterns where
 
 import           Data.Aeson
 import           Data.Text                            (Text)
+import qualified Data.Text.Lazy                       as LT
 import           Database.PostgreSQL.Simple           (FromRow)
 import           Database.PostgreSQL.Simple.FromField (FromField, fromField)
 import           GHC.Generics
@@ -42,20 +43,20 @@ toMatchExpression is_regex expression is_deterministic = if is_regex
   else ScanPatterns.LiteralExpression expression
 
 
-is_regex :: MatchExpression -> Bool
-is_regex = \case
+isRegex :: MatchExpression -> Bool
+isRegex = \case
   RegularExpression _ _ -> True
   LiteralExpression _   -> False
 
 
-is_nondeterministic :: MatchExpression -> Bool
-is_nondeterministic = \case
+isNondeterministic :: MatchExpression -> Bool
+isNondeterministic = \case
   RegularExpression _ x -> x
   LiteralExpression _   -> False
 
 
-pattern_text :: MatchExpression -> Text
-pattern_text = \case
+patternText :: MatchExpression -> Text
+patternText = \case
   RegularExpression x _ -> x
   LiteralExpression x -> x
 
@@ -87,7 +88,7 @@ instance FromJSON MatchSpan
 
 
 data MatchDetails = NewMatchDetails {
-    line_text   :: Text
+    line_text   :: LT.Text
   , line_number :: Int
   , span        :: MatchSpan
   } deriving Generic

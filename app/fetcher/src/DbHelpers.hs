@@ -59,7 +59,7 @@ instance (ToJSON a, ToJSON b) => ToJSON (WithTypedId a b)
 data WithId a = WithId {
     db_id  :: Int64
   , record :: a
-  } deriving Generic
+  } deriving (Show, Generic)
 
 instance ToJSON a => ToJSON (WithId a)
 instance FromJSON a => FromJSON (WithId a)

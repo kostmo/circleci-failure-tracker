@@ -5,7 +5,7 @@ module Scanning where
 import           Control.Lens               hiding ((<.>))
 import           Control.Monad.IO.Class     (liftIO)
 import           Control.Monad.Trans.Except (ExceptT (ExceptT), runExceptT)
-import           Control.Monad.Trans.Reader (ask)
+import           Control.Monad.Trans.Reader (ask, runReaderT)
 import           Data.Aeson                 (Value)
 import           Data.Aeson.Lens            (key, _Array, _Bool, _String)
 import           Data.Bifunctor             (first)
@@ -17,19 +17,18 @@ import qualified Data.Maybe                 as Maybe
 import           Data.Set                   (Set)
 import qualified Data.Set                   as Set
 import qualified Data.Text                  as T
+import qualified Data.Text.Lazy             as LT
 import           Data.Traversable           (for)
-import qualified Data.Vector                as V
 import           Database.PostgreSQL.Simple (Connection)
 import           GHC.Int                    (Int64)
 import           Network.Wreq               as NW
 import qualified Network.Wreq.Session       as Sess
 import qualified Safe
-import           Text.Regex                 (mkRegex, subRegex)
-import           Text.Regex.Posix.Wrap      (Regex)
 
 import qualified AuthStages
 import qualified Builds
 import qualified CircleBuild
+import qualified CircleCIParse
 import qualified Constants
 import qualified DbHelpers
 import qualified FetchHelpers
@@ -46,9 +45,10 @@ import qualified SqlWrite
 scanBuilds ::
      ScanRecords.ScanCatchupResources
   -> Bool -- ^ revisit
+  -> Bool -- ^ refetch logs
   -> Either (Set Builds.UniversalBuildId) Int
   -> IO [(DbHelpers.WithId Builds.UniversalBuild, [ScanPatterns.ScanMatch])]
-scanBuilds scan_resources revisit whitelisted_builds_or_fetch_count = do
+scanBuilds scan_resources revisit refetch_logs whitelisted_builds_or_fetch_count = do
 
   rescan_matches <- if revisit
     then do
@@ -56,7 +56,10 @@ scanBuilds scan_resources revisit whitelisted_builds_or_fetch_count = do
         Left whitelisted_build_ids -> SqlRead.getRevisitableWhitelistedBuilds conn $ Set.toAscList whitelisted_build_ids
         Right _ -> SqlRead.getRevisitableBuilds conn
       let whitelisted_visited = visited_filter visited_builds_list
-      rescanVisitedBuilds scan_resources whitelisted_visited
+      rescanVisitedBuilds
+        scan_resources
+        refetch_logs
+        whitelisted_visited
 
     else do
       putStrLn "NOT rescanning previously-visited builds!"
@@ -90,6 +93,7 @@ rescanSingleBuildWrapped build_to_scan = do
   return $ Right "Build rescan complete."
 
 
+-- | Does not re-download the log from AWS
 rescanSingleBuild ::
      Connection
   -> AuthStages.Username
@@ -101,11 +105,11 @@ rescanSingleBuild conn initiator build_to_scan = do
 
   scan_resources <- prepareScanResources conn $ Just initiator
 
-  parent_build <- SqlRead.getGlobalBuild conn build_to_scan
+  parent_build <- runReaderT (SqlRead.lookupUniversalBuild build_to_scan) conn
 
   either_visitation_result <- getCircleCIFailedBuildInfo
     scan_resources
-    (Builds.provider_buildnum $ DbHelpers.record $ Builds.universal_build parent_build)
+    (Builds.provider_buildnum $ DbHelpers.record parent_build)
 
   -- Note that the Left/Right convention is backwards!
   case either_visitation_result of
@@ -119,8 +123,11 @@ rescanSingleBuild conn initiator build_to_scan = do
       -- from information we obtained from an API fetch
       SqlWrite.storeBuildsList conn [DbHelpers.WithTypedId build_to_scan build_obj]
 
-      scan_matches <- scanBuilds scan_resources True $
-        Left $ Set.singleton build_to_scan
+      scan_matches <- scanBuilds
+        scan_resources
+        True
+        False -- Do not re-download log
+        (Left $ Set.singleton build_to_scan)
 
       let total_match_count = sum $ map (length . snd) scan_matches
       MyUtils.debugList [
@@ -190,6 +197,7 @@ getPatternObjects scan_resources =
 -- to any step.
 catchupScan ::
      ScanRecords.ScanCatchupResources
+  -> Bool -- ^ should overwrite log
   -> Builds.BuildStepId
   -> T.Text -- ^ step name
   -> (DbHelpers.WithId Builds.UniversalBuild, Maybe Builds.BuildFailureOutput)
@@ -197,6 +205,7 @@ catchupScan ::
   -> IO (Either String [ScanPatterns.ScanMatch])
 catchupScan
     scan_resources
+    overwrite_log
     buildstep_id
     step_name
     (universal_build_obj, maybe_console_output_url)
@@ -229,7 +238,7 @@ catchupScan
 
       lines_list <- ExceptT $ getAndStoreLog
         scan_resources
-        False
+        overwrite_log
         universal_build_obj
         buildstep_id
         maybe_console_output_url
@@ -250,9 +259,10 @@ catchupScan
 
 rescanVisitedBuilds ::
      ScanRecords.ScanCatchupResources
+  -> Bool -- ^ refetch logs
   -> [(Builds.BuildStepId, T.Text, DbHelpers.WithId Builds.UniversalBuild, [Int64])]
   -> IO [(DbHelpers.WithId Builds.UniversalBuild, [ScanPatterns.ScanMatch])]
-rescanVisitedBuilds scan_resources visited_builds_list =
+rescanVisitedBuilds scan_resources should_refetch_logs visited_builds_list =
 
   for (zip [1::Int ..] visited_builds_list) $ \(idx, (build_step_id, step_name, universal_build_with_id, pattern_ids)) -> do
     MyUtils.debugList [
@@ -264,6 +274,7 @@ rescanVisitedBuilds scan_resources visited_builds_list =
 
     either_matches <- catchupScan
       scan_resources
+      should_refetch_logs
       build_step_id
       step_name
       (universal_build_with_id, Nothing) $
@@ -305,10 +316,11 @@ processUnvisitedBuilds scan_resources unvisited_builds_list =
         Builds.BuildTimeoutFailure             -> return $ Right []
         Builds.ScannableFailure failure_output -> catchupScan
           scan_resources
+          True -- Re-download parameter is irrelevant, since this is the first time visiting the build
           build_step_id
           step_name
           (universal_build_obj, Just failure_output) $
-            ScanRecords.get_patterns_with_id scan_resources
+            ScanRecords.getPatternsWithId scan_resources
 
     return (universal_build_obj, Either.fromRight [] either_matches)
 
@@ -357,6 +369,8 @@ getCircleCIFailedBuildInfo scan_resources build_number = do
     sess = ScanRecords.circle_sess $ ScanRecords.fetching scan_resources
 
 
+
+
 -- | This function strips all ANSI escape codes from the console log before storage.
 getAndStoreLog ::
      ScanRecords.ScanCatchupResources
@@ -364,7 +378,7 @@ getAndStoreLog ::
   -> DbHelpers.WithId Builds.UniversalBuild
   -> Builds.BuildStepId
   -> Maybe Builds.BuildFailureOutput
-  -> IO (Either String [T.Text])
+  -> IO (Either String [LT.Text])
 getAndStoreLog
     scan_resources
     overwrite
@@ -377,7 +391,7 @@ getAndStoreLog
     else SqlRead.readLog conn universal_build_id
 
   case maybe_console_log of
-    Just console_log -> return $ Right $ T.lines console_log  -- Log was already fetched
+    Just console_log -> return $ Right $ LT.lines console_log  -- Log was already fetched
     Nothing -> runExceptT $ do
       download_url <- ExceptT $ case maybe_failed_build_output of
         Just failed_build_output -> return $ Right $ Builds.log_url failed_build_output
@@ -406,34 +420,8 @@ getAndStoreLog
 
       log_download_result <- ExceptT $ FetchHelpers.safeGetUrl $ Sess.get aws_sess $ T.unpack download_url
 
-      liftIO $ MyUtils.debugStr "Log downloaded."
 
-      let parent_elements = log_download_result ^. NW.responseBody . _Array
-          -- for some reason the log is sometimes split into sections,
-          -- so we concatenate all of the "out" elements
-          pred x = x ^. key "type" . _String == "out"
-          output_elements = filter pred $ V.toList parent_elements
-
-          raw_console_log = mconcat $ map (\x -> x ^. key "message" . _String) output_elements
-
-          ansi_stripped_log = T.pack $ filterAnsi $ T.unpack raw_console_log
-
-          lines_list = T.lines ansi_stripped_log
-          byte_count = T.length ansi_stripped_log
-
-      liftIO $ do
-        MyUtils.debugStr "Storing log to database..."
-
-        SqlWrite.storeLogInfo scan_resources build_step_id $
-          ScanRecords.LogInfo
-            byte_count
-            (length lines_list)
-            ansi_stripped_log
-            (ansi_stripped_log /= raw_console_log)
-
-        MyUtils.debugStr "Log stored."
-
-      return lines_list
+      CircleCIParse.doParse scan_resources build_step_id log_download_result
 
   where
     aws_sess = ScanRecords.aws_sess $ ScanRecords.fetching scan_resources
@@ -442,22 +430,41 @@ getAndStoreLog
     universal_build_id = Builds.UniversalBuildId $ DbHelpers.db_id universal_build
 
 
--- | Strips bold markup and coloring
-ansiRegex :: Text.Regex.Posix.Wrap.Regex
-ansiRegex = mkRegex "\x1b\\[([0-9;]*m|K)"
-
-
--- | TODO: Consider using attoparsec instead of regex:
--- https://pl-rants.net/posts/regexes-and-combinators/
-filterAnsi :: String -> String
-filterAnsi line = subRegex ansiRegex line ""
-
-
 scanLogText ::
-     [T.Text]
+     [LT.Text]
   -> [ScanPatterns.DbPattern]
   -> [ScanPatterns.ScanMatch]
 scanLogText lines_list patterns =
-  concat $ filter (not . null) $ zipWith (curry apply_patterns) [0 ..] $ map T.stripEnd lines_list
+  concat $ filter (not . null) $ zipWith (curry apply_patterns) [0 ..] $ map LT.stripEnd lines_list
   where
     apply_patterns line_tuple = Maybe.mapMaybe (ScanUtils.applySinglePattern line_tuple) patterns
+
+
+-- | This is only for debugging purposes
+reInsertCircleCiBuild ::
+     Connection
+  -> Builds.BuildNumber
+  -> Builds.RawCommit
+  -> IO (DbHelpers.WithId Builds.UniversalBuild)
+reInsertCircleCiBuild conn provider_buildnum commit_sha1 = do
+
+  maybe_universal_build <- SqlRead.lookupUniversalBuildFromProviderBuild
+    conn
+    provider_buildnum
+
+  case maybe_universal_build of
+    Just ubuild -> return ubuild
+    Nothing -> do
+      let ubuild = Builds.UniversalBuild
+            provider_buildnum
+            SqlRead.circleCIProviderIndex
+            ""
+            False
+            commit_sha1
+
+      ubuild <- SqlWrite.insertSingleUniversalBuild conn ubuild
+
+      rescanSingleBuild conn Constants.defaultPatternAuthor $
+        Builds.UniversalBuildId $ DbHelpers.db_id ubuild
+
+      return ubuild

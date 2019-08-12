@@ -72,7 +72,7 @@ data UniversalBuild = UniversalBuild {
   , build_namespace   :: Text
   , succeeded         :: Bool
   , sha1              :: RawCommit
-  } deriving Generic
+  } deriving (Show, Generic)
 
 instance ToJSON UniversalBuild
 

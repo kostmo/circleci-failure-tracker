@@ -50,6 +50,9 @@ library:
     - shake
     - clock
     - formatting
+    - http-client
+    - http-types
+    - json-stream
 
 executables:
   run-scanner:

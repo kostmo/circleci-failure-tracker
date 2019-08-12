@@ -63,7 +63,12 @@ mainAppCode args = do
   scan_resources <- Scanning.prepareScanResources conn $ Just Constants.defaultPatternAuthor
 
 
-  build_matches <- Scanning.scanBuilds scan_resources (rescanVisited args) $ Right fetch_count
+  build_matches <- Scanning.scanBuilds
+    scan_resources
+    (rescanVisited args)
+    False -- Do not re-download log
+    (Right fetch_count)
+
   putStrLn $ unwords ["Scanned", show $ length build_matches, "builds."]
 
   where

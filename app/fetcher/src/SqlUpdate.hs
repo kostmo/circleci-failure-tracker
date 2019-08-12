@@ -176,7 +176,7 @@ diagnoseCommitsBatch maybe_local_repo_path conn access_token owned_repo =
           non_master_uncached_failed_commits
 
         liftIO $ putStrLn $ unwords [
-          "Computeded"
+            "Computed"
           , show $ length computed_commits
           , "merge bases locally, with"
           , show $ length unprocessed
@@ -187,7 +187,7 @@ diagnoseCommitsBatch maybe_local_repo_path conn access_token owned_repo =
 
         return unprocessed
 
-      Nothing -> return $ return $ non_master_uncached_failed_commits
+      Nothing -> return $ return non_master_uncached_failed_commits
 
 
     all_master_commits <- liftIO $ SqlRead.getAllMasterCommits conn

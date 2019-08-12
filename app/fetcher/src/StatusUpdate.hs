@@ -243,8 +243,11 @@ handleFailedStatuses
 
     SqlWrite.storeBuildsList conn $ map (\(Builds.StorableBuild (DbHelpers.WithId ubuild_id _ubuild) rbuild) -> DbHelpers.WithTypedId (Builds.UniversalBuildId ubuild_id) rbuild) circleci_failed_builds
 
-    scan_matches <- Scanning.scanBuilds scan_resources True $
-      Left $ Set.fromList scannable_build_numbers
+    scan_matches <- Scanning.scanBuilds
+      scan_resources
+      True
+      False -- do not re-download log
+      (Left $ Set.fromList scannable_build_numbers)
 
     -- TODO - we should instead see if the "best matching pattern" is
     -- flaky, rather than checking if *any* matching pattern is a

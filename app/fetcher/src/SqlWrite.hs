@@ -45,10 +45,6 @@ import qualified ScanRecords
 import qualified SqlRead
 
 
-circleCIProviderIndex :: Int64
-circleCIProviderIndex = 3
-
-
 sqlInsertUniversalBuild :: Query
 sqlInsertUniversalBuild = "INSERT INTO universal_builds(provider, build_number, build_namespace, succeeded, commit_sha1) VALUES(?,?,?,?,?) ON CONFLICT ON CONSTRAINT universal_builds_build_number_build_namespace_provider_key DO UPDATE SET build_number = excluded.build_number RETURNING id;"
 
@@ -268,7 +264,7 @@ storeCircleCiBuildsList conn builds_list = do
   where
     mk_ubuild (b, succeeded) = Builds.UniversalBuild
       (Builds.build_id b)
-      circleCIProviderIndex
+      SqlRead.circleCIProviderIndex
       "" -- ^ no build numbering namespace qualifier for CircleCI builds
       succeeded
       (Builds.vcs_revision b)
@@ -482,8 +478,8 @@ insertSinglePattern either_pattern = do
     return pattern_id
 
   where
-    pattern_text = ScanPatterns.pattern_text expression_obj
-    is_regex = ScanPatterns.is_regex expression_obj
+    pattern_text = ScanPatterns.patternText expression_obj
+    is_regex = ScanPatterns.isRegex expression_obj
 
     (ScanPatterns.NewPattern expression_obj description tags applicable_steps specificity is_retired lines_from_end) = pattern_obj
 
@@ -570,11 +566,11 @@ storeLogInfo ::
 storeLogInfo
     scan_resources
     (Builds.NewBuildStepId step_id)
-    (ScanRecords.LogInfo byte_count line_count log_content modified_by_ansi_stripping) =
+    (ScanRecords.LogInfo byte_count line_count log_content modified_by_ansi_stripping was_truncated_for_size) =
 
-  execute conn sql (step_id, line_count, byte_count, log_content, modified_by_ansi_stripping)
+  execute conn sql (step_id, line_count, byte_count, log_content, modified_by_ansi_stripping, was_truncated_for_size)
   where
-    sql = "INSERT INTO log_metadata(step, line_count, byte_count, content, modified_by_ansi_stripping) VALUES(?,?,?,?,?) ON CONFLICT (step) DO UPDATE SET line_count = EXCLUDED.line_count, byte_count = EXCLUDED.byte_count, content = EXCLUDED.content, modified_by_ansi_stripping = EXCLUDED.modified_by_ansi_stripping;"
+    sql = "INSERT INTO log_metadata(step, line_count, byte_count, content, modified_by_ansi_stripping, was_truncated_for_size) VALUES(?,?,?,?,?,?) ON CONFLICT (step) DO UPDATE SET line_count = EXCLUDED.line_count, byte_count = EXCLUDED.byte_count, content = EXCLUDED.content, modified_by_ansi_stripping = EXCLUDED.modified_by_ansi_stripping, was_truncated_for_size = EXCLUDED.was_truncated_for_size;"
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
 
 

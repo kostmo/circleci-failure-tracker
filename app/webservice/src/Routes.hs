@@ -343,16 +343,14 @@ scottyApp
   S.get "/api/view-log-full" $ do
     build_id <- S.param "build_id"
 
-    let callback_func :: AuthStages.Username -> IO (Either Text Text)
+    let callback_func :: AuthStages.Username -> IO (Either Text LT.Text)
 
         universal_build_id = Builds.UniversalBuildId build_id
 
         callback_func _user_alias = do
           conn <- DbHelpers.get_connection connection_data
 
-          putStrLn "getting global build"
           storable_build <- SqlRead.getGlobalBuild conn universal_build_id
-          putStrLn "got global build"
 
           maybe_log <- SqlRead.readLog conn $ Builds.UniversalBuildId $ DbHelpers.db_id $ Builds.universal_build storable_build
           return $ maybeToEither "log not in database" maybe_log
@@ -360,7 +358,7 @@ scottyApp
     rq <- S.request
     either_log_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
     case either_log_result of
-      Right logs  -> S.text $ LT.fromStrict logs
+      Right logs  -> S.text logs
       Left errors -> S.html $ LT.fromStrict $ JsonUtils._message $ JsonUtils.getDetails errors
 
   post "/api/pattern-specificity-update" $

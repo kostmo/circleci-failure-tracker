@@ -2,6 +2,7 @@
 
 import           Control.Concurrent   (getNumCapabilities)
 import qualified Data.Maybe           as Maybe
+import qualified Data.Set             as Set
 import           Data.Text            (Text)
 import qualified Data.Text            as T
 import qualified Network.OAuth.OAuth2 as OAuth2
@@ -18,6 +19,7 @@ import qualified MergeBase
 import qualified Scanning
 import qualified SqlRead
 import qualified SqlUpdate
+import qualified SqlWrite
 
 
 data CommandLineArgs = NewCommandLineArgs {
@@ -55,8 +57,23 @@ mainAppCode args = do
   conn <- DbPreparation.prepareDatabase connection_data False
 
 
+
+
   -- Experimental
   scan_resources <- Scanning.prepareScanResources conn $ Just Constants.defaultPatternAuthor
+
+
+
+  {-
+  -- This is a HUGE log
+  universal_build <- Scanning.reInsertCircleCiBuild
+    conn
+    (Builds.NewBuildNumber 2120936)
+    (Builds.RawCommit "b5ebb30cd93db81763c9a2f5f659a9b25841f035")
+  -}
+
+
+
 
   {-
   build_failure_result <- Scanning.getCircleCIFailedBuildInfo scan_resources $ Builds.NewBuildNumber 2340371
@@ -105,24 +122,7 @@ mainAppCode args = do
 
   return ()
 
-  {-
 
-  either_logstore_result <- Scanning.getAndStoreLog
-    scan_resources
-    True
-    (Builds.NewBuildNumber 2101460)
-    (Builds.NewBuildStepId 10876)
-    Nothing
-
---  putStrLn $ "logstore result: " ++ show either_logstore_result
-
-
-
-  maybe_log <- SqlRead.readLog conn $ Builds.NewBuildNumber 2101460
-  putStrLn $ "Log output: " <> Maybe.fromMaybe "<no log>" (Scanning.filterAnsi . T.unpack <$> maybe_log)
-  -}
-
---  putStrLn $ "Log linecount: " <> show (maybe 0 (length . T.lines) maybe_log)
   where
     owned_repo = DbHelpers.OwnerAndRepo Constants.project_name Constants.repo_name
 

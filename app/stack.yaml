@@ -19,5 +19,6 @@ extra-deps:
 - time-1.9.2
 - wai-session-clientsession-0.1
 - github-0.21
+- json-stream-0.4.2.4
 
 allow-newer: true

@@ -20,6 +20,7 @@ import           Data.Set                             (Set)
 import qualified Data.Set                             as Set
 import           Data.Text                            (Text)
 import qualified Data.Text                            as T
+import qualified Data.Text.Lazy                       as LT
 import           Data.Time                            (UTCTime)
 import           Data.Time.Calendar                   (Day)
 import           Data.Tuple                           (swap)
@@ -46,6 +47,10 @@ import qualified ScanPatterns
 import qualified ScanUtils
 import qualified WebApi
 import qualified WeeklyStats
+
+
+circleCIProviderIndex :: Int64
+circleCIProviderIndex = 3
 
 
 type DbIO a = ReaderT Connection IO a
@@ -120,12 +125,10 @@ getUnvisitedBuildIds ::
   -> IO [DbHelpers.WithId Builds.UniversalBuild]
 getUnvisitedBuildIds conn maybe_limit = do
   rows <- case maybe_limit of
-    Just limit -> query conn sql (circleCIProviderId, limit)
-    Nothing    -> query conn unlimited_sql (Only circleCIProviderId)
+    Just limit -> query conn sql (circleCIProviderIndex, limit)
+    Nothing    -> query conn unlimited_sql $ Only circleCIProviderIndex
   return $ map f rows
   where
-    -- TODO parameterize this function
-    circleCIProviderId = 3 :: Int
 
     f (universal_build_id, provider_buildnum, provider_id, build_namespace, succeeded, sha1) = DbHelpers.WithId universal_build_id $ Builds.UniversalBuild
       (Builds.NewBuildNumber provider_buildnum)
@@ -137,6 +140,29 @@ getUnvisitedBuildIds conn maybe_limit = do
     sql = "SELECT universal_build_id, build_num, provider, build_namespace, succeeded, commit_sha1 FROM unvisited_builds WHERE provider = ? ORDER BY build_num DESC LIMIT ?;"
 
     unlimited_sql = "SELECT universal_build_id, build_num, provider, build_namespace, succeeded, commit_sha1 FROM unvisited_builds WHERE provider = ? ORDER BY build_num DESC;"
+
+
+-- | TODO Use this
+lookupUniversalBuildFromProviderBuild ::
+     Connection
+  -> Builds.BuildNumber
+  -> IO (Maybe (DbHelpers.WithId Builds.UniversalBuild))
+lookupUniversalBuildFromProviderBuild conn (Builds.NewBuildNumber build_num) = do
+  rows <- query conn sql $ Only build_num
+  return $ Safe.headMay rows
+  where
+    sql = "SELECT global_build_num, build_number, provider, build_namespace, succeeded, vcs_revision, queued_at, job_name, branch, started_at, finished_at FROM global_builds WHERE build_number = ? ORDER BY provider DESC, global_build_num DESC LIMIT 1;"
+
+
+-- | FIXME partial function
+lookupUniversalBuild ::
+     Builds.UniversalBuildId -- ^ oldest build number
+  -> DbIO (DbHelpers.WithId Builds.UniversalBuild)
+lookupUniversalBuild (Builds.UniversalBuildId universal_build_num) = do
+  conn <- ask
+  liftIO $ head <$> query conn sql (Only universal_build_num)
+  where
+    sql = "SELECT id, build_number, provider, build_namespace, succeeded, commit_sha1 FROM universal_builds WHERE id = ?;"
 
 
 getUniversalBuilds ::
@@ -281,10 +307,10 @@ apiTestFailures test_failure_pattern_id = do
         (T.pack maybe_first_match)
         (_queued_at pattern_occurrence)
       where
-        start_idx = _span_start pattern_occurrence
-        end_idx = _span_end pattern_occurrence
+        start_idx = fromIntegral $ _span_start pattern_occurrence
+        end_idx = fromIntegral $ _span_end pattern_occurrence
         span_length = end_idx - start_idx
-        extracted_chunk = T.take span_length $ T.drop start_idx $ _line_text pattern_occurrence
+        extracted_chunk = LT.take span_length $ LT.drop start_idx $ _line_text pattern_occurrence
 
         pattern_text = _pattern test_failure_pattern
         maybe_first_match_group = ScanUtils.getFirstMatchGroup extracted_chunk pattern_text
@@ -461,7 +487,7 @@ apiTimeoutCommitBuilds sha1 = do
 
 
 -- | Obtains the console log from database
-readLog :: Connection -> Builds.UniversalBuildId -> IO (Maybe Text)
+readLog :: Connection -> Builds.UniversalBuildId -> IO (Maybe LT.Text)
 readLog conn (Builds.UniversalBuildId build_num) = do
   result <- query conn sql $ Only build_num
   return $ (\(Only log_text) -> log_text) <$> Safe.headMay result
@@ -1021,16 +1047,17 @@ apiNewPatternTest universal_build_id new_pattern = do
   maybe_console_log <- liftIO $ SqlRead.readLog conn universal_build_id
 
   return $ case maybe_console_log of
-    Just console_log -> Right $ ScanTestResponse (length $ T.lines console_log) $
-      Maybe.mapMaybe apply_pattern $ zip [0::Int ..] $
-        map T.stripEnd $ T.lines console_log
+    Just console_log -> let mylines = LT.lines console_log
+      in Right $ ScanTestResponse (length mylines) $
+           Maybe.mapMaybe apply_pattern $ zip [0::Int ..] $
+             map LT.stripEnd mylines
     Nothing -> Left $ unwords [
         "No log found for build number"
       , show provider_build_number
       ]
 
   where
-    apply_pattern :: (Int, Text) -> Maybe ScanPatterns.ScanMatch
+    apply_pattern :: (Int, LT.Text) -> Maybe ScanPatterns.ScanMatch
     apply_pattern line_tuple = ScanUtils.applySinglePattern line_tuple $ DbHelpers.WithId 0 new_pattern
 
 
@@ -1164,7 +1191,7 @@ data PatternOccurrence = NewPatternOccurrence {
   , _build_step         :: Text
   , _line_number        :: Int
   , _line_count         :: Int
-  , _line_text          :: Text
+  , _line_text          :: LT.Text
   , _span_start         :: Int
   , _span_end           :: Int
   , _universal_build_id :: Builds.UniversalBuildId
@@ -1270,7 +1297,7 @@ getBestBuildMatch ubuild_id@(Builds.UniversalBuildId build_id) = do
 
 data LogContext = LogContext {
     _match_info         :: ScanPatterns.MatchDetails
-  , _log_lines          :: [(Int, Text)]
+  , _log_lines          :: [(Int, LT.Text)]
   , _build_number       :: Builds.BuildNumber
   , _universal_build_id :: Builds.UniversalBuildId
   } deriving Generic
@@ -1299,7 +1326,7 @@ logContextFunc (MatchOccurrences.MatchId match_id) context_linecount = do
       maybe_log <- liftIO $ SqlRead.readLog conn universal_build
       console_log <- except $ maybeToEither "log not in database" maybe_log
 
-      let log_lines = T.lines console_log
+      let log_lines = LT.lines console_log
 
           first_context_line = max 0 $ line_number - context_linecount
 
