@@ -299,7 +299,7 @@ scottyApp
       <*> S.param "limit"
 
   get "/api/master-timeline" $
-    SqlRead.apiMasterBuilds <$> FrontendHelpers.getOffsetMode
+    fmap WebApi.toJsonEither . SqlRead.apiMasterBuilds <$> FrontendHelpers.getOffsetMode
 
   S.get "/api/commit-info" $ do
     commit_sha1_text <- S.param "sha1"

@@ -66,7 +66,7 @@ function get_timeline_data(parms) {
 			gen_timeline_table("master-timeline-table", mydata.payload);
 
 		} else {
-			alert(mydata.error);
+			alert("got an error: " + mydata.error);
 		}
 	});
 }

@@ -27,7 +27,7 @@ function gen_time_plot(container_id, api_path, title) {
             },
             yAxis: {
                 title: {
-                    text: 'Post count'
+                    text: title
                 },
                 min: 0
             },
@@ -105,7 +105,7 @@ function main() {
 	gen_postings_table("status-postings-table", "/api/posted-statuses?count=50");
 	gen_aggregate_postings_table("aggregate-status-postings-table", "/api/aggregate-posted-statuses?count=50");
 
-	gen_time_plot('container-status-commits-by-day', '/api/status-posted-commits-by-day', "Commit annotations");
+	gen_time_plot('container-status-commits-by-day', '/api/status-posted-commits-by-day', "Unique commits annotated");
 	gen_time_plot('container-status-postings-by-day', '/api/status-postings-by-day', "Status postings");
 }
 
