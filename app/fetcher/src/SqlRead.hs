@@ -5,7 +5,7 @@
 
 module SqlRead where
 
-import           Control.Monad                        (forM)
+import           Control.Monad                        (forM, void)
 import           Control.Monad.IO.Class               (liftIO)
 import           Control.Monad.Trans.Except           (ExceptT (ExceptT),
                                                        except, runExceptT)
@@ -967,6 +967,11 @@ instance FromRow BuildResults.SimpleBuildStatus where
       ubuild_obj
 
 
+refreshCachedMasterGrid :: Connection -> IO ()
+refreshCachedMasterGrid conn =
+  void $ execute_ conn "REFRESH MATERIALIZED VIEW master_failures_raw_causes_materialized;"
+
+
 -- | Gets last N commits in one query,
 -- then gets the list of jobs that apply to those commits,
 -- then gets the associated builds
@@ -983,8 +988,10 @@ apiMasterBuilds offset_limit = do
     (commit_id_bounds, master_commits) <- ExceptT $ getMasterCommits conn offset_limit
     let query_bounds = (WeeklyStats.min_bound commit_id_bounds, WeeklyStats.max_bound commit_id_bounds)
     failed_builds <- liftIO $ do
+
       -- FIXME move this refresh somewhere else
-      execute_ conn "REFRESH MATERIALIZED VIEW master_failures_raw_causes_materialized;"
+      refreshCachedMasterGrid conn
+
       query conn failures_sql query_bounds
 
     let job_names = Set.fromList $ map (Builds.job_name . BuildResults._build) failed_builds

@@ -239,7 +239,7 @@ instance FromRow (BreakageSpan Text) where
 data MasterBuildsResponse = MasterBuildsResponse {
     _columns        :: Set Text
   , _commits        :: [IndexedRichCommit]
-  , _failures       :: [SimpleBuildStatus]
+  , _failures       :: [SimpleBuildStatus] -- ^ TODO this should included successes
   , _breakage_spans :: [BreakageSpan Text]
   } deriving Generic
 

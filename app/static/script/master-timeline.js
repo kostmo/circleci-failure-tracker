@@ -527,7 +527,8 @@ function get_column_definitions(raw_column_list) {
 	];
 
 	for (var x of symbol_pairs) {
-		legend_rows.push([render_tag("div", '<img src="/images/build-status-indicators/' + x[0] + '" style="width: 20px;"/>', {"style": "text-align: right; margin-right: 0.5em;"}), x[1]]);
+		const div_style = {"style": "text-align: right; margin-right: 0.5em;"};
+		legend_rows.push([render_tag("div", '<img src="/images/build-status-indicators/' + x[0] + '" style="width: 20px;"/>', div_style), x[1]]);
 	}
 
 	const legend = render_table(legend_rows, {"style": "vertical-align: bottom;"}, "Legend", true);
@@ -546,8 +547,8 @@ function get_column_definitions(raw_column_list) {
 
 				const commit_date = new Date(commit_metadata["committer_date"]);
 				const day_index = commit_date.getDay();
-				const day_ratio = day_index/7.0;
-				const color = tinycolor.fromRatio({ h: day_ratio, s: 0.8, l: 0.8 });
+				const day_ratio = day_index / 7.0;
+				const color = tinycolor.fromRatio({h: day_ratio, s: 0.8, l: 0.8});
 				const hex_string = color.toHexString();
 
 				cell.getElement().style.borderLeft = "4px solid " + hex_string;
@@ -628,9 +629,8 @@ function generate_column_tree_recursive(column_name_suffix_pairs, depth) {
 		} else {
 			const subcolumn_definitions = generate_column_tree_recursive(grouped_col_pairs, depth + 1);
 
-			// Collapse redundant headers
+			// Collapses redundant headers
 			var column_group_definition;
-
 
 			const truncation_threshold = MAX_HORIZONTAL_LETTERS + FITTABLE_LETTERS_PER_COLUMN * Math.max(0, grouped_col_pairs.length - MIN_HEADER_GROUPING_COLUMNS);
 			const truncated_column_name = truncate_overlong_horizontal_heading(col_prefix, truncation_threshold);
