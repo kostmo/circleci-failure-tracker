@@ -631,16 +631,19 @@ function generate_column_tree_recursive(column_name_suffix_pairs, depth) {
 			// Collapse redundant headers
 			var column_group_definition;
 
+
+			const truncation_threshold = MAX_HORIZONTAL_LETTERS + FITTABLE_LETTERS_PER_COLUMN * Math.max(0, grouped_col_pairs.length - MIN_HEADER_GROUPING_COLUMNS);
+			const truncated_column_name = truncate_overlong_horizontal_heading(col_prefix, truncation_threshold);
+
 			if (subcolumn_definitions.length == 1) {
 
-				const truncation_threshold = MAX_HORIZONTAL_LETTERS + FITTABLE_LETTERS_PER_COLUMN * Math.max(0, grouped_col_pairs.length - MIN_HEADER_GROUPING_COLUMNS);
 				column_group_definition = {
-					title: truncate_overlong_horizontal_heading(col_prefix, truncation_threshold) + "<br/>" + subcolumn_definitions[0]["title"],
+					title: truncated_column_name + "<br/>" + subcolumn_definitions[0]["title"],
 					columns: subcolumn_definitions[0]["columns"],
 				}
 			} else {
 				column_group_definition = {
-					title: col_prefix,
+					title: truncated_column_name,
 					columns: subcolumn_definitions,
 				}
 			}
