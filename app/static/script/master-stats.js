@@ -138,13 +138,17 @@ function normalized_commit_failure_count_highchart(series_list) {
 
 
 
-function separated_causes_column_highchart(columns, column_chart_series) {
+function separated_causes_column_highchart(columns, column_chart_series, color_key) {
 
 	var series_list = [];
 	for (var key in column_chart_series) {
 		var points = column_chart_series[key];
 
-		series_list.push({name: key.replace(new RegExp("_", 'g'), " "), data: points});
+		series_list.push({
+			name: key.replace(new RegExp("_", 'g'), " "),
+			data: points,
+			color: color_key[key],
+		});
 	}
 
 
@@ -267,7 +271,7 @@ function render() {
 		var column_chart_series = {};
 		var column_chart_timestamp_categories = [];
 
-		for (var datum of data) {
+		for (var datum of data["by_week"]) {
 
 			var week_val = Date.parse(datum["week"]);
 			var commit_count = datum["commit_count"];
@@ -278,10 +282,12 @@ function render() {
 			var weeks_ago_string = weeks_ago_count + " week" + (weeks_ago_count != 1 ? "s" : "") + " ago"
 			column_chart_timestamp_categories.push(weeks_ago_string);
 
-			for (var key in datum) {
-				if (key != "week" && key.endsWith("_count") && !["commit_count", "failure_count"].includes(key)) {
+			const aggregate_build_counts = datum["aggregate_build_counts"];
 
-					var normalized_value = 1.0 * datum[key] / commit_count;
+			for (var key in aggregate_build_counts) {
+				if (!["failure_count"].includes(key)) {
+
+					var normalized_value = 1.0 * aggregate_build_counts[key] / commit_count;
 
 					var pointlist = setDefault(separated_causes_series_points, key, []);
 					pointlist.push([week_val, normalized_value])
@@ -294,9 +300,9 @@ function render() {
 
 			commit_count_series_points.push([week_val, commit_count]);
 
-			undifferentiated_build_failures_series_points.push([week_val, 1.0 * datum["failure_count"] / commit_count]);
+			undifferentiated_build_failures_series_points.push([week_val, 1.0 * aggregate_build_counts["failure_count"] / commit_count]);
 
-			undifferentiated_commit_failures_series_points.push([week_val, 1.0 * datum["had_failure"] / commit_count]);
+			undifferentiated_commit_failures_series_points.push([week_val, 1.0 * datum["aggregate_commit_counts"]["had_failure"] / commit_count]);
 		}
 
 		var separated_causes_series_list = [];
@@ -305,6 +311,7 @@ function render() {
 			separated_causes_series_list.push({
 				name: key.replace(new RegExp("_", 'g'), " "),
 				data: pointlist,
+				color: data["build_colors"][key],
 			});
 		}
 
@@ -322,8 +329,7 @@ function render() {
 		separated_causes_timeline_highchart(separated_causes_series_list);
 
 
-		separated_causes_column_highchart(column_chart_timestamp_categories, column_chart_series);
-
+		separated_causes_column_highchart(column_chart_timestamp_categories, column_chart_series, data["build_colors"]);
 
 
 		var commit_count_series_points = {

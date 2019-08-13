@@ -30,29 +30,65 @@ newtype NoLogsCount = NoLogsCount Int deriving Generic
 
 
 
+
+data AggregateBuildCounts a = AggregateBuildCounts {
+    _failure_count                  :: a
+
+  , _no_logs_count                  :: a
+  , _timeout_count                  :: a
+  , _known_broken_count             :: a
+  , _nonflaky_pattern_matched_count :: a
+  , _undiagnosed_count              :: a
+  , _flaky_count                    :: a
+  } deriving Generic
+
+instance ToJSON a => ToJSON (AggregateBuildCounts a) where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+buildCountColors :: AggregateBuildCounts String
+buildCountColors = AggregateBuildCounts {
+    _failure_count =                  "#000000" -- not used
+
+  , _no_logs_count =                  "#434348" -- (gray)
+  , _timeout_count =                  "#8085e9" -- (purple)
+  , _known_broken_count =             "#f7a35c" -- (orange)
+  , _nonflaky_pattern_matched_count = "#f15c80" -- (red)
+  , _undiagnosed_count =              "#7cb5ec" -- (blue)
+  , _flaky_count =                    "#e4d354" -- (gold)
+  }
+
+
+data AggregateCommitCounts a = AggregateCommitCounts {
+    _had_failure         :: a
+  , _had_idiopathic      :: a
+  , _had_timeout         :: a
+  , _had_known_broken    :: a
+  , _had_pattern_matched :: a
+  , _had_flaky           :: a
+
+  } deriving Generic
+
+instance ToJSON a => ToJSON (AggregateCommitCounts a) where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
 data MasterWeeklyStats = MasterWeeklyStats {
-    _commit_count                   :: Int
-  , _had_failure                    :: Int
-  , _had_idiopathic                 :: Int
-  , _had_timeout                    :: Int
-  , _had_known_broken               :: Int
-  , _had_pattern_matched            :: Int
-  , _had_flaky                      :: Int
-
-  , _failure_count                  :: Int
-
-  , _no_logs_count                  :: Int -- ^ #434348 (gray)
-  , _timeout_count                  :: Int -- ^ #8085e9 (purple)
-  , _known_broken_count             :: Int -- ^ #f7a35c (orange)
-  , _nonflaky_pattern_matched_count :: Int -- ^ #f15c80 (red)
-  , _undiagnosed_count              :: Int -- ^ #7cb5ec (blue)
-  , _flaky_count                    :: Int -- ^ #e4d354 (gold)
-
-  , _week                           :: UTCTime
-  , _commit_id_bound                :: InclusiveNumericBounds Int64
+    _commit_count            :: Int
+  , _aggregate_commit_counts :: AggregateCommitCounts Int
+  , _aggregate_build_counts  :: AggregateBuildCounts Int
+  , _week                    :: UTCTime
+  , _commit_id_bound         :: InclusiveNumericBounds Int64
   } deriving Generic
 
 instance ToJSON MasterWeeklyStats where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
+data MasterStatsBundle = MasterStatsBundle {
+    _build_colors :: AggregateBuildCounts String
+  , _by_week      :: [MasterWeeklyStats]
+  } deriving Generic
+
+instance ToJSON MasterStatsBundle where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
