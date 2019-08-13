@@ -57,11 +57,15 @@ mainAppCode args = do
   -}
 
 
-  BuildRetrieval.updateCircleCIBuildsList conn (branchName args) fetch_count age_days
+  BuildRetrieval.updateCircleCIBuildsList
+    conn
+    BuildRetrieval.Completed
+    (branchName args)
+    fetch_count
+    age_days
 
-
-  scan_resources <- Scanning.prepareScanResources conn $ Just Constants.defaultPatternAuthor
-
+  scan_resources <- Scanning.prepareScanResources conn $
+    Just Constants.defaultPatternAuthor
 
   build_matches <- Scanning.scanBuilds
     scan_resources
@@ -69,7 +73,11 @@ mainAppCode args = do
     False -- Do not re-download log
     (Right fetch_count)
 
-  putStrLn $ unwords ["Scanned", show $ length build_matches, "builds."]
+  putStrLn $ unwords [
+      "Scanned"
+    , show $ length build_matches
+    , "builds."
+    ]
 
   where
     fetch_count = buildCount args

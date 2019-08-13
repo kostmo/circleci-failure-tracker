@@ -206,7 +206,7 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 					align:"center",
 				},
 			]},
-			{title: "Mode", width: 250, field: "start.record.payload.failure_mode.payload",
+			{title: "Mode", width: 250, field: "start.record.payload.breakage_mode.payload",
 				formatter: function(cell, formatterParams, onRendered) {
 					var value = cell.getValue();
 					return failure_modes_dict[value]["label"] || "?";

@@ -5,7 +5,7 @@
 
 module BuildResults where
 
-import           Data.Aeson
+import           Data.Aeson                         hiding (Success)
 import           Data.Set                           (Set)
 import           Data.Text                          (Text)
 import qualified Data.Text                          as T
@@ -44,6 +44,10 @@ data StepFailure =
 
 instance ToJSON StepFailure
 
+
+isSuccess :: FailureMode -> Bool
+isSuccess Success = True
+isSuccess _       = False
 
 data FailureMode =
    Success
@@ -129,7 +133,7 @@ instance ToJSON MasterFailureModeDetails where
 data BreakageStart a = BreakageStart {
     _breakage_commit :: IndexedCommit
   , _description     :: Text
-  , _failure_mode    :: DbHelpers.WithAuthorship Int64
+  , _breakage_mode   :: DbHelpers.WithAuthorship Int64
   , _affected_jobs   :: [a]
   , _metadata        :: DbHelpers.WithAuthorship Text
   } deriving Generic

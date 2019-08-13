@@ -445,8 +445,9 @@ reInsertCircleCiBuild ::
      Connection
   -> Builds.BuildNumber
   -> Builds.RawCommit
+  -> Bool -- ^ succeeded
   -> IO (DbHelpers.WithId Builds.UniversalBuild)
-reInsertCircleCiBuild conn provider_buildnum commit_sha1 = do
+reInsertCircleCiBuild conn provider_buildnum commit_sha1 succeeded = do
 
   maybe_universal_build <- SqlRead.lookupUniversalBuildFromProviderBuild
     conn
@@ -459,7 +460,7 @@ reInsertCircleCiBuild conn provider_buildnum commit_sha1 = do
             provider_buildnum
             SqlRead.circleCIProviderIndex
             ""
-            False
+            succeeded
             commit_sha1
 
       ubuild <- SqlWrite.insertSingleUniversalBuild conn ubuild

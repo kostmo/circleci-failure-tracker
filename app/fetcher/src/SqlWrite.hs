@@ -236,9 +236,6 @@ storeMasterCommits conn commit_list =
 
 
 -- | TODO we may only need the multiple-row version of this
---
--- Currently, we handle de-duplication of records on the client side.
--- This should be handled in the INSERT statement.
 insertSingleUniversalBuild ::
      Connection
   -> Builds.UniversalBuild
@@ -248,16 +245,31 @@ insertSingleUniversalBuild conn uni_build@(Builds.UniversalBuild (Builds.NewBuil
   return $ DbHelpers.WithId new_id uni_build
 
 
--- TODO This is the more efficient "bulk" operation, but needs to
--- handle constraint violations on individual rows.
+-- | We handle de-duplication of provider-build records
+-- via the ON CONFLICT clause in the INSERT statement.
+-- When a record already exists with a given
+-- (provider_build_number, build_namespace, provider_key)
+-- tuple, the existing universal build ID is returned instead
+-- of creating a new row.
 --
--- for now, this function is only called from the standalone scanner application.
+-- TODO for now, this function is only called from the standalone scanner application.
 storeCircleCiBuildsList :: Connection -> [(Builds.Build, Bool)] -> IO Int64
 storeCircleCiBuildsList conn builds_list = do
-  universal_build_insertion_output_rows <- returning conn sqlInsertUniversalBuild $ map input_f universal_builds
 
-  let zipped_output1 = zipWith (\(Only row_id) ubuild -> DbHelpers.WithId row_id ubuild) universal_build_insertion_output_rows universal_builds
-      zipped_output2 = zipWith (\(DbHelpers.WithId ubuild_id _ubuild) rbuild -> DbHelpers.WithTypedId (Builds.UniversalBuildId ubuild_id) rbuild) zipped_output1 $ map fst builds_list
+  universal_build_insertion_output_rows <- returning
+    conn
+    sqlInsertUniversalBuild
+    (map input_f universal_builds)
+
+  let zipped_output1 = zipWith
+        (\(Only row_id) ubuild -> DbHelpers.WithId row_id ubuild)
+        universal_build_insertion_output_rows
+        universal_builds
+
+      zipped_output2 = zipWith
+        (\(DbHelpers.WithId ubuild_id _ubuild) rbuild -> DbHelpers.WithTypedId (Builds.UniversalBuildId ubuild_id) rbuild)
+        zipped_output1
+        (map fst builds_list)
 
   storeBuildsList conn zipped_output2
 
@@ -265,7 +277,7 @@ storeCircleCiBuildsList conn builds_list = do
     mk_ubuild (b, succeeded) = Builds.UniversalBuild
       (Builds.build_id b)
       SqlRead.circleCIProviderIndex
-      "" -- ^ no build numbering namespace qualifier for CircleCI builds
+      "" -- no build numbering namespace qualifier for CircleCI builds
       succeeded
       (Builds.vcs_revision b)
 
@@ -650,13 +662,13 @@ reportBreakage
     breakage_sha1
     notes = do
 
-  cause_id <- ExceptT $ SqlWrite.apiCodeBreakageCauseInsert
+  cause_id <- ExceptT $ apiCodeBreakageCauseInsert
     conn
     breakage_report
     jobs_list
 
   ExceptT $ runReaderT
-    (SqlWrite.updateCodeBreakageMode cause_id failure_mode_id)
+    (updateCodeBreakageMode cause_id failure_mode_id)
     auth_conn
 
   liftIO $ unless is_still_ongoing $ do
@@ -665,7 +677,7 @@ reportBreakage
       (Builds.RawCommit resolution_sha1) <- ExceptT $
         SqlRead.getNextMasterCommit conn last_affected_sha1
 
-      ExceptT $ SqlWrite.apiCodeBreakageResolutionInsert conn $
+      ExceptT $ apiCodeBreakageResolutionInsert conn $
         Breakages.NewResolutionReport
           resolution_sha1
           cause_id
@@ -720,7 +732,7 @@ apiCodeBreakageResolutionInsertMultiple sha1 cause_ids_delimited = do
         user_alias
 
   liftIO $ do
-    insertion_eithers <- mapM (SqlWrite.apiCodeBreakageResolutionInsert conn . gen_resolution_report) cause_id_list
+    insertion_eithers <- mapM (apiCodeBreakageResolutionInsert conn . gen_resolution_report) cause_id_list
     return $ sequenceA insertion_eithers
 
   where

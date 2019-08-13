@@ -987,23 +987,24 @@ apiMasterBuilds offset_limit = do
 
     (commit_id_bounds, master_commits) <- ExceptT $ getMasterCommits conn offset_limit
     let query_bounds = (WeeklyStats.min_bound commit_id_bounds, WeeklyStats.max_bound commit_id_bounds)
-    failed_builds <- liftIO $ do
+    completed_builds <- liftIO $ do
 
       -- FIXME move this refresh somewhere else
       refreshCachedMasterGrid conn
 
-      query conn failures_sql query_bounds
+      query conn builds_list_sql query_bounds
 
-    let job_names = Set.fromList $ map (Builds.job_name . BuildResults._build) failed_builds
+    let failed_builds = filter (not . BuildResults.isSuccess . BuildResults._failure_mode) completed_builds
+        job_names = Set.fromList $ map (Builds.job_name . BuildResults._build) failed_builds
 
     return $ BuildResults.MasterBuildsResponse
       job_names
       master_commits
-      failed_builds
+      completed_builds
       code_breakage_ranges
 
   where
-    failures_sql = "SELECT sha1, succeeded, is_idiopathic, is_flaky, is_timeout, is_matched, is_known_broken, build_num, queued_at, job_name, branch, step_name, pattern_id, match_id, line_number, line_count, line_text, span_start, span_end, specificity, is_serially_isolated, started_at, finished_at, global_build, provider, build_namespace, contiguous_run_count, contiguous_group_index, contiguous_start_commit_index, contiguous_end_commit_index, contiguous_length, cluster_id, cluster_member_count FROM master_failures_raw_causes_materialized WHERE commit_index >= ? AND commit_index <= ?;"
+    builds_list_sql = "SELECT sha1, succeeded, is_idiopathic, is_flaky, is_timeout, is_matched, is_known_broken, build_num, queued_at, job_name, branch, step_name, pattern_id, match_id, line_number, line_count, line_text, span_start, span_end, specificity, is_serially_isolated, started_at, finished_at, global_build, provider, build_namespace, contiguous_run_count, contiguous_group_index, contiguous_start_commit_index, contiguous_end_commit_index, contiguous_length, cluster_id, cluster_member_count FROM master_failures_raw_causes_materialized WHERE commit_index >= ? AND commit_index <= ?;"
 
 
 apiDetectedCodeBreakages :: DbIO [BuildResults.DetectedBreakageSpan]

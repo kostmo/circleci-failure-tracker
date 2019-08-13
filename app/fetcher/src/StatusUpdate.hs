@@ -127,7 +127,11 @@ storeUniversalBuilds conn commit statuses_by_ci_providers = do
 
     result_maybe_list <- for statuses $ \status_event -> do
 
-      let maybe_universal_build = extractUniversalBuild commit provider_with_id status_event
+      let maybe_universal_build = extractUniversalBuild
+            commit
+            provider_with_id
+            status_event
+
       case maybe_universal_build of
         Nothing -> return Nothing
         Just (sub_build, uni_build) -> do
@@ -158,6 +162,7 @@ extractUniversalBuild commit provider_with_id status_object = case DbHelpers.rec
   "ci.pytorch.org" -> Nothing
   "travis-ci.org"  -> Nothing
   _                -> Nothing
+
   where
     did_succeed = StatusEventQuery._state status_object == "success"
 

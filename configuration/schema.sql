@@ -874,7 +874,7 @@ CREATE VIEW public.known_broken_builds WITH (security_barrier='false') AS
             master_commit_known_breakage_causes.cause_id
            FROM (public.master_commit_known_breakage_causes
              JOIN public.code_breakage_affected_jobs ON ((code_breakage_affected_jobs.cause = master_commit_known_breakage_causes.cause_id)))) foo ON (((global_builds_1.vcs_revision = foo.sha1) AND (global_builds_1.job_name = foo.job))))
-  WHERE (NOT COALESCE(global_builds_1.succeeded, false))
+  WHERE (NOT global_builds_1.succeeded)
   GROUP BY global_builds_1.global_build_num;
 
 
@@ -1408,7 +1408,8 @@ CREATE VIEW public.master_contiguous_failures WITH (security_barrier='false') AS
                             master_commits_contiguously_indexed.sha1,
                             master_commits_contiguously_indexed.id
                            FROM (public.master_commits_contiguously_indexed
-                             JOIN public.build_failure_causes_disjoint ON ((build_failure_causes_disjoint.vcs_revision = master_commits_contiguously_indexed.sha1)))) foo) bar) quux
+                             JOIN public.build_failure_causes_disjoint ON ((build_failure_causes_disjoint.vcs_revision = master_commits_contiguously_indexed.sha1)))
+                          WHERE (NOT build_failure_causes_disjoint.succeeded)) foo) bar) quux
   WHERE quux.contiguous_failure
   ORDER BY quux.job_name, quux.commit_number;
 
@@ -2309,7 +2310,7 @@ CREATE VIEW public.unscanned_patterns WITH (security_barrier='false') AS
     bar.unscanned_pattern_count,
     builds_join_steps.build_num,
     builds_join_steps.provider,
-    COALESCE(builds_join_steps.succeeded, false) AS succeeded,
+    builds_join_steps.succeeded,
     builds_join_steps.build_namespace
    FROM (public.builds_join_steps
      JOIN ( SELECT string_agg((patterns.id)::text, ';'::text) AS unscanned_patterns_delimited,
@@ -2337,10 +2338,17 @@ CREATE VIEW public.unvisited_builds WITH (security_barrier='false') AS
     universal_builds.succeeded
    FROM (public.universal_builds
      LEFT JOIN public.build_steps_deduped_mitigation ON ((universal_builds.id = build_steps_deduped_mitigation.universal_build)))
-  WHERE ((build_steps_deduped_mitigation.universal_build IS NULL) AND (NOT COALESCE(universal_builds.succeeded, true)));
+  WHERE ((build_steps_deduped_mitigation.universal_build IS NULL) AND (NOT universal_builds.succeeded));
 
 
 ALTER TABLE public.unvisited_builds OWNER TO postgres;
+
+--
+-- Name: VIEW unvisited_builds; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.unvisited_builds IS 'Does not include succeeded builds.';
+
 
 --
 -- Name: upstream_breakages_weekly_aggregation; Type: VIEW; Schema: public; Owner: postgres

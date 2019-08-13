@@ -20,7 +20,7 @@ import           Network.Wreq               as NW
 import qualified Network.Wreq.Session       as Sess
 import qualified Safe
 
-import           Builds
+import qualified Builds
 import qualified Constants
 import qualified FetchHelpers
 import qualified MyUtils
@@ -30,6 +30,19 @@ import qualified SqlWrite
 
 maxBuildPerPage :: Int
 maxBuildPerPage = 100
+
+
+data CircleCIFetchFilter =
+    Completed
+  | Failed
+  | Successful
+
+
+toOutcomeString :: CircleCIFetchFilter -> T.Text
+toOutcomeString x = case x of
+  Completed  -> "completed"
+  Failed     -> "failed"
+  Successful -> "successful"
 
 
 -- TODO - these are methods of parallelization:
@@ -42,40 +55,68 @@ maxBuildPerPage = 100
 -- and assumes all the builds are failed builds
 updateCircleCIBuildsList ::
      Connection
+  -> CircleCIFetchFilter
   -> [String]
   -> Int
   -> Int
   -> IO Int64
-updateCircleCIBuildsList conn branch_names fetch_count age_days = do
+updateCircleCIBuildsList
+    conn
+    status_filter
+    branch_names
+    fetch_count
+    age_days = do
 
   builds_lists <- for branch_names $ \branch_name -> do
+
     MyUtils.debugList [
         "Fetching builds list for branch"
       , MyUtils.quote branch_name ++ "..."
       ]
-    fetchCircleCIBuilds branch_name fetch_count age_days
 
-  putStrLn "Storing builds list..."
-  SqlWrite.storeCircleCiBuildsList conn $ map (\x -> (x, False)) $ concat builds_lists
+    fetchCircleCIBuilds
+      status_filter
+      branch_name
+      fetch_count
+      age_days
+
+  let combined_builds_list = concat builds_lists
+      succeeded_count = length $ filter snd combined_builds_list
+      failed_count = length $ filter (not . snd) combined_builds_list
+
+  MyUtils.debugList [
+    "Storing builds list with"
+    , show succeeded_count
+    , "succeeded and"
+    , show failed_count
+    , "failed"
+    ]
+
+  SqlWrite.storeCircleCiBuildsList conn combined_builds_list
 
 
 -- | This is populated from the "bulk" API query which lists multiple builds.
 -- Contrast with CircleBuild.SingleBuild, for which the API returns
 -- one build at a time.
-itemToBuild :: Value -> Build
-itemToBuild json = NewBuild {
-    build_id = NewBuildNumber $ view (key "build_num" . _Integral) json
-  , vcs_revision = Builds.RawCommit $ view (key "vcs_revision" . _String) json
-  , queued_at = head $ Maybe.fromJust $ decode (encode [queued_at_string])
-  , job_name = view (key "workflows" . key "job_name" . _String) json
-  , branch = Just $ view (key "branch" . _String) json
-  , start_time = Just $ head $ Maybe.fromJust $ decode (encode [start_time_string])
-  , stop_time = Just $ head $ Maybe.fromJust $ decode (encode [stop_time_string])
-  }
+itemToBuild :: Value -> (Builds.Build, Bool)
+itemToBuild json = (b, did_succeed)
   where
+    b = Builds.NewBuild {
+      Builds.build_id = Builds.NewBuildNumber $ view (key "build_num" . _Integral) json
+    , Builds.vcs_revision = Builds.RawCommit $ view (key "vcs_revision" . _String) json
+    , Builds.queued_at = head $ Maybe.fromJust $ decode (encode [queued_at_string])
+    , Builds.job_name = view (key "workflows" . key "job_name" . _String) json
+    , Builds.branch = Just $ view (key "branch" . _String) json
+    , Builds.start_time = Just $ head $ Maybe.fromJust $ decode (encode [start_time_string])
+    , Builds.stop_time = Just $ head $ Maybe.fromJust $ decode (encode [stop_time_string])
+    }
+
     queued_at_string = view (key "queued_at" . _String) json
     start_time_string = view (key "start_time" . _String) json
     stop_time_string = view (key "stop_time" . _String) json
+    outcome_string = view (key "outcome" . _String) json
+
+    did_succeed = outcome_string == "success"
 
 
 getBuildListUrl :: String -> String
@@ -87,11 +128,16 @@ getBuildListUrl branch_name = intercalate "/"
 
 
 fetchCircleCIBuilds ::
-     String
+     CircleCIFetchFilter
+  -> String
   -> Int
   -> Int
-  -> IO [Build]
-fetchCircleCIBuilds branch_name max_build_count max_age_days = do
+  -> IO [(Builds.Build, Bool)]
+fetchCircleCIBuilds
+    status_filter
+    branch_name
+    max_build_count
+    max_age_days = do
 
   sess <- Sess.newSession
   current_time <- Clock.getCurrentTime
@@ -101,17 +147,30 @@ fetchCircleCIBuilds branch_name max_build_count max_age_days = do
       time_diff = Clock.secondsToNominalDiffTime seconds_offset
       earliest_requested_time = Clock.addUTCTime time_diff current_time
 
-  fetchCircleCIBuildsRecurse sess branch_name 0 earliest_requested_time max_build_count
+  fetchCircleCIBuildsRecurse
+    sess
+    status_filter
+    branch_name
+    0
+    earliest_requested_time
+    max_build_count
 
 
 fetchCircleCIBuildsRecurse ::
      Sess.Session
+  -> CircleCIFetchFilter
   -> String
   -> Int
   -> UTCTime
   -> Int
-  -> IO [Build]
-fetchCircleCIBuildsRecurse sess branch_name offset earliest_requested_time max_build_count =
+  -> IO [(Builds.Build, Bool)]
+fetchCircleCIBuildsRecurse
+    sess
+    status_filter
+    branch_name
+    offset
+    earliest_requested_time
+    max_build_count =
 
   if max_build_count > 0
     then do
@@ -122,12 +181,19 @@ fetchCircleCIBuildsRecurse sess branch_name offset earliest_requested_time max_b
         , MyUtils.parens $ show max_build_count ++ " left"
         ]
 
-      builds <- getSingleBuildList sess branch_name builds_per_page offset
+      builds <- getSingleBuildList
+        sess
+        status_filter
+        branch_name
+        builds_per_page
+        offset
 
       let fetched_build_count = length builds
           builds_left = max_build_count - fetched_build_count
 
-      case Safe.minimumMay $ map Builds.queued_at builds of
+          queued_times = map (Builds.queued_at . fst) builds
+
+      case Safe.minimumMay queued_times of
         Nothing ->
           MyUtils.debugStr "No more builds found."
 
@@ -152,7 +218,15 @@ fetchCircleCIBuildsRecurse sess branch_name offset earliest_requested_time max_b
             ]
 
           return []
-        else fetchCircleCIBuildsRecurse sess branch_name next_offset earliest_requested_time builds_left
+
+        else fetchCircleCIBuildsRecurse
+          sess
+          status_filter
+          branch_name
+          next_offset
+          earliest_requested_time
+          builds_left
+
       return $ builds ++ more_builds
 
   else
@@ -164,11 +238,12 @@ fetchCircleCIBuildsRecurse sess branch_name offset earliest_requested_time max_b
 
 getSingleBuildList ::
      Sess.Session
+  -> CircleCIFetchFilter
   -> String
   -> Int
   -> Int
-  -> IO [Build]
-getSingleBuildList sess branch_name limit offset = do
+  -> IO [(Builds.Build, Bool)]
+getSingleBuildList sess filter_mode branch_name limit offset = do
 
   either_r <- FetchHelpers.safeGetUrl $ Sess.getWith opts sess fetch_url
 
@@ -179,8 +254,13 @@ getSingleBuildList sess branch_name limit offset = do
           builds_list = map itemToBuild $ V.toList inner_list
 
       return builds_list
+
     Left err_message -> do
-      MyUtils.debugList ["PROBLEM: Failed in getSingleBuildList with message:",  err_message]
+      MyUtils.debugList [
+          "PROBLEM: Failed in getSingleBuildList with message:"
+        , err_message
+        ]
+
       return []
 
   where
@@ -188,7 +268,6 @@ getSingleBuildList sess branch_name limit offset = do
     opts = defaults
       & header "Accept" .~ [Constants.jsonMimeType]
       & param "shallow" .~ ["true"]
-      & param "filter" .~ ["failed"]
+      & param "filter" .~ [toOutcomeString filter_mode]
       & param "offset" .~ [T.pack $ show offset]
       & param "limit" .~ [T.pack $ show limit]
-
