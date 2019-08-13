@@ -106,7 +106,7 @@ function get_context_menu_items_for_cell(cell) {
 
 			context_menu_items.push(node);
 
-		} else {
+		} else if (cell_value.failure_mode["tag"] != "Success") {
 
 			const node = document.createElement("span");
 			const textnode = document.createTextNode("Mark failure start");
@@ -116,7 +116,6 @@ function get_context_menu_items_for_cell(cell) {
 
 			context_menu_items.push(node);
 		}
-
 	}
 
 	const open_breakages = get_open_breakages(cell);
@@ -434,14 +433,20 @@ function define_column(col) {
 			}
 
 			if (cell_value != null) {
+
+				const is_success = cell_value.failure_mode["tag"] == "Success";
+
 				const img_path = cell_value.is_flaky ? "yellow-triangle.svg"
 					: cell_value.failure_mode["tag"] == "FailedStep" && cell_value.failure_mode["step_failure"]["tag"] == "Timeout" ? "purple-circle.svg"
 						: cell_value.failure_mode["tag"] == "FailedStep" && cell_value.failure_mode["step_failure"]["tag"] == "NoMatch" ? "blue-square.svg"
 							: cell_value.failure_mode["tag"] == "NoLog" ? "gray-diamond.svg"
-								: cell_value.failure_mode["tag"] == "Success" ? "green-dot.svg" : "red-x.svg";
+								: is_success ? "green-dot.svg" : "red-x.svg";
 
 				const build_id = cell_value["universal_build"]["db_id"];
-				return link('<img src="/images/build-status-indicators/' + img_path + '" style="width: 100%; top: 50%;"/>', "/build-details.html?build_id=" + build_id);
+				const indicator = '<img src="/images/build-status-indicators/' + img_path + '" style="width: 100%; top: 50%;"/>';
+
+
+				return is_success ? indicator : link(indicator, "/build-details.html?build_id=" + build_id);
 
 			} else {
 				return "";

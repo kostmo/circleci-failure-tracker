@@ -46,6 +46,9 @@ instance ToJSON a => ToJSON (AggregateBuildCounts a) where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
+-- | Here we take advantage of type safety to ensure
+-- that every series label in the frontend plots
+-- is assigned a color.
 buildCountColors :: AggregateBuildCounts String
 buildCountColors = AggregateBuildCounts {
     _failure_count =                  "#000000" -- not used
