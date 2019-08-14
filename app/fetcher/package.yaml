@@ -53,6 +53,7 @@ library:
     - http-client
     - http-types
     - json-stream
+    - data-ordlist
 
 executables:
   run-scanner:

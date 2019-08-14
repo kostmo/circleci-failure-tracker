@@ -824,10 +824,11 @@ getMasterCommits conn parent_offset_mode =
       return (WeeklyStats.InclusiveNumericBounds first_commit_index latest_id, mapped_rows)
 
   where
-    f (commit_id, commit_sha1, maybe_message, maybe_tree_sha1, maybe_author_name, maybe_author_email, maybe_author_date, maybe_committer_name, maybe_committer_email, maybe_committer_date) =
+    f (commit_id, commit_sha1, commit_number, maybe_message, maybe_tree_sha1, maybe_author_name, maybe_author_email, maybe_author_date, maybe_committer_name, maybe_committer_email, maybe_committer_date) =
       DbHelpers.WithId commit_id $ BuildResults.CommitAndMetadata
         wrapped_sha1
         maybe_metadata
+        commit_number
       where
         wrapped_sha1 = Builds.RawCommit commit_sha1
         maybe_metadata = Commits.CommitMetadata wrapped_sha1 <$>
@@ -843,7 +844,7 @@ getMasterCommits conn parent_offset_mode =
     sql_first_commit_id = "SELECT id FROM ordered_master_commits ORDER BY id DESC LIMIT 1 OFFSET ?"
     sql_associated_commit_id = "SELECT id FROM ordered_master_commits WHERE sha1 = ?"
 
-    sql_commit_id_and_offset = "SELECT ordered_master_commits.id, ordered_master_commits.sha1, message, tree_sha1, author_name, author_email, author_date, committer_name, committer_email, committer_date FROM ordered_master_commits LEFT JOIN commit_metadata ON commit_metadata.sha1 = ordered_master_commits.sha1 WHERE id <= ? ORDER BY id DESC LIMIT ?"
+    sql_commit_id_and_offset = "SELECT master_commits_contiguously_indexed.id, master_commits_contiguously_indexed.sha1, master_commits_contiguously_indexed.commit_number, message, tree_sha1, author_name, author_email, author_date, committer_name, committer_email, committer_date FROM master_commits_contiguously_indexed LEFT JOIN commit_metadata ON commit_metadata.sha1 = master_commits_contiguously_indexed.sha1 WHERE id <= ? ORDER BY id DESC LIMIT ?"
 
     sql_commit_id_bounds = "SELECT ordered_master_commits.id, ordered_master_commits.sha1, message, tree_sha1, author_name, author_email, author_date, committer_name, committer_email, committer_date FROM ordered_master_commits LEFT JOIN commit_metadata ON commit_metadata.sha1 = ordered_master_commits.sha1 WHERE id >= ? AND id <= ? ORDER BY id DESC"
 

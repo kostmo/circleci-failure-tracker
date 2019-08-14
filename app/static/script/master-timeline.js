@@ -54,9 +54,9 @@ function get_timeline_data(parms) {
 	$("#scan-throbber").show();
 
 	$.getJSON('/api/master-timeline', parms, function (mydata) {
+		$("#scan-throbber").hide();
 
 		const end_time = new Date();
-		$("#scan-throbber").hide();
 		if (mydata.success) {
 
 			var time_diff = end_time.getTime() - start_time.getTime();
@@ -82,27 +82,15 @@ function get_context_menu_items_for_cell(cell) {
 	const cell_value = get_cell_value_indirect(cell);
 	if (cell_value != null) {
 
-		const selected_commit_indices = [];
-		const commit_sha1_by_index = {};
+		const selected_data = [] || (grid_table && grid_table.getSelectedData());
 
-		if (grid_table) {
-			const selectedData = grid_table.getSelectedData();
-
-			console.log("Grid selected row count: " + selectedData.length);
-
-			for (var datum of selectedData) {
-				selected_commit_indices.push(datum["commit_index"]);
-				commit_sha1_by_index[datum["commit_index"]] = datum["commit"];
-			}
-		}
-
-		if (selected_commit_indices.length > 1) {
+		if (selected_data.length > 1) {
 
 			const node = document.createElement("span");
 			const textnode = document.createTextNode("Mark failure span");
 			node.appendChild(textnode);
 
-			node.addEventListener("click", function () {mark_failure_span(commit_sha1, job_name, selected_commit_indices, commit_sha1_by_index);});
+			node.addEventListener("click", function () {mark_failure_span(selected_data);});
 
 			context_menu_items.push(node);
 
@@ -112,7 +100,7 @@ function get_context_menu_items_for_cell(cell) {
 			const textnode = document.createTextNode("Mark failure start");
 			node.appendChild(textnode);
 
-			node.addEventListener("click", function () {mark_failure_cause(commit_sha1, job_name);});
+			node.addEventListener("click", function () {mark_failure_cause(commit_sha1);});
 
 			context_menu_items.push(node);
 		}
@@ -187,10 +175,14 @@ function update_subform_visibility(is_ongoing_checked) {
 
 function refresh_cache() {
 
+	$("#scan-throbber").show();
         $.post({
 		url: "/api/refresh-materialized-view",
 		success: function( data ) {
+			$("#scan-throbber").hide();
+
 			console.log("success");
+			update_url_from_form();
 		}
         });
 }
@@ -222,7 +214,17 @@ function mark_failure_resolution(commit_sha1, active_breakages) {
 }
 
 
-function mark_failure_span(commit_sha1, clicked_job_name, selected_commit_indices, commit_sha1_by_index) {
+function mark_failure_span(selected_data) {
+
+	const selected_commit_indices = [];
+	const commit_sha1_by_index = {};
+
+	console.log("Grid selected row count: " + selected_data.length);
+	for (var datum of selected_data) {
+		selected_commit_indices.push(datum["commit_index"]);
+		commit_sha1_by_index[datum["commit_index"]] = datum["commit"];
+	}
+
 
 	console.log("Commit indices: " + selected_commit_indices);
 
@@ -240,24 +242,23 @@ function mark_failure_span(commit_sha1, clicked_job_name, selected_commit_indice
 	$('#is-ongoing-checkbox').prop('checked', false);
 
 
-
 	$("#breakage-span-start-commit").val( commit_sha1_by_index[min_commit_index] );
 	$("#breakage-span-last-commit").val( commit_sha1_by_index[max_commit_index] );
 
 
-	return mark_failure_cause_common(clicked_job_name, "/api/list-master-commit-range-jobs?" + parms_string);
+	return mark_failure_cause_common("/api/list-master-commit-range-jobs?" + parms_string);
 }
 
 
-function mark_failure_cause(commit_sha1, clicked_job_name) {
+function mark_failure_cause(commit_sha1) {
 
 	$("#breakage-span-start-commit").val(commit_sha1);
 
-	return mark_failure_cause_common(clicked_job_name, "/api/list-commit-jobs?sha1=" + commit_sha1);
+	return mark_failure_cause_common("/api/list-commit-jobs?sha1=" + commit_sha1);
 }
 
 
-function mark_failure_cause_common(clicked_job_name, api_url) {
+function mark_failure_cause_common(api_url) {
 
 	const is_ongoing_checked = $('#is-ongoing-checkbox').is(":checked");
 	update_subform_visibility(is_ongoing_checked);
@@ -710,6 +711,7 @@ function gen_timeline_table(element_id, fetched_data) {
 		const failures_by_job_name = build_failures_by_commit[sha1] || {};
 
 		row_dict["commit_index"] = commit_obj.db_id;
+		row_dict["contiguous_commit_number"] = commit_obj.record.contiguous_index;
 		row_dict["commit"] = sha1;
 		row_dict["commit_metadata"] = commit_obj.record.metadata;
 
@@ -727,6 +729,25 @@ function gen_timeline_table(element_id, fetched_data) {
 		selectable: true,
 		columns: column_list,
 		data: table_data,
+		rowSelectionChanged: function(data, rows) {
+			//rows - array of row components for the selected rows in order of selection
+			//data - array of data objects for the selected rows in order of selection
+
+			if (rows.length) {
+				$("#floating-selection-helper").show();
+
+				const contiguous_indices = data.map(x => x["contiguous_commit_number"]);
+				const min_index = Math.min(...contiguous_indices);
+				const max_index = Math.max(...contiguous_indices);
+				const spanned_row_count = 1 + max_index - min_index;
+
+				$("#floating-selection-helper-header").html("Row span: " + spanned_row_count);
+
+				$("#floating-selection-helper-go-button").click( function() {  mark_failure_span(data); } );
+			} else {
+				$("#floating-selection-helper").hide();
+			}
+		},
 	});
 }
 

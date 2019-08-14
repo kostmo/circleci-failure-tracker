@@ -72,7 +72,7 @@ data UniversalBuild = UniversalBuild {
   , build_namespace   :: Text
   , succeeded         :: Bool
   , sha1              :: RawCommit
-  } deriving (Show, Generic)
+  } deriving (Eq, Ord, Show, Generic)
 
 instance ToJSON UniversalBuild
 
@@ -140,7 +140,7 @@ data Build = NewBuild {
   , branch       :: Maybe Text
   , start_time   :: Maybe UTCTime
   , stop_time    :: Maybe UTCTime
-  } deriving (Show, Generic)
+  } deriving (Eq, Ord, Show, Generic)
 
 instance ToJSON Build
 instance FromJSON Build

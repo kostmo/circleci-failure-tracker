@@ -23,6 +23,24 @@
 <script src="/script/table-helpers.js"></script>
 <script src="/script/master-timeline.js"></script>
 
+<style>
+
+#floating-selection-helper {
+	position: fixed;
+	background-color: #fdfdfd;
+	width: 200px;
+	height: 100px;
+	bottom: 40px;
+	right: 100px;
+
+	border: 3px solid #eec;
+	padding: 0.5em;
+
+	box-shadow: 10px 10px 5px grey;
+	display: none;
+}
+</style>
+
 </head>
 
 <body onload="main();">
@@ -44,8 +62,9 @@
 count:
 <input id="count-input" type="number" value="25" min="1" max="100" size="3"/>
 </label>
+<button onclick="update_url_from_form();">Go</button>
 
-<p>Start position: <button onclick="update_url_from_form();">Go</button></p>
+<p>Start position:</p>
 <div id="scan-throbber" style="display: none; float:right; clear: all;"><img src="/images/duck.gif"/></div>
 
 <label><input type="radio" name="pagination-mode" value="start-by-offset" checked="true"/> by offset:</label>
@@ -70,6 +89,13 @@ commits
 
 
 <div id="myDropdown" class="dropdown-content"></div>
+
+
+<div id="floating-selection-helper">
+<div id="floating-selection-helper-header"></div>
+<button id="floating-selection-helper-go-button">Annotate failure</button>
+
+</div>
 
 <dialog id="affected-jobs-dialog">
 <table><tr><td>

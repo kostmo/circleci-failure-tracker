@@ -13,6 +13,7 @@ import           Data.Bifunctor                    (first)
 import qualified Data.ByteString.Char8             as BS
 import           Data.Either.Utils                 (maybeToEither)
 import           Data.Foldable                     (for_)
+import           Data.List.Ordered                 (nubSort)
 import qualified Data.Maybe                        as Maybe
 import           Data.Set                          (Set)
 import qualified Data.Set                          as Set
@@ -252,15 +253,21 @@ insertSingleUniversalBuild conn uni_build@(Builds.UniversalBuild (Builds.NewBuil
 -- tuple, the existing universal build ID is returned instead
 -- of creating a new row.
 --
--- TODO However, note that we must not have two rows proposed for insertion
+-- However, note that we must not have two rows proposed for insertion
 -- that conflict amongst each other, so we must
--- perform some client-side deduplication first.
+-- perform some client-side deduplication first (in this case, with nubSort).
+--
+-- Duplicates may arise due to the way pagination of the CircleCI builds list
+-- works. Say that 200 builds are to be fetched, with 100 per page. If, while
+-- processing the first page, a new build is completed on CircleCI, then
+-- 100th build from the first page will get bumped to position 101, and fetched
+-- again as the 1st build of the second page.
 --
 -- See https://pganalyze.com/docs/log-insights/app-errors/U126
 --
 -- TODO for now, this function is only called from the standalone scanner application.
 storeCircleCiBuildsList :: Connection -> [(Builds.Build, Bool)] -> IO Int64
-storeCircleCiBuildsList conn builds_list = do
+storeCircleCiBuildsList conn builds_list_with_possible_duplicates = do
 
   universal_build_insertion_output_rows <- returning
     conn
@@ -275,11 +282,13 @@ storeCircleCiBuildsList conn builds_list = do
       zipped_output2 = zipWith
         (\(DbHelpers.WithId ubuild_id _ubuild) rbuild -> DbHelpers.WithTypedId (Builds.UniversalBuildId ubuild_id) rbuild)
         zipped_output1
-        (map fst builds_list)
+        (map fst deduped_builds_list)
 
   storeBuildsList conn zipped_output2
 
   where
+    deduped_builds_list = nubSort builds_list_with_possible_duplicates
+
     mk_ubuild (b, succeeded) = Builds.UniversalBuild
       (Builds.build_id b)
       SqlRead.circleCIProviderIndex
@@ -287,7 +296,7 @@ storeCircleCiBuildsList conn builds_list = do
       succeeded
       (Builds.vcs_revision b)
 
-    universal_builds = map mk_ubuild builds_list
+    universal_builds = map mk_ubuild deduped_builds_list
 
     input_f (Builds.UniversalBuild (Builds.NewBuildNumber provider_buildnum) provider_id build_namespace succeeded (Builds.RawCommit sha1)) = (provider_id, provider_buildnum, build_namespace, succeeded, sha1)
 
