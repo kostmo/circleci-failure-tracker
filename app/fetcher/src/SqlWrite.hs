@@ -252,6 +252,12 @@ insertSingleUniversalBuild conn uni_build@(Builds.UniversalBuild (Builds.NewBuil
 -- tuple, the existing universal build ID is returned instead
 -- of creating a new row.
 --
+-- TODO However, note that we must not have two rows proposed for insertion
+-- that conflict amongst each other, so we must
+-- perform some client-side deduplication first.
+--
+-- See https://pganalyze.com/docs/log-insights/app-errors/U126
+--
 -- TODO for now, this function is only called from the standalone scanner application.
 storeCircleCiBuildsList :: Connection -> [(Builds.Build, Bool)] -> IO Int64
 storeCircleCiBuildsList conn builds_list = do

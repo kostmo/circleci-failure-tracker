@@ -47,12 +47,17 @@ def parse_args():
     return parser.parse_args()
 
 
-def gen_credentials_filename(is_db, is_remote):
+def gen_credentials_filename(is_db, is_remote, suffix=None):
 
     credential_type = "database" if is_db else "app"
     locality_suffix = "remote" if is_remote else "local"
 
-    return "-".join([credential_type, "credentials", locality_suffix]) + ".json"
+    arglist = [credential_type, "credentials", locality_suffix]
+
+    if suffix:
+        arglist.append(suffix)
+
+    return "-".join(arglist) + ".json"
 
 
 if __name__ == "__main__":
@@ -63,14 +68,18 @@ if __name__ == "__main__":
 
     app_credentials_json_path = os.path.join(options.credentials_json_basedir, gen_credentials_filename(False, options.prod_app))
     db_credentials_json_path = os.path.join(options.credentials_json_basedir, gen_credentials_filename(True, using_prod_db))
+    db_mview_credentials_json_path = os.path.join(options.credentials_json_basedir, gen_credentials_filename(True, using_prod_db, "mview-refresher"))
 
-    with open(app_credentials_json_path) as fh_app, open(db_credentials_json_path) as fh_db:
+
+
+    with open(app_credentials_json_path) as fh_app, open(db_credentials_json_path) as fh_db, open(db_mview_credentials_json_path) as fh_mview_db:
 
         personal_access_token = open(options.personal_token_file).read().strip()
 
         nondefault_cli_arglist = args_assembly.generate_app_nondefault_cli_arglist(
             json.load(fh_app),
             json.load(fh_db),
+            json.load(fh_mview_db),
             personal_access_token,
             options.notification_ingester)
 
@@ -91,6 +100,7 @@ if __name__ == "__main__":
                ] + nondefault_cli_arglist
 
             command_string = " ".join(cli_args)
+            print("Executing command:", command_string)
             subprocess.check_call(command_string, shell=True, cwd="app")
 
 

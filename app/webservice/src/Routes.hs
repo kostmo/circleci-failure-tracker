@@ -43,9 +43,10 @@ import qualified WebApi
 
 
 data SetupData = SetupData {
-    _setup_static_base     :: String
-  , _setup_github_config   :: AuthConfig.GithubConfig
-  , _setup_connection_data :: DbHelpers.DbConnectionData
+    _setup_static_base           :: String
+  , _setup_github_config         :: AuthConfig.GithubConfig
+  , _setup_connection_data       :: DbHelpers.DbConnectionData
+  , _setup_mview_connection_data :: DbHelpers.DbConnectionData -- ^ for updating materialized views
   }
 
 
@@ -62,7 +63,7 @@ scottyApp ::
   -> ScottyTypes.ScottyT LT.Text IO ()
 scottyApp
     (PersistenceData cache session store)
-    (SetupData static_base github_config connection_data) = do
+    (SetupData static_base github_config connection_data mview_connection_data) = do
 
   S.middleware $ withSession store (fromString "SESSION") def session
 
@@ -79,10 +80,25 @@ scottyApp
   S.post "/api/github-event" $ StatusUpdate.githubEventEndpoint connection_data github_config
 
   S.post "/api/code-breakage-resolution-report" $
-    FrontendHelpers.breakageResolutionReport connection_data session github_config
+    FrontendHelpers.breakageResolutionReport
+      connection_data
+      session
+      github_config
+      mview_connection_data
 
   S.post "/api/code-breakage-cause-report" $
-    FrontendHelpers.breakageCauseReport connection_data session github_config
+    FrontendHelpers.breakageCauseReport
+      connection_data
+      session
+      github_config
+      mview_connection_data
+
+  S.post "/api/refresh-materialized-view" $ do
+
+    liftIO $ do
+      mview_conn <- DbHelpers.get_connection mview_connection_data
+      SqlRead.refreshCachedMasterGrid mview_conn
+    S.json $ WebApi.toJsonEither $ ((Right ["Done."]) :: Either Text [Text])
 
   S.post "/api/rescan-build" $
     withAuth $
@@ -300,7 +316,7 @@ scottyApp
       <*> S.param "limit"
 
   get "/api/master-timeline" $
-    fmap WebApi.toJsonEither . SqlRead.apiMasterBuilds <$> FrontendHelpers.getOffsetMode
+    fmap WebApi.toJsonEither . SqlRead.apiMasterBuilds mview_connection_data <$> FrontendHelpers.getOffsetMode
 
   S.get "/api/commit-info" $ do
     commit_sha1_text <- S.param "sha1"

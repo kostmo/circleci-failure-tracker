@@ -178,60 +178,81 @@ breakageCauseReport ::
      DbHelpers.DbConnectionData
   -> Vault.Key (Session IO String String)
   -> AuthConfig.GithubConfig
+  -> DbHelpers.DbConnectionData
   -> ScottyTypes.ActionT LT.Text IO ()
-breakageCauseReport connection_data session github_config = do
-    breakage_sha1 <- S.param "cause_sha1"
-    notes <- S.param "notes"
-    jobs_delimited <- S.param "jobs"
+breakageCauseReport
+    connection_data
+    session
+    github_config
+    mview_connection_data = do
 
-    is_ongoing_text <- S.param "is_ongoing"
-    last_affected_sha1 <- S.param "last_affected_sha1"
+  breakage_sha1 <- S.param "cause_sha1"
+  notes <- S.param "notes"
+  jobs_delimited <- S.param "jobs"
 
-    failure_mode_id <- S.param "failure_mode_id"
+  is_ongoing_text <- S.param "is_ongoing"
+  last_affected_sha1 <- S.param "last_affected_sha1"
 
-    let is_still_ongoing = checkboxIsTrue is_ongoing_text
+  failure_mode_id <- S.param "failure_mode_id"
 
-    rq <- S.request
-    insertion_result <- liftIO $ runExceptT $ do
+  let is_still_ongoing = checkboxIsTrue is_ongoing_text
 
-      let callback_func user_alias = runExceptT $ do
+  rq <- S.request
+  insertion_result <- liftIO $ runExceptT $ do
 
-            conn <- liftIO $ DbHelpers.get_connection connection_data
-            SqlWrite.reportBreakage
-              (SqlRead.AuthConnection conn user_alias)
-              jobs_delimited
-              failure_mode_id
-              is_still_ongoing
-              (Builds.RawCommit last_affected_sha1)
-              (Builds.RawCommit breakage_sha1)
-              notes
+    let callback_func user_alias = runExceptT $ do
 
-      ExceptT $ Auth.getAuthenticatedUser rq session github_config callback_func
-    S.json $ WebApi.toJsonEither insertion_result
+          conn <- liftIO $ DbHelpers.get_connection connection_data
+          result <- SqlWrite.reportBreakage
+            (SqlRead.AuthConnection conn user_alias)
+            jobs_delimited
+            failure_mode_id
+            is_still_ongoing
+            (Builds.RawCommit last_affected_sha1)
+            (Builds.RawCommit breakage_sha1)
+            notes
+
+          liftIO $ do
+            mview_conn <- DbHelpers.get_connection mview_connection_data
+            SqlRead.refreshCachedMasterGrid mview_conn
+
+          return result
+
+    ExceptT $ Auth.getAuthenticatedUser rq session github_config callback_func
+  S.json $ WebApi.toJsonEither insertion_result
 
 
 breakageResolutionReport ::
      DbHelpers.DbConnectionData
   -> Vault.Key (Session IO String String)
   -> AuthConfig.GithubConfig
+  -> DbHelpers.DbConnectionData
   -> ScottyTypes.ActionT LT.Text IO ()
-breakageResolutionReport connection_data session github_config = do
+breakageResolutionReport
+    connection_data
+    session
+    github_config
+    mview_connection_data = do
 
-    sha1 <- S.param "sha1"
-    cause_ids_delimited <- S.param "causes"
+  sha1 <- S.param "sha1"
+  cause_ids_delimited <- S.param "causes"
 
-    rq <- S.request
-    insertion_result <- liftIO $ runExceptT $ do
+  rq <- S.request
+  insertion_result <- liftIO $ runExceptT $ do
 
-      let callback_func user_alias = do
-            conn <- DbHelpers.get_connection connection_data
-            runReaderT
-              (SqlWrite.apiCodeBreakageResolutionInsertMultiple sha1 cause_ids_delimited)
-              (SqlRead.AuthConnection conn user_alias)
+    let callback_func user_alias = do
+          conn <- DbHelpers.get_connection connection_data
+          result <- runReaderT
+            (SqlWrite.apiCodeBreakageResolutionInsertMultiple sha1 cause_ids_delimited)
+            (SqlRead.AuthConnection conn user_alias)
 
+          mview_conn <- DbHelpers.get_connection mview_connection_data
+          SqlRead.refreshCachedMasterGrid mview_conn
 
-      ExceptT $ Auth.getAuthenticatedUser rq session github_config callback_func
-    S.json $ WebApi.toJsonEither insertion_result
+          return result
+
+    ExceptT $ Auth.getAuthenticatedUser rq session github_config callback_func
+  S.json $ WebApi.toJsonEither insertion_result
 
 
 requireAdminToken :: (FromJSON t, ToJSON b) =>

@@ -185,6 +185,17 @@ function update_subform_visibility(is_ongoing_checked) {
 }
 
 
+function refresh_cache() {
+
+        $.post({
+		url: "/api/refresh-materialized-view",
+		success: function( data ) {
+			console.log("success");
+		}
+        });
+}
+
+
 function mark_failure_resolution(commit_sha1, active_breakages) {
 
 	console.log("Submitting resolution report. Active breakage count: " + active_breakages.length);

@@ -30,6 +30,7 @@ def generate_dockerrun_aws_json(output_path, nondefault_cli_arglist):
 def generate_app_nondefault_cli_arglist(
         app_credentials_json,
         db_credentials_json,
+        db_mview_credentials_json,
         personal_token,
         is_notification_ingester):
 
@@ -42,8 +43,14 @@ def generate_app_nondefault_cli_arglist(
         app_credentials_json["github-webhook-secret"],
         "--db-hostname",
         db_credentials_json["db-hostname"],
+        "--db-username",
+        db_credentials_json["db-user"],
         "--db-password",
         db_credentials_json["db-password"],
+        "--db-mview-username",
+        db_mview_credentials_json["db-user"],
+        "--db-mview-password",
+        db_mview_credentials_json["db-password"],
         "--admin-password",
         app_credentials_json["admin-password"],
         "--github-personal-access-token",

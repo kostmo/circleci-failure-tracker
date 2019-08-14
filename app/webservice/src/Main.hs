@@ -26,7 +26,10 @@ data CommandLineArgs = NewCommandLineArgs {
     serverPort                :: Int
   , staticBase                :: String
   , dbHostname                :: String
+  , dbUsername                :: String
   , dbPassword                :: String
+  , dbMviewUsername           :: String
+  , dbMviewPassword           :: String
   , gitHubClientID            :: Text
   , gitHubClientSecret        :: Text
   , gitHubPersonalAccessToken :: Text
@@ -80,7 +83,12 @@ mainAppCode args = do
   S.scotty prt $ Routes.scottyApp persistence_data credentials_data
 
   where
-    credentials_data = Routes.SetupData static_base github_config connection_data
+    credentials_data = Routes.SetupData
+      static_base
+      github_config
+      connection_data
+      connection_data_mview
+
     static_base = staticBase args
 
     access_token = OAuth2.AccessToken $ gitHubPersonalAccessToken args
@@ -93,11 +101,20 @@ mainAppCode args = do
       (adminPassword args)
       (noForceSSL args)
 
+    databaseName = "loganci"
+
     connection_data = DbHelpers.NewDbConnectionData {
         DbHelpers.dbHostname = dbHostname args
-      , DbHelpers.dbName = "loganci"
-      , DbHelpers.dbUsername = "logan"
+      , DbHelpers.dbName = databaseName
+      , DbHelpers.dbUsername = dbUsername args
       , DbHelpers.dbPassword = dbPassword args
+      }
+
+    connection_data_mview = DbHelpers.NewDbConnectionData {
+        DbHelpers.dbHostname = dbHostname args
+      , DbHelpers.dbName = databaseName
+      , DbHelpers.dbUsername = dbMviewUsername args
+      , DbHelpers.dbPassword = dbMviewPassword args
       }
 
 
@@ -109,8 +126,17 @@ myCliParser = NewCommandLineArgs
     <> help "Path to static data files")
   <*> strOption   (long "db-hostname" <> value "localhost" <> metavar "DATABASE_HOSTNAME"
     <> help "Hostname of database")
+
+  <*> strOption   (long "db-username" <> metavar "DATABASE_USER"
+    <> help "Username for database user")
   <*> strOption   (long "db-password" <> metavar "DATABASE_PASSWORD"
     <> help "Password for database user")
+
+  <*> strOption   (long "db-mview-username" <> metavar "DATABASE_MVIEW_USER"
+    <> help "Username for materialized views database user")
+  <*> strOption   (long "db-mview-password" <> metavar "DATABASE_MVIEW_PASSWORD"
+    <> help "Password for materialized views database user")
+
   <*> strOption   (long "github-client-id" <> metavar "GITHUB_CLIENT_ID"
     <> help "Client ID for GitHub app")
   <*> strOption   (long "github-client-secret" <> metavar "GITHUB_CLIENT_SECRET"

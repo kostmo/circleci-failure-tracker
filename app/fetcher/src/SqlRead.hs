@@ -41,6 +41,7 @@ import qualified DbHelpers
 import qualified GitRev
 import qualified JsonUtils
 import qualified MatchOccurrences
+import qualified MyUtils
 import qualified Pagination
 import qualified PostedStatuses
 import qualified ScanPatterns
@@ -993,17 +994,20 @@ instance FromRow BuildResults.SimpleBuildStatus where
 
 
 refreshCachedMasterGrid :: Connection -> IO ()
-refreshCachedMasterGrid conn =
-  void $ execute_ conn "REFRESH MATERIALIZED VIEW master_failures_raw_causes_materialized;"
+refreshCachedMasterGrid conn = do
+  MyUtils.debugStr "Refreshing view..."
+  void $ execute_ conn "REFRESH MATERIALIZED VIEW master_failures_raw_causes_mview;"
+  MyUtils.debugStr "View refreshed."
 
 
 -- | Gets last N commits in one query,
 -- then gets the list of jobs that apply to those commits,
 -- then gets the associated builds
 apiMasterBuilds ::
-     Pagination.ParentOffsetMode
+     DbHelpers.DbConnectionData -- ^ TODO get rid of this
+  -> Pagination.ParentOffsetMode
   -> DbIO (Either Text BuildResults.MasterBuildsResponse)
-apiMasterBuilds offset_limit = do
+apiMasterBuilds _mview_connection_data offset_limit = do
 
   code_breakage_ranges <- apiAnnotatedCodeBreakages
 
@@ -1014,8 +1018,11 @@ apiMasterBuilds offset_limit = do
     let query_bounds = (WeeklyStats.min_bound commit_id_bounds, WeeklyStats.max_bound commit_id_bounds)
     completed_builds <- liftIO $ do
 
+{-
+      mview_conn <- DbHelpers.get_connection mview_connection_data
       -- FIXME move this refresh somewhere else
-      refreshCachedMasterGrid conn
+      refreshCachedMasterGrid mview_conn
+-}
 
       query conn builds_list_sql query_bounds
 
@@ -1029,7 +1036,7 @@ apiMasterBuilds offset_limit = do
       code_breakage_ranges
 
   where
-    builds_list_sql = "SELECT sha1, succeeded, is_idiopathic, is_flaky, is_timeout, is_matched, is_known_broken, build_num, queued_at, job_name, branch, step_name, pattern_id, match_id, line_number, line_count, line_text, span_start, span_end, specificity, is_serially_isolated, started_at, finished_at, global_build, provider, build_namespace, contiguous_run_count, contiguous_group_index, contiguous_start_commit_index, contiguous_end_commit_index, contiguous_length, cluster_id, cluster_member_count FROM master_failures_raw_causes_materialized WHERE commit_index >= ? AND commit_index <= ?;"
+    builds_list_sql = "SELECT sha1, succeeded, is_idiopathic, is_flaky, is_timeout, is_matched, is_known_broken, build_num, queued_at, job_name, branch, step_name, pattern_id, match_id, line_number, line_count, line_text, span_start, span_end, specificity, is_serially_isolated, started_at, finished_at, global_build, provider, build_namespace, contiguous_run_count, contiguous_group_index, contiguous_start_commit_index, contiguous_end_commit_index, contiguous_length, cluster_id, cluster_member_count FROM master_failures_raw_causes_mview WHERE commit_index >= ? AND commit_index <= ?;"
 
 
 apiDetectedCodeBreakages :: DbIO [BuildResults.DetectedBreakageSpan]
