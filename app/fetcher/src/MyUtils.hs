@@ -2,11 +2,12 @@
 
 module MyUtils where
 
-import           Control.Monad       (join, when)
+import           Control.Monad          (join, when)
+import           Control.Monad.IO.Class (MonadIO, liftIO)
 
-import           Data.Hashable       (Hashable)
-import           Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as HashMap
+import           Data.Hashable          (Hashable)
+import           Data.HashMap.Strict    (HashMap)
+import qualified Data.HashMap.Strict    as HashMap
 import           Formatting
 import           Formatting.Clock
 import           System.Clock
@@ -38,11 +39,17 @@ timeThis ioa = do
   return a
 
 
-timeThisT :: IO a -> IO (TimeSpec, TimeSpec, a)
+timeThisFloat :: MonadIO m => m a -> m (Float, a)
+timeThisFloat ioa = do
+  (t1, t2, a) <- timeThisT ioa
+  return (fromIntegral (toNanoSecs $ diffTimeSpec t2 t1) / fromIntegral (10 ^ 9), a)
+
+
+timeThisT :: MonadIO m => m a -> m (TimeSpec, TimeSpec, a)
 timeThisT ioa = do
-  t1 <- getTime Monotonic
+  t1 <- liftIO $ getTime Monotonic
   a <- ioa
-  t2 <- getTime Monotonic
+  t2 <- liftIO $ getTime Monotonic
   return (t1, t2, a)
 
 

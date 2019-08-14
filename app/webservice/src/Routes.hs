@@ -182,7 +182,7 @@ scottyApp
     pure SqlRead.apiDetectedCodeBreakages
 
   get "/api/code-breakages-annotated" $
-    pure SqlRead.apiAnnotatedCodeBreakages
+    pure SqlRead.apiAnnotatedCodeBreakagesWithImpact
 
   get "/api/list-failure-modes" $
     pure SqlRead.apiListFailureModes

@@ -168,83 +168,124 @@ instance ToJSON WeeklyBreakageImpactStats where
 data BreakageImpactStats = BreakageImpactStats {
     _downstream_broken_commit_count :: Int
   , _failed_downstream_build_count  :: Int
-  } deriving Generic
+  } deriving (Generic, FromRow)
 
 instance ToJSON BreakageImpactStats where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
-data BreakageSpan a = BreakageSpan {
+data BreakageSpan a b = BreakageSpan {
     _start :: DbHelpers.WithId (DbHelpers.WithAuthorship (BreakageStart a))
   , _end   :: Maybe BreakageEndRecord
-  , _impact_stats :: BreakageImpactStats
   , _spanned_commit_count :: Maybe Int
+  , _impact_stats :: b
   } deriving Generic
 
-instance (ToJSON a) => ToJSON (BreakageSpan a) where
+instance (ToJSON a, ToJSON b) => ToJSON (BreakageSpan a b) where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
-instance FromRow (BreakageSpan Text) where
+maybeResolutionFromRow = do
+
+  maybe_resolution_id <- field
+  maybe_resolved_commit_index <- field
+  maybe_resolution_sha1 <- field
+  maybe_resolution_reporter <- field
+  maybe_resolution_reported_at <- field
+
+  resolution_commit_author <- field
+  resolution_commit_message <- field
+  resolution_commit_date <- field
+
+  return $ do
+    resolution_id <- maybe_resolution_id
+    resolved_commit_index <- maybe_resolved_commit_index
+    resolution_sha1 <- maybe_resolution_sha1
+    resolution_reporter <- maybe_resolution_reporter
+    resolution_reported_at <- maybe_resolution_reported_at
+
+    let end_commit = DbHelpers.WithId resolved_commit_index $ Builds.RawCommit resolution_sha1
+        end_record = DbHelpers.WithId resolution_id $ DbHelpers.WithAuthorship resolution_reporter resolution_reported_at $ BuildResults.BreakageEnd end_commit resolution_id $ DbHelpers.WithAuthorship resolution_commit_author resolution_commit_date resolution_commit_message
+
+    return end_record
+
+
+causeFromRow = do
+
+  cause_id <- field
+  cause_commit_index <- field
+  cause_sha1 <- field
+  description <- field
+  failure_mode_reporter <- field
+  failure_mode_reported_at <- field
+  failure_mode_id <- field
+  cause_reporter <- field
+  cause_reported_at <- field
+  cause_jobs_delimited <- field
+
+  breakage_commit_author <- field
+  breakage_commit_message <- field
+  breakage_commit_date <- field
+
+  let cause_commit_metadata = DbHelpers.WithAuthorship breakage_commit_author breakage_commit_date breakage_commit_message
+      breakage_start =
+        BuildResults.BreakageStart
+          (DbHelpers.WithId cause_commit_index $ Builds.RawCommit cause_sha1)
+          description
+          (DbHelpers.WithAuthorship failure_mode_reporter failure_mode_reported_at failure_mode_id)
+          (map T.pack $ DbHelpers.splitAggText (cause_jobs_delimited :: String))
+          cause_commit_metadata
+
+  return $ DbHelpers.WithId cause_id $
+    DbHelpers.WithAuthorship cause_reporter cause_reported_at breakage_start
+
+
+instance FromRow (BreakageSpan Text BreakageImpactStats) where
   fromRow = do
-    cause_id <- field
-    cause_commit_index <- field
-    cause_sha1 <- field
-    description <- field
-    failure_mode_reporter <- field
-    failure_mode_reported_at <- field
-    failure_mode_id <- field
-    cause_reporter <- field
-    cause_reported_at <- field
-    cause_jobs_delimited <- field
-    maybe_resolution_id <- field
-    maybe_resolved_commit_index <- field
-    maybe_resolution_sha1 <- field
-    maybe_resolution_reporter <- field
-    maybe_resolution_reported_at <- field
-    breakage_commit_author <- field
-    breakage_commit_message <- field
-    resolution_commit_author <- field
-    resolution_commit_message <- field
-    breakage_commit_date <- field
-    resolution_commit_date <- field
-    downstream_broken_commit_count <- field
-    failed_downstream_build_count <- field
+
+    cause <- causeFromRow
+    maybe_resolution <- maybeResolutionFromRow
     spanned_commit_count <- field
 
-    let cause_commit_metadata = DbHelpers.WithAuthorship breakage_commit_author breakage_commit_date breakage_commit_message
-        cause = DbHelpers.WithId cause_id $ DbHelpers.WithAuthorship cause_reporter cause_reported_at $
-          BuildResults.BreakageStart
-            (DbHelpers.WithId cause_commit_index $ Builds.RawCommit cause_sha1)
-            description
-            (DbHelpers.WithAuthorship failure_mode_reporter failure_mode_reported_at failure_mode_id)
-            (map T.pack $ DbHelpers.splitAggText (cause_jobs_delimited :: String))
-            cause_commit_metadata
+    impact_stats <- fromRow
 
-        maybe_resolution = do
-          resolution_id <- maybe_resolution_id
-          resolved_commit_index <- maybe_resolved_commit_index
-          resolution_sha1 <- maybe_resolution_sha1
-          resolution_reporter <- maybe_resolution_reporter
-          resolution_reported_at <- maybe_resolution_reported_at
+    return $ BreakageSpan
+      cause
+      maybe_resolution
+      spanned_commit_count
+      impact_stats
 
-          let end_commit = DbHelpers.WithId resolved_commit_index $ Builds.RawCommit resolution_sha1
-              end_record = DbHelpers.WithId resolution_id $ DbHelpers.WithAuthorship resolution_reporter resolution_reported_at $ BuildResults.BreakageEnd end_commit resolution_id $ DbHelpers.WithAuthorship resolution_commit_author resolution_commit_date resolution_commit_message
 
-          return end_record
+instance FromRow (BreakageSpan Text ()) where
+  fromRow = do
 
-        impact_stats = BreakageImpactStats
-          downstream_broken_commit_count
-          failed_downstream_build_count
+    cause <- causeFromRow
+    maybe_resolution <- maybeResolutionFromRow
+    spanned_commit_count <- field
 
-    return $ BreakageSpan cause maybe_resolution impact_stats spanned_commit_count
+    return $ BreakageSpan
+      cause
+      maybe_resolution
+      spanned_commit_count
+      ()
+
+
+data DbMasterBuildsBenchmarks = DbMasterBuildsBenchmarks {
+    _builds_list_time    :: Float
+  , _commits_list_time   :: Float
+  , _code_breakages_time :: Float
+  } deriving Generic
+
+instance ToJSON DbMasterBuildsBenchmarks where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
 data MasterBuildsResponse = MasterBuildsResponse {
-    _columns        :: Set Text
-  , _commits        :: [IndexedRichCommit]
-  , _failures       :: [SimpleBuildStatus] -- ^ TODO this should included successes
-  , _breakage_spans :: [BreakageSpan Text]
+    _columns         :: Set Text
+  , _commits         :: [IndexedRichCommit]
+  , _failures        :: [SimpleBuildStatus] -- ^ also includes successes
+  , _breakage_spans  :: [BreakageSpan Text ()]
+  , _db_benchmarking :: DbMasterBuildsBenchmarks
   } deriving Generic
 
 instance ToJSON MasterBuildsResponse where

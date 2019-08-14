@@ -1180,6 +1180,53 @@ CREATE VIEW public.job_failure_frequencies WITH (security_barrier='false') AS
 ALTER TABLE public.job_failure_frequencies OWNER TO postgres;
 
 --
+-- Name: known_breakage_summaries_sans_impact; Type: VIEW; Schema: public; Owner: logan
+--
+
+CREATE VIEW public.known_breakage_summaries_sans_impact AS
+ SELECT code_breakage_spans.cause_id,
+    code_breakage_spans.cause_commit_index,
+    code_breakage_spans.cause_sha1,
+    code_breakage_spans.description,
+    code_breakage_spans.cause_reporter,
+    code_breakage_spans.cause_reported_at,
+    COALESCE(foo.jobs, ''::text) AS cause_jobs,
+    code_breakage_spans.resolution_id,
+    code_breakage_spans.resolved_commit_index,
+    code_breakage_spans.resolution_sha1,
+    code_breakage_spans.resolution_reporter,
+    code_breakage_spans.resolution_reported_at,
+    COALESCE(meta1.author_name, ''::text) AS breakage_commit_author,
+    COALESCE(meta1.message, ''::text) AS breakage_commit_message,
+    COALESCE(meta2.author_name, ''::text) AS resolution_commit_author,
+    COALESCE(meta2.message, ''::text) AS resolution_commit_message,
+    COALESCE(meta1.committer_date, now()) AS breakage_commit_date,
+    COALESCE(meta2.committer_date, now()) AS resolution_commit_date,
+    COALESCE(code_breakage_spans.failure_mode, 1) AS failure_mode_id,
+    COALESCE(code_breakage_spans.failure_mode_reporter, ''::text) AS failure_mode_reporter,
+    COALESCE(code_breakage_spans.failure_mode_reported_at, now()) AS failure_mode_reported_at,
+    code_breakage_spans.cause_commit_number,
+    code_breakage_spans.resolution_commit_number,
+    code_breakage_spans.spanned_commit_count
+   FROM (((public.code_breakage_spans
+     LEFT JOIN ( SELECT code_breakage_affected_jobs.cause,
+            string_agg(code_breakage_affected_jobs.job, ';'::text) AS jobs
+           FROM public.code_breakage_affected_jobs
+          GROUP BY code_breakage_affected_jobs.cause) foo ON ((foo.cause = code_breakage_spans.cause_id)))
+     LEFT JOIN public.commit_metadata meta1 ON ((meta1.sha1 = code_breakage_spans.cause_sha1)))
+     LEFT JOIN public.commit_metadata meta2 ON ((meta2.sha1 = code_breakage_spans.resolution_sha1)));
+
+
+ALTER TABLE public.known_breakage_summaries_sans_impact OWNER TO logan;
+
+--
+-- Name: VIEW known_breakage_summaries_sans_impact; Type: COMMENT; Schema: public; Owner: logan
+--
+
+COMMENT ON VIEW public.known_breakage_summaries_sans_impact IS 'View is subset of known_breakage_summaries for efficiency';
+
+
+--
 -- Name: pr_merge_bases; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -1312,40 +1359,34 @@ ALTER TABLE public.pr_impact_cause_summary OWNER TO postgres;
 --
 
 CREATE VIEW public.known_breakage_summaries WITH (security_barrier='false') AS
- SELECT code_breakage_spans.cause_id,
-    code_breakage_spans.cause_commit_index,
-    code_breakage_spans.cause_sha1,
-    code_breakage_spans.description,
-    code_breakage_spans.cause_reporter,
-    code_breakage_spans.cause_reported_at,
-    COALESCE(foo.jobs, ''::text) AS cause_jobs,
-    code_breakage_spans.resolution_id,
-    code_breakage_spans.resolved_commit_index,
-    code_breakage_spans.resolution_sha1,
-    code_breakage_spans.resolution_reporter,
-    code_breakage_spans.resolution_reported_at,
-    COALESCE(meta1.author_name, ''::text) AS breakage_commit_author,
-    COALESCE(meta1.message, ''::text) AS breakage_commit_message,
-    COALESCE(meta2.author_name, ''::text) AS resolution_commit_author,
-    COALESCE(meta2.message, ''::text) AS resolution_commit_message,
-    COALESCE(meta1.committer_date, now()) AS breakage_commit_date,
-    COALESCE(meta2.committer_date, now()) AS resolution_commit_date,
-    COALESCE(code_breakage_spans.failure_mode, 1) AS failure_mode_id,
-    COALESCE(code_breakage_spans.failure_mode_reporter, ''::text) AS failure_mode_reporter,
-    COALESCE(code_breakage_spans.failure_mode_reported_at, now()) AS failure_mode_reported_at,
+ SELECT known_breakage_summaries_sans_impact.cause_id,
+    known_breakage_summaries_sans_impact.cause_commit_index,
+    known_breakage_summaries_sans_impact.cause_sha1,
+    known_breakage_summaries_sans_impact.description,
+    known_breakage_summaries_sans_impact.cause_reporter,
+    known_breakage_summaries_sans_impact.cause_reported_at,
+    known_breakage_summaries_sans_impact.cause_jobs,
+    known_breakage_summaries_sans_impact.resolution_id,
+    known_breakage_summaries_sans_impact.resolved_commit_index,
+    known_breakage_summaries_sans_impact.resolution_sha1,
+    known_breakage_summaries_sans_impact.resolution_reporter,
+    known_breakage_summaries_sans_impact.resolution_reported_at,
+    known_breakage_summaries_sans_impact.breakage_commit_author,
+    known_breakage_summaries_sans_impact.breakage_commit_message,
+    known_breakage_summaries_sans_impact.resolution_commit_author,
+    known_breakage_summaries_sans_impact.resolution_commit_message,
+    known_breakage_summaries_sans_impact.breakage_commit_date,
+    known_breakage_summaries_sans_impact.resolution_commit_date,
+    known_breakage_summaries_sans_impact.failure_mode_id,
+    known_breakage_summaries_sans_impact.failure_mode_reporter,
+    known_breakage_summaries_sans_impact.failure_mode_reported_at,
     COALESCE(pr_impact_cause_summary.failed_downstream_build_count_for_cause, (0)::bigint) AS failed_downstream_build_count,
     COALESCE(pr_impact_cause_summary.downstream_broken_commit_count_for_cause, (0)::bigint) AS downstream_broken_commit_count,
-    code_breakage_spans.cause_commit_number,
-    code_breakage_spans.resolution_commit_number,
-    code_breakage_spans.spanned_commit_count
-   FROM ((((public.code_breakage_spans
-     LEFT JOIN ( SELECT code_breakage_affected_jobs.cause,
-            string_agg(code_breakage_affected_jobs.job, ';'::text) AS jobs
-           FROM public.code_breakage_affected_jobs
-          GROUP BY code_breakage_affected_jobs.cause) foo ON ((foo.cause = code_breakage_spans.cause_id)))
-     LEFT JOIN public.commit_metadata meta1 ON ((meta1.sha1 = code_breakage_spans.cause_sha1)))
-     LEFT JOIN public.commit_metadata meta2 ON ((meta2.sha1 = code_breakage_spans.resolution_sha1)))
-     LEFT JOIN public.pr_impact_cause_summary ON ((pr_impact_cause_summary.first_cause = code_breakage_spans.cause_id)));
+    known_breakage_summaries_sans_impact.cause_commit_number,
+    known_breakage_summaries_sans_impact.resolution_commit_number,
+    known_breakage_summaries_sans_impact.spanned_commit_count
+   FROM (public.known_breakage_summaries_sans_impact
+     LEFT JOIN public.pr_impact_cause_summary ON ((pr_impact_cause_summary.first_cause = known_breakage_summaries_sans_impact.cause_id)));
 
 
 ALTER TABLE public.known_breakage_summaries OWNER TO postgres;
@@ -1697,10 +1738,10 @@ COMMENT ON VIEW public.master_failures_raw_causes IS 'This uses the raw "build_f
 
 
 --
--- Name: master_failures_raw_causes_materialized; Type: MATERIALIZED VIEW; Schema: public; Owner: logan
+-- Name: master_failures_raw_causes_mview; Type: MATERIALIZED VIEW; Schema: public; Owner: materialized_view_updater
 --
 
-CREATE MATERIALIZED VIEW public.master_failures_raw_causes_materialized AS
+CREATE MATERIALIZED VIEW public.master_failures_raw_causes_mview AS
  SELECT master_failures_raw_causes.sha1,
     master_failures_raw_causes.succeeded,
     master_failures_raw_causes.is_idiopathic,
@@ -1739,7 +1780,7 @@ CREATE MATERIALIZED VIEW public.master_failures_raw_causes_materialized AS
   WITH NO DATA;
 
 
-ALTER TABLE public.master_failures_raw_causes_materialized OWNER TO logan;
+ALTER TABLE public.master_failures_raw_causes_mview OWNER TO materialized_view_updater;
 
 --
 -- Name: master_failures_weekly_aggregation; Type: VIEW; Schema: public; Owner: postgres
@@ -2851,6 +2892,13 @@ CREATE INDEX idx_universal_builds_succeeded ON public.universal_builds USING btr
 
 
 --
+-- Name: mview_commit_index; Type: INDEX; Schema: public; Owner: materialized_view_updater
+--
+
+CREATE INDEX mview_commit_index ON public.master_failures_raw_causes_mview USING btree (commit_index);
+
+
+--
 -- Name: cached_master_merge_base cached_master_merge_base_master_commit_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -3379,6 +3427,13 @@ GRANT ALL ON TABLE public.job_failure_frequencies TO logan;
 
 
 --
+-- Name: TABLE known_breakage_summaries_sans_impact; Type: ACL; Schema: public; Owner: logan
+--
+
+GRANT ALL ON TABLE public.known_breakage_summaries_sans_impact TO postgres WITH GRANT OPTION;
+
+
+--
 -- Name: TABLE pr_merge_bases; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -3509,6 +3564,14 @@ GRANT ALL ON TABLE public.master_failures_by_commit TO logan;
 --
 
 GRANT ALL ON TABLE public.master_failures_raw_causes TO logan;
+GRANT SELECT ON TABLE public.master_failures_raw_causes TO materialized_view_updater;
+
+
+--
+-- Name: TABLE master_failures_raw_causes_mview; Type: ACL; Schema: public; Owner: materialized_view_updater
+--
+
+GRANT SELECT ON TABLE public.master_failures_raw_causes_mview TO logan;
 
 
 --

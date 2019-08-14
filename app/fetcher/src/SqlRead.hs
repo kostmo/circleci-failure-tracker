@@ -1009,22 +1009,16 @@ apiMasterBuilds ::
   -> DbIO (Either Text BuildResults.MasterBuildsResponse)
 apiMasterBuilds _mview_connection_data offset_limit = do
 
-  code_breakage_ranges <- apiAnnotatedCodeBreakages
+  (code_breakages_time, code_breakage_ranges) <- MyUtils.timeThisFloat apiAnnotatedCodeBreakages
 
   conn <- ask
   liftIO $ runExceptT $ do
 
-    (commit_id_bounds, master_commits) <- ExceptT $ getMasterCommits conn offset_limit
+    (commits_list_time, (commit_id_bounds, master_commits)) <- MyUtils.timeThisFloat $ ExceptT $ getMasterCommits conn offset_limit
+
     let query_bounds = (WeeklyStats.min_bound commit_id_bounds, WeeklyStats.max_bound commit_id_bounds)
-    completed_builds <- liftIO $ do
 
-{-
-      mview_conn <- DbHelpers.get_connection mview_connection_data
-      -- FIXME move this refresh somewhere else
-      refreshCachedMasterGrid mview_conn
--}
-
-      query conn builds_list_sql query_bounds
+    (builds_list_time, completed_builds) <- MyUtils.timeThisFloat $ liftIO $ query conn builds_list_sql query_bounds
 
     let failed_builds = filter (not . BuildResults.isSuccess . BuildResults._failure_mode) completed_builds
         job_names = Set.fromList $ map (Builds.job_name . BuildResults._build) failed_builds
@@ -1033,7 +1027,11 @@ apiMasterBuilds _mview_connection_data offset_limit = do
       job_names
       master_commits
       completed_builds
-      code_breakage_ranges
+      code_breakage_ranges $
+        BuildResults.DbMasterBuildsBenchmarks
+          builds_list_time
+          commits_list_time
+          code_breakages_time
 
   where
     builds_list_sql = "SELECT sha1, succeeded, is_idiopathic, is_flaky, is_timeout, is_matched, is_known_broken, build_num, queued_at, job_name, branch, step_name, pattern_id, match_id, line_number, line_count, line_text, span_start, span_end, specificity, is_serially_isolated, started_at, finished_at, global_build, provider, build_namespace, contiguous_run_count, contiguous_group_index, contiguous_start_commit_index, contiguous_end_commit_index, contiguous_length, cluster_id, cluster_member_count FROM master_failures_raw_causes_mview WHERE commit_index >= ? AND commit_index <= ?;"
@@ -1049,9 +1047,16 @@ apiListFailureModes = runQuery
   "SELECT id, label, revertible FROM master_failure_modes ORDER BY id"
 
 
-apiAnnotatedCodeBreakages :: DbIO [BuildResults.BreakageSpan Text]
+apiAnnotatedCodeBreakages :: DbIO [BuildResults.BreakageSpan Text ()]
 apiAnnotatedCodeBreakages = runQuery
-  "SELECT cause_id, cause_commit_index, cause_sha1, description, failure_mode_reporter, failure_mode_reported_at, failure_mode_id, cause_reporter, cause_reported_at, cause_jobs, resolution_id, resolved_commit_index, resolution_sha1, resolution_reporter, resolution_reported_at, breakage_commit_author, breakage_commit_message, resolution_commit_author, resolution_commit_message, breakage_commit_date, resolution_commit_date, downstream_broken_commit_count, failed_downstream_build_count, spanned_commit_count FROM known_breakage_summaries ORDER BY cause_commit_index DESC;"
+  "SELECT cause_id, cause_commit_index, cause_sha1, description, failure_mode_reporter, failure_mode_reported_at, failure_mode_id, cause_reporter, cause_reported_at, cause_jobs, breakage_commit_author, breakage_commit_message, breakage_commit_date, resolution_id, resolved_commit_index, resolution_sha1, resolution_reporter, resolution_reported_at, resolution_commit_author, resolution_commit_message, resolution_commit_date, spanned_commit_count FROM known_breakage_summaries_sans_impact ORDER BY cause_commit_index DESC;"
+
+
+-- | Identical to above except for addition of
+-- downstream_broken_commit_count, failed_downstream_build_count
+apiAnnotatedCodeBreakagesWithImpact :: DbIO [BuildResults.BreakageSpan Text BuildResults.BreakageImpactStats]
+apiAnnotatedCodeBreakagesWithImpact = runQuery
+  "SELECT cause_id, cause_commit_index, cause_sha1, description, failure_mode_reporter, failure_mode_reported_at, failure_mode_id, cause_reporter, cause_reported_at, cause_jobs, breakage_commit_author, breakage_commit_message, breakage_commit_date, resolution_id, resolved_commit_index, resolution_sha1, resolution_reporter, resolution_reported_at, resolution_commit_author, resolution_commit_message, resolution_commit_date, spanned_commit_count, downstream_broken_commit_count, failed_downstream_build_count FROM known_breakage_summaries ORDER BY cause_commit_index DESC;"
 
 
 getLatestMasterCommitWithMetadata :: DbIO (Either Text Builds.RawCommit)
