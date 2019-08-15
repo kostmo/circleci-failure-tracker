@@ -93,6 +93,7 @@ fetchRefs git_dir = do
     , "--git-dir"
     , git_dir
     , "fetch"
+    , "--force"
     , "--no-recurse-submodules"
     , "origin"
     , "refs/pull/*:refs/remotes/origin/pr/*"
