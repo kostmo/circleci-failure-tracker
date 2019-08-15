@@ -39,6 +39,15 @@ SET client_min_messages = warning;
 SET row_security = off;
 
 --
+-- Name: lambda_logging; Type: SCHEMA; Schema: -; Owner: postgres
+--
+
+CREATE SCHEMA lambda_logging;
+
+
+ALTER SCHEMA lambda_logging OWNER TO postgres;
+
+--
 -- Name: work_queues; Type: SCHEMA; Schema: -; Owner: postgres
 --
 
@@ -50,6 +59,20 @@ ALTER SCHEMA work_queues OWNER TO postgres;
 SET default_tablespace = '';
 
 SET default_with_oids = false;
+
+--
+-- Name: materialized_view_refresh_events; Type: TABLE; Schema: lambda_logging; Owner: postgres
+--
+
+CREATE TABLE lambda_logging.materialized_view_refresh_events (
+    "timestamp" timestamp with time zone DEFAULT now() NOT NULL,
+    view_name text,
+    execution_duration_seconds double precision,
+    event_source text
+);
+
+
+ALTER TABLE lambda_logging.materialized_view_refresh_events OWNER TO postgres;
 
 --
 -- Name: build_steps; Type: TABLE; Schema: public; Owner: postgres
@@ -3100,10 +3123,24 @@ ALTER TABLE ONLY public.universal_builds
 
 
 --
+-- Name: SCHEMA lambda_logging; Type: ACL; Schema: -; Owner: postgres
+--
+
+GRANT USAGE ON SCHEMA lambda_logging TO materialized_view_updater;
+
+
+--
 -- Name: SCHEMA work_queues; Type: ACL; Schema: -; Owner: postgres
 --
 
 GRANT ALL ON SCHEMA work_queues TO logan;
+
+
+--
+-- Name: TABLE materialized_view_refresh_events; Type: ACL; Schema: lambda_logging; Owner: postgres
+--
+
+GRANT ALL ON TABLE lambda_logging.materialized_view_refresh_events TO materialized_view_updater;
 
 
 --
