@@ -56,7 +56,7 @@ function downstream_impact_by_week(html_element_id, api_url) {
 			yAxis: [
 				{
 					title: {
-						text: 'Broken commits',
+						text: 'Broken downstream commits',
 					},
 				},
 			],
@@ -78,6 +78,33 @@ function downstream_impact_by_week(html_element_id, api_url) {
 			},
 			series: series_list,
 		});
+	});
+}
+
+
+
+function gen_annotated_breakage_author_stats_table(element_id, data_url) {
+
+	var table = new Tabulator("#" + element_id, {
+		height:"300px",
+		layout:"fitColumns",
+		placeholder:"No Data Set",
+		columns:[
+			{title: "Author", field: "breakage_commit_author",
+			},
+			{title: "Breakage count", field: "distinct_breakage_count",
+			},
+			{title: "Breakage time", field: "cumulative_breakage_duration_seconds",
+				formatter: function(cell, formatterParams, onRendered) {
+					return moment.duration(cell.getValue(), 'seconds').humanize();
+				},
+			},
+			{title: "Downstream commits affected", field: "cumulative_downstream_affected_commits",
+			},
+			{title: "Master commits spanned", field: "cumulative_spanned_master_commits",
+			},
+		],
+		ajaxURL: data_url,
 	});
 }
 
@@ -206,7 +233,7 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 					align:"center",
 				},
 			]},
-			{title: "Mode", width: 250, field: "start.record.payload.breakage_mode.payload",
+			{title: "Mode", width: 150, field: "start.record.payload.breakage_mode.payload",
 				formatter: function(cell, formatterParams, onRendered) {
 					var value = cell.getValue();
 					return failure_modes_dict[value]["label"] || "?";
@@ -224,7 +251,7 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 					post_modification("/api/code-breakage-mode-update", data_dict);
 				},
 			},
-			{title: "Notes", width: 250, field: "start.record.payload.description",
+			{title: "Notes", width: 150, field: "start.record.payload.description",
 				editor: "input",
 				cellEdited: function(cell) {
 					var cause_id = cell.getRow().getData()["start"]["db_id"];
@@ -242,6 +269,61 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 				{title: "Builds",
 					field: "impact_stats.failed_downstream_build_count",
 					width: 75,
+				},
+			]},
+			{title: "Span", columns: [
+				{title: "Commit count", width: 100, field: "spanned_commit_count",
+					headerSort: true,
+				},
+				{title: "Duration", width: 100, field: "commit_timespan_seconds",
+					headerSort: true,
+					formatter: function(cell, formatterParams, onRendered) {
+						return moment.duration(cell.getValue(), 'seconds').humanize();
+					},
+				},
+			]},
+			{title: "Start", columns: [
+				{title: "commit", width: 300, field: "start.record.payload.breakage_commit.record",
+					formatter: function(cell, formatterParams, onRendered) {
+						return render_commit_cell(cell, "start");
+					},
+				},
+				{title: "when", width: 100, field: "start.record.payload.metadata.created",
+					formatter: function(cell, formatterParams, onRendered) {
+						var committed_time = cell.getValue();
+//						var committed_time = cell.getRow().getData()["start"]["record"]["payload"]["metadata"]["created"];
+						const time_moment = moment(committed_time);
+						return time_moment.format("h:mm a") + " (" + time_moment.fromNow() + ")";
+					},
+				},
+				{title: "annotated", width: 250, field: "start.record.created",
+					formatter: function(cell, formatterParams, onRendered) {
+						var val = cell.getValue();
+						var start_obj = cell.getRow().getData()["start"];
+						return moment(val).fromNow() + " by " + start_obj["record"]["author"];
+					},
+				},
+			]},
+			{title: "End", columns: [
+				{title: "commit", width: 300, field: "end.record.payload.resolution_commit.record",
+					formatter: function(cell, formatterParams, onRendered) {
+						return render_commit_cell(cell, "end");
+					},
+				},
+				{title: "reported", width: 250,
+					formatter: function(cell, formatterParams, onRendered) {
+						var val = cell.getValue();
+
+						var end_obj = cell.getRow().getData()["end"];
+
+						if (end_obj && end_obj["record"]) {
+
+							var end_record = end_obj["record"];
+							return moment(end_record["created"]).fromNow() + " by " + end_record["author"];
+						}
+
+						return "";
+					},
 				},
 			]},
 			{title: "Affected jobs", columns: [
@@ -266,45 +348,6 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 						}
 
 						return items.join(", ");
-					},
-				},
-			]},
-			{title: "Span", width: 100, field: "spanned_commit_count",
-				headerSort: false,
-			},
-			{title: "Start", columns: [
-				{title: "commit", width: 300, field: "start.record.payload.breakage_commit.record",
-					formatter: function(cell, formatterParams, onRendered) {
-						return render_commit_cell(cell, "start");
-					},
-				},
-				{title: "annotated", width: 250, field: "start.record.created",
-					formatter: function(cell, formatterParams, onRendered) {
-						var val = cell.getValue();
-						var start_obj = cell.getRow().getData()["start"];
-						return moment(val).fromNow() + " by " + start_obj["record"]["author"];;
-					},
-				},
-			]},
-			{title: "End", columns: [
-				{title: "commit", width: 300, field: "end.record.payload.resolution_commit.record",
-					formatter: function(cell, formatterParams, onRendered) {
-						return render_commit_cell(cell, "end");
-					},
-				},
-				{title: "reported", width: 250,
-					formatter: function(cell, formatterParams, onRendered) {
-						var val = cell.getValue();
-
-						var end_obj = cell.getRow().getData()["end"];
-
-						if (end_obj && end_obj["record"]) {
-
-							var end_record = end_obj["record"];
-							return moment(end_record["created"]).fromNow() + " by " + end_record["author"];
-						}
-
-						return "";
 					},
 				},
 			]},
@@ -374,6 +417,8 @@ function main() {
 	});
 
 	gen_failure_modes_chart("container-failure-modes");
+
+	gen_annotated_breakage_author_stats_table("annotated-breakage-author-stats-table", "/api/code-breakages-author-stats");
 
 	gen_nonannotated_detected_breakages_table("detected-leftovers-table", "/api/code-breakages-leftover-detected");
 	gen_detected_breakages_table("detected-breakages-table", "/api/code-breakages-detected");

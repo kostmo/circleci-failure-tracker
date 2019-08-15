@@ -846,7 +846,7 @@ getMasterCommits conn parent_offset_mode =
 
     sql_commit_id_and_offset = "SELECT master_commits_contiguously_indexed.id, master_commits_contiguously_indexed.sha1, master_commits_contiguously_indexed.commit_number, message, tree_sha1, author_name, author_email, author_date, committer_name, committer_email, committer_date FROM master_commits_contiguously_indexed LEFT JOIN commit_metadata ON commit_metadata.sha1 = master_commits_contiguously_indexed.sha1 WHERE id <= ? ORDER BY id DESC LIMIT ?"
 
-    sql_commit_id_bounds = "SELECT ordered_master_commits.id, ordered_master_commits.sha1, message, tree_sha1, author_name, author_email, author_date, committer_name, committer_email, committer_date FROM ordered_master_commits LEFT JOIN commit_metadata ON commit_metadata.sha1 = ordered_master_commits.sha1 WHERE id >= ? AND id <= ? ORDER BY id DESC"
+    sql_commit_id_bounds = "SELECT master_commits_contiguously_indexed.id, master_commits_contiguously_indexed.sha1, master_commits_contiguously_indexed.commit_number, message, tree_sha1, author_name, author_email, author_date, committer_name, committer_email, committer_date FROM master_commits_contiguously_indexed LEFT JOIN commit_metadata ON commit_metadata.sha1 = master_commits_contiguously_indexed.sha1 WHERE id >= ? AND id <= ? ORDER BY id DESC"
 
 
 data NonannotatedBuildBreakages = NonannotatedBuildBreakages {
@@ -1050,14 +1050,24 @@ apiListFailureModes = runQuery
 
 apiAnnotatedCodeBreakages :: DbIO [BuildResults.BreakageSpan Text ()]
 apiAnnotatedCodeBreakages = runQuery
-  "SELECT cause_id, cause_commit_index, cause_sha1, description, failure_mode_reporter, failure_mode_reported_at, failure_mode_id, cause_reporter, cause_reported_at, cause_jobs, breakage_commit_author, breakage_commit_message, breakage_commit_date, resolution_id, resolved_commit_index, resolution_sha1, resolution_reporter, resolution_reported_at, resolution_commit_author, resolution_commit_message, resolution_commit_date, spanned_commit_count FROM known_breakage_summaries_sans_impact ORDER BY cause_commit_index DESC;"
+  "SELECT cause_id, cause_commit_index, cause_sha1, description, failure_mode_reporter, failure_mode_reported_at, failure_mode_id, cause_reporter, cause_reported_at, cause_jobs, breakage_commit_author, breakage_commit_message, breakage_commit_date, resolution_id, resolved_commit_index, resolution_sha1, resolution_reporter, resolution_reported_at, resolution_commit_author, resolution_commit_message, resolution_commit_date, spanned_commit_count, commit_timespan_seconds FROM known_breakage_summaries_sans_impact ORDER BY cause_commit_index DESC;"
 
 
 -- | Identical to above except for addition of
 -- downstream_broken_commit_count, failed_downstream_build_count
 apiAnnotatedCodeBreakagesWithImpact :: DbIO [BuildResults.BreakageSpan Text BuildResults.BreakageImpactStats]
 apiAnnotatedCodeBreakagesWithImpact = runQuery
-  "SELECT cause_id, cause_commit_index, cause_sha1, description, failure_mode_reporter, failure_mode_reported_at, failure_mode_id, cause_reporter, cause_reported_at, cause_jobs, breakage_commit_author, breakage_commit_message, breakage_commit_date, resolution_id, resolved_commit_index, resolution_sha1, resolution_reporter, resolution_reported_at, resolution_commit_author, resolution_commit_message, resolution_commit_date, spanned_commit_count, downstream_broken_commit_count, failed_downstream_build_count FROM known_breakage_summaries ORDER BY cause_commit_index DESC;"
+  "SELECT cause_id, cause_commit_index, cause_sha1, description, failure_mode_reporter, failure_mode_reported_at, failure_mode_id, cause_reporter, cause_reported_at, cause_jobs, breakage_commit_author, breakage_commit_message, breakage_commit_date, resolution_id, resolved_commit_index, resolution_sha1, resolution_reporter, resolution_reported_at, resolution_commit_author, resolution_commit_message, resolution_commit_date, spanned_commit_count, commit_timespan_seconds, downstream_broken_commit_count, failed_downstream_build_count FROM known_breakage_summaries ORDER BY cause_commit_index DESC;"
+
+
+apiBreakageAuthorStats :: DbIO [BuildResults.BreakageAuthorStats]
+apiBreakageAuthorStats = runQuery
+  "SELECT breakage_commit_author, distinct_breakage_count, cumulative_breakage_duration_seconds, cumulative_downstream_affected_commits, cumulative_spanned_master_commits FROM upstream_breakage_author_stats ORDER BY distinct_breakage_count DESC;"
+
+
+apiBrokenCommitsWithoutMetadata :: DbIO [Builds.RawCommit]
+apiBrokenCommitsWithoutMetadata = runQuery
+  "SELECT vcs_revision FROM broken_commits_without_metadata;"
 
 
 getLatestMasterCommitWithMetadata :: DbIO (Either Text Builds.RawCommit)

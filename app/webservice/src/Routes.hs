@@ -184,6 +184,12 @@ scottyApp
   get "/api/code-breakages-annotated" $
     pure SqlRead.apiAnnotatedCodeBreakagesWithImpact
 
+  get "/api/code-breakages-author-stats" $
+    pure SqlRead.apiBreakageAuthorStats
+
+  get "/api/broken-commits-without-metadata" $
+    pure SqlRead.apiBrokenCommitsWithoutMetadata
+
   get "/api/list-failure-modes" $
     pure SqlRead.apiListFailureModes
 

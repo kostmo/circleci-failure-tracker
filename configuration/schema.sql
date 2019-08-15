@@ -675,6 +675,38 @@ CREATE VIEW public.best_pattern_match_augmented_builds AS
 ALTER TABLE public.best_pattern_match_augmented_builds OWNER TO postgres;
 
 --
+-- Name: commit_metadata; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.commit_metadata (
+    sha1 character(40) NOT NULL,
+    message text,
+    tree_sha1 character(40),
+    author_name text,
+    author_email text,
+    author_date timestamp with time zone,
+    committer_name text,
+    committer_email text,
+    committer_date timestamp with time zone
+);
+
+
+ALTER TABLE public.commit_metadata OWNER TO postgres;
+
+--
+-- Name: broken_commits_without_metadata; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.broken_commits_without_metadata AS
+ SELECT DISTINCT builds_join_steps.vcs_revision
+   FROM (public.builds_join_steps
+     LEFT JOIN public.commit_metadata ON ((builds_join_steps.vcs_revision = commit_metadata.sha1)))
+  WHERE (commit_metadata.sha1 IS NULL);
+
+
+ALTER TABLE public.broken_commits_without_metadata OWNER TO postgres;
+
+--
 -- Name: broken_revisions_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
 --
 
@@ -1132,25 +1164,6 @@ CREATE TABLE public.commit_authorship_supplemental (
 ALTER TABLE public.commit_authorship_supplemental OWNER TO postgres;
 
 --
--- Name: commit_metadata; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.commit_metadata (
-    sha1 character(40) NOT NULL,
-    message text,
-    tree_sha1 character(40),
-    author_name text,
-    author_email text,
-    author_date timestamp with time zone,
-    committer_name text,
-    committer_email text,
-    committer_date timestamp with time zone
-);
-
-
-ALTER TABLE public.commit_metadata OWNER TO postgres;
-
---
 -- Name: idiopathic_build_failures; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -1183,7 +1196,7 @@ ALTER TABLE public.job_failure_frequencies OWNER TO postgres;
 -- Name: known_breakage_summaries_sans_impact; Type: VIEW; Schema: public; Owner: logan
 --
 
-CREATE VIEW public.known_breakage_summaries_sans_impact AS
+CREATE VIEW public.known_breakage_summaries_sans_impact WITH (security_barrier='false') AS
  SELECT code_breakage_spans.cause_id,
     code_breakage_spans.cause_commit_index,
     code_breakage_spans.cause_sha1,
@@ -1207,7 +1220,8 @@ CREATE VIEW public.known_breakage_summaries_sans_impact AS
     COALESCE(code_breakage_spans.failure_mode_reported_at, now()) AS failure_mode_reported_at,
     code_breakage_spans.cause_commit_number,
     code_breakage_spans.resolution_commit_number,
-    code_breakage_spans.spanned_commit_count
+    code_breakage_spans.spanned_commit_count,
+    date_part('epoch'::text, COALESCE((meta2.committer_date - meta1.committer_date), '00:00:00'::interval)) AS commit_timespan_seconds
    FROM (((public.code_breakage_spans
      LEFT JOIN ( SELECT code_breakage_affected_jobs.cause,
             string_agg(code_breakage_affected_jobs.job, ';'::text) AS jobs
@@ -1223,7 +1237,9 @@ ALTER TABLE public.known_breakage_summaries_sans_impact OWNER TO logan;
 -- Name: VIEW known_breakage_summaries_sans_impact; Type: COMMENT; Schema: public; Owner: logan
 --
 
-COMMENT ON VIEW public.known_breakage_summaries_sans_impact IS 'View is subset of known_breakage_summaries for efficiency';
+COMMENT ON VIEW public.known_breakage_summaries_sans_impact IS 'View is subset of known_breakage_summaries for efficiency
+
+TODO: Delete and re-grant ownership';
 
 
 --
@@ -1384,7 +1400,8 @@ CREATE VIEW public.known_breakage_summaries WITH (security_barrier='false') AS
     COALESCE(pr_impact_cause_summary.downstream_broken_commit_count_for_cause, (0)::bigint) AS downstream_broken_commit_count,
     known_breakage_summaries_sans_impact.cause_commit_number,
     known_breakage_summaries_sans_impact.resolution_commit_number,
-    known_breakage_summaries_sans_impact.spanned_commit_count
+    known_breakage_summaries_sans_impact.spanned_commit_count,
+    known_breakage_summaries_sans_impact.commit_timespan_seconds
    FROM (public.known_breakage_summaries_sans_impact
      LEFT JOIN public.pr_impact_cause_summary ON ((pr_impact_cause_summary.first_cause = known_breakage_summaries_sans_impact.cause_id)));
 
@@ -2392,6 +2409,22 @@ COMMENT ON VIEW public.unvisited_builds IS 'Does not include succeeded builds.';
 
 
 --
+-- Name: upstream_breakage_author_stats; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.upstream_breakage_author_stats AS
+ SELECT known_breakage_summaries.breakage_commit_author,
+    count(*) AS distinct_breakage_count,
+    sum(known_breakage_summaries.commit_timespan_seconds) AS cumulative_breakage_duration_seconds,
+    (sum(known_breakage_summaries.downstream_broken_commit_count))::integer AS cumulative_downstream_affected_commits,
+    (sum(known_breakage_summaries.spanned_commit_count))::integer AS cumulative_spanned_master_commits
+   FROM public.known_breakage_summaries
+  GROUP BY known_breakage_summaries.breakage_commit_author;
+
+
+ALTER TABLE public.upstream_breakage_author_stats OWNER TO postgres;
+
+--
 -- Name: upstream_breakages_weekly_aggregation; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -3265,6 +3298,20 @@ GRANT ALL ON TABLE public.best_pattern_match_augmented_builds TO logan;
 
 
 --
+-- Name: TABLE commit_metadata; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.commit_metadata TO logan;
+
+
+--
+-- Name: TABLE broken_commits_without_metadata; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.broken_commits_without_metadata TO logan;
+
+
+--
 -- Name: SEQUENCE broken_revisions_id_seq; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -3406,13 +3453,6 @@ GRANT ALL ON TABLE public.commit_authorship_supplemental TO logan;
 
 
 --
--- Name: TABLE commit_metadata; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.commit_metadata TO logan;
-
-
---
 -- Name: TABLE idiopathic_build_failures; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -3431,6 +3471,9 @@ GRANT ALL ON TABLE public.job_failure_frequencies TO logan;
 --
 
 GRANT ALL ON TABLE public.known_breakage_summaries_sans_impact TO postgres WITH GRANT OPTION;
+SET SESSION AUTHORIZATION postgres;
+GRANT ALL ON TABLE public.known_breakage_summaries_sans_impact TO logan;
+RESET SESSION AUTHORIZATION;
 
 
 --
@@ -3719,6 +3762,13 @@ GRANT ALL ON TABLE public.unscanned_patterns TO logan;
 --
 
 GRANT ALL ON TABLE public.unvisited_builds TO logan;
+
+
+--
+-- Name: TABLE upstream_breakage_author_stats; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.upstream_breakage_author_stats TO logan;
 
 
 --

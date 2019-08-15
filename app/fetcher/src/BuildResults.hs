@@ -156,6 +156,20 @@ instance ToJSON BreakageEnd where
 type BreakageEndRecord = DbHelpers.WithId (DbHelpers.WithAuthorship BreakageEnd)
 
 
+
+data BreakageAuthorStats = BreakageAuthorStats {
+    _breakage_commit_author                 :: Text
+  , _distinct_breakage_count                :: Int
+  , _cumulative_breakage_duration_seconds   :: Double
+  , _cumulative_downstream_affected_commits :: Int
+  , _cumulative_spanned_master_commits      :: Int
+  } deriving (Generic, FromRow)
+
+instance ToJSON BreakageAuthorStats where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+
 data WeeklyBreakageImpactStats = WeeklyBreakageImpactStats {
     _week           :: UTCTime
   , _incident_count :: Int
@@ -179,6 +193,7 @@ data BreakageSpan a b = BreakageSpan {
     _start :: DbHelpers.WithId (DbHelpers.WithAuthorship (BreakageStart a))
   , _end   :: Maybe BreakageEndRecord
   , _spanned_commit_count :: Maybe Int
+  , _commit_timespan_seconds :: Double
   , _impact_stats :: b
   } deriving Generic
 
@@ -242,33 +257,21 @@ causeFromRow = do
 
 
 instance FromRow (BreakageSpan Text BreakageImpactStats) where
-  fromRow = do
-
-    cause <- causeFromRow
-    maybe_resolution <- maybeResolutionFromRow
-    spanned_commit_count <- field
-
-    impact_stats <- fromRow
-
-    return $ BreakageSpan
-      cause
-      maybe_resolution
-      spanned_commit_count
-      impact_stats
+  fromRow = BreakageSpan
+    <$> causeFromRow
+    <*> maybeResolutionFromRow
+    <*> field
+    <*> field
+    <*> fromRow
 
 
 instance FromRow (BreakageSpan Text ()) where
-  fromRow = do
-
-    cause <- causeFromRow
-    maybe_resolution <- maybeResolutionFromRow
-    spanned_commit_count <- field
-
-    return $ BreakageSpan
-      cause
-      maybe_resolution
-      spanned_commit_count
-      ()
+  fromRow = BreakageSpan
+    <$> causeFromRow
+    <*> maybeResolutionFromRow
+    <*> field
+    <*> field
+    <*> pure ()
 
 
 data DbMasterBuildsBenchmarks = DbMasterBuildsBenchmarks {
