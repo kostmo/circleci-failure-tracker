@@ -3,7 +3,7 @@
 --
 
 -- Dumped from database version 10.6
--- Dumped by pg_dump version 11.4 (Ubuntu 11.4-1.pgdg18.04+1)
+-- Dumped by pg_dump version 11.5 (Ubuntu 11.5-1.pgdg18.04+1)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -1171,22 +1171,6 @@ ALTER SEQUENCE public.code_breakage_resolution_id_seq OWNED BY public.code_break
 
 
 --
--- Name: commit_authorship_supplemental; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.commit_authorship_supplemental (
-    sha1 character(40) NOT NULL,
-    pulled_by text,
-    reviewed_by text,
-    differential_revision text,
-    fbshipit_source_id text,
-    ghstack_source_id text
-);
-
-
-ALTER TABLE public.commit_authorship_supplemental OWNER TO postgres;
-
---
 -- Name: idiopathic_build_failures; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -1904,7 +1888,7 @@ FIXME: "failure_count" is a misnomer; it is actually the total that includes suc
 -- Name: master_ordered_commits_with_metadata; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.master_ordered_commits_with_metadata AS
+CREATE VIEW public.master_ordered_commits_with_metadata WITH (security_barrier='false') AS
  SELECT ordered_master_commits.id,
     ordered_master_commits.sha1,
     commit_metadata.message,
@@ -1914,7 +1898,13 @@ CREATE VIEW public.master_ordered_commits_with_metadata AS
     commit_metadata.author_date,
     commit_metadata.committer_name,
     commit_metadata.committer_email,
-    commit_metadata.committer_date
+    commit_metadata.committer_date,
+    "substring"(commit_metadata.message, 'https://github\.com/pytorch/pytorch/pull/(\d+)'::text) AS github_pr_number,
+    "substring"(commit_metadata.message, 'Differential Revision: D(\d+)'::text) AS fb_differential_revision,
+    "substring"(commit_metadata.message, 'Pulled By: ([^\s]+)'::text) AS fb_pulled_by,
+    "substring"(commit_metadata.message, 'Reviewed By: ([^\s]+)'::text) AS fb_reviewed_by,
+    "substring"(commit_metadata.message, 'fbshipit-source-id: ([^\s]+)'::text) AS fb_shipit_source_id,
+    "substring"(commit_metadata.message, 'ghstack-source-id: (\d+)'::text) AS fb_ghstack_source_id
    FROM (public.ordered_master_commits
      JOIN public.commit_metadata ON ((commit_metadata.sha1 = ordered_master_commits.sha1)));
 
@@ -2617,14 +2607,6 @@ ALTER TABLE ONLY public.code_breakage_cause
 
 ALTER TABLE ONLY public.code_breakage_resolution
     ADD CONSTRAINT code_breakage_resolution_pkey PRIMARY KEY (id);
-
-
---
--- Name: commit_authorship_supplemental commit_authorship_supplemental_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.commit_authorship_supplemental
-    ADD CONSTRAINT commit_authorship_supplemental_pkey PRIMARY KEY (sha1);
 
 
 --
@@ -3480,13 +3462,6 @@ GRANT ALL ON SEQUENCE public.code_breakage_cause_id_seq TO logan;
 --
 
 GRANT ALL ON SEQUENCE public.code_breakage_resolution_id_seq TO logan;
-
-
---
--- Name: TABLE commit_authorship_supplemental; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.commit_authorship_supplemental TO logan;
 
 
 --

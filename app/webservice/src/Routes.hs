@@ -98,7 +98,7 @@ scottyApp
     liftIO $ do
       mview_conn <- DbHelpers.get_connection mview_connection_data
       SqlRead.refreshCachedMasterGrid mview_conn
-    S.json $ WebApi.toJsonEither $ ((Right ["Done."]) :: Either Text [Text])
+    S.json $ WebApi.toJsonEither (Right ["Done."] :: Either Text [Text])
 
   S.post "/api/rescan-build" $
     withAuth $
@@ -441,5 +441,5 @@ scottyApp
       FrontendHelpers.jsonAuthorizedDbInteract connection_data session github_config y
 
     withAuth :: ToJSON a => ScottyTypes.ActionT LT.Text IO (SqlRead.AuthDbIO (Either Text a))
-                      -> ScottyTypes.ActionT LT.Text IO ()
+                         -> ScottyTypes.ActionT LT.Text IO ()
     withAuth = FrontendHelpers.postWithAuthentication connection_data github_config session
