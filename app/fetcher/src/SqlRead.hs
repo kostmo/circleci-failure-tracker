@@ -698,7 +698,7 @@ instance ToJSON MasterCommitAndSourcePr where
 -- implicated in master branch breakages
 getImplicatedMasterCommitPullRequests :: DbIO [MasterCommitAndSourcePr]
 getImplicatedMasterCommitPullRequests = runQuery
-  "SELECT known_breakage_summaries_sans_impact.cause_sha1, github_pr_number FROM master_ordered_commits_with_metadata JOIN known_breakage_summaries_sans_impact ON known_breakage_summaries_sans_impact.cause_sha1 = master_ordered_commits_with_metadata.sha1 WHERE github_pr_number IS NOT NULL ORDER BY id DESC;"
+  "SELECT cause_sha1, github_pr_number FROM known_breakage_summaries_sans_impact WHERE github_pr_number IS NOT NULL ORDER BY cause_commit_index DESC;"
 
 
 apiAutocompleteTags :: Text -> DbIO [Text]
