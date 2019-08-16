@@ -181,6 +181,7 @@ instance ToJSON WeeklyBreakageImpactStats where
 
 data PullRequestForeshadowing = PullRequestForeshadowing {
     _github_pr_number                   :: Builds.PullRequestNumber
+  , _github_pr_head_commit              :: Maybe Builds.RawCommit
   , _foreshadowed_broken_jobs_delimited :: [T.Text]
   } deriving Generic
 
@@ -238,7 +239,10 @@ maybeResolutionFromRow = do
     resolution_reported_at <- maybe_resolution_reported_at
 
     let end_commit = DbHelpers.WithId resolved_commit_index $ Builds.RawCommit resolution_sha1
-        end_record = DbHelpers.WithId resolution_id $ DbHelpers.WithAuthorship resolution_reporter resolution_reported_at $ BuildResults.BreakageEnd end_commit resolution_id $ DbHelpers.WithAuthorship resolution_commit_author resolution_commit_date resolution_commit_message
+        end_record = DbHelpers.WithId resolution_id $
+          DbHelpers.WithAuthorship resolution_reporter resolution_reported_at $
+            BuildResults.BreakageEnd end_commit resolution_id $
+              DbHelpers.WithAuthorship resolution_commit_author resolution_commit_date resolution_commit_message
 
     return end_record
 
@@ -278,12 +282,14 @@ instance FromRow BreakageImpactStats where
     downstream_impact_stats <- fromRow
 
     maybe_pr_number <- field
+    maybe_pr_head_commit <- field
     foreshadowed_jobs_delimited <- field
 
     let maybe_foreshadowed_breakage = do
           pr_number <- maybe_pr_number
           return $ PullRequestForeshadowing
             pr_number
+            (Builds.RawCommit <$> maybe_pr_head_commit)
             (DbHelpers.cleanSemicolonDelimitedList foreshadowed_jobs_delimited)
 
     return $ BreakageImpactStats

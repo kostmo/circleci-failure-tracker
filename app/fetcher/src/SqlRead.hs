@@ -1078,10 +1078,11 @@ apiAnnotatedCodeBreakages = runQuery
 -- * downstream_broken_commit_count
 -- * failed_downstream_build_count
 -- * github_pr_number
+-- * github_pr_head_commit
 -- * foreshadowed_broken_jobs_delimited
 apiAnnotatedCodeBreakagesWithImpact :: DbIO [BuildResults.BreakageSpan Text BuildResults.BreakageImpactStats]
 apiAnnotatedCodeBreakagesWithImpact = runQuery
-  "SELECT cause_id, cause_commit_index, cause_sha1, description, failure_mode_reporter, failure_mode_reported_at, failure_mode_id, cause_reporter, cause_reported_at, cause_jobs, breakage_commit_author, breakage_commit_message, breakage_commit_date, resolution_id, resolved_commit_index, resolution_sha1, resolution_reporter, resolution_reported_at, resolution_commit_author, resolution_commit_message, resolution_commit_date, spanned_commit_count, commit_timespan_seconds, downstream_broken_commit_count, failed_downstream_build_count, github_pr_number, foreshadowed_broken_jobs_delimited FROM known_breakage_summaries ORDER BY cause_commit_index DESC;"
+  "SELECT cause_id, cause_commit_index, cause_sha1, description, failure_mode_reporter, failure_mode_reported_at, failure_mode_id, cause_reporter, cause_reported_at, cause_jobs, breakage_commit_author, breakage_commit_message, breakage_commit_date, resolution_id, resolved_commit_index, resolution_sha1, resolution_reporter, resolution_reported_at, resolution_commit_author, resolution_commit_message, resolution_commit_date, spanned_commit_count, commit_timespan_seconds, downstream_broken_commit_count, failed_downstream_build_count, github_pr_number, github_pr_head_commit, foreshadowed_broken_jobs_delimited FROM known_breakage_summaries ORDER BY cause_commit_index DESC;"
 
 
 apiBreakageAuthorStats :: DbIO [BuildResults.BreakageAuthorStats]

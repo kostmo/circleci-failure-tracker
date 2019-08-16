@@ -263,12 +263,27 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 						}
 					},
 				},
+				{title: "HEAD", width: 75, field: "impact_stats.pr_foreshadowing.github_pr_head_commit",
+					formatter: function(cell, formatterParams, onRendered) {
+						const cell_value = cell.getValue();
+						if (cell_value) {
+							return sha1_link(cell_value);
+						} else {
+							return "-";
+						}
+					},
+				},
 				{title: "Broken jobs", width: 100, field: "impact_stats.pr_foreshadowing.foreshadowed_broken_jobs_delimited",
 					formatter: function(cell, formatterParams, onRendered) {
 
 						const cell_value = cell.getValue();
 						if (cell_value) {
 							var joblist = cell.getRow().getData()["start"]["record"]["payload"]["affected_jobs"];
+
+							if (cell.getValue().length > 0) {
+								cell.getElement().style.backgroundColor = "#f664";
+							}
+
 							return cell.getValue().length + " / " + joblist.length;
 						} else {
 							return "-";
