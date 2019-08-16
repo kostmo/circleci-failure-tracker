@@ -101,18 +101,10 @@ mainAppCode args = do
 
 
   batch_diagnosis_result <- SqlUpdate.diagnoseCommitsBatch
-    (Just $ repoGitDir args)
+    (Just git_repo_dir)
     conn
     oauth_access_token
     owned_repo
-    {-
-    [ Builds.RawCommit "60a4ef30747ef3fcc780d4327e7b44de0a330b2d" -- (master) has no breakage
-    , Builds.RawCommit "43c4bcba1d0b336736ce14e939907c47834d32c7" -- (master) has a known breakage
-
-    , Builds.RawCommit "8145d809db2a52267b32f0e56f02607307a39532" -- (PR) has no breakage
---    , Builds.RawCommit "" -- (PR) has a known breakage
-    ]
-    -}
 
   putStrLn $ unwords [
       "Batch diagnosis result:"
@@ -121,10 +113,17 @@ mainAppCode args = do
 
 
 
+  putStrLn $ unwords [
+      "Populating merge base head commits..."
+    ]
+
+  SqlWrite.getAllPullRequestHeadCommits conn git_repo_dir
+
   return ()
 
 
   where
+    git_repo_dir = repoGitDir args
     owned_repo = DbHelpers.OwnerAndRepo Constants.project_name Constants.repo_name
 
     oauth_access_token = OAuth2.AccessToken $ gitHubPersonalAccessToken args

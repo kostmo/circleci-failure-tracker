@@ -136,13 +136,11 @@ scottyApp
     withAuth $
       SqlWrite.apiNewPatternWrapped <$> FrontendHelpers.patternFromParms
 
-
   S.post "/api/code-breakage-mode-update" $
     withAuth $
       SqlWrite.updateCodeBreakageMode
         <$> S.param "cause_id"
         <*> S.param "mode"
-
 
 
   -- XXX IMPORTANT:
@@ -352,7 +350,6 @@ scottyApp
       conn <- DbHelpers.get_connection connection_data
       runReaderT (SqlRead.apiNewPatternTest (Builds.UniversalBuildId buildnum) new_pattern) conn
     S.json $ WebApi.toJsonEither x
-
 
   -- Access-controlled GET endpoint
   S.get "/api/view-log-context" $

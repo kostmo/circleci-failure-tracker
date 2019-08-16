@@ -1,3 +1,6 @@
+const PULL_REQUEST_URL_PREFIX = "https://github.com/pytorch/pytorch/pull/";
+
+
 function post_modification(api_endpoint, data_dict) {
 
 	$.post( {

@@ -9,8 +9,6 @@ const FITTABLE_LETTERS_PER_COLUMN = 2; // empirically determined
 // empirically, < 3 leaves enough space to fit all header names horizontally
 const MIN_HEADER_GROUPING_COLUMNS = 3;
 
-const PULL_REQUEST_URL_PREFIX = "https://github.com/pytorch/pytorch/pull/";
-
 
 function gen_broken_jobs_table(element_id, data_url) {
 
@@ -556,8 +554,8 @@ function get_column_definitions(raw_column_list) {
 		headerVertical: false,
 		formatter: function(cell, formatterParams, onRendered) {
 
-
-			const commit_metadata = cell.getRow().getData()["commit_metadata"];
+			const row_data = cell.getRow().getData();
+			const commit_metadata = row_data["commit_metadata"];
 
 			var message_suffix = "";
 			if (commit_metadata) {
@@ -571,9 +569,8 @@ function get_column_definitions(raw_column_list) {
 				cell.getElement().style.borderLeft = "4px solid " + hex_string;
 
 				var pr_link = "";
-				const matches_array = /https:\/\/github\.com\/pytorch\/pytorch\/pull\/(\d+)/.exec(commit_metadata["message"]);
-				if (matches_array !== null) {
-					const pr_number = matches_array[1];
+				const pr_number = row_data["pr_number"];
+				if (pr_number !== null) {
 					pr_link = render_tag("sup", render_tag("small", link("#" + pr_number, PULL_REQUEST_URL_PREFIX + pr_number)));
 				}
 
@@ -714,6 +711,7 @@ function gen_timeline_table(element_id, fetched_data) {
 		row_dict["contiguous_commit_number"] = commit_obj.record.contiguous_index;
 		row_dict["commit"] = sha1;
 		row_dict["commit_metadata"] = commit_obj.record.metadata;
+		row_dict["pr_number"] = commit_obj.record.pr_number;
 
 		for (var job_name in failures_by_job_name) {
 			row_dict[job_name] = failures_by_job_name[job_name];

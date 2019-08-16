@@ -564,7 +564,7 @@ downstreamWeeklyFailureStats week_count = do
   where
     f (week, distinct_breakages, downstream_broken_commit_count, downstream_broken_build_count) = BuildResults.WeeklyBreakageImpactStats
       week
-      distinct_breakages $ BuildResults.BreakageImpactStats
+      distinct_breakages $ BuildResults.DownstreamImpactCounts
         downstream_broken_commit_count
         downstream_broken_build_count
 
@@ -683,6 +683,22 @@ instance ToJSON TagUsage where
 apiTagsHistogram :: DbIO [TagUsage]
 apiTagsHistogram = runQuery
   "SELECT tag, COUNT(*) AS pattern_count, SUM(matching_build_count)::bigint AS build_matches FROM pattern_tags LEFT JOIN pattern_frequency_summary ON pattern_frequency_summary.id = pattern_tags.pattern GROUP BY tag ORDER BY pattern_count DESC, build_matches DESC;"
+
+
+data MasterCommitAndSourcePr = MasterCommitAndSourcePr {
+    _sha1      :: Builds.RawCommit
+  , _pr_number :: Builds.PullRequestNumber
+  } deriving (Generic, FromRow)
+
+instance ToJSON MasterCommitAndSourcePr where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+-- | Gets Pull Request numbers of the commits that have been
+-- implicated in master branch breakages
+getImplicatedMasterCommitPullRequests :: DbIO [MasterCommitAndSourcePr]
+getImplicatedMasterCommitPullRequests = runQuery
+  "SELECT known_breakage_summaries_sans_impact.cause_sha1, github_pr_number FROM master_ordered_commits_with_metadata JOIN known_breakage_summaries_sans_impact ON known_breakage_summaries_sans_impact.cause_sha1 = master_ordered_commits_with_metadata.sha1 WHERE github_pr_number IS NOT NULL ORDER BY id DESC;"
 
 
 apiAutocompleteTags :: Text -> DbIO [Text]
@@ -806,9 +822,11 @@ getMasterCommits conn parent_offset_mode =
 
     Pagination.FixedAndOffset (Pagination.OffsetLimit offset_mode commit_count) -> runExceptT $ do
       latest_id <- ExceptT $ case offset_mode of
+
         Pagination.Count offset_count -> do
           xs <- query conn sql_first_commit_id $ Only offset_count
           return $ maybeToEither "No master commits!" $ Safe.headMay $ map (\(Only x) -> x) xs
+
         Pagination.Commit (Builds.RawCommit sha1) -> do
           xs <- query conn sql_associated_commit_id $ Only sha1
           return $ maybeToEither (T.unwords ["No commit with sha1", sha1]) $
@@ -824,11 +842,12 @@ getMasterCommits conn parent_offset_mode =
       return (WeeklyStats.InclusiveNumericBounds first_commit_index latest_id, mapped_rows)
 
   where
-    f (commit_id, commit_sha1, commit_number, maybe_message, maybe_tree_sha1, maybe_author_name, maybe_author_email, maybe_author_date, maybe_committer_name, maybe_committer_email, maybe_committer_date) =
+    f (commit_id, commit_sha1, commit_number, maybe_pr_number, maybe_message, maybe_tree_sha1, maybe_author_name, maybe_author_email, maybe_author_date, maybe_committer_name, maybe_committer_email, maybe_committer_date) =
       DbHelpers.WithId commit_id $ BuildResults.CommitAndMetadata
         wrapped_sha1
         maybe_metadata
         commit_number
+        maybe_pr_number
       where
         wrapped_sha1 = Builds.RawCommit commit_sha1
         maybe_metadata = Commits.CommitMetadata wrapped_sha1 <$>
@@ -844,9 +863,9 @@ getMasterCommits conn parent_offset_mode =
     sql_first_commit_id = "SELECT id FROM ordered_master_commits ORDER BY id DESC LIMIT 1 OFFSET ?"
     sql_associated_commit_id = "SELECT id FROM ordered_master_commits WHERE sha1 = ?"
 
-    sql_commit_id_and_offset = "SELECT master_commits_contiguously_indexed.id, master_commits_contiguously_indexed.sha1, master_commits_contiguously_indexed.commit_number, message, tree_sha1, author_name, author_email, author_date, committer_name, committer_email, committer_date FROM master_commits_contiguously_indexed LEFT JOIN commit_metadata ON commit_metadata.sha1 = master_commits_contiguously_indexed.sha1 WHERE id <= ? ORDER BY id DESC LIMIT ?"
+    sql_commit_id_and_offset = "SELECT master_ordered_commits_with_metadata.id, master_ordered_commits_with_metadata.sha1, master_ordered_commits_with_metadata.commit_number, master_ordered_commits_with_metadata.github_pr_number, message, tree_sha1, author_name, author_email, author_date, committer_name, committer_email, committer_date FROM master_ordered_commits_with_metadata WHERE id <= ? ORDER BY id DESC LIMIT ?"
 
-    sql_commit_id_bounds = "SELECT master_commits_contiguously_indexed.id, master_commits_contiguously_indexed.sha1, master_commits_contiguously_indexed.commit_number, message, tree_sha1, author_name, author_email, author_date, committer_name, committer_email, committer_date FROM master_commits_contiguously_indexed LEFT JOIN commit_metadata ON commit_metadata.sha1 = master_commits_contiguously_indexed.sha1 WHERE id >= ? AND id <= ? ORDER BY id DESC"
+    sql_commit_id_bounds = "SELECT master_ordered_commits_with_metadata.id, master_ordered_commits_with_metadata.sha1, master_ordered_commits_with_metadata.commit_number, master_ordered_commits_with_metadata.github_pr_number, message, tree_sha1, author_name, author_email, author_date, committer_name, committer_email, committer_date FROM master_ordered_commits_with_metadata WHERE id >= ? AND id <= ? ORDER BY id DESC"
 
 
 data NonannotatedBuildBreakages = NonannotatedBuildBreakages {
@@ -1015,11 +1034,13 @@ apiMasterBuilds _mview_connection_data offset_limit = do
   conn <- ask
   liftIO $ runExceptT $ do
 
-    (commits_list_time, (commit_id_bounds, master_commits)) <- MyUtils.timeThisFloat $ ExceptT $ getMasterCommits conn offset_limit
+    (commits_list_time, (commit_id_bounds, master_commits)) <- MyUtils.timeThisFloat $
+      ExceptT $ getMasterCommits conn offset_limit
 
     let query_bounds = (WeeklyStats.min_bound commit_id_bounds, WeeklyStats.max_bound commit_id_bounds)
 
-    (builds_list_time, completed_builds) <- MyUtils.timeThisFloat $ liftIO $ query conn builds_list_sql query_bounds
+    (builds_list_time, completed_builds) <- MyUtils.timeThisFloat $
+      liftIO $ query conn builds_list_sql query_bounds
 
     let failed_builds = filter (not . BuildResults.isSuccess . BuildResults._failure_mode) completed_builds
         job_names = Set.fromList $ map (Builds.job_name . BuildResults._build) failed_builds
@@ -1053,11 +1074,14 @@ apiAnnotatedCodeBreakages = runQuery
   "SELECT cause_id, cause_commit_index, cause_sha1, description, failure_mode_reporter, failure_mode_reported_at, failure_mode_id, cause_reporter, cause_reported_at, cause_jobs, breakage_commit_author, breakage_commit_message, breakage_commit_date, resolution_id, resolved_commit_index, resolution_sha1, resolution_reporter, resolution_reported_at, resolution_commit_author, resolution_commit_message, resolution_commit_date, spanned_commit_count, commit_timespan_seconds FROM known_breakage_summaries_sans_impact ORDER BY cause_commit_index DESC;"
 
 
--- | Identical to above except for addition of
--- downstream_broken_commit_count, failed_downstream_build_count
+-- | Identical to above except for addition of:
+-- * downstream_broken_commit_count
+-- * failed_downstream_build_count
+-- * github_pr_number
+-- * foreshadowed_broken_jobs_delimited
 apiAnnotatedCodeBreakagesWithImpact :: DbIO [BuildResults.BreakageSpan Text BuildResults.BreakageImpactStats]
 apiAnnotatedCodeBreakagesWithImpact = runQuery
-  "SELECT cause_id, cause_commit_index, cause_sha1, description, failure_mode_reporter, failure_mode_reported_at, failure_mode_id, cause_reporter, cause_reported_at, cause_jobs, breakage_commit_author, breakage_commit_message, breakage_commit_date, resolution_id, resolved_commit_index, resolution_sha1, resolution_reporter, resolution_reported_at, resolution_commit_author, resolution_commit_message, resolution_commit_date, spanned_commit_count, commit_timespan_seconds, downstream_broken_commit_count, failed_downstream_build_count FROM known_breakage_summaries ORDER BY cause_commit_index DESC;"
+  "SELECT cause_id, cause_commit_index, cause_sha1, description, failure_mode_reporter, failure_mode_reported_at, failure_mode_id, cause_reporter, cause_reported_at, cause_jobs, breakage_commit_author, breakage_commit_message, breakage_commit_date, resolution_id, resolved_commit_index, resolution_sha1, resolution_reporter, resolution_reported_at, resolution_commit_author, resolution_commit_message, resolution_commit_date, spanned_commit_count, commit_timespan_seconds, downstream_broken_commit_count, failed_downstream_build_count, github_pr_number, foreshadowed_broken_jobs_delimited FROM known_breakage_summaries ORDER BY cause_commit_index DESC;"
 
 
 apiBreakageAuthorStats :: DbIO [BuildResults.BreakageAuthorStats]

@@ -19,6 +19,17 @@ masterName :: Text
 masterName = "master"
 
 
+newtype PullRequestNumber = PullRequestNumber Int
+ deriving (Generic, Eq, Ord, Show)
+
+instance ToJSON PullRequestNumber
+instance FromJSON PullRequestNumber
+
+-- TODO do error handling: http://hackage.haskell.org/package/postgresql-simple-0.6.2/docs/Database-PostgreSQL-Simple-FromField.html
+instance FromField PullRequestNumber where
+  fromField f mdata = PullRequestNumber <$> fromField f mdata
+
+
 newtype RawCommit = RawCommit Text
  deriving (Generic, Eq, Ord, Show, FromRow)
 

@@ -8,7 +8,7 @@ function render_commit_cell(cell, position) {
 
 		var author_firstname = authorship_metadata["author"].split(" ")[0];
 
-		return sha1_link(cell_val) + " <b>" + author_firstname + ":</b> " + msg_subject;
+		return sha1_link(cell_val) + " " + render_tag("b", author_firstname + ":") + " " + msg_subject;
 	} else {
 		return "";
 	}
@@ -251,6 +251,35 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 					post_modification("/api/code-breakage-mode-update", data_dict);
 				},
 			},
+
+			{title: "Pull Request", columns: [
+				{title: "#", width: 75, field: "impact_stats.pr_foreshadowing.github_pr_number",
+					formatter: function(cell, formatterParams, onRendered) {
+						const cell_value = cell.getValue();
+						if (cell_value) {
+							return link(cell_value, PULL_REQUEST_URL_PREFIX + cell_value);
+						} else {
+							return "-";
+						}
+					},
+				},
+				{title: "Broken jobs", width: 100, field: "impact_stats.pr_foreshadowing.foreshadowed_broken_jobs_delimited",
+					formatter: function(cell, formatterParams, onRendered) {
+
+						const cell_value = cell.getValue();
+						if (cell_value) {
+							var joblist = cell.getRow().getData()["start"]["record"]["payload"]["affected_jobs"];
+							return cell.getValue().length + " / " + joblist.length;
+						} else {
+							return "-";
+						}
+					},
+					tooltip: function(cell) {
+						const cell_value = cell.getValue();
+						return cell_value ? cell_value.join("\n") : "";
+					},
+				},
+			]},
 			{title: "Notes", width: 150, field: "start.record.payload.description",
 				editor: "input",
 				cellEdited: function(cell) {
@@ -263,11 +292,11 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 			},
 			{title: "Downstream Impact", columns: [
 				{title: "Commits",
-					field: "impact_stats.downstream_broken_commit_count",
+					field: "impact_stats.downstream_impact_counts.downstream_broken_commit_count",
 					width: 75,
 				},
 				{title: "Builds",
-					field: "impact_stats.failed_downstream_build_count",
+					field: "impact_stats.downstream_impact_counts.failed_downstream_build_count",
 					width: 75,
 				},
 			]},

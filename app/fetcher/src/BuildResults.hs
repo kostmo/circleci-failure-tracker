@@ -31,6 +31,7 @@ data CommitAndMetadata = CommitAndMetadata {
     _commit           :: Builds.RawCommit
   , _metadata         :: Maybe Commits.CommitMetadata
   , _contiguous_index :: Int
+  , _pr_number        :: Maybe Builds.PullRequestNumber
   } deriving Generic
 
 instance ToJSON CommitAndMetadata where
@@ -156,34 +157,50 @@ instance ToJSON BreakageEnd where
 type BreakageEndRecord = DbHelpers.WithId (DbHelpers.WithAuthorship BreakageEnd)
 
 
-
 data BreakageAuthorStats = BreakageAuthorStats {
     _breakage_commit_author                 :: Text
   , _distinct_breakage_count                :: Int
   , _cumulative_breakage_duration_seconds   :: Double
   , _cumulative_downstream_affected_commits :: Int
-  , _cumulative_spanned_master_commits      :: Int
+  , _cumulative_spanned_master_commits      :: Maybe Int
   } deriving (Generic, FromRow)
 
 instance ToJSON BreakageAuthorStats where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
-
 data WeeklyBreakageImpactStats = WeeklyBreakageImpactStats {
     _week           :: UTCTime
   , _incident_count :: Int
-  , _impact         :: BreakageImpactStats
+  , _impact         :: DownstreamImpactCounts
   } deriving Generic
 
 instance ToJSON WeeklyBreakageImpactStats where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
-data BreakageImpactStats = BreakageImpactStats {
+data PullRequestForeshadowing = PullRequestForeshadowing {
+    _github_pr_number                   :: Builds.PullRequestNumber
+  , _foreshadowed_broken_jobs_delimited :: [T.Text]
+  } deriving Generic
+
+instance ToJSON PullRequestForeshadowing where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+data DownstreamImpactCounts = DownstreamImpactCounts {
     _downstream_broken_commit_count :: Int
   , _failed_downstream_build_count  :: Int
   } deriving (Generic, FromRow)
+
+instance ToJSON DownstreamImpactCounts where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+data BreakageImpactStats = BreakageImpactStats {
+    _downstream_impact_counts :: DownstreamImpactCounts
+  , _pr_foreshadowing         :: Maybe PullRequestForeshadowing
+  } deriving Generic
 
 instance ToJSON BreakageImpactStats where
   toJSON = genericToJSON JsonUtils.dropUnderscore
@@ -254,6 +271,24 @@ causeFromRow = do
 
   return $ DbHelpers.WithId cause_id $
     DbHelpers.WithAuthorship cause_reporter cause_reported_at breakage_start
+
+
+instance FromRow BreakageImpactStats where
+  fromRow = do
+    downstream_impact_stats <- fromRow
+
+    maybe_pr_number <- field
+    foreshadowed_jobs_delimited <- field
+
+    let maybe_foreshadowed_breakage = do
+          pr_number <- maybe_pr_number
+          return $ PullRequestForeshadowing
+            pr_number
+            (DbHelpers.cleanSemicolonDelimitedList foreshadowed_jobs_delimited)
+
+    return $ BreakageImpactStats
+      downstream_impact_stats
+      maybe_foreshadowed_breakage
 
 
 instance FromRow (BreakageSpan Text BreakageImpactStats) where

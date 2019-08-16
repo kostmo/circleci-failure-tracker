@@ -11,6 +11,7 @@ import           Control.Monad.Trans.Except        (ExceptT (ExceptT), except,
 import           Control.Monad.Trans.Reader        (ask, runReaderT)
 import           Data.Bifunctor                    (first)
 import qualified Data.ByteString.Char8             as BS
+import           Data.Either                       (partitionEithers)
 import           Data.Either.Utils                 (maybeToEither)
 import           Data.Foldable                     (for_)
 import           Data.List.Ordered                 (nubSort)
@@ -164,11 +165,52 @@ findMasterAncestor ::
 findMasterAncestor = findMasterAncestorWithPrecomputation Nothing
 
 
+-- | Also populates pull_request_heads table
+getAllPullRequestHeadCommits ::
+     Connection
+  -> FilePath -- ^ repo git dir
+  -> IO (Either T.Text [(Builds.PullRequestNumber, Builds.RawCommit)])
+getAllPullRequestHeadCommits conn git_dir = do
+
+  MergeBase.fetchRefs git_dir
+
+  pr_associations <- runReaderT SqlRead.getImplicatedMasterCommitPullRequests conn
+
+  let pr_numbers = map (\(SqlRead.MasterCommitAndSourcePr _ pr_num) -> pr_num) pr_associations
+  pr_head_commits <- mapM (MergeBase.getPullRequestHeadCommit git_dir) pr_numbers
+
+  let pr_head_eithers = zipWith (curry sequenceA) pr_numbers pr_head_commits
+      (unretrieved_pr_heads, retrieved_pr_heads) = partitionEithers pr_head_eithers
+
+  MyUtils.debugList [
+    "Retrieved"
+    , show $ length retrieved_pr_heads
+    , "out of"
+    , show $ length pr_numbers
+    , "PR HEAD commits."
+    , show $ length unretrieved_pr_heads
+    , "were not available."
+    ]
+
+  let deduped_insertion_records = nubSort $ map (\(Builds.PullRequestNumber x, Builds.RawCommit y) -> (x, y)) retrieved_pr_heads
+  inserted_count <- executeMany conn insertion_sql deduped_insertion_records
+
+  MyUtils.debugList [
+      "Inserted"
+    , show inserted_count
+    , "new rows into pull_request_heads table"
+    ]
+
+  return $ Right retrieved_pr_heads
+  where
+    insertion_sql = "INSERT INTO pull_request_heads(pr_number, head_sha1) VALUES(?,?) ON CONFLICT ON CONSTRAINT pull_request_heads_pr_number_head_sha1_key DO UPDATE SET timestamp = NOW();"
+
+
 storeCachedMergeBases ::
      Connection
   -> [MergeBase.CommitMergeBase]
   -> IO (Either Text Int64)
-storeCachedMergeBases conn merge_base_records = do
+storeCachedMergeBases conn merge_base_records =
   catchViolation catcher $ do
     count <- executeMany conn insertion_sql $ map f merge_base_records
     return $ Right count

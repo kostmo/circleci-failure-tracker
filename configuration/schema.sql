@@ -698,53 +698,6 @@ CREATE VIEW public.best_pattern_match_augmented_builds AS
 ALTER TABLE public.best_pattern_match_augmented_builds OWNER TO postgres;
 
 --
--- Name: commit_metadata; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.commit_metadata (
-    sha1 character(40) NOT NULL,
-    message text,
-    tree_sha1 character(40),
-    author_name text,
-    author_email text,
-    author_date timestamp with time zone,
-    committer_name text,
-    committer_email text,
-    committer_date timestamp with time zone
-);
-
-
-ALTER TABLE public.commit_metadata OWNER TO postgres;
-
---
--- Name: broken_commits_without_metadata; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.broken_commits_without_metadata AS
- SELECT DISTINCT builds_join_steps.vcs_revision
-   FROM (public.builds_join_steps
-     LEFT JOIN public.commit_metadata ON ((builds_join_steps.vcs_revision = commit_metadata.sha1)))
-  WHERE (commit_metadata.sha1 IS NULL);
-
-
-ALTER TABLE public.broken_commits_without_metadata OWNER TO postgres;
-
---
--- Name: broken_revisions_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
---
-
-CREATE SEQUENCE public.broken_revisions_id_seq
-    AS integer
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
-ALTER TABLE public.broken_revisions_id_seq OWNER TO postgres;
-
---
 -- Name: code_breakage_affected_jobs; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -892,6 +845,172 @@ ALTER TABLE public.code_breakage_spans OWNER TO postgres;
 
 COMMENT ON VIEW public.code_breakage_spans IS 'TODO: rename cause_commit_index to cause_commit_id and resolved_commit_index to resolved_commit_id';
 
+
+--
+-- Name: commit_metadata; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.commit_metadata (
+    sha1 character(40) NOT NULL,
+    message text,
+    tree_sha1 character(40),
+    author_name text,
+    author_email text,
+    author_date timestamp with time zone,
+    committer_name text,
+    committer_email text,
+    committer_date timestamp with time zone
+);
+
+
+ALTER TABLE public.commit_metadata OWNER TO postgres;
+
+--
+-- Name: master_ordered_commits_with_metadata; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_ordered_commits_with_metadata WITH (security_barrier='false') AS
+ SELECT master_commits_contiguously_indexed.id,
+    master_commits_contiguously_indexed.sha1,
+    commit_metadata.message,
+    commit_metadata.tree_sha1,
+    commit_metadata.author_name,
+    commit_metadata.author_email,
+    commit_metadata.author_date,
+    commit_metadata.committer_name,
+    commit_metadata.committer_email,
+    commit_metadata.committer_date,
+    (COALESCE("substring"(commit_metadata.message, 'Pull [Rr]equest resolved: https://github\.com/pytorch/pytorch/pull/(\d+)'::text), "substring"(commit_metadata.message, '[Cc]loses https://github\.com/pytorch/pytorch/pull/(\d+)'::text)))::integer AS github_pr_number,
+    ("substring"(commit_metadata.message, 'Differential Revision: D(\d+)'::text))::integer AS fb_differential_revision,
+    "substring"(commit_metadata.message, 'Pulled By: ([^\s]+)'::text) AS fb_pulled_by,
+    "substring"(commit_metadata.message, 'Reviewed By: ([^\s]+)'::text) AS fb_reviewed_by,
+    ("substring"(commit_metadata.message, 'fbshipit-source-id: ([^\s]+)'::text))::character(40) AS fb_shipit_source_id,
+    ("substring"(commit_metadata.message, 'ghstack-source-id: (\d+)'::text))::integer AS fb_ghstack_source_id,
+    master_commits_contiguously_indexed.commit_number
+   FROM (public.master_commits_contiguously_indexed
+     LEFT JOIN public.commit_metadata ON ((commit_metadata.sha1 = master_commits_contiguously_indexed.sha1)));
+
+
+ALTER TABLE public.master_ordered_commits_with_metadata OWNER TO postgres;
+
+--
+-- Name: known_breakage_summaries_sans_impact; Type: VIEW; Schema: public; Owner: logan
+--
+
+CREATE VIEW public.known_breakage_summaries_sans_impact WITH (security_barrier='false') AS
+ SELECT code_breakage_spans.cause_id,
+    code_breakage_spans.cause_commit_index,
+    code_breakage_spans.cause_sha1,
+    code_breakage_spans.description,
+    code_breakage_spans.cause_reporter,
+    code_breakage_spans.cause_reported_at,
+    COALESCE(foo.jobs, ''::text) AS cause_jobs,
+    code_breakage_spans.resolution_id,
+    code_breakage_spans.resolved_commit_index,
+    code_breakage_spans.resolution_sha1,
+    code_breakage_spans.resolution_reporter,
+    code_breakage_spans.resolution_reported_at,
+    COALESCE(meta1.author_name, ''::text) AS breakage_commit_author,
+    COALESCE(meta1.message, ''::text) AS breakage_commit_message,
+    COALESCE(meta2.author_name, ''::text) AS resolution_commit_author,
+    COALESCE(meta2.message, ''::text) AS resolution_commit_message,
+    COALESCE(meta1.committer_date, now()) AS breakage_commit_date,
+    COALESCE(meta2.committer_date, now()) AS resolution_commit_date,
+    COALESCE(code_breakage_spans.failure_mode, 1) AS failure_mode_id,
+    COALESCE(code_breakage_spans.failure_mode_reporter, ''::text) AS failure_mode_reporter,
+    COALESCE(code_breakage_spans.failure_mode_reported_at, now()) AS failure_mode_reported_at,
+    code_breakage_spans.cause_commit_number,
+    code_breakage_spans.resolution_commit_number,
+    code_breakage_spans.spanned_commit_count,
+    date_part('epoch'::text, COALESCE((meta2.committer_date - meta1.committer_date), '00:00:00'::interval)) AS commit_timespan_seconds,
+    meta1.github_pr_number
+   FROM (((public.code_breakage_spans
+     LEFT JOIN ( SELECT code_breakage_affected_jobs.cause,
+            string_agg(code_breakage_affected_jobs.job, ';'::text) AS jobs
+           FROM public.code_breakage_affected_jobs
+          GROUP BY code_breakage_affected_jobs.cause) foo ON ((foo.cause = code_breakage_spans.cause_id)))
+     LEFT JOIN public.master_ordered_commits_with_metadata meta1 ON ((meta1.sha1 = code_breakage_spans.cause_sha1)))
+     LEFT JOIN public.commit_metadata meta2 ON ((meta2.sha1 = code_breakage_spans.resolution_sha1)));
+
+
+ALTER TABLE public.known_breakage_summaries_sans_impact OWNER TO logan;
+
+--
+-- Name: VIEW known_breakage_summaries_sans_impact; Type: COMMENT; Schema: public; Owner: logan
+--
+
+COMMENT ON VIEW public.known_breakage_summaries_sans_impact IS 'View is subset of known_breakage_summaries for efficiency
+
+TODO: Delete and re-grant ownership';
+
+
+--
+-- Name: pull_request_heads; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.pull_request_heads (
+    head_sha1 character(40) NOT NULL,
+    id integer NOT NULL,
+    "timestamp" timestamp with time zone DEFAULT now() NOT NULL,
+    pr_number integer NOT NULL
+);
+
+
+ALTER TABLE public.pull_request_heads OWNER TO postgres;
+
+--
+-- Name: TABLE pull_request_heads; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.pull_request_heads IS 'tracks the current commit as well as the evolution over time (including rebases) of a pull request';
+
+
+--
+-- Name: breakage_affected_jobs_failing_at_merge_time; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.breakage_affected_jobs_failing_at_merge_time AS
+ SELECT known_breakage_summaries_sans_impact.cause_id,
+    known_breakage_summaries_sans_impact.github_pr_number,
+    pull_request_heads.head_sha1 AS pr_head_commit,
+    code_breakage_affected_jobs.job,
+    builds_join_steps.step_name,
+    builds_join_steps.universal_build
+   FROM (((public.known_breakage_summaries_sans_impact
+     JOIN public.pull_request_heads ON ((known_breakage_summaries_sans_impact.github_pr_number = pull_request_heads.pr_number)))
+     JOIN public.code_breakage_affected_jobs ON ((known_breakage_summaries_sans_impact.cause_id = code_breakage_affected_jobs.cause)))
+     JOIN public.builds_join_steps ON (((pull_request_heads.head_sha1 = builds_join_steps.vcs_revision) AND (builds_join_steps.job_name = code_breakage_affected_jobs.job))));
+
+
+ALTER TABLE public.breakage_affected_jobs_failing_at_merge_time OWNER TO postgres;
+
+--
+-- Name: broken_commits_without_metadata; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.broken_commits_without_metadata AS
+ SELECT DISTINCT builds_join_steps.vcs_revision
+   FROM (public.builds_join_steps
+     LEFT JOIN public.commit_metadata ON ((builds_join_steps.vcs_revision = commit_metadata.sha1)))
+  WHERE (commit_metadata.sha1 IS NULL);
+
+
+ALTER TABLE public.broken_commits_without_metadata OWNER TO postgres;
+
+--
+-- Name: broken_revisions_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.broken_revisions_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.broken_revisions_id_seq OWNER TO postgres;
 
 --
 -- Name: master_commit_known_breakage_causes; Type: VIEW; Schema: public; Owner: postgres
@@ -1200,56 +1319,6 @@ CREATE VIEW public.job_failure_frequencies WITH (security_barrier='false') AS
 ALTER TABLE public.job_failure_frequencies OWNER TO postgres;
 
 --
--- Name: known_breakage_summaries_sans_impact; Type: VIEW; Schema: public; Owner: logan
---
-
-CREATE VIEW public.known_breakage_summaries_sans_impact WITH (security_barrier='false') AS
- SELECT code_breakage_spans.cause_id,
-    code_breakage_spans.cause_commit_index,
-    code_breakage_spans.cause_sha1,
-    code_breakage_spans.description,
-    code_breakage_spans.cause_reporter,
-    code_breakage_spans.cause_reported_at,
-    COALESCE(foo.jobs, ''::text) AS cause_jobs,
-    code_breakage_spans.resolution_id,
-    code_breakage_spans.resolved_commit_index,
-    code_breakage_spans.resolution_sha1,
-    code_breakage_spans.resolution_reporter,
-    code_breakage_spans.resolution_reported_at,
-    COALESCE(meta1.author_name, ''::text) AS breakage_commit_author,
-    COALESCE(meta1.message, ''::text) AS breakage_commit_message,
-    COALESCE(meta2.author_name, ''::text) AS resolution_commit_author,
-    COALESCE(meta2.message, ''::text) AS resolution_commit_message,
-    COALESCE(meta1.committer_date, now()) AS breakage_commit_date,
-    COALESCE(meta2.committer_date, now()) AS resolution_commit_date,
-    COALESCE(code_breakage_spans.failure_mode, 1) AS failure_mode_id,
-    COALESCE(code_breakage_spans.failure_mode_reporter, ''::text) AS failure_mode_reporter,
-    COALESCE(code_breakage_spans.failure_mode_reported_at, now()) AS failure_mode_reported_at,
-    code_breakage_spans.cause_commit_number,
-    code_breakage_spans.resolution_commit_number,
-    code_breakage_spans.spanned_commit_count,
-    date_part('epoch'::text, COALESCE((meta2.committer_date - meta1.committer_date), '00:00:00'::interval)) AS commit_timespan_seconds
-   FROM (((public.code_breakage_spans
-     LEFT JOIN ( SELECT code_breakage_affected_jobs.cause,
-            string_agg(code_breakage_affected_jobs.job, ';'::text) AS jobs
-           FROM public.code_breakage_affected_jobs
-          GROUP BY code_breakage_affected_jobs.cause) foo ON ((foo.cause = code_breakage_spans.cause_id)))
-     LEFT JOIN public.commit_metadata meta1 ON ((meta1.sha1 = code_breakage_spans.cause_sha1)))
-     LEFT JOIN public.commit_metadata meta2 ON ((meta2.sha1 = code_breakage_spans.resolution_sha1)));
-
-
-ALTER TABLE public.known_breakage_summaries_sans_impact OWNER TO logan;
-
---
--- Name: VIEW known_breakage_summaries_sans_impact; Type: COMMENT; Schema: public; Owner: logan
---
-
-COMMENT ON VIEW public.known_breakage_summaries_sans_impact IS 'View is subset of known_breakage_summaries for efficiency
-
-TODO: Delete and re-grant ownership';
-
-
---
 -- Name: pr_merge_bases; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -1408,9 +1477,17 @@ CREATE VIEW public.known_breakage_summaries WITH (security_barrier='false') AS
     known_breakage_summaries_sans_impact.cause_commit_number,
     known_breakage_summaries_sans_impact.resolution_commit_number,
     known_breakage_summaries_sans_impact.spanned_commit_count,
-    known_breakage_summaries_sans_impact.commit_timespan_seconds
-   FROM (public.known_breakage_summaries_sans_impact
-     LEFT JOIN public.pr_impact_cause_summary ON ((pr_impact_cause_summary.first_cause = known_breakage_summaries_sans_impact.cause_id)));
+    known_breakage_summaries_sans_impact.commit_timespan_seconds,
+    known_breakage_summaries_sans_impact.github_pr_number,
+    COALESCE(foo.foreshadowed_broken_jobs_delimited, ''::text) AS foreshadowed_broken_jobs_delimited,
+    foo.foreshadowed_broken_job_count
+   FROM ((public.known_breakage_summaries_sans_impact
+     LEFT JOIN public.pr_impact_cause_summary ON ((pr_impact_cause_summary.first_cause = known_breakage_summaries_sans_impact.cause_id)))
+     LEFT JOIN ( SELECT breakage_affected_jobs_failing_at_merge_time.cause_id,
+            count(*) AS foreshadowed_broken_job_count,
+            string_agg(breakage_affected_jobs_failing_at_merge_time.job, ';'::text) AS foreshadowed_broken_jobs_delimited
+           FROM public.breakage_affected_jobs_failing_at_merge_time
+          GROUP BY breakage_affected_jobs_failing_at_merge_time.cause_id) foo ON ((foo.cause_id = known_breakage_summaries_sans_impact.cause_id)));
 
 
 ALTER TABLE public.known_breakage_summaries OWNER TO postgres;
@@ -1885,33 +1962,6 @@ FIXME: "failure_count" is a misnomer; it is actually the total that includes suc
 
 
 --
--- Name: master_ordered_commits_with_metadata; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.master_ordered_commits_with_metadata WITH (security_barrier='false') AS
- SELECT ordered_master_commits.id,
-    ordered_master_commits.sha1,
-    commit_metadata.message,
-    commit_metadata.tree_sha1,
-    commit_metadata.author_name,
-    commit_metadata.author_email,
-    commit_metadata.author_date,
-    commit_metadata.committer_name,
-    commit_metadata.committer_email,
-    commit_metadata.committer_date,
-    "substring"(commit_metadata.message, 'https://github\.com/pytorch/pytorch/pull/(\d+)'::text) AS github_pr_number,
-    "substring"(commit_metadata.message, 'Differential Revision: D(\d+)'::text) AS fb_differential_revision,
-    "substring"(commit_metadata.message, 'Pulled By: ([^\s]+)'::text) AS fb_pulled_by,
-    "substring"(commit_metadata.message, 'Reviewed By: ([^\s]+)'::text) AS fb_reviewed_by,
-    "substring"(commit_metadata.message, 'fbshipit-source-id: ([^\s]+)'::text) AS fb_shipit_source_id,
-    "substring"(commit_metadata.message, 'ghstack-source-id: (\d+)'::text) AS fb_ghstack_source_id
-   FROM (public.ordered_master_commits
-     JOIN public.commit_metadata ON ((commit_metadata.sha1 = ordered_master_commits.sha1)));
-
-
-ALTER TABLE public.master_ordered_commits_with_metadata OWNER TO postgres;
-
---
 -- Name: master_unmarked_breakage_regions_by_commit; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -2133,6 +2183,20 @@ ALTER SEQUENCE public.pattern_step_applicability_id_seq OWNED BY public.pattern_
 
 
 --
+-- Name: pr_current_heads; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.pr_current_heads AS
+ SELECT DISTINCT ON (pull_request_heads.pr_number) pull_request_heads.pr_number,
+    pull_request_heads.head_sha1,
+    pull_request_heads."timestamp"
+   FROM public.pull_request_heads
+  ORDER BY pull_request_heads.pr_number, pull_request_heads.id DESC;
+
+
+ALTER TABLE public.pr_current_heads OWNER TO postgres;
+
+--
 -- Name: pr_dependent_breakages_with_patterns; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -2291,6 +2355,28 @@ ALTER TABLE public.presumed_stable_branches OWNER TO postgres;
 --
 
 COMMENT ON TABLE public.presumed_stable_branches IS 'A (small) list of branches that are presumed to be stable.  That is, the branch is "policed" for human-caused breakages.  Such breakages are annotated and reverted ASAP.';
+
+
+--
+-- Name: pull_request_heads_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.pull_request_heads_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.pull_request_heads_id_seq OWNER TO postgres;
+
+--
+-- Name: pull_request_heads_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.pull_request_heads_id_seq OWNED BY public.pull_request_heads.id;
 
 
 --
@@ -2524,6 +2610,13 @@ ALTER TABLE ONLY public.patterns ALTER COLUMN id SET DEFAULT nextval('public.pat
 
 
 --
+-- Name: pull_request_heads id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.pull_request_heads ALTER COLUMN id SET DEFAULT nextval('public.pull_request_heads_id_seq'::regclass);
+
+
+--
 -- Name: scans id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
@@ -2727,6 +2820,22 @@ ALTER TABLE ONLY public.pattern_tags
 
 ALTER TABLE ONLY public.presumed_stable_branches
     ADD CONSTRAINT presumed_stable_branches_pkey PRIMARY KEY (branch);
+
+
+--
+-- Name: pull_request_heads pull_request_heads_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.pull_request_heads
+    ADD CONSTRAINT pull_request_heads_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: pull_request_heads pull_request_heads_pr_number_head_sha1_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.pull_request_heads
+    ADD CONSTRAINT pull_request_heads_pr_number_head_sha1_key UNIQUE (pr_number, head_sha1);
 
 
 --
@@ -3317,27 +3426,6 @@ GRANT ALL ON TABLE public.best_pattern_match_augmented_builds TO logan;
 
 
 --
--- Name: TABLE commit_metadata; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.commit_metadata TO logan;
-
-
---
--- Name: TABLE broken_commits_without_metadata; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.broken_commits_without_metadata TO logan;
-
-
---
--- Name: SEQUENCE broken_revisions_id_seq; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON SEQUENCE public.broken_revisions_id_seq TO logan;
-
-
---
 -- Name: TABLE code_breakage_affected_jobs; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -3384,6 +3472,58 @@ GRANT ALL ON TABLE public.master_failure_mode_attributions TO logan;
 --
 
 GRANT ALL ON TABLE public.code_breakage_spans TO logan;
+
+
+--
+-- Name: TABLE commit_metadata; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.commit_metadata TO logan;
+
+
+--
+-- Name: TABLE master_ordered_commits_with_metadata; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_ordered_commits_with_metadata TO logan;
+
+
+--
+-- Name: TABLE known_breakage_summaries_sans_impact; Type: ACL; Schema: public; Owner: logan
+--
+
+GRANT ALL ON TABLE public.known_breakage_summaries_sans_impact TO postgres WITH GRANT OPTION;
+SET SESSION AUTHORIZATION postgres;
+GRANT ALL ON TABLE public.known_breakage_summaries_sans_impact TO logan;
+RESET SESSION AUTHORIZATION;
+
+
+--
+-- Name: TABLE pull_request_heads; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.pull_request_heads TO logan;
+
+
+--
+-- Name: TABLE breakage_affected_jobs_failing_at_merge_time; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.breakage_affected_jobs_failing_at_merge_time TO logan;
+
+
+--
+-- Name: TABLE broken_commits_without_metadata; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.broken_commits_without_metadata TO logan;
+
+
+--
+-- Name: SEQUENCE broken_revisions_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE public.broken_revisions_id_seq TO logan;
 
 
 --
@@ -3476,16 +3616,6 @@ GRANT ALL ON TABLE public.idiopathic_build_failures TO logan;
 --
 
 GRANT ALL ON TABLE public.job_failure_frequencies TO logan;
-
-
---
--- Name: TABLE known_breakage_summaries_sans_impact; Type: ACL; Schema: public; Owner: logan
---
-
-GRANT ALL ON TABLE public.known_breakage_summaries_sans_impact TO postgres WITH GRANT OPTION;
-SET SESSION AUTHORIZATION postgres;
-GRANT ALL ON TABLE public.known_breakage_summaries_sans_impact TO logan;
-RESET SESSION AUTHORIZATION;
 
 
 --
@@ -3637,13 +3767,6 @@ GRANT ALL ON TABLE public.master_failures_weekly_aggregation TO logan;
 
 
 --
--- Name: TABLE master_ordered_commits_with_metadata; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.master_ordered_commits_with_metadata TO logan;
-
-
---
 -- Name: TABLE master_unmarked_breakage_regions_by_commit; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -3707,6 +3830,13 @@ GRANT ALL ON SEQUENCE public.pattern_step_applicability_id_seq TO logan;
 
 
 --
+-- Name: TABLE pr_current_heads; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.pr_current_heads TO logan;
+
+
+--
 -- Name: TABLE pr_dependent_breakages_with_patterns; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -3732,6 +3862,13 @@ GRANT ALL ON TABLE public.pr_failures_merge_base_aggregation TO logan;
 --
 
 GRANT ALL ON TABLE public.presumed_stable_branches TO logan;
+
+
+--
+-- Name: SEQUENCE pull_request_heads_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE public.pull_request_heads_id_seq TO logan;
 
 
 --

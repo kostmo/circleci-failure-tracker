@@ -102,8 +102,25 @@ fetchRefs git_dir = do
   return $ first T.pack $ void $ exitStatusToEither exit_status out err
 
 
+getPullRequestHeadCommit ::
+     FilePath -- ^ repo git dir
+  -> Builds.PullRequestNumber
+  -> IO (Either T.Text Builds.RawCommit)
+getPullRequestHeadCommit git_dir (Builds.PullRequestNumber pr_number) = do
+  (Command.Exit exit_status, Command.Stdout out, Command.Stderr err) <- Command.cmd $ unwords [
+      "git"
+    , "--git-dir"
+    , git_dir
+    , "rev-parse"
+    , "refs/remotes/origin/pr/" <> show pr_number <> "/head"
+    ]
+
+  return $ first T.pack $ Builds.RawCommit . T.pack <$> exitStatusToEither exit_status out err
+
+
 -- | Some subset of commits that were built by CI will not be fetchable to
--- our local repository, since.
+-- our local repository, since branches may be rebased, orphaning the commits.
+-- Orphaned commits are not made available to "git fetch".
 --
 -- With the right server settings, it may be possible to fetch those commits
 -- individually with the commit as the argument to "git fetch".
