@@ -22,19 +22,10 @@ stack image container --docker
 docker tag $DOCKER_IMAGE_NAME $DOCKER_TAG_NAME
 docker push $DOCKER_TAG_NAME
 
-
-# We want the working directory to be empty...
-mkdir temp_deployment_dir
-
-pushd temp_deployment_dir
-
 # This generates the "Dockerrun.aws.json" file.
-../../run.py --prod-app --dockerrun-json-output-path $AWS_DOCKERRUN_CONFIG_FILENAME
-
+../run.py --prod-app --dockerrun-json-output-path $AWS_DOCKERRUN_CONFIG_FILENAME
 
 eb deploy
-
-popd
 
 rm $AWS_DOCKERRUN_CONFIG_FILENAME
 
