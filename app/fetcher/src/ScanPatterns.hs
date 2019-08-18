@@ -1,6 +1,7 @@
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveGeneric  #-}
-{-# LANGUAGE LambdaCase     #-}
+{-# LANGUAGE DeriveAnyClass    #-}
+{-# LANGUAGE DeriveGeneric     #-}
+{-# LANGUAGE LambdaCase        #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module ScanPatterns where
 
@@ -73,6 +74,11 @@ data Pattern = NewPattern {
 
 instance ToJSON Pattern
 instance FromJSON Pattern
+
+
+-- | TODO obtain this directly from database
+is_flaky :: Pattern -> Bool
+is_flaky = elem "flaky" . tags
 
 
 type DbPattern = DbHelpers.WithId Pattern

@@ -438,14 +438,6 @@ apiStatusPostingsByDay = WebApi.ApiResponse <$> runQuery
   "SELECT created_at::date AS date, COUNT(*) FROM created_github_statuses GROUP BY date ORDER BY date ASC;"
 
 
-getFlakyPatternIds :: Connection -> IO (Set Int64)
-getFlakyPatternIds conn = do
-  xs <- query_ conn sql
-  return $ Set.fromList $ map (\(Only x) -> x) xs
-  where
-    sql = "SELECT id FROM flaky_patterns_augmented;"
-
-
 listBuilds :: Query -> DbIO [WebApi.BuildBranchRecord]
 listBuilds sql = do
   conn <- ask

@@ -257,8 +257,7 @@ handleFailedStatuses
     -- TODO - we should instead see if the "best matching pattern" is
     -- flaky, rather than checking if *any* matching pattern is a
     -- "flaky" pattern.
-    flaky_pattern_ids <- SqlRead.getFlakyPatternIds conn
-    let flaky_predicate = any ((`Set.member` flaky_pattern_ids) . DbHelpers.db_id . ScanPatterns.scanned_pattern) . snd
+    let flaky_predicate = any (ScanPatterns.is_flaky . DbHelpers.record . ScanPatterns.scanned_pattern) . snd
         builds_with_flaky_pattern_matches = filter flaky_predicate scan_matches
     return builds_with_flaky_pattern_matches
 
