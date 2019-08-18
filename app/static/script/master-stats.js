@@ -46,7 +46,13 @@ function normalized_build_failure_count_highchart(series_list) {
 			},
 			pointFormatter: function() {
 				var commit_id_bounds = ranges_by_week[this.x]["commit_id_bound"];
-				var link_url = "/master-timeline.html?min_commit_index=" + commit_id_bounds["min_bound"] + "&max_commit_index=" + commit_id_bounds["max_bound"];
+
+				const parms_string = $.param({
+					"min_commit_index": commit_id_bounds["min_bound"],
+					"max_commit_index": commit_id_bounds["max_bound"],
+				});
+
+				var link_url = "/master-timeline.html?" + parms_string;
 
 				var y_val = this.series.name == "Commit count" ? this.y : this.y.toFixed(2);
 				var content = y_val + "<br/>" + link("(details)", link_url);
@@ -229,7 +235,12 @@ function separated_causes_timeline_highchart(series_list) {
 
 				var unnormalized_val = ranges_by_week[this.x][this.series.name];
 
-				var link_url = "/master-timeline.html?min_commit_index=" + commit_id_bounds["min_bound"] + "&max_commit_index=" + commit_id_bounds["max_bound"];
+				const parms_string = $.param({
+					"min_commit_index": commit_id_bounds["min_bound"],
+					"max_commit_index": commit_id_bounds["max_bound"],
+				});
+
+				var link_url = "/master-timeline.html?" + parms_string;
 				var content = this.y.toFixed(2) + " (" + unnormalized_val + ")<br/>" + link("(details)", link_url);
 				return content;
 			},

@@ -224,6 +224,9 @@ scottyApp
   get "/api/step" $
     pure SqlRead.apiStep
 
+  get "/api/master-commits-granular" $
+    pure SqlRead.masterCommitsGranular
+
   get "/api/master-deterministic-failure-modes" $
     pure SqlRead.apiDeterministicFailureModes
 
@@ -318,6 +321,8 @@ scottyApp
     SqlRead.getUniversalBuilds
       <$> (Builds.UniversalBuildId <$> S.param "start-id")
       <*> S.param "limit"
+
+
 
   get "/api/master-timeline" $
     fmap WebApi.toJsonEither . SqlRead.apiMasterBuilds mview_connection_data <$> FrontendHelpers.getOffsetMode

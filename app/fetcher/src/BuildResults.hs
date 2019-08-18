@@ -319,6 +319,7 @@ data DbMasterBuildsBenchmarks = DbMasterBuildsBenchmarks {
     _builds_list_time    :: Float
   , _commits_list_time   :: Float
   , _code_breakages_time :: Float
+  , _last_mview_update   :: (UTCTime, T.Text)
   } deriving Generic
 
 instance ToJSON DbMasterBuildsBenchmarks where

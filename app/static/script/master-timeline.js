@@ -57,8 +57,14 @@ function get_timeline_data(parms) {
 		const end_time = new Date();
 		if (mydata.success) {
 
-			var time_diff = end_time.getTime() - start_time.getTime();
-			var seconds_diff = time_diff / 1000;
+			const last_cache_update_utctime_tuple = mydata["payload"]["db_benchmarking"]["last_mview_update"];
+			const last_cache_update_utctime = last_cache_update_utctime_tuple[0]
+			console.log("Last update UTCTime: " + last_cache_update_utctime + " by " + last_cache_update_utctime_tuple[1]);
+
+			$("#last-cache-update-time-container").html(moment(last_cache_update_utctime).fromNow());
+
+			const time_diff = end_time.getTime() - start_time.getTime();
+			const seconds_diff = time_diff / 1000;
 
 			console.log("Fetched timeline data in " + seconds_diff.toFixed(1) + " seconds.");
 			gen_timeline_table("master-timeline-table", mydata.payload);

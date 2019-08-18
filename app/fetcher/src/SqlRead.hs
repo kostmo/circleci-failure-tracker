@@ -5,7 +5,7 @@
 
 module SqlRead where
 
-import           Control.Monad                        (forM, void)
+import           Control.Monad                        (forM)
 import           Control.Monad.IO.Class               (liftIO)
 import           Control.Monad.Trans.Except           (ExceptT (ExceptT),
                                                        except, runExceptT)
@@ -1016,8 +1016,21 @@ instance FromRow BuildResults.SimpleBuildStatus where
 refreshCachedMasterGrid :: Connection -> IO ()
 refreshCachedMasterGrid conn = do
   MyUtils.debugStr "Refreshing view..."
-  void $ execute_ conn "REFRESH MATERIALIZED VIEW master_failures_raw_causes_mview;"
+
+  (execution_time, _) <- MyUtils.timeThisFloat $ execute_ conn "REFRESH MATERIALIZED VIEW CONCURRENTLY master_failures_raw_causes_mview;"
+
+  execute conn "INSERT INTO lambda_logging.materialized_view_refresh_events (view_name, execution_duration_seconds, event_source) VALUES (?, ?, ?);" ("master_failures_raw_causes_mview" :: Text, execution_time, "frontend" :: Text)
+
   MyUtils.debugStr "View refreshed."
+
+
+getLastCachedMasterGridRefreshTime :: Connection -> IO (UTCTime, Text)
+getLastCachedMasterGridRefreshTime conn = do
+  [tuple] <- query conn sql (Only ("master_failures_raw_causes_mview" :: String))
+  return tuple
+  where
+
+    sql = "SELECT timestamp, event_source FROM lambda_logging.materialized_view_refresh_events WHERE view_name = ? ORDER BY timestamp DESC LIMIT 1;"
 
 
 -- | Gets last N commits in one query,
@@ -1042,6 +1055,9 @@ apiMasterBuilds _mview_connection_data offset_limit = do
     (builds_list_time, completed_builds) <- MyUtils.timeThisFloat $
       liftIO $ query conn builds_list_sql query_bounds
 
+    last_update_time <- liftIO $ getLastCachedMasterGridRefreshTime conn
+
+
     let failed_builds = filter (not . BuildResults.isSuccess . BuildResults._failure_mode) completed_builds
         job_names = Set.fromList $ map (Builds.job_name . BuildResults._build) failed_builds
 
@@ -1054,9 +1070,26 @@ apiMasterBuilds _mview_connection_data offset_limit = do
           builds_list_time
           commits_list_time
           code_breakages_time
+          last_update_time
 
   where
     builds_list_sql = "SELECT sha1, succeeded, is_idiopathic, is_flaky, is_timeout, is_matched, is_known_broken, build_num, queued_at, job_name, branch, step_name, pattern_id, match_id, line_number, line_count, line_text, span_start, span_end, specificity, is_serially_isolated, started_at, finished_at, global_build, provider, build_namespace, contiguous_run_count, contiguous_group_index, contiguous_start_commit_index, contiguous_end_commit_index, contiguous_length, cluster_id, cluster_member_count FROM master_failures_raw_causes_mview WHERE commit_index >= ? AND commit_index <= ?;"
+
+
+data BreakageDateRangeSimple = BreakageDateRangeSimple {
+    _pr                          :: Maybe Int
+  , _foreshadowed_by_pr_failures :: Bool
+  , _start                       :: UTCTime
+  , _end                         :: UTCTime
+  } deriving (Generic, FromRow)
+
+instance ToJSON BreakageDateRangeSimple where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+masterCommitsGranular :: DbIO [BreakageDateRangeSimple]
+masterCommitsGranular = runQuery
+  "SELECT github_pr_number, foreshadowed_by_pr_failures, start_date, end_date FROM code_breakage_nonoverlapping_spans_dated;"
 
 
 apiDetectedCodeBreakages :: DbIO [BuildResults.DetectedBreakageSpan]
