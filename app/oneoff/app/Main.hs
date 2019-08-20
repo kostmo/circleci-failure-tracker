@@ -1,25 +1,23 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-import           Control.Concurrent   (getNumCapabilities)
-import qualified Data.Maybe           as Maybe
-import qualified Data.Set             as Set
-import           Data.Text            (Text)
-import qualified Data.Text            as T
-import qualified Network.OAuth.OAuth2 as OAuth2
+import           Control.Monad.Trans.Except (runExceptT)
+import           Control.Monad.Trans.Reader (runReaderT)
+import           Data.Text                  (Text)
+import           Data.Traversable           (for)
+import qualified Network.OAuth.OAuth2       as OAuth2
 import           Options.Applicative
 
 import           System.IO
 
-import qualified BuildRetrieval
-import qualified Builds
 import qualified Constants
 import qualified DbHelpers
 import qualified DbPreparation
-import qualified MergeBase
+import qualified MyUtils
 import qualified Scanning
 import qualified SqlRead
 import qualified SqlUpdate
 import qualified SqlWrite
+import qualified StatusUpdate
 
 
 data CommandLineArgs = NewCommandLineArgs {
@@ -81,11 +79,10 @@ mainAppCode args = do
   putStrLn $ "Build failure retrieval result: " ++ show build_failure_result
   -}
 
-  all_master_commits <- SqlRead.getAllMasterCommits conn
-
-
 
   {-
+  all_master_commits <- SqlRead.getAllMasterCommits conn
+
   result <- SqlRead.findMasterAncestorWithPrecomputation
     (Just all_master_commits)
     conn
@@ -119,8 +116,9 @@ mainAppCode args = do
 
   SqlWrite.getAllPullRequestHeadCommits conn git_repo_dir
 
-  return ()
 
+
+  return ()
 
   where
     git_repo_dir = repoGitDir args

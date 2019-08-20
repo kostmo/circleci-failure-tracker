@@ -1,6 +1,6 @@
 function gen_builds_table(element_id, data_url, height_string) {
 
-	var column_list = [
+	const column_list = [
 		{title: "Line", field: "line_number", width: 100, formatter: function(cell, formatterParams, onRendered) {
 			return gen_line_number_cell(cell);
 		}},
@@ -13,8 +13,8 @@ function gen_builds_table(element_id, data_url, height_string) {
 			},
 			cellClick: function(e, cell){
 
-				var row_data = cell.getRow().getData();
-				var match_id = row_data["match_id"];
+				const row_data = cell.getRow().getData();
+				const match_id = row_data["match_id"];
 				get_log_text(match_id, STANDARD_LOG_CONTEXT_LINECOUNT);
 			},
 		},
@@ -29,7 +29,7 @@ function gen_builds_table(element_id, data_url, height_string) {
 		column_list.push({title: "Specificity", field: "specificity", width: 100});
 	}
 
-	var table = new Tabulator("#" + element_id, {
+	const table = new Tabulator("#" + element_id, {
 		height: height_string,
 		layout: "fitColumns",
 		placeholder: "No Data Set",
@@ -40,7 +40,7 @@ function gen_builds_table(element_id, data_url, height_string) {
 
 
 function render_known_failure(failure_obj) {
-	var description = failure_obj["record"]["breakage_description"] ? failure_obj["record"]["breakage_description"] : "<no description>";
+	const description = failure_obj["record"]["breakage_description"] ? failure_obj["record"]["breakage_description"] : "<no description>";
 
 	return link(failure_obj["record"]["breakage_description"], "/breakage-details.html?cause=" + failure_obj["db_id"]) + render_list([
 		"Broken by " + sha1_link(failure_obj["record"]["breakage_commit"]),
@@ -51,28 +51,28 @@ function render_known_failure(failure_obj) {
 
 function populate_build_info(universal_build_id, parent_data) {
 
-	var data = parent_data["build_info"];
+	const data = parent_data["build_info"];
 
-	var circleci_build_id = parent_data["umbrella_build"]["build_record"]["build_id"];
+	const circleci_build_id = parent_data["umbrella_build"]["build_record"]["build_id"];
 
 
-	var local_logview_item_full = link("View full log", "/api/view-log-full?build_id=" + universal_build_id);
-	var logview_items = render_list([
+	const local_logview_item_full = link("View full log", "/api/view-log-full?build_id=" + universal_build_id);
+	const logview_items = render_list([
 		"View log " + link("on CircleCI", "https://circleci.com/gh/pytorch/pytorch/" + circleci_build_id, true),
 		local_logview_item_full,
 	]);
 
-	var full_commit = data["build"]["vcs_revision"];
-	var short_commit = full_commit.substring(0, 7);
+	const full_commit = data["build"]["vcs_revision"];
+	const short_commit = full_commit.substring(0, 7);
 
-	var local_link = link("View " + render_tag("code", short_commit) + " details", "/commit-details.html?sha1=" + full_commit);
-	var github_link = link("View " + render_tag("code", short_commit) + " on GitHub", "https://github.com/pytorch/pytorch/commit/" + full_commit);
-	var commit_links = render_list([local_link, github_link]);
+	const local_link = link("View " + render_tag("code", short_commit) + " details", "/commit-details.html?sha1=" + full_commit);
+	const github_link = link("View " + render_tag("code", short_commit) + " on GitHub", "https://github.com/pytorch/pytorch/commit/" + full_commit);
+	const commit_links = render_list([local_link, github_link]);
 
-	var breakage_cause_items = render_list(parent_data["known_failures"].map(render_known_failure));
+	const breakage_cause_items = render_list(parent_data["known_failures"].map(render_known_failure));
 
 
-	var items = [
+	const items = [
 		["Logs:", logview_items],
 		["Revision:", commit_links],
 		["Build step:", render_tag("i", data["step_name"])],
@@ -116,7 +116,7 @@ function gen_pattern_test_link(universal_build_id) {
 
 function rescan_build(button) {
 
-	var universal_build_id = get_build_number();
+	const universal_build_id = get_build_number();
 
 	$(button).prop("disabled", true);
 	$("#scan-throbber").show();
@@ -143,14 +143,14 @@ function rescan_build(button) {
 
 
 function get_build_number() {
-	var urlParams = new URLSearchParams(window.location.search);
+	const urlParams = new URLSearchParams(window.location.search);
 	return urlParams.get('build_id');
 }
 
 
 function main() {
 
-	var universal_build_id = get_build_number();
+	const universal_build_id = get_build_number();
 
 	get_build_info(universal_build_id);
 	gen_builds_table("best-build-matches-table", "/api/best-build-match?build_id=" + universal_build_id, null);

@@ -1,12 +1,12 @@
 function render_commit_cell(cell, position) {
 
-	var cell_val = cell.getValue();
-	var authorship_metadata = cell.getRow().getData()[position]["record"]["payload"]["metadata"];
+	const cell_val = cell.getValue();
+	const authorship_metadata = cell.getRow().getData()[position]["record"]["payload"]["metadata"];
 
 	if (cell_val && authorship_metadata) {
-		var msg_subject = get_commit_subject(authorship_metadata["payload"]);
+		const msg_subject = get_commit_subject(authorship_metadata["payload"]);
 
-		var author_firstname = authorship_metadata["author"].split(" ")[0];
+		const author_firstname = authorship_metadata["author"].split(" ")[0];
 
 		return sha1_link(cell_val) + " " + render_tag("b", author_firstname + ":") + " " + msg_subject;
 	} else {
@@ -17,19 +17,30 @@ function render_commit_cell(cell, position) {
 
 function downstream_impact_by_week(html_element_id, api_url) {
 
-//	var weeks_count = $('#weeks-count-input').val();
-	const weeks_count = 8; // TODO Create UI element
+//	const weeks_count = $('#weeks-count-input').val();
+	const weeks_count = 12; // TODO Create UI element
 
 	$.getJSON(api_url, {"weeks": weeks_count}, function (data) {
 
-		var pointlist = [];
+
+		const pointlist_commits_broken_by_upstream = [];
+		const pointlist_avoidable_commits_broken_by_upstream = [];
 		for (var datum of data) {
-			pointlist.push([Date.parse(datum["week"]), datum["impact"]["downstream_broken_commit_count"]]);
+
+			const week = Date.parse(datum["week"]);
+
+			const total_downstream_broken_commits = datum["impact"]["downstream_broken_commit_count"];
+			pointlist_commits_broken_by_upstream.push([week, total_downstream_broken_commits]);
+
+			pointlist_avoidable_commits_broken_by_upstream.push([week, total_downstream_broken_commits - datum["unavoidable_impact"]["downstream_broken_commit_count"]]);
 		}
 
-		var series_list = [{
-				name: "Commits broken by upstream",
-				data: pointlist,
+		const series_list = [{
+				name: "Commits broken by ALL upstream breakages",
+				data: pointlist_commits_broken_by_upstream,
+			}, {
+				name: "Commits broken by AVOIDABLE upstream breakages",
+				data: pointlist_avoidable_commits_broken_by_upstream,
 			}];
 
 
@@ -85,7 +96,7 @@ function downstream_impact_by_week(html_element_id, api_url) {
 
 function gen_annotated_breakage_author_stats_table(element_id, data_url) {
 
-	var table = new Tabulator("#" + element_id, {
+	const table = new Tabulator("#" + element_id, {
 		height:"300px",
 		layout:"fitColumns",
 		placeholder:"No Data Set",
@@ -111,7 +122,7 @@ function gen_annotated_breakage_author_stats_table(element_id, data_url) {
 
 function gen_detected_breakages_table(element_id, data_url) {
 
-	var table = new Tabulator("#" + element_id, {
+	const table = new Tabulator("#" + element_id, {
 		height:"300px",
 		layout:"fitColumns",
 		placeholder:"No Data Set",
@@ -141,7 +152,7 @@ function gen_detected_breakages_table(element_id, data_url) {
 
 function gen_nonannotated_detected_breakages_table(element_id, data_url) {
 
-	var table = new Tabulator("#" + element_id, {
+	const table = new Tabulator("#" + element_id, {
 		height:"300px",
 		layout:"fitColumns",
 		placeholder:"No Data Set",
@@ -157,20 +168,20 @@ function gen_nonannotated_detected_breakages_table(element_id, data_url) {
 
 function getModesSelectorValues(failure_modes_dict) {
 
-	var modes_by_revertibility = {};
+	const modes_by_revertibility = {};
 	for (var mode_id in failure_modes_dict) {
-		var props = failure_modes_dict[mode_id];
+		const props = failure_modes_dict[mode_id];
 
 		// Note: using a boolean as a dictionary key turns it into a string
-		var revertible_list = setDefault(modes_by_revertibility, props["revertible"], []);
+		const revertible_list = setDefault(modes_by_revertibility, props["revertible"], []);
 		revertible_list.push({label: props["label"], value: mode_id});
 	}
 
-	var modes_selector_values = [];
+	const modes_selector_values = [];
 	for (var revertibility in modes_by_revertibility) {
-		var vals = modes_by_revertibility[revertibility];
+		const vals = modes_by_revertibility[revertibility];
 
-		var outer_label = (revertibility === 'true') ? "revertible" : "nonrevertible";
+		const outer_label = (revertibility === 'true') ? "revertible" : "nonrevertible";
 		modes_selector_values.push({label: outer_label, options: vals});
 	}
 
@@ -180,9 +191,9 @@ function getModesSelectorValues(failure_modes_dict) {
 
 function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict) {
 
-	var modes_selector_values = getModesSelectorValues(failure_modes_dict);
+	const modes_selector_values = getModesSelectorValues(failure_modes_dict);
 
-	var table = new Tabulator("#" + element_id, {
+	const table = new Tabulator("#" + element_id, {
 		height:"300px",
 		layout:"fitColumns",
 		placeholder:"No Data Set",
@@ -197,7 +208,7 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 					align:"center",
 					cellClick:function(e, cell) {
 
-						var cause_id = cell.getRow().getData()["start"]["db_id"];
+						const cause_id = cell.getRow().getData()["start"]["db_id"];
 
 						if (confirm("Realy delete cause #" + cause_id + "?")) {
 							post_modification("/api/code-breakage-delete", {"cause_id": cause_id});
@@ -207,7 +218,7 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 				{title:"?",
 					headerSort: false,
 					formatter: function(cell, formatterParams, onRendered) {
-						var cause_id = cell.getRow().getData()["start"]["db_id"];
+						const cause_id = cell.getRow().getData()["start"]["db_id"];
 						return link("<img src='/images/view-icon.png' style='width: 16;'/>", "/breakage-details.html?cause=" + cause_id);
 					},
 					width:40,
@@ -235,7 +246,7 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 			]},
 			{title: "Mode", width: 150, field: "start.record.payload.breakage_mode.payload",
 				formatter: function(cell, formatterParams, onRendered) {
-					var value = cell.getValue();
+					const value = cell.getValue();
 					return failure_modes_dict[value]["label"] || "?";
 				},
 				editor:"select",
@@ -243,11 +254,11 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 					values: modes_selector_values,
 				},
 				cellEdited: function(cell) {
-					var cause_id = cell.getRow().getData()["start"]["db_id"];
-					var new_failure_mode = cell.getValue();
+					const cause_id = cell.getRow().getData()["start"]["db_id"];
+					const new_failure_mode = cell.getValue();
 					console.log("updating failure mode to: " + new_failure_mode);
 
-					var data_dict = {"cause_id": cause_id, "mode": new_failure_mode};
+					const data_dict = {"cause_id": cause_id, "mode": new_failure_mode};
 					post_modification("/api/code-breakage-mode-update", data_dict);
 				},
 			},
@@ -278,7 +289,7 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 
 						const cell_value = cell.getValue();
 						if (cell_value) {
-							var joblist = cell.getRow().getData()["start"]["record"]["payload"]["affected_jobs"];
+							const joblist = cell.getRow().getData()["start"]["record"]["payload"]["affected_jobs"];
 
 							if (cell.getValue().length > 0) {
 								cell.getElement().style.backgroundColor = "#f664";
@@ -298,10 +309,10 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 			{title: "Notes", width: 150, field: "start.record.payload.description",
 				editor: "input",
 				cellEdited: function(cell) {
-					var cause_id = cell.getRow().getData()["start"]["db_id"];
-					var new_description = cell.getValue();
+					const cause_id = cell.getRow().getData()["start"]["db_id"];
+					const new_description = cell.getValue();
 
-					var data_dict = {"cause_id": cause_id, "description": new_description};
+					const data_dict = {"cause_id": cause_id, "description": new_description};
 					post_modification("/api/code-breakage-description-update", data_dict);
 				},
 			},
@@ -334,16 +345,16 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 				},
 				{title: "when", width: 100, field: "start.record.payload.metadata.created",
 					formatter: function(cell, formatterParams, onRendered) {
-						var committed_time = cell.getValue();
-//						var committed_time = cell.getRow().getData()["start"]["record"]["payload"]["metadata"]["created"];
+						const committed_time = cell.getValue();
+//						const committed_time = cell.getRow().getData()["start"]["record"]["payload"]["metadata"]["created"];
 						const time_moment = moment(committed_time);
 						return time_moment.format("h:mm a") + " (" + time_moment.fromNow() + ")";
 					},
 				},
 				{title: "annotated", width: 250, field: "start.record.created",
 					formatter: function(cell, formatterParams, onRendered) {
-						var val = cell.getValue();
-						var start_obj = cell.getRow().getData()["start"];
+						const val = cell.getValue();
+						const start_obj = cell.getRow().getData()["start"];
 						return moment(val).fromNow() + " by " + start_obj["record"]["author"];
 					},
 				},
@@ -356,13 +367,13 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 				},
 				{title: "reported", width: 250,
 					formatter: function(cell, formatterParams, onRendered) {
-						var val = cell.getValue();
+						const val = cell.getValue();
 
-						var end_obj = cell.getRow().getData()["end"];
+						const end_obj = cell.getRow().getData()["end"];
 
 						if (end_obj && end_obj["record"]) {
 
-							var end_record = end_obj["record"];
+							const end_record = end_obj["record"];
 							return moment(end_record["created"]).fromNow() + " by " + end_record["author"];
 						}
 
@@ -374,19 +385,19 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 				{title: "Count",
 					width: 75,
 					formatter: function(cell, formatterParams, onRendered) {
-						var joblist = cell.getRow().getData()["start"]["record"]["payload"]["affected_jobs"];
+						const joblist = cell.getRow().getData()["start"]["record"]["payload"]["affected_jobs"];
 						return joblist.length;
 					},
 				},
 				{title: "Names", field: "start.record.payload.affected_jobs",
 					tooltip: function(cell) {
 
-						var cell_value = cell.getValue();
+						const cell_value = cell.getValue();
 						return cell_value.join("\n");
 					},
 					formatter: function(cell, formatterParams, onRendered) {
-						var cell_val = cell.getValue();
-						var items = [];
+						const cell_val = cell.getValue();
+						const items = [];
 						for (var jobname of cell_val) {
 							items.push(jobname);
 						}
@@ -452,12 +463,14 @@ function main() {
 
 		$("#scan-throbber").hide();
 
-		var failure_modes_dict = {};
+		const failure_modes_dict = {};
 		for (var item of mydata) {
 			failure_modes_dict[item["db_id"]] = item["record"];
 		}
 
-		gen_annotated_breakages_table("annotated-breakages-table", "/api/code-breakages-annotated", failure_modes_dict);
+		// TODO FIXME
+		console.log("WARNING: Temporarily disabled slow-loading table");
+//		gen_annotated_breakages_table("annotated-breakages-table", "/api/code-breakages-annotated", failure_modes_dict);
 	});
 
 	gen_failure_modes_chart("container-failure-modes");

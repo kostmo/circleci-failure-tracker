@@ -174,7 +174,8 @@ getAllPullRequestHeadCommits conn git_dir = do
 
   MergeBase.fetchRefs git_dir
 
-  pr_associations <- runReaderT SqlRead.getImplicatedMasterCommitPullRequests conn
+--  pr_associations <- runReaderT SqlRead.getImplicatedMasterCommitPullRequests conn
+  pr_associations <- runReaderT SqlRead.getAllMasterCommitPullRequests conn
 
   let pr_numbers = map (\(SqlRead.MasterCommitAndSourcePr _ pr_num) -> pr_num) pr_associations
   pr_head_commits <- mapM (MergeBase.getPullRequestHeadCommit git_dir) pr_numbers
@@ -489,6 +490,17 @@ updateCodeBreakageDescription cause_id description = do
   liftIO $ Right <$> execute conn sql (description, cause_id)
   where
     sql = "UPDATE code_breakage_cause SET description = ? WHERE id = ?;"
+
+
+updateCodeBreakageResolutionSha1 ::
+     Int64
+  -> Builds.RawCommit
+  -> SqlRead.DbIO (Either Text Int64)
+updateCodeBreakageResolutionSha1 cause_id (Builds.RawCommit sha1) = do
+  conn <- ask
+  liftIO $ Right <$> execute conn sql (sha1, cause_id)
+  where
+    sql = "UPDATE code_breakage_resolution SET sha1 = ? WHERE cause = ?;"
 
 
 updateCodeBreakageMode ::

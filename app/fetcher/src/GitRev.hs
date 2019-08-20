@@ -13,7 +13,7 @@ import qualified Data.Text     as T
 
 newtype GitSha1 = NewGitSha1 {
     sha1 :: Text
-  }
+  } deriving Show
 
 
 validateSha1 :: Text -> Either Text GitSha1

@@ -832,20 +832,34 @@ COMMENT ON TABLE public.pull_request_heads IS 'tracks the current commit as well
 
 
 --
+-- Name: pr_current_heads; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.pr_current_heads AS
+ SELECT DISTINCT ON (pull_request_heads.pr_number) pull_request_heads.pr_number,
+    pull_request_heads.head_sha1,
+    pull_request_heads."timestamp"
+   FROM public.pull_request_heads
+  ORDER BY pull_request_heads.pr_number, pull_request_heads.id DESC;
+
+
+ALTER TABLE public.pr_current_heads OWNER TO postgres;
+
+--
 -- Name: breakage_affected_jobs_failing_at_merge_time; Type: VIEW; Schema: public; Owner: postgres
 --
 
 CREATE VIEW public.breakage_affected_jobs_failing_at_merge_time WITH (security_barrier='false') AS
  SELECT code_breakage_spans.cause_id,
     code_breakage_spans.github_pr_number,
-    pull_request_heads.head_sha1 AS pr_head_commit,
+    pr_current_heads.head_sha1 AS pr_head_commit,
     code_breakage_affected_jobs.job,
     builds_join_steps.step_name,
     builds_join_steps.universal_build
    FROM (((public.code_breakage_spans
-     JOIN public.pull_request_heads ON ((code_breakage_spans.github_pr_number = pull_request_heads.pr_number)))
+     JOIN public.pr_current_heads ON ((code_breakage_spans.github_pr_number = pr_current_heads.pr_number)))
      JOIN public.code_breakage_affected_jobs ON ((code_breakage_spans.cause_id = code_breakage_affected_jobs.cause)))
-     JOIN public.builds_join_steps ON (((pull_request_heads.head_sha1 = builds_join_steps.vcs_revision) AND (builds_join_steps.job_name = code_breakage_affected_jobs.job))));
+     JOIN public.builds_join_steps ON (((pr_current_heads.head_sha1 = builds_join_steps.vcs_revision) AND (builds_join_steps.job_name = code_breakage_affected_jobs.job))));
 
 
 ALTER TABLE public.breakage_affected_jobs_failing_at_merge_time OWNER TO postgres;
@@ -1154,119 +1168,20 @@ ALTER SEQUENCE public.code_breakage_cause_id_seq OWNED BY public.code_breakage_c
 -- Name: code_breakage_failing_pr_jobs; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.code_breakage_failing_pr_jobs AS
- SELECT breakage_affected_jobs_failing_at_merge_time.cause_id,
-    count(*) AS foreshadowed_broken_job_count,
-    string_agg(breakage_affected_jobs_failing_at_merge_time.job, ';'::text) AS foreshadowed_broken_jobs_delimited
-   FROM public.breakage_affected_jobs_failing_at_merge_time
-  GROUP BY breakage_affected_jobs_failing_at_merge_time.cause_id;
+CREATE VIEW public.code_breakage_failing_pr_jobs WITH (security_barrier='false') AS
+ SELECT foo.cause_id,
+    foo.foreshadowed_broken_job_count,
+    foo.foreshadowed_broken_jobs_delimited,
+    code_breakage_cause.sha1 AS master_commit_breakage_sha1
+   FROM (( SELECT breakage_affected_jobs_failing_at_merge_time.cause_id,
+            count(*) AS foreshadowed_broken_job_count,
+            string_agg(breakage_affected_jobs_failing_at_merge_time.job, ';'::text) AS foreshadowed_broken_jobs_delimited
+           FROM public.breakage_affected_jobs_failing_at_merge_time
+          GROUP BY breakage_affected_jobs_failing_at_merge_time.cause_id) foo
+     JOIN public.code_breakage_cause ON ((code_breakage_cause.id = foo.cause_id)));
 
 
 ALTER TABLE public.code_breakage_failing_pr_jobs OWNER TO postgres;
-
---
--- Name: code_breakage_nonoverlapping_spans; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.code_breakage_nonoverlapping_spans AS
- SELECT min(s3.s) AS start_commit_id_inclusive,
-    max(s3.e) AS end_commit_id_exclusive
-   FROM ( SELECT s2.s,
-            s2.e,
-            max(s2.new_start) OVER (ORDER BY s2.s, s2.e) AS left_edge
-           FROM ( SELECT s1.s,
-                    s1.e,
-                        CASE
-                            WHEN (s1.s < max(s1.le) OVER (ORDER BY s1.s, s1.e)) THEN NULL::integer
-                            ELSE s1.s
-                        END AS new_start
-                   FROM ( SELECT code_breakage_spans.cause_commit_index AS s,
-                            code_breakage_spans.resolved_commit_index AS e,
-                            lag(code_breakage_spans.resolved_commit_index) OVER (ORDER BY code_breakage_spans.cause_commit_index, code_breakage_spans.resolved_commit_index) AS le
-                           FROM public.code_breakage_spans) s1) s2) s3
-  GROUP BY s3.left_edge;
-
-
-ALTER TABLE public.code_breakage_nonoverlapping_spans OWNER TO postgres;
-
---
--- Name: VIEW code_breakage_nonoverlapping_spans; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON VIEW public.code_breakage_nonoverlapping_spans IS 'Technique obtained from: https://wiki.postgresql.org/wiki/Range_aggregation';
-
-
---
--- Name: code_breakage_nonoverlapping_spans_dated; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.code_breakage_nonoverlapping_spans_dated WITH (security_barrier='false') AS
- SELECT m1.github_pr_number,
-    m1.committer_date AS start_date,
-    m2.committer_date AS end_date,
-    (COALESCE(code_breakage_failing_pr_jobs.foreshadowed_broken_job_count, (0)::bigint) > 0) AS foreshadowed_by_pr_failures
-   FROM ((((public.code_breakage_nonoverlapping_spans
-     JOIN public.master_ordered_commits_with_metadata m1 ON ((m1.id = code_breakage_nonoverlapping_spans.start_commit_id_inclusive)))
-     JOIN public.master_ordered_commits_with_metadata m2 ON ((m2.id = code_breakage_nonoverlapping_spans.end_commit_id_exclusive)))
-     LEFT JOIN ( SELECT DISTINCT ON (code_breakage_spans.cause_commit_index) code_breakage_spans.cause_id,
-            code_breakage_spans.cause_commit_index
-           FROM public.code_breakage_spans
-          ORDER BY code_breakage_spans.cause_commit_index, code_breakage_spans.resolved_commit_index DESC, code_breakage_spans.cause_id) foo ON ((code_breakage_nonoverlapping_spans.start_commit_id_inclusive = foo.cause_commit_index)))
-     LEFT JOIN public.code_breakage_failing_pr_jobs ON ((code_breakage_failing_pr_jobs.cause_id = foo.cause_id)));
-
-
-ALTER TABLE public.code_breakage_nonoverlapping_spans_dated OWNER TO postgres;
-
---
--- Name: code_breakage_resolution_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
---
-
-CREATE SEQUENCE public.code_breakage_resolution_id_seq
-    AS integer
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
-ALTER TABLE public.code_breakage_resolution_id_seq OWNER TO postgres;
-
---
--- Name: code_breakage_resolution_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
---
-
-ALTER SEQUENCE public.code_breakage_resolution_id_seq OWNED BY public.code_breakage_resolution.id;
-
-
---
--- Name: idiopathic_build_failures; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.idiopathic_build_failures WITH (security_barrier='false') AS
- SELECT global_builds.branch,
-    global_builds.global_build_num
-   FROM (public.build_steps_deduped_mitigation
-     JOIN public.global_builds ON ((build_steps_deduped_mitigation.universal_build = global_builds.global_build_num)))
-  WHERE (build_steps_deduped_mitigation.name IS NULL);
-
-
-ALTER TABLE public.idiopathic_build_failures OWNER TO postgres;
-
---
--- Name: job_failure_frequencies; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.job_failure_frequencies WITH (security_barrier='false') AS
- SELECT global_builds.job_name,
-    count(*) AS freq,
-    max(global_builds.queued_at) AS last
-   FROM public.global_builds
-  GROUP BY global_builds.job_name
-  ORDER BY (count(*)) DESC, global_builds.job_name;
-
-
-ALTER TABLE public.job_failure_frequencies OWNER TO postgres;
 
 --
 -- Name: known_breakage_summaries_sans_impact; Type: VIEW; Schema: public; Owner: logan
@@ -1482,15 +1397,142 @@ CREATE VIEW public.known_breakage_summaries WITH (security_barrier='false') AS
     known_breakage_summaries_sans_impact.github_pr_number,
     COALESCE(code_breakage_failing_pr_jobs.foreshadowed_broken_jobs_delimited, ''::text) AS foreshadowed_broken_jobs_delimited,
     code_breakage_failing_pr_jobs.foreshadowed_broken_job_count,
-    pull_request_heads.head_sha1 AS github_pr_head_commit,
-    (code_breakage_failing_pr_jobs.foreshadowed_broken_job_count > 0) AS was_avoidable
+    pr_current_heads.head_sha1 AS github_pr_head_commit,
+    (code_breakage_failing_pr_jobs.foreshadowed_broken_job_count > 0) AS was_avoidable,
+        CASE
+            WHEN (code_breakage_failing_pr_jobs.foreshadowed_broken_job_count > 0) THEN (0)::bigint
+            ELSE COALESCE(pr_impact_cause_summary.failed_downstream_build_count_for_cause, (0)::bigint)
+        END AS unavoidable_failed_downstream_build_count,
+        CASE
+            WHEN (code_breakage_failing_pr_jobs.foreshadowed_broken_job_count > 0) THEN (0)::bigint
+            ELSE COALESCE(pr_impact_cause_summary.downstream_broken_commit_count_for_cause, (0)::bigint)
+        END AS unavoidable_downstream_broken_commit_count
    FROM (((public.known_breakage_summaries_sans_impact
      LEFT JOIN public.pr_impact_cause_summary ON ((pr_impact_cause_summary.first_cause = known_breakage_summaries_sans_impact.cause_id)))
-     LEFT JOIN public.pull_request_heads ON ((known_breakage_summaries_sans_impact.github_pr_number = pull_request_heads.pr_number)))
+     LEFT JOIN public.pr_current_heads ON ((known_breakage_summaries_sans_impact.github_pr_number = pr_current_heads.pr_number)))
      LEFT JOIN public.code_breakage_failing_pr_jobs ON ((code_breakage_failing_pr_jobs.cause_id = known_breakage_summaries_sans_impact.cause_id)));
 
 
 ALTER TABLE public.known_breakage_summaries OWNER TO postgres;
+
+--
+-- Name: code_breakage_monthly_aggregation; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.code_breakage_monthly_aggregation AS
+ SELECT date_trunc('month'::text, known_breakage_summaries.breakage_commit_date) AS month,
+    count(*) AS distinct_breakages,
+    sum((known_breakage_summaries.was_avoidable)::integer) AS avoidable_count
+   FROM public.known_breakage_summaries
+  GROUP BY (date_trunc('month'::text, known_breakage_summaries.breakage_commit_date))
+  ORDER BY (date_trunc('month'::text, known_breakage_summaries.breakage_commit_date)) DESC;
+
+
+ALTER TABLE public.code_breakage_monthly_aggregation OWNER TO postgres;
+
+--
+-- Name: code_breakage_nonoverlapping_spans; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.code_breakage_nonoverlapping_spans AS
+ SELECT min(s3.s) AS start_commit_id_inclusive,
+    max(s3.e) AS end_commit_id_exclusive
+   FROM ( SELECT s2.s,
+            s2.e,
+            max(s2.new_start) OVER (ORDER BY s2.s, s2.e) AS left_edge
+           FROM ( SELECT s1.s,
+                    s1.e,
+                        CASE
+                            WHEN (s1.s < max(s1.le) OVER (ORDER BY s1.s, s1.e)) THEN NULL::integer
+                            ELSE s1.s
+                        END AS new_start
+                   FROM ( SELECT code_breakage_spans.cause_commit_index AS s,
+                            code_breakage_spans.resolved_commit_index AS e,
+                            lag(code_breakage_spans.resolved_commit_index) OVER (ORDER BY code_breakage_spans.cause_commit_index, code_breakage_spans.resolved_commit_index) AS le
+                           FROM public.code_breakage_spans) s1) s2) s3
+  GROUP BY s3.left_edge;
+
+
+ALTER TABLE public.code_breakage_nonoverlapping_spans OWNER TO postgres;
+
+--
+-- Name: VIEW code_breakage_nonoverlapping_spans; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.code_breakage_nonoverlapping_spans IS 'Technique obtained from: https://wiki.postgresql.org/wiki/Range_aggregation';
+
+
+--
+-- Name: code_breakage_nonoverlapping_spans_dated; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.code_breakage_nonoverlapping_spans_dated WITH (security_barrier='false') AS
+ SELECT m1.github_pr_number,
+    m1.committer_date AS start_date,
+    m2.committer_date AS end_date,
+    (COALESCE(code_breakage_failing_pr_jobs.foreshadowed_broken_job_count, (0)::bigint) > 0) AS foreshadowed_by_pr_failures
+   FROM ((((public.code_breakage_nonoverlapping_spans
+     JOIN public.master_ordered_commits_with_metadata m1 ON ((m1.id = code_breakage_nonoverlapping_spans.start_commit_id_inclusive)))
+     JOIN public.master_ordered_commits_with_metadata m2 ON ((m2.id = code_breakage_nonoverlapping_spans.end_commit_id_exclusive)))
+     LEFT JOIN ( SELECT DISTINCT ON (code_breakage_spans.cause_commit_index) code_breakage_spans.cause_id,
+            code_breakage_spans.cause_commit_index
+           FROM public.code_breakage_spans
+          ORDER BY code_breakage_spans.cause_commit_index, code_breakage_spans.resolved_commit_index DESC, code_breakage_spans.cause_id) foo ON ((code_breakage_nonoverlapping_spans.start_commit_id_inclusive = foo.cause_commit_index)))
+     LEFT JOIN public.code_breakage_failing_pr_jobs ON ((code_breakage_failing_pr_jobs.cause_id = foo.cause_id)));
+
+
+ALTER TABLE public.code_breakage_nonoverlapping_spans_dated OWNER TO postgres;
+
+--
+-- Name: code_breakage_resolution_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.code_breakage_resolution_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.code_breakage_resolution_id_seq OWNER TO postgres;
+
+--
+-- Name: code_breakage_resolution_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.code_breakage_resolution_id_seq OWNED BY public.code_breakage_resolution.id;
+
+
+--
+-- Name: idiopathic_build_failures; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.idiopathic_build_failures WITH (security_barrier='false') AS
+ SELECT global_builds.branch,
+    global_builds.global_build_num
+   FROM (public.build_steps_deduped_mitigation
+     JOIN public.global_builds ON ((build_steps_deduped_mitigation.universal_build = global_builds.global_build_num)))
+  WHERE (build_steps_deduped_mitigation.name IS NULL);
+
+
+ALTER TABLE public.idiopathic_build_failures OWNER TO postgres;
+
+--
+-- Name: job_failure_frequencies; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.job_failure_frequencies WITH (security_barrier='false') AS
+ SELECT global_builds.job_name,
+    count(*) AS freq,
+    max(global_builds.queued_at) AS last
+   FROM public.global_builds
+  GROUP BY global_builds.job_name
+  ORDER BY (count(*)) DESC, global_builds.job_name;
+
+
+ALTER TABLE public.job_failure_frequencies OWNER TO postgres;
 
 --
 -- Name: scanned_patterns; Type: TABLE; Schema: public; Owner: postgres
@@ -1570,6 +1612,13 @@ CREATE VIEW public.master_contiguous_failures WITH (security_barrier='false') AS
 
 
 ALTER TABLE public.master_contiguous_failures OWNER TO postgres;
+
+--
+-- Name: VIEW master_contiguous_failures; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.master_contiguous_failures IS 'NOTE: This operates on per-job basis, in contrast with the view "master_indiscriminate_failure_spans", which groups failures of commits where any job failed.';
+
 
 --
 -- Name: master_contiguous_failure_job_groups; Type: VIEW; Schema: public; Owner: postgres
@@ -2003,6 +2052,77 @@ CREATE VIEW public.master_granular_commit_stats WITH (security_barrier='false') 
 ALTER TABLE public.master_granular_commit_stats OWNER TO postgres;
 
 --
+-- Name: master_indiscriminate_failure_spans_intermediate; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_indiscriminate_failure_spans_intermediate WITH (security_barrier='false') AS
+ SELECT COALESCE(sum(((NOT (bar.delta_prev = 1)))::integer) OVER (ORDER BY bar.commit_number DESC), (0)::bigint) AS group_index,
+    bar.commit_number,
+    bar.sha1,
+    bar.id,
+    bar.prev_commit_id
+   FROM ( SELECT (foo.prev_commit_number - foo.commit_number) AS delta_prev,
+            foo.commit_number,
+            foo.sha1,
+            foo.id,
+            foo.prev_commit_id
+           FROM ( SELECT lag(goof.commit_number) OVER (ORDER BY goof.commit_number DESC) AS prev_commit_number,
+                    goof.commit_number,
+                    goof.sha1,
+                    goof.id,
+                    goof.prev_commit_id
+                   FROM (( SELECT lag(master_commits_contiguously_indexed.id) OVER (ORDER BY master_commits_contiguously_indexed.commit_number DESC) AS prev_commit_id,
+                            master_commits_contiguously_indexed.id,
+                            master_commits_contiguously_indexed.sha1,
+                            master_commits_contiguously_indexed.commit_number
+                           FROM public.master_commits_contiguously_indexed) goof
+                     JOIN public.master_failures_by_commit ON ((master_failures_by_commit.commit_index = goof.id)))
+                  WHERE (master_failures_by_commit.failed > 0)) foo) bar;
+
+
+ALTER TABLE public.master_indiscriminate_failure_spans_intermediate OWNER TO postgres;
+
+--
+-- Name: VIEW master_indiscriminate_failure_spans_intermediate; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.master_indiscriminate_failure_spans_intermediate IS 'intermediate view for computing "master_indiscriminate_failure_spans"
+
+NOTE: Shares technique with "master_contiguous_failures"';
+
+
+--
+-- Name: master_indiscriminate_failure_spans; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_indiscriminate_failure_spans AS
+ SELECT foo.next_good_commit_id,
+    foo.first_broken_commit_id,
+    foo.breakage_span,
+    foo.group_index,
+    m1.committer_date AS breakage_start,
+    m2.committer_date AS breakage_end
+   FROM ((( SELECT max(master_indiscriminate_failure_spans_intermediate.prev_commit_id) AS next_good_commit_id,
+            min(master_indiscriminate_failure_spans_intermediate.id) AS first_broken_commit_id,
+            count(*) AS breakage_span,
+            master_indiscriminate_failure_spans_intermediate.group_index
+           FROM public.master_indiscriminate_failure_spans_intermediate
+          GROUP BY master_indiscriminate_failure_spans_intermediate.group_index) foo
+     JOIN public.master_ordered_commits_with_metadata m1 ON ((m1.id = foo.first_broken_commit_id)))
+     JOIN public.master_ordered_commits_with_metadata m2 ON ((m2.id = foo.next_good_commit_id)))
+  ORDER BY foo.group_index;
+
+
+ALTER TABLE public.master_indiscriminate_failure_spans OWNER TO postgres;
+
+--
+-- Name: VIEW master_indiscriminate_failure_spans; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.master_indiscriminate_failure_spans IS 'For rendering date ranges of broken commit sequences';
+
+
+--
 -- Name: master_unmarked_breakage_regions_by_commit; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -2341,20 +2461,6 @@ ALTER SEQUENCE public.pattern_step_applicability_id_seq OWNED BY public.pattern_
 
 
 --
--- Name: pr_current_heads; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.pr_current_heads AS
- SELECT DISTINCT ON (pull_request_heads.pr_number) pull_request_heads.pr_number,
-    pull_request_heads.head_sha1,
-    pull_request_heads."timestamp"
-   FROM public.pull_request_heads
-  ORDER BY pull_request_heads.pr_number, pull_request_heads.id DESC;
-
-
-ALTER TABLE public.pr_current_heads OWNER TO postgres;
-
---
 -- Name: pr_dependent_breakages_with_patterns; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -2496,6 +2602,100 @@ ALTER TABLE public.pr_failures_merge_base_aggregation OWNER TO postgres;
 
 COMMENT ON VIEW public.pr_failures_merge_base_aggregation IS 'TODO: Use this view';
 
+
+--
+-- Name: pr_merge_time_heads_for_master_commits; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.pr_merge_time_heads_for_master_commits AS
+ SELECT master_ordered_commits_with_metadata.sha1 AS master_commit,
+    master_ordered_commits_with_metadata.github_pr_number,
+    pr_current_heads.head_sha1 AS pr_head_commit
+   FROM (public.master_ordered_commits_with_metadata
+     JOIN public.pr_current_heads ON ((master_ordered_commits_with_metadata.github_pr_number = pr_current_heads.pr_number)));
+
+
+ALTER TABLE public.pr_merge_time_heads_for_master_commits OWNER TO postgres;
+
+--
+-- Name: pr_merge_time_build_statuses; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.pr_merge_time_build_statuses WITH (security_barrier='false') AS
+ SELECT pr_merge_time_heads_for_master_commits.master_commit,
+    pr_merge_time_heads_for_master_commits.github_pr_number,
+    pr_merge_time_heads_for_master_commits.pr_head_commit,
+    universal_builds.id AS global_build,
+    universal_builds.succeeded
+   FROM (public.pr_merge_time_heads_for_master_commits
+     LEFT JOIN public.universal_builds ON ((pr_merge_time_heads_for_master_commits.pr_head_commit = universal_builds.commit_sha1)));
+
+
+ALTER TABLE public.pr_merge_time_build_statuses OWNER TO postgres;
+
+--
+-- Name: VIEW pr_merge_time_build_statuses; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.pr_merge_time_build_statuses IS 'TODO Should use builds_deduped for this (once we start populating CircleCI data for every GitHub status notification)';
+
+
+--
+-- Name: pr_merge_time_build_stats_by_master_commit; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.pr_merge_time_build_stats_by_master_commit WITH (security_barrier='false') AS
+ SELECT master_ordered_commits_with_metadata.id AS commit_id,
+    master_ordered_commits_with_metadata.commit_number,
+    master_ordered_commits_with_metadata.sha1 AS master_commit,
+    master_ordered_commits_with_metadata.committer_date,
+    master_ordered_commits_with_metadata.github_pr_number,
+    pr_merge_time_heads_for_master_commits.pr_head_commit,
+    foo.total_builds,
+    foo.succeeded_count,
+    foo.failed_count,
+    COALESCE(bar.foreshadowed_breakage_count, 0) AS foreshadowed_breakage_count
+   FROM (((public.master_ordered_commits_with_metadata
+     JOIN ( SELECT pr_merge_time_build_statuses.master_commit,
+            count(pr_merge_time_build_statuses.global_build) AS total_builds,
+            sum((pr_merge_time_build_statuses.succeeded)::integer) AS succeeded_count,
+            sum(((NOT pr_merge_time_build_statuses.succeeded))::integer) AS failed_count
+           FROM public.pr_merge_time_build_statuses
+          GROUP BY pr_merge_time_build_statuses.master_commit) foo ON ((foo.master_commit = master_ordered_commits_with_metadata.sha1)))
+     JOIN public.pr_merge_time_heads_for_master_commits ON ((pr_merge_time_heads_for_master_commits.master_commit = master_ordered_commits_with_metadata.sha1)))
+     LEFT JOIN ( SELECT code_breakage_failing_pr_jobs.master_commit_breakage_sha1,
+            count(*) AS cause_count,
+            (sum(((code_breakage_failing_pr_jobs.foreshadowed_broken_job_count > 0))::integer))::integer AS foreshadowed_breakage_count
+           FROM public.code_breakage_failing_pr_jobs
+          GROUP BY code_breakage_failing_pr_jobs.master_commit_breakage_sha1) bar ON ((master_ordered_commits_with_metadata.sha1 = bar.master_commit_breakage_sha1)));
+
+
+ALTER TABLE public.pr_merge_time_build_stats_by_master_commit OWNER TO postgres;
+
+--
+-- Name: VIEW pr_merge_time_build_stats_by_master_commit; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.pr_merge_time_build_stats_by_master_commit IS 'NOTE: This only includes master commits that have an associated Pull Request!';
+
+
+--
+-- Name: pr_merge_time_failing_builds_by_week; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.pr_merge_time_failing_builds_by_week WITH (security_barrier='false') AS
+ SELECT date_trunc('week'::text, pr_merge_time_build_stats_by_master_commit.committer_date) AS week,
+    count(*) AS total_pr_count,
+    sum(((pr_merge_time_build_stats_by_master_commit.failed_count > 0))::integer) AS failing_pr_count,
+    (sum(pr_merge_time_build_stats_by_master_commit.total_builds))::integer AS total_build_count,
+    (sum(pr_merge_time_build_stats_by_master_commit.failed_count))::integer AS total_failed_build_count,
+    sum(((pr_merge_time_build_stats_by_master_commit.foreshadowed_breakage_count > 0))::integer) AS foreshadowed_breakage_count
+   FROM public.pr_merge_time_build_stats_by_master_commit
+  GROUP BY (date_trunc('week'::text, pr_merge_time_build_stats_by_master_commit.committer_date))
+  ORDER BY (date_trunc('week'::text, pr_merge_time_build_stats_by_master_commit.committer_date)) DESC;
+
+
+ALTER TABLE public.pr_merge_time_failing_builds_by_week OWNER TO postgres;
 
 --
 -- Name: presumed_stable_branches; Type: TABLE; Schema: public; Owner: postgres
@@ -2685,11 +2885,13 @@ ALTER TABLE public.upstream_breakage_author_stats OWNER TO postgres;
 -- Name: upstream_breakages_weekly_aggregation; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.upstream_breakages_weekly_aggregation AS
+CREATE VIEW public.upstream_breakages_weekly_aggregation WITH (security_barrier='false') AS
  SELECT date_trunc('week'::text, known_breakage_summaries.breakage_commit_date) AS week,
     count(*) AS distinct_breakages,
     (sum(known_breakage_summaries.downstream_broken_commit_count))::integer AS downstream_broken_commit_count,
-    (sum(known_breakage_summaries.failed_downstream_build_count))::integer AS downstream_broken_build_count
+    (sum(known_breakage_summaries.failed_downstream_build_count))::integer AS downstream_broken_build_count,
+    (sum(known_breakage_summaries.unavoidable_downstream_broken_commit_count))::integer AS unavoidable_downstream_broken_commit_count,
+    (sum(known_breakage_summaries.unavoidable_failed_downstream_build_count))::integer AS unavoidable_downstream_broken_build_count
    FROM public.known_breakage_summaries
   GROUP BY (date_trunc('week'::text, known_breakage_summaries.breakage_commit_date))
   ORDER BY (date_trunc('week'::text, known_breakage_summaries.breakage_commit_date)) DESC;
@@ -3649,6 +3851,13 @@ GRANT ALL ON TABLE public.pull_request_heads TO logan;
 
 
 --
+-- Name: TABLE pr_current_heads; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.pr_current_heads TO logan;
+
+
+--
 -- Name: TABLE breakage_affected_jobs_failing_at_merge_time; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -3748,41 +3957,6 @@ GRANT ALL ON TABLE public.code_breakage_failing_pr_jobs TO logan;
 
 
 --
--- Name: TABLE code_breakage_nonoverlapping_spans; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.code_breakage_nonoverlapping_spans TO logan;
-
-
---
--- Name: TABLE code_breakage_nonoverlapping_spans_dated; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.code_breakage_nonoverlapping_spans_dated TO logan;
-
-
---
--- Name: SEQUENCE code_breakage_resolution_id_seq; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON SEQUENCE public.code_breakage_resolution_id_seq TO logan;
-
-
---
--- Name: TABLE idiopathic_build_failures; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.idiopathic_build_failures TO logan;
-
-
---
--- Name: TABLE job_failure_frequencies; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.job_failure_frequencies TO logan;
-
-
---
 -- Name: TABLE known_breakage_summaries_sans_impact; Type: ACL; Schema: public; Owner: logan
 --
 
@@ -3832,6 +4006,48 @@ GRANT ALL ON TABLE public.pr_impact_cause_summary TO logan;
 --
 
 GRANT ALL ON TABLE public.known_breakage_summaries TO logan;
+
+
+--
+-- Name: TABLE code_breakage_monthly_aggregation; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.code_breakage_monthly_aggregation TO logan;
+
+
+--
+-- Name: TABLE code_breakage_nonoverlapping_spans; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.code_breakage_nonoverlapping_spans TO logan;
+
+
+--
+-- Name: TABLE code_breakage_nonoverlapping_spans_dated; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.code_breakage_nonoverlapping_spans_dated TO logan;
+
+
+--
+-- Name: SEQUENCE code_breakage_resolution_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE public.code_breakage_resolution_id_seq TO logan;
+
+
+--
+-- Name: TABLE idiopathic_build_failures; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.idiopathic_build_failures TO logan;
+
+
+--
+-- Name: TABLE job_failure_frequencies; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.job_failure_frequencies TO logan;
 
 
 --
@@ -3955,6 +4171,20 @@ GRANT ALL ON TABLE public.master_granular_commit_stats TO logan;
 
 
 --
+-- Name: TABLE master_indiscriminate_failure_spans_intermediate; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_indiscriminate_failure_spans_intermediate TO logan;
+
+
+--
+-- Name: TABLE master_indiscriminate_failure_spans; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_indiscriminate_failure_spans TO logan;
+
+
+--
 -- Name: TABLE master_unmarked_breakage_regions_by_commit; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -4046,13 +4276,6 @@ GRANT ALL ON SEQUENCE public.pattern_step_applicability_id_seq TO logan;
 
 
 --
--- Name: TABLE pr_current_heads; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.pr_current_heads TO logan;
-
-
---
 -- Name: TABLE pr_dependent_breakages_with_patterns; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -4071,6 +4294,34 @@ GRANT ALL ON TABLE public.pr_disjoint_failure_causes_by_commit TO logan;
 --
 
 GRANT ALL ON TABLE public.pr_failures_merge_base_aggregation TO logan;
+
+
+--
+-- Name: TABLE pr_merge_time_heads_for_master_commits; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.pr_merge_time_heads_for_master_commits TO logan;
+
+
+--
+-- Name: TABLE pr_merge_time_build_statuses; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.pr_merge_time_build_statuses TO logan;
+
+
+--
+-- Name: TABLE pr_merge_time_build_stats_by_master_commit; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.pr_merge_time_build_stats_by_master_commit TO logan;
+
+
+--
+-- Name: TABLE pr_merge_time_failing_builds_by_week; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.pr_merge_time_failing_builds_by_week TO logan;
 
 
 --

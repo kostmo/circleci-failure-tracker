@@ -3,6 +3,7 @@
 module StatusUpdate (
     githubEventEndpoint
   , handleFailedStatuses
+  , getBuildsFromGithub
   ) where
 
 import           Control.Concurrent            (forkIO)
@@ -167,30 +168,17 @@ extractUniversalBuild commit provider_with_id status_object = case DbHelpers.rec
     did_succeed = StatusEventQuery._state status_object == "success"
 
 
--- | Operations:
--- * Filter out the CircleCI builds
--- * Check if the builds have been scanned yet.
--- * Scan each CircleCI build that needs to be scanned.
--- * For each match, check if that match's pattern is tagged as "flaky".
-handleFailedStatuses ::
+getBuildsFromGithub ::
      Connection
   -> OAuth2.AccessToken
-  -> Maybe AuthStages.Username -- ^ scan initiator
   -> DbHelpers.OwnerAndRepo
   -> Builds.RawCommit
-  -> Maybe (Text, Text)
-  -> ExceptT LT.Text IO ()
-handleFailedStatuses
+  -> ExceptT LT.Text IO ([Builds.UniversalBuildId], Int, Int)
+getBuildsFromGithub
     conn
     access_token
-    maybe_initiator
     owned_repo
-    sha1
-    maybe_previously_posted_status = do
-
-  liftIO $ do
-    current_time <- Clock.getCurrentTime
-    MyUtils.debugList ["Processing at ", show current_time]
+    sha1  = do
 
   build_statuses_list_any_source <- ExceptT $ GithubApiFetch.getBuildStatuses
     access_token
@@ -242,11 +230,56 @@ handleFailedStatuses
       known_broken_circle_builds = filter ((`Set.member` all_broken_jobs) . Builds.job_name . Builds.build_record) circleci_failed_builds
       known_broken_circle_build_count = length known_broken_circle_builds
 
+  liftIO $ SqlWrite.storeBuildsList conn $
+    map storable_build_to_universal circleci_failed_builds
+
+  return (scannable_build_numbers, circleci_failcount, known_broken_circle_build_count)
+
+  where
+    storable_build_to_universal (Builds.StorableBuild (DbHelpers.WithId ubuild_id _ubuild) rbuild) =
+      DbHelpers.WithTypedId (Builds.UniversalBuildId ubuild_id) rbuild
+
+    is_not_my_own_context = (/= myAppStatusContext) . LT.toStrict . StatusEventQuery._context
+
+
+-- | Operations:
+-- * Filter out the CircleCI builds
+-- * Check if the builds have been scanned yet.
+-- * Scan each CircleCI build that needs to be scanned.
+-- * For each match, check if that match's pattern is tagged as "flaky".
+handleFailedStatuses ::
+     Connection
+  -> OAuth2.AccessToken
+  -> Maybe AuthStages.Username -- ^ scan initiator
+  -> DbHelpers.OwnerAndRepo
+  -> Builds.RawCommit
+  -> Maybe (Text, Text)
+  -> ExceptT LT.Text IO ()
+handleFailedStatuses
+    conn
+    access_token
+    maybe_initiator
+    owned_repo
+    sha1
+    maybe_previously_posted_status = do
+
+  liftIO $ do
+    current_time <- Clock.getCurrentTime
+    MyUtils.debugList ["Processing at", show current_time]
+
+  (scannable_build_numbers, circleci_failcount, known_broken_circle_build_count) <-
+    getBuildsFromGithub
+      conn
+      access_token
+      owned_repo
+      sha1
+
+
 
   builds_with_flaky_pattern_matches <- liftIO $ do
-    scan_resources <- Scanning.prepareScanResources conn maybe_initiator
 
-    SqlWrite.storeBuildsList conn $ map (\(Builds.StorableBuild (DbHelpers.WithId ubuild_id _ubuild) rbuild) -> DbHelpers.WithTypedId (Builds.UniversalBuildId ubuild_id) rbuild) circleci_failed_builds
+
+    scan_resources <- Scanning.prepareScanResources conn maybe_initiator
 
     scan_matches <- Scanning.scanBuilds
       scan_resources
@@ -291,9 +324,6 @@ handleFailedStatuses
     Just previous_state_description_tuple ->
       when (previous_state_description_tuple /= new_state_description_tuple)
         post_and_store
-
-  where
-    is_not_my_own_context = (/= myAppStatusContext) . LT.toStrict . StatusEventQuery._context
 
 
 handlePushWebhook ::

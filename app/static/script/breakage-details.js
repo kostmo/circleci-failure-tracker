@@ -9,6 +9,17 @@ function delete_callback() {
 }
 
 
+function update_resolution_commit() {
+
+	var cause_id = get_cause_id();
+	const new_resolution_commit = $("#new-resolution-sha1-field").val();
+
+	if (new_resolution_commit && confirm("Update resolution sha1 to " + new_resolution_commit + "?")) {
+		post_modification("/api/code-breakage-update-resolution-sha1", {"cause_id": cause_id, "resolution_sha1": new_resolution_commit});
+	}
+}
+
+
 function gen_affected_jobs_table(element_id, cause_id) {
 
 	var data_url = "/api/known-breakage-affected-jobs?cause_id=" + cause_id;

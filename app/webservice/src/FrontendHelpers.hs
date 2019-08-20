@@ -212,10 +212,13 @@ breakageCauseReport
             (Builds.RawCommit breakage_sha1)
             notes
 
+          -- FIXME This is too annoying to wait for;
+          -- should be kicked off asynchronously
+          {-
           liftIO $ do
             mview_conn <- DbHelpers.get_connection mview_connection_data
             SqlRead.refreshCachedMasterGrid mview_conn
-
+          -}
           return result
 
     ExceptT $ Auth.getAuthenticatedUser rq session github_config callback_func
@@ -246,9 +249,12 @@ breakageResolutionReport
             (SqlWrite.apiCodeBreakageResolutionInsertMultiple sha1 cause_ids_delimited)
             (SqlRead.AuthConnection conn user_alias)
 
+          -- FIXME This is too annoying to wait for;
+          -- should be kicked off asynchronously
+          {-
           mview_conn <- DbHelpers.get_connection mview_connection_data
           SqlRead.refreshCachedMasterGrid mview_conn
-
+          -}
           return result
 
     ExceptT $ Auth.getAuthenticatedUser rq session github_config callback_func

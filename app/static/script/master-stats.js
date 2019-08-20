@@ -1,5 +1,5 @@
 // global
-var ranges_by_week = {};
+const ranges_by_week = {};
 
 function normalized_build_failure_count_highchart(series_list) {
 
@@ -45,17 +45,17 @@ function normalized_build_failure_count_highchart(series_list) {
 				pointerEvents: 'auto'
 			},
 			pointFormatter: function() {
-				var commit_id_bounds = ranges_by_week[this.x]["commit_id_bound"];
+				const commit_id_bounds = ranges_by_week[this.x]["commit_id_bound"];
 
 				const parms_string = $.param({
 					"min_commit_index": commit_id_bounds["min_bound"],
 					"max_commit_index": commit_id_bounds["max_bound"],
 				});
 
-				var link_url = "/master-timeline.html?" + parms_string;
+				const link_url = "/master-timeline.html?" + parms_string;
 
-				var y_val = this.series.name == "Commit count" ? this.y : this.y.toFixed(2);
-				var content = y_val + "<br/>" + link("(details)", link_url);
+				const y_val = this.series.name == "Commit count" ? this.y : this.y.toFixed(2);
+				const content = y_val + "<br/>" + link("(details)", link_url);
 				return content;
 			},
 		},
@@ -118,11 +118,11 @@ function normalized_commit_failure_count_highchart(series_list) {
 				pointerEvents: 'auto'
 			},
 			pointFormatter: function() {
-				var commit_id_bounds = ranges_by_week[this.x]["commit_id_bound"];
-				var link_url = "/master-timeline.html?min_commit_index=" + commit_id_bounds["min_bound"] + "&max_commit_index=" + commit_id_bounds["max_bound"];
+				const commit_id_bounds = ranges_by_week[this.x]["commit_id_bound"];
+				const link_url = "/master-timeline.html?min_commit_index=" + commit_id_bounds["min_bound"] + "&max_commit_index=" + commit_id_bounds["max_bound"];
 
-				var y_val = this.series.name == "Commit count" ? this.y : this.y.toFixed(2);
-				var content = y_val + "<br/>" + link("(details)", link_url);
+				const y_val = this.series.name == "Commit count" ? this.y : this.y.toFixed(2);
+				const content = y_val + "<br/>" + link("(details)", link_url);
 				return content;
 			},
 		},
@@ -146,9 +146,9 @@ function normalized_commit_failure_count_highchart(series_list) {
 
 function separated_causes_column_highchart(columns, column_chart_series, color_key) {
 
-	var series_list = [];
+	const series_list = [];
 	for (var key in column_chart_series) {
-		var points = column_chart_series[key];
+		const points = column_chart_series[key];
 
 		series_list.push({
 			name: key.replace(new RegExp("_", 'g'), " "),
@@ -231,17 +231,17 @@ function separated_causes_timeline_highchart(series_list) {
 				pointerEvents: 'auto'
 			},
 			pointFormatter: function() {
-				var commit_id_bounds = ranges_by_week[this.x]["commit_id_bound"];
+				const commit_id_bounds = ranges_by_week[this.x]["commit_id_bound"];
 
-				var unnormalized_val = ranges_by_week[this.x][this.series.name];
+				const unnormalized_val = ranges_by_week[this.x][this.series.name];
 
 				const parms_string = $.param({
 					"min_commit_index": commit_id_bounds["min_bound"],
 					"max_commit_index": commit_id_bounds["max_bound"],
 				});
 
-				var link_url = "/master-timeline.html?" + parms_string;
-				var content = this.y.toFixed(2) + " (" + unnormalized_val + ")<br/>" + link("(details)", link_url);
+				const link_url = "/master-timeline.html?" + parms_string;
+				const content = this.y.toFixed(2) + " (" + unnormalized_val + ")<br/>" + link("(details)", link_url);
 				return content;
 			},
 		},
@@ -265,32 +265,32 @@ function separated_causes_timeline_highchart(series_list) {
 
 function render() {
 
-	var weeks_count = $('#weeks-count-input').val();
+	const weeks_count = $('#weeks-count-input').val();
 
 	$("#scan-throbber").show();
 	$.getJSON('/api/master-weekly-failure-stats', {"weeks": weeks_count}, function (data) {
 
 		$("#scan-throbber").hide();
 
-		var separated_causes_series_points = {};
+		const separated_causes_series_points = {};
 
-		var undifferentiated_build_failures_series_points = [];
-		var undifferentiated_commit_failures_series_points = [];
+		const undifferentiated_build_failures_series_points = [];
+		const undifferentiated_commit_failures_series_points = [];
 
-		var commit_count_series_points = [];
+		const commit_count_series_points = [];
 
-		var column_chart_series = {};
-		var column_chart_timestamp_categories = [];
+		const column_chart_series = {};
+		const column_chart_timestamp_categories = [];
 
 		for (var datum of data["by_week"]) {
 
-			var week_val = Date.parse(datum["week"]);
-			var commit_count = datum["commit_count"];
+			const week_val = Date.parse(datum["week"]);
+			const commit_count = datum["commit_count"];
 
 			ranges_by_week[week_val] = datum;
 
-			var weeks_ago_count = moment().diff(week_val, "weeks");
-			var weeks_ago_string = weeks_ago_count + " week" + (weeks_ago_count != 1 ? "s" : "") + " ago"
+			const weeks_ago_count = moment().diff(week_val, "weeks");
+			const weeks_ago_string = weeks_ago_count + " week" + (weeks_ago_count != 1 ? "s" : "") + " ago"
 			column_chart_timestamp_categories.push(weeks_ago_string);
 
 			const aggregate_build_counts = datum["aggregate_build_counts"];
@@ -298,13 +298,13 @@ function render() {
 			for (var key in aggregate_build_counts) {
 				if (!["failure_count"].includes(key)) {
 
-					var normalized_value = 1.0 * aggregate_build_counts[key] / commit_count;
+					const normalized_value = 1.0 * aggregate_build_counts[key] / commit_count;
 
-					var pointlist = setDefault(separated_causes_series_points, key, []);
+					const pointlist = setDefault(separated_causes_series_points, key, []);
 					pointlist.push([week_val, normalized_value])
 
 
-					var column_chart_pointlist = setDefault(column_chart_series, key, []);
+					const column_chart_pointlist = setDefault(column_chart_series, key, []);
 					column_chart_pointlist.push(normalized_value)
 				}
 			}
@@ -316,9 +316,9 @@ function render() {
 			undifferentiated_commit_failures_series_points.push([week_val, 1.0 * datum["aggregate_commit_counts"]["had_failure"] / commit_count]);
 		}
 
-		var separated_causes_series_list = [];
+		const separated_causes_series_list = [];
 		for (var key in separated_causes_series_points) {
-			var pointlist = separated_causes_series_points[key]
+			const pointlist = separated_causes_series_points[key]
 			separated_causes_series_list.push({
 				name: key.replace(new RegExp("_", 'g'), " "),
 				data: pointlist,
@@ -331,7 +331,7 @@ function render() {
 		separated_causes_series_list.sort(function(a, b) {
 
 			const add = (a, b) => a + b;
-			var get_area = z => z.data.map(x => x[1]).reduce(add);
+			const get_area = z => z.data.map(x => x[1]).reduce(add);
 
 			// in descending order
 			return get_area(b) - get_area(a);
@@ -343,30 +343,30 @@ function render() {
 		separated_causes_column_highchart(column_chart_timestamp_categories, column_chart_series, data["build_colors"]);
 
 
-		var commit_count_series_points = {
+		const commit_count_single_series = {
 			name: "Commit count",
 			data: commit_count_series_points,
 			yAxis: 0,
 			dashStyle: 'shortdot',
 		};
 
-	        var undifferentiated_build_failures_series = [
+	        const undifferentiated_build_failures_series = [
 			{
 				name: "Build failures per commit",
 				data: undifferentiated_build_failures_series_points,
 				yAxis: 1,
 			},
-			commit_count_series_points,
+			commit_count_single_series,
 		];
 
 
-	        var undifferentiated_commit_failures_series = [
+	        const undifferentiated_commit_failures_series = [
 			{
 				name: "Failed commits",
 				data: undifferentiated_commit_failures_series_points,
 				yAxis: 1,
 			},
-			commit_count_series_points,
+			commit_count_single_series,
 		];
 
 
@@ -377,9 +377,9 @@ function render() {
 
 function populate_form_from_url() {
 
-	var urlParams = new URLSearchParams(window.location.search);
+	const urlParams = new URLSearchParams(window.location.search);
 
-	var weeks_count = urlParams.get('weeks_count');
+	const weeks_count = urlParams.get('weeks_count');
 	if (weeks_count != null) {
 		$('#weeks-count-input').val(weeks_count);
 	}

@@ -16,6 +16,22 @@ import           Database.PostgreSQL.Simple.FromRow (field, fromRow)
 import           GHC.Generics
 import           GHC.Int                            (Int64)
 
+import qualified JsonUtils
+
+
+-- | TODO Use this for more weekly data
+data TimestampedDatum a = TimestampedDatum {
+    _timestamp :: UTCTime
+  , _record    :: a
+  } deriving Generic
+
+instance (ToJSON a) => ToJSON (TimestampedDatum a) where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+instance (FromRow a) => FromRow (TimestampedDatum a) where
+  fromRow = TimestampedDatum <$> field <*> fromRow
+
+
 
 data OwnerAndRepo = OwnerAndRepo {
     owner :: String

@@ -15,6 +15,7 @@ import           GHC.Int                              (Int64)
 
 import qualified DbHelpers
 
+
 masterName :: Text
 masterName = "master"
 

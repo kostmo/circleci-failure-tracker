@@ -28,3 +28,5 @@ executables:
     - hoauth2
     - optparse-applicative
     - containers
+    - transformers
+

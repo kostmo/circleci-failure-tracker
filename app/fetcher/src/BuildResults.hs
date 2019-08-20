@@ -84,6 +84,7 @@ readMaybeLateralCluster = do
   maybe_cluster_id <- field
   maybe_cluster_member_count <- field
 
+  -- Note the reverse field order!
   return $ BuildResults.LateralBreakageMember
     <$> maybe_cluster_member_count
     <*> maybe_cluster_id
@@ -98,14 +99,10 @@ instance ToJSON DetectedBreakageModes where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 instance FromRow DetectedBreakageModes where
-  fromRow = do
-
-    maybe_contiguous_member <- readMaybeLongitudinalCluster
-    maybe_lateral_breakage <- readMaybeLateralCluster
-
-    return $ DetectedBreakageModes
-      maybe_contiguous_member
-      maybe_lateral_breakage
+  fromRow =
+    DetectedBreakageModes
+      <$> readMaybeLongitudinalCluster
+      <*> readMaybeLateralCluster
 
 
 data SimpleBuildStatus = SimpleBuildStatus {
@@ -170,9 +167,10 @@ instance ToJSON BreakageAuthorStats where
 
 
 data WeeklyBreakageImpactStats = WeeklyBreakageImpactStats {
-    _week           :: UTCTime
-  , _incident_count :: Int
-  , _impact         :: DownstreamImpactCounts
+    _week               :: UTCTime
+  , _incident_count     :: Int
+  , _impact             :: DownstreamImpactCounts
+  , _unavoidable_impact :: DownstreamImpactCounts
   } deriving Generic
 
 instance ToJSON WeeklyBreakageImpactStats where

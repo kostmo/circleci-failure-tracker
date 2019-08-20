@@ -67,6 +67,13 @@ function get_timeline_data(parms) {
 			const seconds_diff = time_diff / 1000;
 
 			console.log("Fetched timeline data in " + seconds_diff.toFixed(1) + " seconds.");
+
+			const all_commit_times = mydata.payload.commits.map(x => Date.parse(x["record"]["metadata"]["committer_date"]));
+			const min_commit_time = Math.min(...all_commit_times);
+			const max_commit_time = Math.max(...all_commit_times);
+
+			$("#commit-timespan-container").html("Showing commits from " + moment(min_commit_time).fromNow() + " to " + moment(max_commit_time).fromNow());
+
 			gen_timeline_table("master-timeline-table", mydata.payload);
 
 		} else {
@@ -245,10 +252,8 @@ function mark_failure_span(selected_data) {
 
 	$('#is-ongoing-checkbox').prop('checked', false);
 
-
 	$("#breakage-span-start-commit").val( commit_sha1_by_index[min_commit_index] );
 	$("#breakage-span-last-commit").val( commit_sha1_by_index[max_commit_index] );
-
 
 	return mark_failure_cause_common("/api/list-master-commit-range-jobs?" + parms_string);
 }

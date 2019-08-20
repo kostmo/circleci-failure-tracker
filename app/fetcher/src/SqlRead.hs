@@ -246,6 +246,29 @@ apiAggregatePostedStatuses count = do
     sql = "SELECT sha1, count, last_time, EXTRACT(SECONDS FROM time_interval) FROM aggregated_github_status_postings LIMIT ?;"
 
 
+data WeeklyFailingMergedPullRequests = WeeklyFailingMergedPullRequests {
+    _total_pr_count              :: Int
+  , _failing_pr_count            :: Int
+  , _total_build_count           :: Int
+  , _total_failed_build_count    :: Int
+  , _foreshadowed_breakage_count :: Int
+  } deriving (Generic, FromRow)
+
+instance ToJSON WeeklyFailingMergedPullRequests where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+-- | Note the offset 1 so we only obtain full weeks of data
+--
+-- Note also the list order reversal for Highcharts
+getMergeTimeFailingPullRequestBuildsByWeek :: Int -> DbIO [DbHelpers.TimestampedDatum WeeklyFailingMergedPullRequests]
+getMergeTimeFailingPullRequestBuildsByWeek week_count = do
+  conn <- ask
+  liftIO $ fmap reverse $ query conn sql $ Only week_count
+  where
+    sql = "SELECT week, total_pr_count, failing_pr_count, total_build_count, total_failed_build_count, foreshadowed_breakage_count FROM pr_merge_time_failing_builds_by_week WHERE failing_pr_count IS NOT NULL ORDER BY week DESC OFFSET 1 LIMIT ?;"
+
+
 data PatternsTimelinePoint = PatternsTimelinePoint {
     _pattern_id :: Int64
   , _count      :: Int
@@ -371,7 +394,24 @@ apiCommitJobs (Builds.RawCommit sha1) = do
   conn <- ask
   liftIO $ query conn sql $ Only sha1
   where
-    sql = "SELECT job_name, build_num, is_flaky, is_known_broken, global_build, provider, 1 FROM build_failure_causes WHERE vcs_revision = ? ORDER BY job_name;"
+    sql = "SELECT job_name, build_num, is_flaky, is_known_broken, global_build, provider, 1 FROM build_failure_causes WHERE vcs_revision = ? AND NOT succeeded ORDER BY job_name;"
+
+
+data InclusiveSpan = InclusiveSpan {
+    first_value :: Int
+  , last_value  :: Int
+  } deriving Generic
+
+
+-- | TODO "job_occurrences" should only include failed builds
+apiCommitRangeJobs ::
+     InclusiveSpan
+  -> DbIO [JobBuild]
+apiCommitRangeJobs (InclusiveSpan first_index last_index) = do
+  conn <- ask
+  liftIO $ query conn sql (first_index, last_index)
+  where
+    sql = "SELECT DISTINCT ON (job_name) job_name, build_num, is_flaky, is_known_broken, global_build, provider, count(*) OVER (PARTITION BY job_name) AS job_occurrences FROM (SELECT sha1 FROM ordered_master_commits WHERE id >= ? AND id <= ?) foo JOIN build_failure_causes ON build_failure_causes.vcs_revision = foo.sha1 WHERE NOT build_failure_causes.succeeded;"
 
 
 getNextMasterCommit ::
@@ -385,22 +425,6 @@ getNextMasterCommit conn (Builds.RawCommit current_git_revision) = do
   return $ maybeToEither ("There are no commits that come after " <> current_git_revision) $ Safe.headMay mapped_rows
   where
     sql = "SELECT sha1 FROM ordered_master_commits WHERE id > (SELECT id FROM ordered_master_commits WHERE sha1 = ?) ORDER BY id ASC LIMIT 1"
-
-
-data InclusiveSpan = InclusiveSpan {
-    first_value :: Int
-  , last_value  :: Int
-  } deriving Generic
-
-
-apiCommitRangeJobs ::
-     InclusiveSpan
-  -> DbIO [JobBuild]
-apiCommitRangeJobs (InclusiveSpan first_index last_index) = do
-  conn <- ask
-  liftIO $ query conn sql (first_index, last_index)
-  where
-    sql = "SELECT DISTINCT ON (job_name) job_name, build_num, is_flaky, is_known_broken, global_build, provider, count(*) OVER (PARTITION BY job_name) AS job_occurrences FROM (SELECT sha1 FROM ordered_master_commits WHERE id >= ? AND id <= ?) foo JOIN build_failure_causes ON build_failure_causes.vcs_revision = foo.sha1"
 
 
 apiJobs :: DbIO (WebApi.ApiResponse WebApi.JobApiRecord)
@@ -546,6 +570,29 @@ masterWeeklyFailureStats week_count = do
           flaky_count
 
 
+data MonthlyBreakageStats = MonthlyBreakageStats {
+    _distinct_breakages :: Int
+  , _avoidable_count    :: Int
+  } deriving (Generic, FromRow)
+
+instance ToJSON MonthlyBreakageStats where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+-- | TODO Should use OFFSET 1 so we only ever show full months.
+-- However, we don't have enough data yet.
+--
+-- Note also the reversal for Highcharts
+masterBreakageMonthlyStats :: DbIO [DbHelpers.TimestampedDatum MonthlyBreakageStats]
+masterBreakageMonthlyStats = do
+
+  conn <- ask
+  xs <- liftIO $ query_ conn sql
+  return $ reverse xs
+  where
+    sql = "SELECT month, distinct_breakages, avoidable_count FROM code_breakage_monthly_aggregation ORDER BY month DESC"
+
+
 -- | Uses OFFSET 1 so we only ever show full weeks
 downstreamWeeklyFailureStats :: Int -> DbIO [BuildResults.WeeklyBreakageImpactStats]
 downstreamWeeklyFailureStats week_count = do
@@ -554,13 +601,20 @@ downstreamWeeklyFailureStats week_count = do
   xs <- liftIO $ query conn sql $ Only week_count
   return $ reverse $ map f xs
   where
-    f (week, distinct_breakages, downstream_broken_commit_count, downstream_broken_build_count) = BuildResults.WeeklyBreakageImpactStats
+    f (week, distinct_breakages, downstream_broken_commit_count, downstream_broken_build_count, unavoidable_downstream_broken_commit_count, unavoidable_downstream_broken_build_count) = BuildResults.WeeklyBreakageImpactStats
       week
-      distinct_breakages $ BuildResults.DownstreamImpactCounts
-        downstream_broken_commit_count
-        downstream_broken_build_count
+      distinct_breakages
+      total_impact
+      unavoidable_impact
+      where
+        total_impact = BuildResults.DownstreamImpactCounts
+          downstream_broken_commit_count
+          downstream_broken_build_count
+        unavoidable_impact = BuildResults.DownstreamImpactCounts
+          unavoidable_downstream_broken_commit_count
+          unavoidable_downstream_broken_build_count
 
-    sql = "SELECT week, distinct_breakages, downstream_broken_commit_count, downstream_broken_build_count FROM upstream_breakages_weekly_aggregation ORDER BY week DESC LIMIT ? OFFSET 1;"
+    sql = "SELECT week, distinct_breakages, downstream_broken_commit_count, downstream_broken_build_count, unavoidable_downstream_broken_commit_count, unavoidable_downstream_broken_build_count FROM upstream_breakages_weekly_aggregation ORDER BY week DESC LIMIT ? OFFSET 1;"
 
 
 getLatestKnownMasterCommit :: Connection -> IO (Maybe Text)
@@ -684,6 +738,16 @@ data MasterCommitAndSourcePr = MasterCommitAndSourcePr {
 
 instance ToJSON MasterCommitAndSourcePr where
   toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+getAllMergedPullRequestHeadCommits :: DbIO [Builds.RawCommit]
+getAllMergedPullRequestHeadCommits = runQuery
+  "SELECT pr_head_commit FROM pr_merge_time_build_stats_by_master_commit ORDER BY commit_number DESC;"
+
+
+getAllMasterCommitPullRequests :: DbIO [MasterCommitAndSourcePr]
+getAllMasterCommitPullRequests = runQuery
+  "SELECT sha1, github_pr_number FROM master_ordered_commits_with_metadata WHERE github_pr_number IS NOT NULL ORDER BY id DESC;"
 
 
 -- | Gets Pull Request numbers of the commits that have been
@@ -1068,20 +1132,67 @@ apiMasterBuilds _mview_connection_data offset_limit = do
     builds_list_sql = "SELECT sha1, succeeded, is_idiopathic, is_flaky, is_timeout, is_matched, is_known_broken, build_num, queued_at, job_name, branch, step_name, pattern_id, match_id, line_number, line_count, line_text, span_start, span_end, specificity, is_serially_isolated, started_at, finished_at, global_build, provider, build_namespace, contiguous_run_count, contiguous_group_index, contiguous_start_commit_index, contiguous_end_commit_index, contiguous_length, cluster_id, cluster_member_count FROM master_failures_raw_causes_mview WHERE commit_index >= ? AND commit_index <= ?;"
 
 
+
+data StartEndDate = StartEndDate {
+    _start :: UTCTime
+  , _end   :: UTCTime
+  } deriving (Generic, FromRow)
+
+instance ToJSON StartEndDate where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+
 data BreakageDateRangeSimple = BreakageDateRangeSimple {
     _pr                          :: Maybe Int
   , _foreshadowed_by_pr_failures :: Bool
-  , _start                       :: UTCTime
-  , _end                         :: UTCTime
-  } deriving (Generic, FromRow)
+  , _span                        :: StartEndDate
+  } deriving Generic
 
 instance ToJSON BreakageDateRangeSimple where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
-masterCommitsGranular :: DbIO [BreakageDateRangeSimple]
-masterCommitsGranular = runQuery
-  "SELECT github_pr_number, foreshadowed_by_pr_failures, start_date, end_date FROM code_breakage_nonoverlapping_spans_dated;"
+instance FromRow BreakageDateRangeSimple where
+  fromRow = BreakageDateRangeSimple
+    <$> field
+    <*> field
+    <*> fromRow
+
+
+-- | Represents any breakage of any job on Master
+data DirtyMasterSpan = DirtyMasterSpan {
+    _group_index :: Int
+  , _span        :: StartEndDate
+  } deriving Generic
+
+instance ToJSON DirtyMasterSpan where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+instance FromRow DirtyMasterSpan where
+  fromRow = DirtyMasterSpan
+    <$> field
+    <*> fromRow
+
+
+data ExplorableBreakageSpans = ExplorableBreakageSpans {
+    _annotated_master :: [BreakageDateRangeSimple]
+  , _dirty_master     :: [DirtyMasterSpan]
+  } deriving Generic
+
+instance ToJSON ExplorableBreakageSpans where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+masterCommitsGranular :: DbIO ExplorableBreakageSpans
+masterCommitsGranular = do
+  annotated_master_spans <- runQuery "SELECT github_pr_number, foreshadowed_by_pr_failures, start_date, end_date FROM code_breakage_nonoverlapping_spans_dated;"
+
+  dirty_master_spans <- runQuery "SELECT group_index, breakage_start, breakage_end FROM master_indiscriminate_failure_spans ORDER BY breakage_start;"
+
+  return $ ExplorableBreakageSpans
+    annotated_master_spans
+    dirty_master_spans
 
 
 apiDetectedCodeBreakages :: DbIO [BuildResults.DetectedBreakageSpan]

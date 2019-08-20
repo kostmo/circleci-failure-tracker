@@ -56,6 +56,7 @@ toOutcomeString x = case x of
 updateCircleCIBuildsList ::
      Connection
   -> CircleCIFetchFilter
+  -> Int -- ^ starting offset
   -> [String]
   -> Int
   -> Int
@@ -63,6 +64,7 @@ updateCircleCIBuildsList ::
 updateCircleCIBuildsList
     conn
     status_filter
+    starting_offset
     branch_names
     fetch_count
     age_days = do
@@ -77,6 +79,7 @@ updateCircleCIBuildsList
     fetchCircleCIBuilds
       status_filter
       branch_name
+      starting_offset
       fetch_count
       age_days
 
@@ -130,12 +133,14 @@ getBuildListUrl branch_name = intercalate "/"
 fetchCircleCIBuilds ::
      CircleCIFetchFilter
   -> String
+  -> Int -- ^ starting offset
   -> Int
   -> Int
   -> IO [(Builds.Build, Bool)]
 fetchCircleCIBuilds
     status_filter
     branch_name
+    starting_offset
     max_build_count
     max_age_days = do
 
@@ -151,7 +156,7 @@ fetchCircleCIBuilds
     sess
     status_filter
     branch_name
-    0
+    starting_offset
     earliest_requested_time
     max_build_count
 

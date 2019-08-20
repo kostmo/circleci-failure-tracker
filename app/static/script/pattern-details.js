@@ -46,7 +46,7 @@ function gen_step_failures_chart(container_id, pattern_id, source) {
 
 function gen_matches_table(element_id, data_url) {
 
-	var table = new Tabulator("#" + element_id, {
+	const table = new Tabulator("#" + element_id, {
 		height:"300px",
 		layout:"fitColumns",
 		placeholder:"No Data Set",
@@ -76,8 +76,8 @@ function gen_matches_table(element_id, data_url) {
 					return gen_error_cell_html(cell);
 				},
 				cellClick: function(e, cell){
-					var row_data = cell.getRow().getData();
-					var match_id = row_data["match_id"];
+					const row_data = cell.getRow().getData();
+					const match_id = row_data["match_id"];
 					get_log_text(match_id, STANDARD_LOG_CONTEXT_LINECOUNT);
 				},
 			},
@@ -99,8 +99,8 @@ function gen_best_matches_table(pattern_id) {
 
 function main() {
 
-	var urlParams = new URLSearchParams(window.location.search);
-	var pattern_id = urlParams.get('pattern_id');
+	const urlParams = new URLSearchParams(window.location.search);
+	const pattern_id = urlParams.get('pattern_id');
 
         gen_patterns_table(pattern_id, false, []);
 

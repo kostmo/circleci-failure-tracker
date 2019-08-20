@@ -269,8 +269,14 @@ scottyApp
   get "/api/downstream-impact-weekly" $
     SqlRead.downstreamWeeklyFailureStats <$> S.param "weeks"
 
+  get "/api/master-breakages-monthly-stats" $
+    pure SqlRead.masterBreakageMonthlyStats
+
   get "/api/master-weekly-failure-stats" $
     SqlRead.masterWeeklyFailureStats <$> S.param "weeks"
+
+  get "/api/master-pr-merge-time-weekly-failure-stats" $
+    SqlRead.getMergeTimeFailingPullRequestBuildsByWeek <$> S.param "weeks"
 
   get "/api/unmatched-builds-for-commit" $
     SqlRead.apiUnmatchedCommitBuilds <$> S.param "sha1"
@@ -286,9 +292,6 @@ scottyApp
 
   get "/api/pattern-job-occurrences" $
     SqlRead.patternBuildJobOccurrences . ScanPatterns.PatternId <$> S.param "pattern_id"
-
-  get "/api/list-commit-jobs" $
-    SqlRead.apiCommitJobs . Builds.RawCommit <$> S.param "sha1"
 
   get "/api/build-pattern-matches" $
     SqlRead.getBuildPatternMatches . Builds.UniversalBuildId <$> S.param "build_id"
@@ -312,6 +315,9 @@ scottyApp
     fmap WebApi.toJsonEither . SqlUpdate.getBuildInfo (AuthConfig.personal_access_token github_config) . Builds.UniversalBuildId
     <$> S.param "build_id"
 
+  get "/api/list-commit-jobs" $
+    SqlRead.apiCommitJobs . Builds.RawCommit <$> S.param "sha1"
+
   get "/api/list-master-commit-range-jobs" $
     fmap SqlRead.apiCommitRangeJobs $ SqlRead.InclusiveSpan
       <$> S.param "first_index"
@@ -321,8 +327,6 @@ scottyApp
     SqlRead.getUniversalBuilds
       <$> (Builds.UniversalBuildId <$> S.param "start-id")
       <*> S.param "limit"
-
-
 
   get "/api/master-timeline" $
     fmap WebApi.toJsonEither . SqlRead.apiMasterBuilds mview_connection_data <$> FrontendHelpers.getOffsetMode
@@ -418,6 +422,12 @@ scottyApp
     SqlWrite.updateCodeBreakageDescription
       <$> S.param "cause_id"
       <*> S.param "description"
+
+  post "/api/code-breakage-update-resolution-sha1" $
+    SqlWrite.updateCodeBreakageResolutionSha1
+      <$> S.param "cause_id"
+      <*> (Builds.RawCommit <$> S.param "resolution_sha1")
+
 
   post "/api/code-breakage-delete" $
     SqlWrite.deleteCodeBreakage

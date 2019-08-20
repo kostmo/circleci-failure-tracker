@@ -25,6 +25,7 @@ import qualified DbHelpers
 import qualified GitRev
 import qualified JsonUtils
 import qualified MergeBase
+import qualified MyUtils
 import qualified SqlRead
 import qualified SqlWrite
 
@@ -129,9 +130,18 @@ countRevisionBuilds ::
 countRevisionBuilds access_token git_revision = do
   conn <- ask
 
-  [(total, idiopathic, timeout, known_broken, pattern_matched, pattern_matched_other, flaky, pattern_unmatched, succeeded)] <- liftIO $ query conn aggregate_causes_sql only_commit
+  rows <- liftIO $ query conn aggregate_causes_sql only_commit
 
   liftIO $ runExceptT $ do
+
+    let err = T.pack $ unwords [
+            "No entries in"
+          , MyUtils.quote "build_failure_disjoint_causes_by_commit"
+          , "table for commit"
+          , T.unpack $ GitRev.sha1 git_revision
+          ]
+
+    (total, idiopathic, timeout, known_broken, pattern_matched, pattern_matched_other, flaky, pattern_unmatched, succeeded) <- except $ maybeToEither err $ Safe.headMay rows
 
     breakages <- ExceptT $ findKnownBuildBreakages conn access_token pytorchRepoOwner $ Builds.RawCommit sha1
 

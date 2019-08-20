@@ -60,6 +60,7 @@ mainAppCode args = do
   BuildRetrieval.updateCircleCIBuildsList
     conn
     BuildRetrieval.Completed
+    0
     (branchName args)
     fetch_count
     age_days
