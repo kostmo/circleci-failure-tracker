@@ -12,7 +12,6 @@ function breakages_gantt_highchart(api_data) {
 */
 
 	for (var datum of api_data.annotated_master) {
-
 		const entry = {
 			start: Date.parse(datum.span.start),
 			end: Date.parse(datum.span.end),
@@ -29,11 +28,10 @@ function breakages_gantt_highchart(api_data) {
 
 
 	for (var datum of api_data.dirty_master) {
-
 		const entry = {
 			start: Date.parse(datum.span.start),
 			end: Date.parse(datum.span.end),
-			name: 'All breakages',
+			name: 'All failures',
 		}
 
 		series_data.push(entry);
@@ -148,7 +146,6 @@ function master_breakages_timeline_highchart(chart_id, data) {
 		series: series_list,
 	});
 }
-
 
 
 function pr_merges_timeline_highchart(chart_id, data, stacking_type, y_label_prefix) {

@@ -28,9 +28,10 @@
 
 <h3>Manually annotated</h3>
 
+[WIP]
 <div id="annotated-breakages-table"></div>
 
-<h2>Downstream impact of breakages</h2>
+<h2><a name="downstream-impact-of-breakages">Downstream impact of breakages</a></h2>
 
 <p>
 This metric is a more precise measurement of productivity loss than simply
@@ -39,7 +40,18 @@ PRs and thus will break master both without the author being able to predict so 
 other devs ever noticing.
 </p>
 
-<div id="container-downstream-impact-by-week" style="min-width: 500px; height: 500px; max-width: 800px; margin: 0 auto"></div>
+
+<div id="scan-throbber2" style="display: none;"><img src="/images/duck.gif"/></div>
+
+<div id="container-total-downstream-impact-by-week" style="min-width: 400px; height: 500px; max-width: 800px; margin: 0 auto"></div>
+
+<table style="width: 100%;"><tr><td>
+<div id="container-stacked-absolute-downstream-impact-by-week" style="min-width: 400px; height: 500px; max-width: 800px; margin: 0 auto"></div>
+</td><td>
+<div id="container-stacked-percent-downstream-impact-by-week" style="min-width: 400px; height: 500px; max-width: 800px; margin: 0 auto"></div>
+</td></tr></table>
+
+
 
 <div id="annotated-breakage-author-stats-table"></div>
 

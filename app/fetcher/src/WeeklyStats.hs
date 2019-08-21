@@ -25,21 +25,18 @@ instance (ToJSON a) => ToJSON (InclusiveNumericBounds a)
 -- Both of the above aggregations are then again summed by week.
 
 
-
 newtype NoLogsCount = NoLogsCount Int deriving Generic
 
 
-
-
 data AggregateBuildCounts a = AggregateBuildCounts {
-    _failure_count                  :: a
+    _failure_count                    :: a
 
-  , _no_logs_count                  :: a
-  , _timeout_count                  :: a
-  , _known_broken_count             :: a
-  , _nonflaky_pattern_matched_count :: a
-  , _undiagnosed_count              :: a
-  , _flaky_count                    :: a
+  , _no_logs_count                    :: a
+  , _timeout_count                    :: a
+  , _known_broken_count               :: a
+  , _unlabeled_isolated_failure_count :: a
+  , _undiagnosed_by_patterns_count    :: a
+  , _labeled_flaky_count              :: a
   } deriving Generic
 
 instance ToJSON a => ToJSON (AggregateBuildCounts a) where
@@ -51,14 +48,14 @@ instance ToJSON a => ToJSON (AggregateBuildCounts a) where
 -- is assigned a color.
 buildCountColors :: AggregateBuildCounts String
 buildCountColors = AggregateBuildCounts {
-    _failure_count =                  "#000000" -- not used
+    _failure_count =                    "#000000" -- not used
 
-  , _no_logs_count =                  "#434348" -- (gray)
-  , _timeout_count =                  "#8085e9" -- (purple)
-  , _known_broken_count =             "#f7a35c" -- (orange)
-  , _nonflaky_pattern_matched_count = "#f15c80" -- (red)
-  , _undiagnosed_count =              "#7cb5ec" -- (blue)
-  , _flaky_count =                    "#e4d354" -- (gold)
+  , _no_logs_count =                    "#434348" -- (gray)
+  , _timeout_count =                    "#8085e9" -- (purple)
+  , _known_broken_count =               "#f7a35c" -- (orange)
+  , _unlabeled_isolated_failure_count = "#f15c80" -- (red)
+  , _undiagnosed_by_patterns_count =    "#7cb5ec" -- (blue)
+  , _labeled_flaky_count =              "#e4d354" -- (gold)
   }
 
 

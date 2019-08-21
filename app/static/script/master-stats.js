@@ -8,11 +8,11 @@ function normalized_build_failure_count_highchart(series_list) {
 			type: 'line'
 		},
 		title: {
-			text: 'Build failures by Week'
+			text: 'Build failures on master by Week'
 		},
 		colors: ["#8085e9", "#b0b0b0"],
 		subtitle: {
-			text: 'Showing only full weeks, starting on labeled day'
+			text: 'Showing only full weeks, starting on labeled day<br/>Note: includes commits that were not built'
 		},
 		xAxis: {
 			type: 'datetime',
@@ -81,11 +81,11 @@ function normalized_commit_failure_count_highchart(series_list) {
 			type: 'line'
 		},
 		title: {
-			text: 'Commits with failures by Week'
+			text: 'Commits on master with failures by Week'
 		},
 		colors: ["#f08080", "#b0b0b0"],
 		subtitle: {
-			text: 'Showing only full weeks, starting on labeled day'
+			text: 'Showing only full weeks, starting on labeled day<br/>Note: includes commits that were not built'
 		},
 		xAxis: {
 			type: 'datetime',
@@ -141,9 +141,6 @@ function normalized_commit_failure_count_highchart(series_list) {
 }
 
 
-
-
-
 function separated_causes_column_highchart(columns, column_chart_series, color_key) {
 
 	const series_list = [];
@@ -175,7 +172,7 @@ function separated_causes_column_highchart(columns, column_chart_series, color_k
 		yAxis: {
 			min: 0,
 			title: {
-				text: 'count per commit'
+				text: 'counts per commit'
 			}
 		},
 		tooltip: {
@@ -197,14 +194,14 @@ function separated_causes_column_highchart(columns, column_chart_series, color_k
 }
 
 
-function separated_causes_timeline_highchart(series_list) {
+function separated_causes_timeline_highchart(container_element, series_list, stacking_type, label_prefix) {
 
-	Highcharts.chart('container-stacked-timeline-separated-occurrences-by-week', {
+	Highcharts.chart(container_element, {
 		chart: {
 			type: 'area'
 		},
 		title: {
-			text: 'Failure Modes by Week (per commit)'
+			text: 'Failure Modes by Week (per commit), ' + label_prefix
 		},
 		subtitle: {
 			text: 'Showing only full weeks, starting on labeled day'
@@ -221,7 +218,7 @@ function separated_causes_timeline_highchart(series_list) {
 		},
 		yAxis: {
 			title: {
-				text: 'count per commit'
+				text: label_prefix + ' per commit'
 			},
 			min: 0
 		},
@@ -252,7 +249,7 @@ function separated_causes_timeline_highchart(series_list) {
 				}
 			},
 			area: {
-			    stacking: 'normal',
+			    stacking: stacking_type,
 			},
 		},
 		credits: {
@@ -268,9 +265,11 @@ function render() {
 	const weeks_count = $('#weeks-count-input').val();
 
 	$("#scan-throbber").show();
+	$("#scan-throbber2").show();
 	$.getJSON('/api/master-weekly-failure-stats', {"weeks": weeks_count}, function (data) {
 
 		$("#scan-throbber").hide();
+		$("#scan-throbber2").hide();
 
 		const separated_causes_series_points = {};
 
@@ -337,7 +336,8 @@ function render() {
 			return get_area(b) - get_area(a);
 		});
 
-		separated_causes_timeline_highchart(separated_causes_series_list);
+		separated_causes_timeline_highchart('container-stacked-timeline-separated-occurrences-by-week', separated_causes_series_list, 'normal', 'counts');
+		separated_causes_timeline_highchart('container-percent-timeline-separated-occurrences-by-week', separated_causes_series_list, 'percent', 'percent');
 
 
 		separated_causes_column_highchart(column_chart_timestamp_categories, column_chart_series, data["build_colors"]);
@@ -352,7 +352,7 @@ function render() {
 
 	        const undifferentiated_build_failures_series = [
 			{
-				name: "Build failures per commit",
+				name: "Rate of build failures per commit",
 				data: undifferentiated_build_failures_series_points,
 				yAxis: 1,
 			},
@@ -362,7 +362,7 @@ function render() {
 
 	        const undifferentiated_commit_failures_series = [
 			{
-				name: "Failed commits",
+				name: "Failed commit rate",
 				data: undifferentiated_commit_failures_series_points,
 				yAxis: 1,
 			},

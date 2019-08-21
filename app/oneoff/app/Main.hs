@@ -118,6 +118,17 @@ mainAppCode args = do
 
 
 
+
+
+  -- ===========================================
+  {-
+  pr_head_commits <- runReaderT SqlRead.getAllMergedPullRequestHeadCommits conn
+  stuff <- for (zip [1..] pr_head_commits) $ \(idx, head_commit) -> do
+    putStrLn $ unwords ["Progress:", show idx, "/", show $ length pr_head_commits, MyUtils.parens $ "HEAD commit " <> show head_commit]
+    runExceptT $ StatusUpdate.getBuildsFromGithub conn oauth_access_token owned_repo head_commit
+  -}
+
+
   return ()
 
   where

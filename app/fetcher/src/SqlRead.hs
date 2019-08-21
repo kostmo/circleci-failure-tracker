@@ -452,14 +452,14 @@ apiFailedCommitsByDay = WebApi.ApiResponse <$> runQuery
 
 -- | Note that Highcharts expects the dates to be in ascending order
 apiStatusPostedCommitsByDay :: DbIO (WebApi.ApiResponse (Day, Int))
-apiStatusPostedCommitsByDay = WebApi.ApiResponse <$> runQuery
-  "SELECT last_time::date AS date, COUNT(*) FROM aggregated_github_status_postings GROUP BY date ORDER BY date ASC;"
+apiStatusPostedCommitsByDay = WebApi.ApiResponse . reverse <$> runQuery
+  "SELECT last_time::date AS date, COUNT(*) FROM aggregated_github_status_postings GROUP BY date ORDER BY date DESC OFFSET 1;"
 
 
 -- | Note that Highcharts expects the dates to be in ascending order
 apiStatusPostingsByDay :: DbIO (WebApi.ApiResponse (Day, Int))
-apiStatusPostingsByDay = WebApi.ApiResponse <$> runQuery
-  "SELECT created_at::date AS date, COUNT(*) FROM created_github_statuses GROUP BY date ORDER BY date ASC;"
+apiStatusPostingsByDay = WebApi.ApiResponse . reverse <$> runQuery
+  "SELECT created_at::date AS date, COUNT(*) FROM created_github_statuses GROUP BY date ORDER BY date DESC OFFSET 1;"
 
 
 listBuilds :: Query -> DbIO [WebApi.BuildBranchRecord]
@@ -610,6 +610,7 @@ downstreamWeeklyFailureStats week_count = do
         total_impact = BuildResults.DownstreamImpactCounts
           downstream_broken_commit_count
           downstream_broken_build_count
+
         unavoidable_impact = BuildResults.DownstreamImpactCounts
           unavoidable_downstream_broken_commit_count
           unavoidable_downstream_broken_build_count

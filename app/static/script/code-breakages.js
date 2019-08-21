@@ -15,80 +15,127 @@ function render_commit_cell(cell, position) {
 }
 
 
-function downstream_impact_by_week(html_element_id, api_url) {
+function generate_downstream_impact_series_list(data, show_split_series) {
+
+
+	const pointlist_unavoidable_commits_broken_by_upstream = [];
+	const pointlist_avoidable_commits_broken_by_upstream = [];
+
+	const pointlist_all_commits_broken_by_upstream = [];
+
+	for (var datum of data) {
+
+		const week = Date.parse(datum["week"]);
+
+		const total_downstream_broken_commits = datum["impact"]["downstream_broken_commit_count"];
+		const unavoidable_downstream_broken_commits = datum["unavoidable_impact"]["downstream_broken_commit_count"];
+
+		pointlist_unavoidable_commits_broken_by_upstream.push([week, unavoidable_downstream_broken_commits]);
+
+		pointlist_avoidable_commits_broken_by_upstream.push([week, total_downstream_broken_commits - unavoidable_downstream_broken_commits]);
+
+		pointlist_all_commits_broken_by_upstream.push([week, total_downstream_broken_commits])
+	}
+
+	const split_series_list = [{
+			name: "Commits broken by UNAVOIDABLE upstream breakages",
+			data: pointlist_unavoidable_commits_broken_by_upstream,
+		}, {
+			name: "Commits broken by AVOIDABLE upstream breakages",
+			data: pointlist_avoidable_commits_broken_by_upstream,
+		}];
+
+	const combined_series_singleton = [{
+			name: "All commits broken by upstream breakages",
+			data: pointlist_all_commits_broken_by_upstream,
+		}];
+
+
+
+	return show_split_series ? split_series_list : combined_series_singleton;
+}
+
+
+function plot_downstream_impact_by_week(html_element_id, series_list, stacking_type, axis_label_prefix) {
+
+
+	Highcharts.chart(html_element_id, {
+		chart: {
+			type: 'area'
+		},
+		colors: ["#f1f180", "#f15c80"],
+		title: {
+			text: 'Downstream collateral by Week (' + axis_label_prefix + ')',
+		},
+		subtitle: {
+			text: 'Showing only full weeks, starting on labeled day'
+		},
+		xAxis: {
+			type: 'datetime',
+			dateTimeLabelFormats: { // don't display the dummy year
+				month: '%e. %b',
+				year: '%b'
+			},
+			title: {
+				text: 'Date'
+			}
+		},
+		yAxis: [
+			{
+				title: {
+					text: axis_label_prefix + ' broken downstream commits',
+				},
+			},
+		],
+		tooltip: {
+			useHTML: true,
+			style: {
+				pointerEvents: 'auto'
+			},
+		},
+		plotOptions: {
+			line: {
+				marker: {
+					enabled: true
+				}
+			},
+			area: {
+			    stacking: stacking_type,
+			},
+		},
+		credits: {
+			enabled: false
+		},
+		series: series_list,
+	});
+}
+
+
+
+function downstream_impact_by_week(api_url) {
 
 //	const weeks_count = $('#weeks-count-input').val();
 	const weeks_count = 12; // TODO Create UI element
 
+
+	$("#scan-throbber2").show();
 	$.getJSON(api_url, {"weeks": weeks_count}, function (data) {
 
-
-		const pointlist_commits_broken_by_upstream = [];
-		const pointlist_avoidable_commits_broken_by_upstream = [];
-		for (var datum of data) {
-
-			const week = Date.parse(datum["week"]);
-
-			const total_downstream_broken_commits = datum["impact"]["downstream_broken_commit_count"];
-			pointlist_commits_broken_by_upstream.push([week, total_downstream_broken_commits]);
-
-			pointlist_avoidable_commits_broken_by_upstream.push([week, total_downstream_broken_commits - datum["unavoidable_impact"]["downstream_broken_commit_count"]]);
-		}
-
-		const series_list = [{
-				name: "Commits broken by ALL upstream breakages",
-				data: pointlist_commits_broken_by_upstream,
-			}, {
-				name: "Commits broken by AVOIDABLE upstream breakages",
-				data: pointlist_avoidable_commits_broken_by_upstream,
-			}];
+		$("#scan-throbber2").hide();
+		console.log("Fetched data. Now plotting...");
 
 
-		Highcharts.chart(html_element_id, {
-			chart: {
-				type: 'line'
-			},
-			title: {
-				text: 'Downstream collateral by Week'
-			},
-			subtitle: {
-				text: 'Showing only full weeks, starting on labeled day'
-			},
-			xAxis: {
-				type: 'datetime',
-				dateTimeLabelFormats: { // don't display the dummy year
-					month: '%e. %b',
-					year: '%b'
-				},
-				title: {
-					text: 'Date'
-				}
-			},
-			yAxis: [
-				{
-					title: {
-						text: 'Broken downstream commits',
-					},
-				},
-			],
-			tooltip: {
-				useHTML: true,
-				style: {
-					pointerEvents: 'auto'
-				},
-			},
-			plotOptions: {
-				line: {
-					marker: {
-						enabled: true
-					}
-				},
-			},
-			credits: {
-				enabled: false
-			},
-			series: series_list,
-		});
+		const combined_series_list = generate_downstream_impact_series_list(data, false);
+		const split_series_list = generate_downstream_impact_series_list(data, true);
+
+		plot_downstream_impact_by_week("container-total-downstream-impact-by-week", combined_series_list, "normal", "total");
+
+		plot_downstream_impact_by_week("container-stacked-absolute-downstream-impact-by-week", split_series_list, "normal", "total");
+		plot_downstream_impact_by_week("container-stacked-percent-downstream-impact-by-week", split_series_list, "percent", "percent");
+
+
+
+		console.log("Finished plotting.");
 	});
 }
 
@@ -480,7 +527,7 @@ function main() {
 	gen_nonannotated_detected_breakages_table("detected-leftovers-table", "/api/code-breakages-leftover-detected");
 	gen_detected_breakages_table("detected-breakages-table", "/api/code-breakages-detected");
 
-	downstream_impact_by_week("container-downstream-impact-by-week", "/api/downstream-impact-weekly");
+	downstream_impact_by_week("/api/downstream-impact-weekly");
 
 	// TODO
 //	gen_nonannotated_commit_detected_breakages_table("detected-commit-leftovers-table", "/api/code-breakages-leftover-by-commit");
