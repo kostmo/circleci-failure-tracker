@@ -9,7 +9,7 @@ import           Control.Monad                        (forM)
 import           Control.Monad.IO.Class               (liftIO)
 import           Control.Monad.Trans.Except           (ExceptT (ExceptT),
                                                        except, runExceptT)
-import           Control.Monad.Trans.Reader           (ReaderT, ask)
+import           Control.Monad.Trans.Reader           (ReaderT, ask, runReaderT)
 import           Data.Aeson
 import           Data.Either.Utils                    (maybeToEither)
 import           Data.List                            (sort, sortOn)
@@ -179,11 +179,11 @@ getUniversalBuilds (Builds.UniversalBuildId oldest_universal_build_num) limit = 
 
 -- | XXX This is a partial function
 getGlobalBuild ::
-     Connection
-  -> Builds.UniversalBuildId
-  -> IO Builds.StorableBuild
-getGlobalBuild conn (Builds.UniversalBuildId global_build_num) = do
-  [x] <- query conn sql $ Only global_build_num
+     Builds.UniversalBuildId
+  -> DbIO Builds.StorableBuild
+getGlobalBuild (Builds.UniversalBuildId global_build_num) = do
+  conn <- ask
+  [x] <- liftIO $ query conn sql $ Only global_build_num
   return x
   where
     sql = "SELECT global_build_num, build_number, provider, build_namespace, succeeded, vcs_revision, queued_at, job_name, branch, started_at, finished_at FROM global_builds WHERE global_build_num = ?;"
@@ -503,10 +503,27 @@ apiTimeoutCommitBuilds sha1 = do
     sql = "SELECT build_num, step_name, queued_at, job_name, branch, universal_build, ci_providers.icon_url, ci_providers.label FROM builds_join_steps JOIN ci_providers ON builds_join_steps.provider = ci_providers.id WHERE vcs_revision = ? AND is_timeout;"
 
 
+-- | Obtains subset of console log from database
+readLogSubset ::
+     Builds.UniversalBuildId
+  -> Int -- ^ offset
+  -> Int -- ^ limit
+  -> DbIO [LT.Text]
+readLogSubset (Builds.UniversalBuildId build_num) offset limit = do
+  conn <- ask
+  xs <- liftIO $ query conn sql (build_num, offset, limit)
+  return $ map (\(Only log_text) -> log_text) xs
+  where
+    sql = "SELECT regexp_split_to_table(content, '\n') FROM log_metadata JOIN build_steps ON build_steps.id = log_metadata.step WHERE build_steps.universal_build = ? OFFSET ? LIMIT ?;"
+
+
 -- | Obtains the console log from database
-readLog :: Connection -> Builds.UniversalBuildId -> IO (Maybe LT.Text)
-readLog conn (Builds.UniversalBuildId build_num) = do
-  result <- query conn sql $ Only build_num
+readLog ::
+     Builds.UniversalBuildId
+  -> DbIO (Maybe LT.Text)
+readLog (Builds.UniversalBuildId build_num) = do
+  conn <- ask
+  result <- liftIO $ query conn sql $ Only build_num
   return $ (\(Only log_text) -> log_text) <$> Safe.headMay result
   where
     sql = "SELECT log_metadata.content FROM log_metadata JOIN builds_join_steps ON log_metadata.step = builds_join_steps.step_id WHERE builds_join_steps.universal_build = ? LIMIT 1;"
@@ -1256,13 +1273,11 @@ apiNewPatternTest ::
   -> ScanPatterns.Pattern
   -> DbIO (Either String ScanTestResponse)
 apiNewPatternTest universal_build_id new_pattern = do
-  conn <- ask
-  storable_build <- liftIO $ SqlRead.getGlobalBuild conn universal_build_id
+  storable_build <- SqlRead.getGlobalBuild universal_build_id
   let provider_build_number = Builds.build_id $ Builds.build_record storable_build
 
   -- TODO consolidate with Scanning.scan_log
-  -- TODO SqlRead.readLog should accept a universal build number
-  maybe_console_log <- liftIO $ SqlRead.readLog conn universal_build_id
+  maybe_console_log <- SqlRead.readLog universal_build_id
 
   return $ case maybe_console_log of
     Just console_log -> let mylines = LT.lines console_log
@@ -1508,7 +1523,9 @@ getBestBuildMatch ubuild_id@(Builds.UniversalBuildId build_id) = do
   liftIO $ map f <$> query conn sql (Only build_id)
 
   where
-    f (pattern_id, build, step_name, match_id, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch) = pattern_occurrence_txform (ScanPatterns.PatternId pattern_id) (build, step_name, match_id, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch, ubuild_id)
+    f (pattern_id, build, step_name, match_id, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch) = pattern_occurrence_txform
+      (ScanPatterns.PatternId pattern_id)
+      (build, step_name, match_id, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch, ubuild_id)
 
     sql = "SELECT pattern_id, build, step_name, match_id, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch FROM best_pattern_match_augmented_builds WHERE universal_build = ?;"
 
@@ -1535,20 +1552,19 @@ logContextFunc (MatchOccurrences.MatchId match_id) context_linecount = do
     let maybe_first_row = Safe.headMay xs
 
     runExceptT $ do
-      first_row <- except $ maybeToEither (T.pack $ unwords ["Match ID", show match_id, "not found"]) maybe_first_row
+
+      first_row <- except $ maybeToEither errmsg maybe_first_row
 
       let (build_num, line_number, span_start, span_end, line_text, universal_build) = first_row
           match_info = ScanPatterns.NewMatchDetails line_text line_number $ ScanPatterns.NewMatchSpan span_start span_end
           wrapped_build_num = Builds.NewBuildNumber build_num
 
-      maybe_log <- liftIO $ SqlRead.readLog conn universal_build
-      console_log <- except $ maybeToEither "log not in database" maybe_log
-
-      let log_lines = LT.lines console_log
-
           first_context_line = max 0 $ line_number - context_linecount
+          retrieval_line_count = 2 * context_linecount + 1
 
-          tuples = zip [first_context_line..] $ take (2 * context_linecount + 1) $ drop first_context_line log_lines
+      log_lines <- liftIO $ runReaderT (SqlRead.readLogSubset universal_build first_context_line retrieval_line_count) conn
+
+      let tuples = zip [first_context_line..] log_lines
 
       return $ LogContext
         match_info
@@ -1558,6 +1574,12 @@ logContextFunc (MatchOccurrences.MatchId match_id) context_linecount = do
 
   where
     sql = "SELECT build_num, line_number, span_start, span_end, line_text, universal_build FROM matches_with_log_metadata WHERE id = ?"
+
+    errmsg = T.pack $ unwords [
+        "Match ID"
+      , show match_id
+      , "not found"
+      ]
 
 
 getPatternMatches :: ScanPatterns.PatternId -> DbIO [PatternOccurrence]

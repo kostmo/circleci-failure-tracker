@@ -75,15 +75,15 @@ getBuildInfo ::
   -> SqlRead.DbIO (Either Text SingleBuildInfo)
 getBuildInfo access_token build@(Builds.UniversalBuildId build_id) = do
 
-  conn <- ask
-
   -- TODO Replace this with SQL COUNT()
   matches <- SqlRead.getBuildPatternMatches build
 
+  storable_build <- SqlRead.getGlobalBuild build
+
+  conn <- ask
+
   liftIO $ do
     xs <- query conn sql $ Only build_id
-
-    storable_build <- SqlRead.getGlobalBuild conn build
 
     let either_tuple = f (length matches) <$> maybeToEither (T.pack $ unwords ["Build with ID", show build_id, "not found!"]) (Safe.headMay xs)
 

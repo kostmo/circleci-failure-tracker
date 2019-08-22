@@ -378,9 +378,9 @@ scottyApp
         callback_func _user_alias = do
           conn <- DbHelpers.get_connection connection_data
 
-          storable_build <- SqlRead.getGlobalBuild conn universal_build_id
+          storable_build <- runReaderT (SqlRead.getGlobalBuild universal_build_id) conn
 
-          maybe_log <- SqlRead.readLog conn $ Builds.UniversalBuildId $ DbHelpers.db_id $ Builds.universal_build storable_build
+          maybe_log <- runReaderT (SqlRead.readLog $ Builds.UniversalBuildId $ DbHelpers.db_id $ Builds.universal_build storable_build) conn
           return $ maybeToEither "log not in database" maybe_log
 
     rq <- S.request
