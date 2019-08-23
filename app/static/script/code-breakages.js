@@ -15,6 +15,24 @@ function render_commit_cell(cell, position) {
 }
 
 
+function refresh_cache() {
+
+	const view_name = "upstream_breakages_weekly_aggregation_mview";
+
+	$("#scan-throbber").show();
+        $.post({
+		url: "/api/refresh-materialized-view",
+		data: {"view-name": view_name, "from-frontend": true},
+		success: function( data ) {
+			$("#scan-throbber").hide();
+
+			console.log("success");
+			locatio.reaload();
+		}
+        });
+}
+
+
 function generate_downstream_impact_series_list(data, show_split_series) {
 
 

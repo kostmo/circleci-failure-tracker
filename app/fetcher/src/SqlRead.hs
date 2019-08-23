@@ -424,7 +424,7 @@ getNextMasterCommit conn (Builds.RawCommit current_git_revision) = do
   let mapped_rows = map (\(Only x) -> Builds.RawCommit x) rows
   return $ maybeToEither ("There are no commits that come after " <> current_git_revision) $ Safe.headMay mapped_rows
   where
-    sql = "SELECT sha1 FROM ordered_master_commits WHERE id > (SELECT id FROM ordered_master_commits WHERE sha1 = ?) ORDER BY id ASC LIMIT 1"
+    sql = "SELECT sha1 FROM ordered_master_commits WHERE id > (SELECT id FROM ordered_master_commits WHERE sha1 = ?) ORDER BY id ASC LIMIT 1;"
 
 
 apiJobs :: DbIO (WebApi.ApiResponse WebApi.JobApiRecord)
@@ -483,7 +483,7 @@ apiUnmatchedCommitBuilds sha1 = do
   conn <- ask
   liftIO $ query conn sql $ Only sha1
   where
-    sql = "SELECT build_num, step_name, queued_at, job_name, unattributed_failed_builds.branch, builds_join_steps.universal_build, ci_providers.icon_url, ci_providers.label FROM unattributed_failed_builds JOIN builds_join_steps ON unattributed_failed_builds.global_build = builds_join_steps.universal_build JOIN ci_providers ON builds_join_steps.provider = ci_providers.id WHERE vcs_revision = ?"
+    sql = "SELECT build_num, step_name, queued_at, job_name, unattributed_failed_builds.branch, builds_join_steps.universal_build, ci_providers.icon_url, ci_providers.label FROM unattributed_failed_builds JOIN builds_join_steps ON unattributed_failed_builds.global_build = builds_join_steps.universal_build JOIN ci_providers ON builds_join_steps.provider = ci_providers.id WHERE vcs_revision = ?;"
 
 
 apiIdiopathicCommitBuilds :: Text -> DbIO [WebApi.UnmatchedBuild]
@@ -492,7 +492,7 @@ apiIdiopathicCommitBuilds sha1 = do
   liftIO $ map f <$> query conn sql (Only sha1)
   where
     f (build, step_name, queued_at, job_name, branch, universal_build_id, provider_icon_url, provider_label) = WebApi.UnmatchedBuild (Builds.NewBuildNumber build) step_name queued_at job_name branch (Builds.UniversalBuildId universal_build_id) provider_icon_url provider_label
-    sql = "SELECT build_num, step_name, queued_at, job_name, idiopathic_build_failures.branch, builds_join_steps.universal_build, ci_providers.icon_url, ci_providers.label FROM idiopathic_build_failures JOIN builds_join_steps ON idiopathic_build_failures.global_build_num = builds_join_steps.universal_build JOIN ci_providers ON builds_join_steps.provider = ci_providers.id WHERE vcs_revision = ?"
+    sql = "SELECT build_num, step_name, queued_at, job_name, idiopathic_build_failures.branch, builds_join_steps.universal_build, ci_providers.icon_url, ci_providers.label FROM idiopathic_build_failures JOIN builds_join_steps ON idiopathic_build_failures.global_build_num = builds_join_steps.universal_build JOIN ci_providers ON builds_join_steps.provider = ci_providers.id WHERE vcs_revision = ?;"
 
 
 apiTimeoutCommitBuilds :: Text -> DbIO [WebApi.UnmatchedBuild]
@@ -545,7 +545,7 @@ instance ToJSON MasterBuildStats where
 -- | TODO head is partial
 masterBuildFailureStats :: DbIO MasterBuildStats
 masterBuildFailureStats = head <$> runQuery
-  "SELECT count(*) AS total, sum(is_idiopathic::int) AS idiopathic, sum(is_timeout::int) AS timeout, sum(is_known_broken::int) AS known_broken, sum((NOT is_unmatched)::int) AS pattern_matched, sum(is_flaky::int) AS flaky FROM build_failure_causes JOIN ordered_master_commits ON build_failure_causes.vcs_revision = ordered_master_commits.sha1"
+  "SELECT count(*) AS total, sum(is_idiopathic::int) AS idiopathic, sum(is_timeout::int) AS timeout, sum(is_known_broken::int) AS known_broken, sum((NOT is_unmatched)::int) AS pattern_matched, sum(is_flaky::int) AS flaky FROM build_failure_causes JOIN ordered_master_commits ON build_failure_causes.vcs_revision = ordered_master_commits.sha1;"
 
 
 -- | Uses OFFSET 1 so we only ever show full weeks
@@ -558,7 +558,7 @@ masterWeeklyFailureStats week_count = do
     WeeklyStats.buildCountColors
     (reverse $ map f xs)
   where
-    sql = "SELECT commit_count, had_failure, had_idiopathic, had_timeout, had_known_broken, had_pattern_matched, had_flaky, failure_count::int, idiopathic_count::int, timeout_count::int, known_broken_count::int, pattern_matched_count::int, pattern_unmatched_count::int, flaky_count::int, earliest_commit_index, latest_commit_index, week FROM master_failures_weekly_aggregation ORDER BY week DESC LIMIT ? OFFSET 1"
+    sql = "SELECT commit_count, had_failure, had_idiopathic, had_timeout, had_known_broken, had_pattern_matched, had_flaky, failure_count::int, idiopathic_count::int, timeout_count::int, known_broken_count::int, pattern_matched_count::int, pattern_unmatched_count::int, flaky_count::int, earliest_commit_index, latest_commit_index, week FROM master_failures_weekly_aggregation ORDER BY week DESC LIMIT ? OFFSET 1;"
 
     f (commit_count, had_failure, had_idiopathic, had_timeout, had_known_broken, had_pattern_matched, had_flaky, failure_count, idiopathic_count, timeout_count, known_broken_count, pattern_matched_count, pattern_unmatched_count, flaky_count, earliest_commit_index, latest_commit_index, week) =
       WeeklyStats.MasterWeeklyStats
@@ -607,7 +607,7 @@ masterBreakageMonthlyStats = do
   xs <- liftIO $ query_ conn sql
   return $ reverse xs
   where
-    sql = "SELECT month, distinct_breakages, avoidable_count FROM code_breakage_monthly_aggregation ORDER BY month DESC"
+    sql = "SELECT month, distinct_breakages, avoidable_count FROM code_breakage_monthly_aggregation ORDER BY month DESC;"
 
 
 -- | Uses OFFSET 1 so we only ever show full weeks
@@ -632,7 +632,7 @@ downstreamWeeklyFailureStats week_count = do
           unavoidable_downstream_broken_commit_count
           unavoidable_downstream_broken_build_count
 
-    sql = "SELECT week, distinct_breakages, downstream_broken_commit_count, downstream_broken_build_count, unavoidable_downstream_broken_commit_count, unavoidable_downstream_broken_build_count FROM upstream_breakages_weekly_aggregation ORDER BY week DESC LIMIT ? OFFSET 1;"
+    sql = "SELECT week, distinct_breakages, downstream_broken_commit_count, downstream_broken_build_count, unavoidable_downstream_broken_commit_count, unavoidable_downstream_broken_build_count FROM upstream_breakages_weekly_aggregation_mview ORDER BY week DESC LIMIT ? OFFSET 1;"
 
 
 getLatestKnownMasterCommit :: Connection -> IO (Maybe Text)
@@ -681,7 +681,7 @@ knownBreakageAffectedJobs cause_id = do
   liftIO $ map f <$> query conn sql (Only cause_id)
   where
     f (reporter, reported_at, job) = DbHelpers.WithAuthorship reporter reported_at job
-    sql = "SELECT reporter, reported_at, job FROM code_breakage_affected_jobs WHERE cause = ? ORDER BY job ASC"
+    sql = "SELECT reporter, reported_at, job FROM code_breakage_affected_jobs WHERE cause = ? ORDER BY job ASC;"
 
 
 -- | This only works for commits from the master branch.
@@ -704,7 +704,7 @@ getSpanningBreakages conn sha1 =
       CodeBreakage (Builds.RawCommit sha1) description $ Set.fromList $
         map T.pack $ DbHelpers.splitAggText jobs
 
-    sql = "SELECT code_breakage_cause.sha1, code_breakage_cause.description, cause_id, COALESCE(jobs, ''::text) AS jobs FROM (SELECT code_breakage_spans.cause_id, string_agg((code_breakage_affected_jobs.job)::text, ';'::text) AS jobs FROM code_breakage_spans LEFT JOIN code_breakage_affected_jobs ON code_breakage_affected_jobs.cause = code_breakage_spans.cause_id WHERE cause_commit_index <= ? AND (resolved_commit_index IS NULL OR ? < resolved_commit_index) GROUP BY code_breakage_spans.cause_id) foo JOIN code_breakage_cause ON foo.cause_id = code_breakage_cause.id"
+    sql = "SELECT code_breakage_cause.sha1, code_breakage_cause.description, cause_id, COALESCE(jobs, ''::text) AS jobs FROM (SELECT code_breakage_spans.cause_id, string_agg((code_breakage_affected_jobs.job)::text, ';'::text) AS jobs FROM code_breakage_spans LEFT JOIN code_breakage_affected_jobs ON code_breakage_affected_jobs.cause = code_breakage_spans.cause_id WHERE cause_commit_index <= ? AND (resolved_commit_index IS NULL OR ? < resolved_commit_index) GROUP BY code_breakage_spans.cause_id) foo JOIN code_breakage_cause ON foo.cause_id = code_breakage_cause.id;"
 
 
 listFlat1 :: (ToField b, FromField a) =>
@@ -934,12 +934,12 @@ getMasterCommits conn parent_offset_mode =
           maybe_committer_email <*>
           maybe_committer_date
 
-    sql_first_commit_id = "SELECT id FROM ordered_master_commits ORDER BY id DESC LIMIT 1 OFFSET ?"
-    sql_associated_commit_id = "SELECT id FROM ordered_master_commits WHERE sha1 = ?"
+    sql_first_commit_id = "SELECT id FROM ordered_master_commits ORDER BY id DESC LIMIT 1 OFFSET ?;"
+    sql_associated_commit_id = "SELECT id FROM ordered_master_commits WHERE sha1 = ?;"
 
-    sql_commit_id_and_offset = "SELECT master_ordered_commits_with_metadata.id, master_ordered_commits_with_metadata.sha1, master_ordered_commits_with_metadata.commit_number, master_ordered_commits_with_metadata.github_pr_number, message, tree_sha1, author_name, author_email, author_date, committer_name, committer_email, committer_date FROM master_ordered_commits_with_metadata WHERE id <= ? ORDER BY id DESC LIMIT ?"
+    sql_commit_id_and_offset = "SELECT master_ordered_commits_with_metadata.id, master_ordered_commits_with_metadata.sha1, master_ordered_commits_with_metadata.commit_number, master_ordered_commits_with_metadata.github_pr_number, message, tree_sha1, author_name, author_email, author_date, committer_name, committer_email, committer_date FROM master_ordered_commits_with_metadata WHERE id <= ? ORDER BY id DESC LIMIT ?;"
 
-    sql_commit_id_bounds = "SELECT master_ordered_commits_with_metadata.id, master_ordered_commits_with_metadata.sha1, master_ordered_commits_with_metadata.commit_number, master_ordered_commits_with_metadata.github_pr_number, message, tree_sha1, author_name, author_email, author_date, committer_name, committer_email, committer_date FROM master_ordered_commits_with_metadata WHERE id >= ? AND id <= ? ORDER BY id DESC"
+    sql_commit_id_bounds = "SELECT master_ordered_commits_with_metadata.id, master_ordered_commits_with_metadata.sha1, master_ordered_commits_with_metadata.commit_number, master_ordered_commits_with_metadata.github_pr_number, message, tree_sha1, author_name, author_email, author_date, committer_name, committer_email, committer_date FROM master_ordered_commits_with_metadata WHERE id >= ? AND id <= ? ORDER BY id DESC;"
 
 
 data NonannotatedBuildBreakages = NonannotatedBuildBreakages {
@@ -1087,15 +1087,40 @@ instance FromRow BuildResults.SimpleBuildStatus where
       ubuild_obj
 
 
-refreshCachedMasterGrid :: Connection -> IO ()
-refreshCachedMasterGrid conn = do
-  MyUtils.debugStr "Refreshing view..."
+-- | TODO: Use runExceptT here
+refreshCachedMasterGrid ::
+     Text
+  -> Bool -- ^ triggered from frontend
+  -> DbIO (Either Text ())
+refreshCachedMasterGrid view_name is_from_frontend = do
+  conn <- ask
+  liftIO $ case either_query of
+    Left x -> return $ Left x
+    Right sql_query -> do
 
-  (execution_time, _) <- MyUtils.timeThisFloat $ execute_ conn "REFRESH MATERIALIZED VIEW CONCURRENTLY master_failures_raw_causes_mview;"
+      MyUtils.debugList [
+          "Refreshing view"
+        , MyUtils.quote $ T.unpack view_name
+        ]
 
-  execute conn "INSERT INTO lambda_logging.materialized_view_refresh_events (view_name, execution_duration_seconds, event_source) VALUES (?, ?, ?);" ("master_failures_raw_causes_mview" :: Text, execution_time, "frontend" :: Text)
+      (execution_time, _) <- MyUtils.timeThisFloat $ execute_ conn sql_query
 
-  MyUtils.debugStr "View refreshed."
+      execute conn "INSERT INTO lambda_logging.materialized_view_refresh_events (view_name, execution_duration_seconds, event_source) VALUES (?, ?, ?);" (view_name, execution_time, trigger_source)
+
+      MyUtils.debugStr "View refreshed."
+      return $ Right ()
+
+  where
+    trigger_source :: Text
+    trigger_source = if is_from_frontend
+      then "frontend"
+      else "lambda"
+
+    -- TODO Would be nice not to have to hard-code these queries...
+    either_query = case view_name of
+      "master_failures_raw_causes_mview" -> Right "REFRESH MATERIALIZED VIEW CONCURRENTLY master_failures_raw_causes_mview;"
+      "upstream_breakages_weekly_aggregation_mview" -> Right "REFRESH MATERIALIZED VIEW CONCURRENTLY upstream_breakages_weekly_aggregation_mview;"
+      _ -> Left $ "Unrecognized vew name: " <> view_name
 
 
 getLastCachedMasterGridRefreshTime :: Connection -> IO (UTCTime, Text)
@@ -1215,12 +1240,12 @@ masterCommitsGranular = do
 
 apiDetectedCodeBreakages :: DbIO [BuildResults.DetectedBreakageSpan]
 apiDetectedCodeBreakages = runQuery
-  "SELECT first_commit_id, jobs, job_count, min_run_length, max_run_length, modal_run_length, min_last_commit_id, max_last_commit_id, modal_last_commit_id, first_commit, min_last_commit, max_last_commit, modal_last_commit FROM master_contiguous_failure_blocks_with_commits ORDER BY first_commit_id DESC"
+  "SELECT first_commit_id, jobs, job_count, min_run_length, max_run_length, modal_run_length, min_last_commit_id, max_last_commit_id, modal_last_commit_id, first_commit, min_last_commit, max_last_commit, modal_last_commit FROM master_contiguous_failure_blocks_with_commits ORDER BY first_commit_id DESC;"
 
 
 apiListFailureModes :: DbIO [DbHelpers.WithId BuildResults.MasterFailureModeDetails]
 apiListFailureModes = runQuery
-  "SELECT id, label, revertible FROM master_failure_modes ORDER BY id"
+  "SELECT id, label, revertible FROM master_failure_modes ORDER BY id;"
 
 
 apiAnnotatedCodeBreakages :: DbIO [BuildResults.BreakageSpan Text ()]
@@ -1256,7 +1281,7 @@ getLatestMasterCommitWithMetadata = do
     rows <- query_ conn sql
     return $ maybeToEither "No commit has metdata" $ Safe.headMay $ map (\(Only x) -> Builds.RawCommit x) rows
   where
-    sql = "SELECT ordered_master_commits.sha1 FROM ordered_master_commits LEFT JOIN commit_metadata ON ordered_master_commits.sha1 = commit_metadata.sha1 WHERE commit_metadata.sha1 IS NOT NULL ORDER BY ordered_master_commits.id DESC LIMIT 1"
+    sql = "SELECT ordered_master_commits.sha1 FROM ordered_master_commits LEFT JOIN commit_metadata ON ordered_master_commits.sha1 = commit_metadata.sha1 WHERE commit_metadata.sha1 IS NOT NULL ORDER BY ordered_master_commits.id DESC LIMIT 1;"
 
 
 data ScanTestResponse = ScanTestResponse {
@@ -1399,7 +1424,7 @@ apiPatternsBranchFiltered branches = do
   liftIO $ fmap make_pattern_records $ query conn sql $ Only $ In branches
 
   where
-    sql = "SELECT patterns_augmented.id, patterns_augmented.regex, patterns_augmented.expression, patterns_augmented.description, COALESCE(aggregated_build_matches.matching_build_count, 0::int) AS matching_build_count, aggregated_build_matches.most_recent, aggregated_build_matches.earliest, patterns_augmented.tags, patterns_augmented.steps, patterns_augmented.specificity, CAST((patterns_augmented.scanned_count * 100 / patterns_augmented.total_scanned_builds) AS DECIMAL(6, 1)) AS percent_scanned FROM patterns_augmented LEFT JOIN (SELECT best_pattern_match_for_builds.pattern_id AS pat, count(best_pattern_match_for_builds.build) AS matching_build_count, max(global_builds.queued_at) AS most_recent, min(global_builds.queued_at) AS earliest FROM best_pattern_match_for_builds JOIN global_builds ON global_builds.build_number = best_pattern_match_for_builds.build WHERE global_builds.branch IN ? GROUP BY best_pattern_match_for_builds.pattern_id ) aggregated_build_matches ON patterns_augmented.id = aggregated_build_matches.pat ORDER BY matching_build_count DESC"
+    sql = "SELECT patterns_augmented.id, patterns_augmented.regex, patterns_augmented.expression, patterns_augmented.description, COALESCE(aggregated_build_matches.matching_build_count, 0::int) AS matching_build_count, aggregated_build_matches.most_recent, aggregated_build_matches.earliest, patterns_augmented.tags, patterns_augmented.steps, patterns_augmented.specificity, CAST((patterns_augmented.scanned_count * 100 / patterns_augmented.total_scanned_builds) AS DECIMAL(6, 1)) AS percent_scanned FROM patterns_augmented LEFT JOIN (SELECT best_pattern_match_for_builds.pattern_id AS pat, count(best_pattern_match_for_builds.build) AS matching_build_count, max(global_builds.queued_at) AS most_recent, min(global_builds.queued_at) AS earliest FROM best_pattern_match_for_builds JOIN global_builds ON global_builds.build_number = best_pattern_match_for_builds.build WHERE global_builds.branch IN ? GROUP BY best_pattern_match_for_builds.pattern_id ) aggregated_build_matches ON patterns_augmented.id = aggregated_build_matches.pat ORDER BY matching_build_count DESC;"
 
 
 getPresumedStableBranches :: DbIO [Text]
@@ -1457,7 +1482,7 @@ instance ToJSON StorageStats where
 -- | FIXME partial head
 apiStorageStats :: DbIO StorageStats
 apiStorageStats = head <$> runQuery
-  "SELECT SUM(line_count) AS total_lines, SUM(byte_count) AS total_bytes, COUNT(*) log_count FROM log_metadata"
+  "SELECT SUM(line_count) AS total_lines, SUM(byte_count) AS total_bytes, COUNT(*) log_count FROM log_metadata;"
 
 
 pattern_occurrence_txform pattern_id = f

@@ -94,11 +94,14 @@ scottyApp
       mview_connection_data
 
   S.post "/api/refresh-materialized-view" $ do
+    view_name <- S.param "view-name"
+    is_from_frontend <- S.param "from-frontend"
 
-    liftIO $ do
+    result <- liftIO $ do
       mview_conn <- DbHelpers.get_connection mview_connection_data
-      SqlRead.refreshCachedMasterGrid mview_conn
-    S.json $ WebApi.toJsonEither (Right ["Done."] :: Either Text [Text])
+      runReaderT (SqlRead.refreshCachedMasterGrid view_name $ FrontendHelpers.checkboxIsTrue is_from_frontend) mview_conn
+
+    S.json $ WebApi.toJsonEither result
 
   S.post "/api/rescan-build" $
     withAuth $

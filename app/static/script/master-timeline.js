@@ -186,9 +186,12 @@ function update_subform_visibility(is_ongoing_checked) {
 
 function refresh_cache() {
 
+	const view_name = "master_failures_raw_causes_mview";
+
 	$("#scan-throbber").show();
         $.post({
 		url: "/api/refresh-materialized-view",
+		data: {"view-name": view_name, "from-frontend": true},
 		success: function( data ) {
 			$("#scan-throbber").hide();
 
