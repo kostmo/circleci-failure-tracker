@@ -218,6 +218,9 @@ scottyApp
   get "/api/patterns" $
     pure SqlRead.apiPatterns
 
+  get "/api/inferred-scheduled-builds" $
+    pure SqlRead.getScheduledJobNames
+
   get "/api/presumed-stable-branches-dump" $
     pure SqlRead.dumpPresumedStableBranches
 
@@ -235,6 +238,9 @@ scottyApp
 
   get "/api/summary" $
     pure SqlRead.apiSummaryStats
+
+  get "/api/job-schedule-stats" $
+    pure SqlRead.apiJobScheduleStats
 
   get "/api/tags" $
     pure SqlRead.apiTagsHistogram
@@ -332,7 +338,7 @@ scottyApp
       <*> S.param "limit"
 
   get "/api/master-timeline" $
-    fmap WebApi.toJsonEither . SqlRead.apiMasterBuilds mview_connection_data <$> FrontendHelpers.getOffsetMode
+    fmap WebApi.toJsonEither . SqlRead.apiMasterBuilds <$> FrontendHelpers.getOffsetMode
 
   S.get "/api/commit-info" $ do
     commit_sha1_text <- S.param "sha1"
@@ -431,6 +437,11 @@ scottyApp
       <$> S.param "cause_id"
       <*> (Builds.RawCommit <$> S.param "resolution_sha1")
 
+  S.post "/api/code-breakage-add-affected-job" $
+    withAuth $
+      SqlWrite.addCodeBreakageJobName
+        <$> S.param "cause_id"
+        <*> S.param "job_name"
 
   post "/api/code-breakage-delete" $
     SqlWrite.deleteCodeBreakage

@@ -1416,6 +1416,19 @@ CREATE VIEW public.known_breakage_summaries WITH (security_barrier='false') AS
 ALTER TABLE public.known_breakage_summaries OWNER TO postgres;
 
 --
+-- Name: VIEW known_breakage_summaries; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.known_breakage_summaries IS 'Logic for "unavoidable_downstream_broken_commit_count" is
+to use the same value as "downstream_broken_commit_count"
+UNLESS foreshadowed_broken_job_count is nonzero, in which case
+"unavoidable_downstream_broken_commit_count" is zero.
+
+That is to say, all downstream commit failures were avoidable if this
+master commit''s Pull Request had job failures foreshadowing the master breakage.';
+
+
+--
 -- Name: code_breakage_monthly_aggregation; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -1535,6 +1548,123 @@ CREATE VIEW public.job_failure_frequencies WITH (security_barrier='false') AS
 ALTER TABLE public.job_failure_frequencies OWNER TO postgres;
 
 --
+-- Name: job_runs_3day_bins; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.job_runs_3day_bins AS
+ SELECT foo.job_name,
+    foo.on_master,
+    foo.bin_three_days,
+    min(foo.queued_at) AS earliest_queued_at,
+    count(*) AS build_count
+   FROM ( SELECT builds_deduped.global_build,
+            builds_deduped.job_name,
+            builds_deduped.queued_at,
+            (ordered_master_commits.sha1 IS NOT NULL) AS on_master,
+            to_timestamp(((((((floor((date_part('epoch'::text, builds_deduped.queued_at) / ((((60 * 60) * 24) * 3))::double precision)))::integer * 60) * 60) * 24) * 3))::double precision) AS bin_three_days
+           FROM (public.builds_deduped
+             LEFT JOIN public.ordered_master_commits ON ((builds_deduped.vcs_revision = ordered_master_commits.sha1)))) foo
+  GROUP BY foo.job_name, foo.on_master, foo.bin_three_days;
+
+
+ALTER TABLE public.job_runs_3day_bins OWNER TO postgres;
+
+--
+-- Name: job_schedule_statistics; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.job_schedule_statistics AS
+ SELECT (baz.commit_to_build_latency_stddev / date_part('epoch'::text, baz.commit_to_build_latency_average)) AS commit_to_build_latency_coefficient_of_variation,
+    (baz.build_interval_stddev / date_part('epoch'::text, baz.build_interval_average)) AS build_interval_coefficient_of_variation,
+    (baz.latest_build - baz.earliest_build) AS job_extant_timespan,
+    ('00:00:00'::time without time zone + ((((('00:00:01'::interval * atan2(baz.circular_tod_average_complex_part, baz.circular_tod_average_real_part)) * (60)::double precision) * (60)::double precision) * (24)::double precision) / ((2)::double precision * pi()))) AS circular_time_of_day_average,
+    sqrt((('-2'::integer)::double precision * ln(sqrt(((baz.circular_tod_average_real_part * baz.circular_tod_average_real_part) + (baz.circular_tod_average_complex_part * baz.circular_tod_average_complex_part)))))) AS circular_time_of_day_stddev,
+    baz.job_name,
+    baz.build_count,
+    baz.earliest_build,
+    baz.latest_build,
+    baz.build_interval_average,
+    baz.build_interval_stddev,
+    baz.naive_time_of_day_average,
+    baz.circular_tod_average_real_part,
+    baz.circular_tod_average_complex_part,
+    baz.time_of_day_seconds_stddev,
+    baz.commit_to_build_latency_average,
+    baz.commit_to_build_latency_stddev
+   FROM ( SELECT bar.job_name,
+            count(*) AS build_count,
+            min(bar.queued_at) AS earliest_build,
+            max(bar.queued_at) AS latest_build,
+            avg(bar.build_interval) AS build_interval_average,
+            stddev(date_part('epoch'::text, bar.build_interval)) AS build_interval_stddev,
+            avg((bar.time_of_day)::interval) AS naive_time_of_day_average,
+            (sum(cos((((date_part('epoch'::text, bar.time_of_day) * (2)::double precision) * pi()) / (((60 * 60) * 24))::double precision))) / (count(*))::double precision) AS circular_tod_average_real_part,
+            (sum(sin((((date_part('epoch'::text, bar.time_of_day) * (2)::double precision) * pi()) / (((60 * 60) * 24))::double precision))) / (count(*))::double precision) AS circular_tod_average_complex_part,
+            stddev((date_part('epoch'::text, bar.time_of_day) + (((60 * 60) * 24))::double precision)) AS time_of_day_seconds_stddev,
+            avg(bar.commit_to_build_latency) AS commit_to_build_latency_average,
+            stddev(date_part('epoch'::text, bar.commit_to_build_latency)) AS commit_to_build_latency_stddev
+           FROM ( SELECT (foo.queued_at - foo.prev_queued_at) AS build_interval,
+                    (foo.queued_at)::time without time zone AS time_of_day,
+                    foo.global_build,
+                    foo.job_name,
+                    foo.queued_at,
+                    foo.committer_date,
+                    foo.commit_to_build_latency,
+                    foo.sha1,
+                    foo.prev_queued_at
+                   FROM ( SELECT builds_deduped.global_build,
+                            builds_deduped.job_name,
+                            builds_deduped.queued_at,
+                            master_ordered_commits_with_metadata.committer_date,
+                            (builds_deduped.queued_at - master_ordered_commits_with_metadata.committer_date) AS commit_to_build_latency,
+                            master_ordered_commits_with_metadata.sha1,
+                            lag(builds_deduped.queued_at) OVER (PARTITION BY builds_deduped.job_name ORDER BY builds_deduped.queued_at) AS prev_queued_at
+                           FROM (public.builds_deduped
+                             JOIN public.master_ordered_commits_with_metadata ON ((builds_deduped.vcs_revision = master_ordered_commits_with_metadata.sha1)))) foo
+                  WHERE (foo.prev_queued_at IS NOT NULL)) bar
+          GROUP BY bar.job_name
+          ORDER BY bar.job_name DESC) baz
+  ORDER BY baz.job_name;
+
+
+ALTER TABLE public.job_schedule_statistics OWNER TO postgres;
+
+--
+-- Name: VIEW job_schedule_statistics; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.job_schedule_statistics IS 'Uses circular average and stddev formulas from Wikipedia: https://en.wikipedia.org/wiki/Directional_statistics#Measures_of_location_and_spread';
+
+
+--
+-- Name: job_schedule_statistics_mview; Type: MATERIALIZED VIEW; Schema: public; Owner: materialized_view_updater
+--
+
+CREATE MATERIALIZED VIEW public.job_schedule_statistics_mview AS
+ SELECT job_schedule_statistics.commit_to_build_latency_coefficient_of_variation,
+    job_schedule_statistics.build_interval_coefficient_of_variation,
+    job_schedule_statistics.job_extant_timespan,
+    job_schedule_statistics.circular_time_of_day_average,
+    job_schedule_statistics.circular_time_of_day_stddev,
+    job_schedule_statistics.job_name,
+    job_schedule_statistics.build_count,
+    job_schedule_statistics.earliest_build,
+    job_schedule_statistics.latest_build,
+    job_schedule_statistics.build_interval_average,
+    job_schedule_statistics.build_interval_stddev,
+    job_schedule_statistics.naive_time_of_day_average,
+    job_schedule_statistics.circular_tod_average_real_part,
+    job_schedule_statistics.circular_tod_average_complex_part,
+    job_schedule_statistics.time_of_day_seconds_stddev,
+    job_schedule_statistics.commit_to_build_latency_average,
+    job_schedule_statistics.commit_to_build_latency_stddev
+   FROM public.job_schedule_statistics
+  WITH NO DATA;
+
+
+ALTER TABLE public.job_schedule_statistics_mview OWNER TO materialized_view_updater;
+
+--
 -- Name: scanned_patterns; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -1561,6 +1691,35 @@ CREATE VIEW public.latest_pattern_scanned_for_build_step AS
 
 
 ALTER TABLE public.latest_pattern_scanned_for_build_step OWNER TO postgres;
+
+--
+-- Name: master_built_commit_groups; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_built_commit_groups AS
+ SELECT count(*) AS commit_group_size,
+    max(bar.commit_id) AS built_commit_id
+   FROM ( SELECT sum(((foo.commit_sha1 IS NOT NULL))::integer) OVER (ORDER BY ordered_master_commits.id DESC) AS commit_group,
+            ordered_master_commits.id AS commit_id
+           FROM (public.ordered_master_commits
+             LEFT JOIN ( SELECT DISTINCT universal_builds.commit_sha1
+                   FROM public.universal_builds) foo ON ((foo.commit_sha1 = ordered_master_commits.sha1)))) bar
+  GROUP BY bar.commit_group
+  ORDER BY (max(bar.commit_id)) DESC;
+
+
+ALTER TABLE public.master_built_commit_groups OWNER TO postgres;
+
+--
+-- Name: VIEW master_built_commit_groups; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.master_built_commit_groups IS 'Sometimes several commits land to the master branch simultaneously, such that only the last of these triggers any builds.
+
+This view identifies the built commits of a series such that the unbuilt commits can be filtered out from a timeline view.
+
+Note that this technique of grouping unbuilt commits with the next built commit should also be applied on a per-job basis for the "master_contiguous_failures" view.';
+
 
 --
 -- Name: master_contiguous_failures; Type: VIEW; Schema: public; Owner: postgres
@@ -1617,7 +1776,9 @@ ALTER TABLE public.master_contiguous_failures OWNER TO postgres;
 -- Name: VIEW master_contiguous_failures; Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON VIEW public.master_contiguous_failures IS 'NOTE: This operates on per-job basis, in contrast with the view "master_indiscriminate_failure_spans", which groups failures of commits where any job failed.';
+COMMENT ON VIEW public.master_contiguous_failures IS 'NOTE: This operates on per-job basis, in contrast with the view "master_indiscriminate_failure_spans", which groups failures of commits where any job failed.
+
+The "master_indiscriminate_failure_spans_intermediate" view uses a similar technique, but for groups of minimum size 1 instead of minimum size 2, as this view does.';
 
 
 --
@@ -1969,7 +2130,10 @@ CREATE VIEW public.master_failures_weekly_aggregation WITH (security_barrier='fa
     blarg.pattern_unmatched_count,
     blarg.succeeded_count,
     (((((blarg.flaky_count + blarg.pattern_matched_count) + blarg.timeout_count) + blarg.idiopathic_count) + blarg.pattern_unmatched_count) + blarg.known_broken_count) AS total_failures_sanity_check_sum,
-    ((((((blarg.flaky_count + blarg.pattern_matched_count) + blarg.timeout_count) + blarg.idiopathic_count) + blarg.pattern_unmatched_count) + blarg.known_broken_count) = blarg.failure_count) AS sanity_check_is_failure_count_equal
+    ((((((blarg.flaky_count + blarg.pattern_matched_count) + blarg.timeout_count) + blarg.idiopathic_count) + blarg.pattern_unmatched_count) + blarg.known_broken_count) = blarg.failure_count) AS sanity_check_is_failure_count_equal,
+    blarg.total_count,
+    (blarg.succeeded_count + blarg.failure_count) AS sanity_check_successes_plus_failures,
+    ((blarg.succeeded_count + blarg.failure_count) = blarg.total_count) AS sanity_check_total_is_successes_plus_failures
    FROM ( SELECT sum(foo.has_failure) AS had_failure,
             sum(foo.has_idiopathic) AS had_idiopathic,
             sum(foo.has_timeout) AS had_timeout,
@@ -1987,7 +2151,8 @@ CREATE VIEW public.master_failures_weekly_aggregation WITH (security_barrier='fa
             min(foo.commit_index) AS earliest_commit_index,
             max(foo.commit_index) AS latest_commit_index,
             sum(foo.pattern_unmatched_count) AS pattern_unmatched_count,
-            sum(foo.succeeded_count) AS succeeded_count
+            sum(foo.succeeded_count) AS succeeded_count,
+            sum(foo.total_count) AS total_count
            FROM ( SELECT ((master_failures_by_commit.failed > 0))::integer AS has_failure,
                     ((master_failures_by_commit.idiopathic > 0))::integer AS has_idiopathic,
                     ((master_failures_by_commit.timeout > 0))::integer AS has_timeout,
@@ -1996,6 +2161,7 @@ CREATE VIEW public.master_failures_weekly_aggregation WITH (security_barrier='fa
                     ((master_failures_by_commit.flaky > 0))::integer AS has_flaky,
                     master_failures_by_commit.failed AS failure_count,
                     master_failures_by_commit.succeeded AS succeeded_count,
+                    master_failures_by_commit.total AS total_count,
                     master_failures_by_commit.idiopathic AS idiopathic_count,
                     master_failures_by_commit.timeout AS timeout_count,
                     master_failures_by_commit.known_broken AS known_broken_count,
@@ -2017,10 +2183,7 @@ ALTER TABLE public.master_failures_weekly_aggregation OWNER TO postgres;
 -- Name: VIEW master_failures_weekly_aggregation; Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON VIEW public.master_failures_weekly_aggregation IS 'NOTE: "pattern_matched_count" excludes "flaky" builds
-
-FIXME: "failure_count" is a misnomer; it is actually the total that includes successes.
-"has_failure" is also a misnomer.';
+COMMENT ON VIEW public.master_failures_weekly_aggregation IS 'NOTE: includes commits that were not built';
 
 
 --
@@ -2900,6 +3063,23 @@ CREATE VIEW public.upstream_breakages_weekly_aggregation WITH (security_barrier=
 ALTER TABLE public.upstream_breakages_weekly_aggregation OWNER TO postgres;
 
 --
+-- Name: upstream_breakages_weekly_aggregation_mview; Type: MATERIALIZED VIEW; Schema: public; Owner: materialized_view_updater
+--
+
+CREATE MATERIALIZED VIEW public.upstream_breakages_weekly_aggregation_mview AS
+ SELECT upstream_breakages_weekly_aggregation.week,
+    upstream_breakages_weekly_aggregation.distinct_breakages,
+    upstream_breakages_weekly_aggregation.downstream_broken_commit_count,
+    upstream_breakages_weekly_aggregation.downstream_broken_build_count,
+    upstream_breakages_weekly_aggregation.unavoidable_downstream_broken_commit_count,
+    upstream_breakages_weekly_aggregation.unavoidable_downstream_broken_build_count
+   FROM public.upstream_breakages_weekly_aggregation
+  WITH NO DATA;
+
+
+ALTER TABLE public.upstream_breakages_weekly_aggregation_mview OWNER TO materialized_view_updater;
+
+--
 -- Name: build_steps id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
@@ -3371,6 +3551,13 @@ CREATE INDEX idx_is_timeout ON public.build_steps USING btree (is_timeout);
 
 
 --
+-- Name: idx_job_schedule_stats_job_name; Type: INDEX; Schema: public; Owner: materialized_view_updater
+--
+
+CREATE UNIQUE INDEX idx_job_schedule_stats_job_name ON public.job_schedule_statistics_mview USING btree (job_name);
+
+
+--
 -- Name: idx_line_number; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -3410,6 +3597,13 @@ CREATE INDEX idx_universal_builds_sha1 ON public.universal_builds USING btree (c
 --
 
 CREATE INDEX idx_universal_builds_succeeded ON public.universal_builds USING btree (succeeded);
+
+
+--
+-- Name: idx_upsteream_breakages_weekly_week; Type: INDEX; Schema: public; Owner: materialized_view_updater
+--
+
+CREATE UNIQUE INDEX idx_upsteream_breakages_weekly_week ON public.upstream_breakages_weekly_aggregation_mview USING btree (week DESC NULLS LAST);
 
 
 --
@@ -4051,6 +4245,29 @@ GRANT ALL ON TABLE public.job_failure_frequencies TO logan;
 
 
 --
+-- Name: TABLE job_runs_3day_bins; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.job_runs_3day_bins TO logan;
+
+
+--
+-- Name: TABLE job_schedule_statistics; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.job_schedule_statistics TO logan;
+GRANT SELECT ON TABLE public.job_schedule_statistics TO materialized_view_updater;
+
+
+--
+-- Name: TABLE job_schedule_statistics_mview; Type: ACL; Schema: public; Owner: materialized_view_updater
+--
+
+REVOKE ALL ON TABLE public.job_schedule_statistics_mview FROM materialized_view_updater;
+GRANT SELECT ON TABLE public.job_schedule_statistics_mview TO logan;
+
+
+--
 -- Name: TABLE scanned_patterns; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -4062,6 +4279,13 @@ GRANT ALL ON TABLE public.scanned_patterns TO logan;
 --
 
 GRANT ALL ON TABLE public.latest_pattern_scanned_for_build_step TO logan;
+
+
+--
+-- Name: TABLE master_built_commit_groups; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_built_commit_groups TO logan;
 
 
 --
@@ -4392,6 +4616,14 @@ GRANT ALL ON TABLE public.upstream_breakage_author_stats TO logan;
 --
 
 GRANT ALL ON TABLE public.upstream_breakages_weekly_aggregation TO logan;
+GRANT SELECT ON TABLE public.upstream_breakages_weekly_aggregation TO materialized_view_updater;
+
+
+--
+-- Name: TABLE upstream_breakages_weekly_aggregation_mview; Type: ACL; Schema: public; Owner: materialized_view_updater
+--
+
+GRANT SELECT ON TABLE public.upstream_breakages_weekly_aggregation_mview TO logan;
 
 
 --

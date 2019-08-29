@@ -23,6 +23,7 @@ import qualified Data.Text                            as T
 import qualified Data.Text.Lazy                       as LT
 import           Data.Time                            (UTCTime)
 import           Data.Time.Calendar                   (Day)
+import           Data.Time.LocalTime                  (TimeOfDay)
 import           Data.Tuple                           (swap)
 import           Database.PostgreSQL.Simple
 import           Database.PostgreSQL.Simple.FromField (FromField)
@@ -1123,45 +1124,55 @@ refreshCachedMasterGrid view_name is_from_frontend = do
       _ -> Left $ "Unrecognized vew name: " <> view_name
 
 
-getLastCachedMasterGridRefreshTime :: Connection -> IO (UTCTime, Text)
-getLastCachedMasterGridRefreshTime conn = do
-  [tuple] <- query conn sql (Only ("master_failures_raw_causes_mview" :: String))
-  return tuple
+getLastCachedMasterGridRefreshTime :: DbIO (UTCTime, Text)
+getLastCachedMasterGridRefreshTime = do
+  conn <- ask
+  liftIO $ do
+    [tuple] <- query conn sql (Only ("master_failures_raw_causes_mview" :: String))
+    return tuple
   where
-
     sql = "SELECT timestamp, event_source FROM lambda_logging.materialized_view_refresh_events WHERE view_name = ? ORDER BY timestamp DESC LIMIT 1;"
+
+
+-- | XXX Threshold of 0.8 was empirically determined
+getScheduledJobNames :: DbIO [Text]
+getScheduledJobNames = listFlat sql
+  where
+    sql = "SELECT job_name FROM job_schedule_statistics_mview WHERE build_count > 1 AND circular_time_of_day_stddev < 0.8 ORDER BY job_name;"
 
 
 -- | Gets last N commits in one query,
 -- then gets the list of jobs that apply to those commits,
 -- then gets the associated builds
 apiMasterBuilds ::
-     DbHelpers.DbConnectionData -- ^ TODO get rid of this
-  -> Pagination.ParentOffsetMode
+     Pagination.TimelineParms
   -> DbIO (Either Text BuildResults.MasterBuildsResponse)
-apiMasterBuilds _mview_connection_data offset_limit = do
+apiMasterBuilds timeline_parms = do
 
   (code_breakages_time, code_breakage_ranges) <- MyUtils.timeThisFloat apiAnnotatedCodeBreakages
+
+  scheduled_job_names <- getScheduledJobNames
+  last_update_time <- getLastCachedMasterGridRefreshTime
 
   conn <- ask
   liftIO $ runExceptT $ do
 
     (commits_list_time, (commit_id_bounds, master_commits)) <- MyUtils.timeThisFloat $
-      ExceptT $ getMasterCommits conn offset_limit
+      ExceptT $ getMasterCommits conn $ Pagination.offset_mode timeline_parms
 
     let query_bounds = (WeeklyStats.min_bound commit_id_bounds, WeeklyStats.max_bound commit_id_bounds)
 
     (builds_list_time, completed_builds) <- MyUtils.timeThisFloat $
       liftIO $ query conn builds_list_sql query_bounds
 
-    last_update_time <- liftIO $ getLastCachedMasterGridRefreshTime conn
-
-
     let failed_builds = filter (not . BuildResults.isSuccess . BuildResults._failure_mode) completed_builds
-        job_names = Set.fromList $ map (Builds.job_name . BuildResults._build) failed_builds
+        raw_job_names = Set.fromList $ map (Builds.job_name . BuildResults._build) failed_builds
+        filtered_job_names = if Pagination.should_suppress_scheduled_builds timeline_parms
+          then Set.difference raw_job_names $ Set.fromList scheduled_job_names
+          else raw_job_names
 
     return $ BuildResults.MasterBuildsResponse
-      job_names
+      filtered_job_names
       master_commits
       completed_builds
       code_breakage_ranges $
@@ -1175,7 +1186,6 @@ apiMasterBuilds _mview_connection_data offset_limit = do
     builds_list_sql = "SELECT sha1, succeeded, is_idiopathic, is_flaky, is_timeout, is_matched, is_known_broken, build_num, queued_at, job_name, branch, step_name, pattern_id, match_id, line_number, line_count, line_text, span_start, span_end, specificity, is_serially_isolated, started_at, finished_at, global_build, provider, build_namespace, contiguous_run_count, contiguous_group_index, contiguous_start_commit_index, contiguous_end_commit_index, contiguous_length, cluster_id, cluster_member_count FROM master_failures_raw_causes_mview WHERE commit_index >= ? AND commit_index <= ?;"
 
 
-
 data StartEndDate = StartEndDate {
     _start :: UTCTime
   , _end   :: UTCTime
@@ -1183,7 +1193,6 @@ data StartEndDate = StartEndDate {
 
 instance ToJSON StartEndDate where
   toJSON = genericToJSON JsonUtils.dropUnderscore
-
 
 
 data BreakageDateRangeSimple = BreakageDateRangeSimple {
@@ -1236,6 +1245,24 @@ masterCommitsGranular = do
   return $ ExplorableBreakageSpans
     annotated_master_spans
     dirty_master_spans
+
+
+data JobScheduleStats = JobScheduleStats {
+    _job_name                                         :: Text
+  , _commit_to_build_latency_coefficient_of_variation :: Double
+  , _build_interval_coefficient_of_variation          :: Double
+  , _circular_time_of_day_stddev                      :: Double
+  , _circular_time_of_day_average                     :: TimeOfDay
+  } deriving (Generic, FromRow)
+
+instance ToJSON JobScheduleStats where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+apiJobScheduleStats :: DbIO [JobScheduleStats]
+apiJobScheduleStats = runQuery
+  "SELECT job_name, commit_to_build_latency_coefficient_of_variation, build_interval_coefficient_of_variation, circular_time_of_day_stddev, circular_time_of_day_average FROM job_schedule_statistics_mview WHERE build_count > 1;"
+
 
 
 apiDetectedCodeBreakages :: DbIO [BuildResults.DetectedBreakageSpan]

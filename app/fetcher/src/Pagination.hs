@@ -6,6 +6,12 @@ import qualified Builds
 import qualified WeeklyStats
 
 
+data TimelineParms = TimelineParms {
+    should_suppress_scheduled_builds :: Bool
+  , offset_mode                      :: ParentOffsetMode
+  }
+
+
 data ParentOffsetMode =
     FixedAndOffset OffsetLimit
   | CommitIndices (WeeklyStats.InclusiveNumericBounds Int64)

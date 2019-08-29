@@ -9,6 +9,19 @@ function delete_callback() {
 }
 
 
+
+function add_affected_job() {
+
+	var cause_id = get_cause_id();
+	const new_affected_job = $("#new-affected-job-field").val();
+
+	if (new_affected_job && confirm("Add new affected job \"" + new_affected_job + "\"?")) {
+		post_modification("/api/code-breakage-add-affected-job", {"cause_id": cause_id, "job_name": new_affected_job});
+	}
+}
+
+
+
 function update_resolution_commit() {
 
 	var cause_id = get_cause_id();

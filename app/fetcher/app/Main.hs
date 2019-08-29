@@ -14,6 +14,7 @@ data CommandLineArgs = NewCommandLineArgs {
   , ageDays       :: Int
   , branchName    :: [String]
   , dbHostname    :: String
+  , dbUsername    :: String
   , dbPassword    :: String
   , wipeDatabase  :: Bool
   , rescanVisited :: Bool
@@ -30,6 +31,8 @@ myCliParser = NewCommandLineArgs
     <> help "Branch name (can specify multiple)"))
   <*> strOption   (long "db-hostname" <> value "localhost" <> metavar "DATABASE_HOSTNAME"
     <> help "Hostname of database")
+  <*> strOption   (long "db-username" <> value "logan" <> metavar "DATABASE_USER"
+    <> help "Username for database user")
   <*> strOption   (long "db-password" <> value "logan01" <> metavar "DATABASE_PASSWORD"
     <> help "Password for database user")
    -- Note: this is not the production password; this default is only for local testing
@@ -87,7 +90,7 @@ mainAppCode args = do
     connection_data = DbHelpers.NewDbConnectionData {
         DbHelpers.dbHostname = dbHostname args
       , DbHelpers.dbName = "loganci"
-      , DbHelpers.dbUsername = "logan"
+      , DbHelpers.dbUsername = dbUsername args
       , DbHelpers.dbPassword = dbPassword args
       }
 

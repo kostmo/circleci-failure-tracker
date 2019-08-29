@@ -112,7 +112,7 @@ echoEndpoint = S.post "/api/echo" $ do
     putStrLn "==== END BODY ===="
 
 
-getOffsetMode :: ScottyTypes.ActionT LT.Text IO Pagination.ParentOffsetMode
+getOffsetMode :: ScottyTypes.ActionT LT.Text IO Pagination.TimelineParms
 getOffsetMode = do
   offset_count <- S.param "offset"
   starting_commit <- S.param "sha1"
@@ -121,6 +121,7 @@ getOffsetMode = do
   min_commit_index <- S.param "min_commit_index"
   max_commit_index <- S.param "max_commit_index"
   commit_count <- S.param "count"
+  should_suppress_scheduled_builds_text <- S.param "should_suppress_scheduled_builds"
 
   let
     offset_mode
@@ -137,7 +138,9 @@ getOffsetMode = do
             (Pagination.Count offset_count)
             commit_count
 
-  return offset_mode
+  return $ Pagination.TimelineParms
+    (checkboxIsTrue should_suppress_scheduled_builds_text)
+    offset_mode
 
 
 jsonDbGet :: ToJSON a =>

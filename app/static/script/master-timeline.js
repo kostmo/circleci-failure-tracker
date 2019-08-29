@@ -784,6 +784,8 @@ function get_form_values() {
 	const min_commit_index = $('#commit-index-min').val() || 0;
 	const max_commit_index = $('#commit-index-max').val() || 0;
 
+	const should_suppress_scheduled_builds = $('#checkbox-suppress-scheduled-builds').is(":checked");
+
 
 	const pagination_mode = document.querySelector('input[name="pagination-mode"]:checked').value;
 
@@ -805,6 +807,7 @@ function get_form_values() {
 		"use_commit_index_bounds": use_commit_index_bounds,
 		"min_commit_index": min_commit_index,
 		"max_commit_index": max_commit_index,
+		"should_suppress_scheduled_builds": should_suppress_scheduled_builds,
 	}
 
 	return parms;
@@ -846,6 +849,12 @@ function update_url_from_form() {
 		};
 	}
 
+
+	const should_suppress_scheduled_builds = $('#checkbox-suppress-scheduled-builds').is(":checked");
+	if (should_suppress_scheduled_builds) {
+		url_parms["should_suppress_scheduled_builds"] = should_suppress_scheduled_builds;
+	}
+
 	document.location.search = $.param( url_parms );
 }
 
@@ -878,6 +887,12 @@ function populate_form_from_url() {
 	const starting_sha1 = urlParams.get('sha1');
 	if (starting_sha1 != null) {
 		$('#sha1-input').val(starting_sha1);
+	}
+
+
+	const should_suppress_scheduled_builds = urlParams.get('should_suppress_scheduled_builds');
+	if (should_suppress_scheduled_builds != null) {
+		$('#checkbox-suppress-scheduled-builds').prop('checked', true);
 	}
 
 

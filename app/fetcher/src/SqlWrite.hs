@@ -503,6 +503,17 @@ updateCodeBreakageResolutionSha1 cause_id (Builds.RawCommit sha1) = do
     sql = "UPDATE code_breakage_resolution SET sha1 = ? WHERE cause = ?;"
 
 
+addCodeBreakageJobName ::
+     Int64 -- ^ cause
+  -> Text -- ^ job name
+  -> SqlRead.AuthDbIO (Either Text Int64)
+addCodeBreakageJobName cause_id job_name = do
+  SqlRead.AuthConnection conn (AuthStages.Username author) <- ask
+  liftIO $ Right <$> execute conn job_insertion_sql (job_name, cause_id, author)
+  where
+    job_insertion_sql = "INSERT INTO code_breakage_affected_jobs(job, cause, reporter) VALUES(?,?,?);"
+
+
 updateCodeBreakageMode ::
      Int64 -- ^ cause
   -> Int64 -- ^ mode
