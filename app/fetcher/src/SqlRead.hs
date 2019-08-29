@@ -267,7 +267,7 @@ getMergeTimeFailingPullRequestBuildsByWeek week_count = do
   conn <- ask
   liftIO $ fmap reverse $ query conn sql $ Only week_count
   where
-    sql = "SELECT week, total_pr_count, failing_pr_count, total_build_count, total_failed_build_count, foreshadowed_breakage_count FROM pr_merge_time_failing_builds_by_week WHERE failing_pr_count IS NOT NULL ORDER BY week DESC OFFSET 1 LIMIT ?;"
+    sql = "SELECT week, total_pr_count, failing_pr_count, total_build_count, total_failed_build_count, foreshadowed_breakage_count FROM pr_merge_time_failing_builds_by_week_mview WHERE failing_pr_count IS NOT NULL ORDER BY week DESC OFFSET 1 LIMIT ?;"
 
 
 data PatternsTimelinePoint = PatternsTimelinePoint {
@@ -559,7 +559,7 @@ masterWeeklyFailureStats week_count = do
     WeeklyStats.buildCountColors
     (reverse $ map f xs)
   where
-    sql = "SELECT commit_count, had_failure, had_idiopathic, had_timeout, had_known_broken, had_pattern_matched, had_flaky, failure_count::int, idiopathic_count::int, timeout_count::int, known_broken_count::int, pattern_matched_count::int, pattern_unmatched_count::int, flaky_count::int, earliest_commit_index, latest_commit_index, week FROM master_failures_weekly_aggregation ORDER BY week DESC LIMIT ? OFFSET 1;"
+    sql = "SELECT commit_count, had_failure, had_idiopathic, had_timeout, had_known_broken, had_pattern_matched, had_flaky, failure_count::int, idiopathic_count::int, timeout_count::int, known_broken_count::int, pattern_matched_count::int, pattern_unmatched_count::int, flaky_count::int, earliest_commit_index, latest_commit_index, week FROM master_failures_weekly_aggregation_mview ORDER BY week DESC LIMIT ? OFFSET 1;"
 
     f (commit_count, had_failure, had_idiopathic, had_timeout, had_known_broken, had_pattern_matched, had_flaky, failure_count, idiopathic_count, timeout_count, known_broken_count, pattern_matched_count, pattern_unmatched_count, flaky_count, earliest_commit_index, latest_commit_index, week) =
       WeeklyStats.MasterWeeklyStats
@@ -1165,9 +1165,11 @@ apiMasterBuilds timeline_parms = do
     (builds_list_time, completed_builds) <- MyUtils.timeThisFloat $
       liftIO $ query conn builds_list_sql query_bounds
 
-    let failed_builds = filter (not . BuildResults.isSuccess . BuildResults._failure_mode) completed_builds
-        raw_job_names = Set.fromList $ map (Builds.job_name . BuildResults._build) failed_builds
-        filtered_job_names = if Pagination.should_suppress_scheduled_builds timeline_parms
+    let builds_to_determine_jobs = if Pagination.should_suppress_fully_successful_columns $ Pagination.column_filtering timeline_parms
+          then filter (not . BuildResults.isSuccess . BuildResults._failure_mode) completed_builds
+          else completed_builds
+        raw_job_names = Set.fromList $ map (Builds.job_name . BuildResults._build) builds_to_determine_jobs
+        filtered_job_names = if Pagination.should_suppress_scheduled_builds $ Pagination.column_filtering timeline_parms
           then Set.difference raw_job_names $ Set.fromList scheduled_job_names
           else raw_job_names
 

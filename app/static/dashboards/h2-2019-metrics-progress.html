@@ -1,0 +1,101 @@
+<html>
+<head>
+<title>H2 2019 Metrics Dashboard</title>
+<link href="/style.css" rel="stylesheet" type="text/css"></link>
+
+<link href="/dropdown.css" rel="stylesheet" type="text/css"></link>
+
+<script src="https://code.highcharts.com/highcharts.js"></script>
+<script src="https://code.highcharts.com/modules/exporting.js"></script>
+<script src="https://code.highcharts.com/modules/annotations.js"></script>
+
+<script src="https://code.highcharts.com/modules/export-data.js"></script>
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.24.0/moment.min.js"></script>
+
+<link href="https://unpkg.com/tabulator-tables@4.2.5/dist/css/tabulator.min.css" rel="stylesheet"/>
+
+<script type="text/javascript" src="https://unpkg.com/tabulator-tables@4.2.5/dist/js/tabulator.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/lodash@4.17.11/lodash.min.js"></script>
+
+
+
+<script src="/script/js-utils.js"></script>
+<script src="/script/html-utils.js"></script>
+<script src="/script/table-helpers.js"></script>
+
+<script src="/script/master-stats.js"></script>
+<script src="/script/code-breakages.js"></script>
+
+
+<script src="/dashboards/script/h2-2019-metrics-progress.js"></script>
+
+
+
+
+</head>
+
+<body onload="dashboard_main();">
+
+
+<span style="float: right;">[<a href="/">home</a>]</span>
+<h2>H2 2019 Metrics Dashboard</h2>
+
+
+<div id="scan-throbber" style="display: none; float:right"><img src="/images/duck.gif"/></div>
+
+<form onsubmit="return false;">
+
+<label>
+Weeks:
+<input id="weeks-count-input" type="number" value="10" min="1" size="2"/>
+</label>
+
+<button onclick="render();">Go</button>
+
+
+<h2>Downstream impact of breakages</h2>
+<p>
+This metric is a more precise measurement of productivity loss than simply
+measuring broken commits on the master branch; some jobs don't ever run on
+PRs and thus will break master both without the author being able to predict so and without
+other devs ever noticing.
+</p>
+<div id="container-stacked-percent-downstream-impact-by-week" style="min-width: 400px; height: 500px; max-width: 800px; margin: 0 auto"></div>
+
+<h2>Undifferentiated failures</h2>
+
+
+<table style="width: 100%;"><tr><td>
+<div id="container-normalized-commit-failures-by-week" style="min-width: 500px; height: 500px; max-width: 800px; margin: 0 auto"></div>
+</td><td>
+<div id="container-normalized-build-failures-by-week" style="min-width: 500px; height: 500px; max-width: 800px; margin: 0 auto"></div>
+</td></tr></table>
+
+
+<h2><a name="split-by-causes">Split by causes</a></h2>
+
+<p>The following three charts all show the same data in different presentation forms.</p>
+
+<div id="scan-throbber2" style="display: none;"><img src="/images/duck.gif"/></div>
+
+<div id="container-column-separated-occurrences-by-week" style="min-width: 500px; height: 600px; max-width: 1000px; margin: 0 auto"></div>
+
+
+<table style="width: 100%;"><tr><td>
+<div id="container-stacked-timeline-separated-occurrences-by-week" style="min-width: 500px; height: 600px; max-width: 1000px; margin: 0 auto"></div>
+</td><td>
+<div id="container-percent-timeline-separated-occurrences-by-week" style="min-width: 500px; height: 600px; max-width: 1000px; margin: 0 auto"></div>
+
+</td></tr></table>
+
+
+
+
+<hr/>
+
+<i>by <a href="https://github.com/kostmo" rel="author">kostmo</a></i>
+<span style="float: right">See <a href="https://github.com/kostmo/circleci-failure-tracker/blob/master/README.md">project README</a> for details.</span>
+
+</body>
+</head>

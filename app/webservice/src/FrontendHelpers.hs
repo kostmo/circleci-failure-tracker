@@ -122,6 +122,8 @@ getOffsetMode = do
   max_commit_index <- S.param "max_commit_index"
   commit_count <- S.param "count"
   should_suppress_scheduled_builds_text <- S.param "should_suppress_scheduled_builds"
+  should_suppress_fully_successful_columns_text <- S.param "should_suppress_fully_successful_columns"
+
 
   let
     offset_mode
@@ -138,8 +140,12 @@ getOffsetMode = do
             (Pagination.Count offset_count)
             commit_count
 
+    column_filtering_options = Pagination.ColumnFilteringOptions
+      (checkboxIsTrue should_suppress_scheduled_builds_text)
+      (checkboxIsTrue should_suppress_fully_successful_columns_text)
+
   return $ Pagination.TimelineParms
-    (checkboxIsTrue should_suppress_scheduled_builds_text)
+    column_filtering_options
     offset_mode
 
 

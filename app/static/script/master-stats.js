@@ -260,9 +260,7 @@ function separated_causes_timeline_highchart(container_element, series_list, sta
 }
 
 
-function render() {
-
-	const weeks_count = $('#weeks-count-input').val();
+function render(weeks_count) {
 
 	$("#scan-throbber").show();
 	$("#scan-throbber2").show();
@@ -388,6 +386,8 @@ function populate_form_from_url() {
 
 function main() {
 	populate_form_from_url();
-	render();
+
+	const weeks_count = $('#weeks-count-input').val();
+	render(weeks_count);
 }
 

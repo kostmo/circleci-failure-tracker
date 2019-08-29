@@ -6,9 +6,15 @@ import qualified Builds
 import qualified WeeklyStats
 
 
+data ColumnFilteringOptions = ColumnFilteringOptions {
+    should_suppress_scheduled_builds         :: Bool
+  , should_suppress_fully_successful_columns :: Bool
+  }
+
+
 data TimelineParms = TimelineParms {
-    should_suppress_scheduled_builds :: Bool
-  , offset_mode                      :: ParentOffsetMode
+    column_filtering :: ColumnFilteringOptions
+  , offset_mode      :: ParentOffsetMode
   }
 
 
