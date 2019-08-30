@@ -1134,11 +1134,38 @@ getLastCachedMasterGridRefreshTime = do
     sql = "SELECT timestamp, event_source FROM lambda_logging.materialized_view_refresh_events WHERE view_name = ? ORDER BY timestamp DESC LIMIT 1;"
 
 
+data MaterializedViewRefreshInfo = MaterializedViewRefreshInfo {
+    _view_name              :: Text
+  , _latest                 :: UTCTime
+  , _average_execution_time :: Double
+  , _event_count            :: Int
+  , _latest_age_seconds     :: Double
+  } deriving (Generic, FromRow)
+
+instance ToJSON MaterializedViewRefreshInfo where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+apiMaterializedViewRefreshes :: DbIO [MaterializedViewRefreshInfo]
+apiMaterializedViewRefreshes = runQuery sql
+  where
+    sql = "SELECT view_name, latest, average_execution_time, event_count, EXTRACT(EPOCH FROM latest_age) AS latest_age_seconds FROM lambda_logging.materialized_view_refresh_event_stats;"
+
+
 -- | XXX Threshold of 0.8 was empirically determined
+--
+-- TODO: Not only are we hard-coding the variance threshold,
+-- but we also need to hardcode the prefix of "binary_"
+-- since the variance threshold is not completely reliable.
+--
+-- Furthermore, an underscore in a LIKE expression is a single-character
+-- match, so it needs to be escaped by a backslash.
+-- The Haskell string literal needs to have THIS backslash escaped,
+-- for a total of 2 backslashes.
 getScheduledJobNames :: DbIO [Text]
 getScheduledJobNames = listFlat sql
   where
-    sql = "SELECT job_name FROM job_schedule_statistics_mview WHERE build_count > 1 AND circular_time_of_day_stddev < 0.8 ORDER BY job_name;"
+    sql = "SELECT job_name FROM job_schedule_statistics_mview WHERE (build_count > 1 AND circular_time_of_day_stddev < 0.8) OR job_name LIKE 'binary\\_%' OR job_name LIKE 'smoke\\_%' ORDER BY job_name;"
 
 
 -- | Gets last N commits in one query,
@@ -1165,13 +1192,17 @@ apiMasterBuilds timeline_parms = do
     (builds_list_time, completed_builds) <- MyUtils.timeThisFloat $
       liftIO $ query conn builds_list_sql query_bounds
 
-    let builds_to_determine_jobs = if Pagination.should_suppress_fully_successful_columns $ Pagination.column_filtering timeline_parms
-          then filter (not . BuildResults.isSuccess . BuildResults._failure_mode) completed_builds
-          else completed_builds
+    let builds_to_determine_jobs = MyUtils.applyIf
+          (Pagination.should_suppress_fully_successful_columns $ Pagination.column_filtering timeline_parms)
+
+          (filter $ not . BuildResults.isSuccess . BuildResults._failure_mode)
+          completed_builds
+
         raw_job_names = Set.fromList $ map (Builds.job_name . BuildResults._build) builds_to_determine_jobs
-        filtered_job_names = if Pagination.should_suppress_scheduled_builds $ Pagination.column_filtering timeline_parms
-          then Set.difference raw_job_names $ Set.fromList scheduled_job_names
-          else raw_job_names
+        filtered_job_names = MyUtils.applyIf
+          (Pagination.should_suppress_scheduled_builds $ Pagination.column_filtering timeline_parms)
+          (`Set.difference` Set.fromList scheduled_job_names)
+          raw_job_names
 
     return $ BuildResults.MasterBuildsResponse
       filtered_job_names

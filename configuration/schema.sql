@@ -78,11 +78,12 @@ ALTER TABLE lambda_logging.materialized_view_refresh_events OWNER TO postgres;
 -- Name: materialized_view_refresh_event_stats; Type: VIEW; Schema: lambda_logging; Owner: postgres
 --
 
-CREATE VIEW lambda_logging.materialized_view_refresh_event_stats AS
+CREATE VIEW lambda_logging.materialized_view_refresh_event_stats WITH (security_barrier='false') AS
  SELECT materialized_view_refresh_events.view_name,
     max(materialized_view_refresh_events."timestamp") AS latest,
     avg(materialized_view_refresh_events.execution_duration_seconds) AS average_execution_time,
-    count(*) AS event_count
+    count(*) AS event_count,
+    (CURRENT_TIMESTAMP - max(materialized_view_refresh_events."timestamp")) AS latest_age
    FROM lambda_logging.materialized_view_refresh_events
   GROUP BY materialized_view_refresh_events.view_name;
 
@@ -1588,9 +1589,9 @@ ALTER TABLE public.job_runs_3day_bins OWNER TO postgres;
 -- Name: job_schedule_statistics; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.job_schedule_statistics AS
- SELECT (baz.commit_to_build_latency_stddev / date_part('epoch'::text, baz.commit_to_build_latency_average)) AS commit_to_build_latency_coefficient_of_variation,
-    (baz.build_interval_stddev / date_part('epoch'::text, baz.build_interval_average)) AS build_interval_coefficient_of_variation,
+CREATE VIEW public.job_schedule_statistics WITH (security_barrier='false') AS
+ SELECT COALESCE((baz.commit_to_build_latency_stddev / date_part('epoch'::text, baz.commit_to_build_latency_average)), (0)::double precision) AS commit_to_build_latency_coefficient_of_variation,
+    COALESCE((baz.build_interval_stddev / date_part('epoch'::text, baz.build_interval_average)), (0)::double precision) AS build_interval_coefficient_of_variation,
     (baz.latest_build - baz.earliest_build) AS job_extant_timespan,
     ('00:00:00'::time without time zone + ((((('00:00:01'::interval * atan2(baz.circular_tod_average_complex_part, baz.circular_tod_average_real_part)) * (60)::double precision) * (60)::double precision) * (24)::double precision) / ((2)::double precision * pi()))) AS circular_time_of_day_average,
     sqrt((('-2'::integer)::double precision * ln(sqrt(((baz.circular_tod_average_real_part * baz.circular_tod_average_real_part) + (baz.circular_tod_average_complex_part * baz.circular_tod_average_complex_part)))))) AS circular_time_of_day_stddev,
@@ -1598,14 +1599,14 @@ CREATE VIEW public.job_schedule_statistics AS
     baz.build_count,
     baz.earliest_build,
     baz.latest_build,
-    baz.build_interval_average,
-    baz.build_interval_stddev,
+    COALESCE(baz.build_interval_average, '00:00:00'::interval) AS build_interval_average,
+    COALESCE(baz.build_interval_stddev, (0)::double precision) AS build_interval_stddev,
     baz.naive_time_of_day_average,
     baz.circular_tod_average_real_part,
     baz.circular_tod_average_complex_part,
-    baz.time_of_day_seconds_stddev,
+    COALESCE(baz.time_of_day_seconds_stddev, (0)::double precision) AS time_of_day_seconds_stddev,
     baz.commit_to_build_latency_average,
-    baz.commit_to_build_latency_stddev
+    COALESCE(baz.commit_to_build_latency_stddev, (0)::double precision) AS commit_to_build_latency_stddev
    FROM ( SELECT bar.job_name,
             count(*) AS build_count,
             min(bar.queued_at) AS earliest_build,
@@ -1635,8 +1636,7 @@ CREATE VIEW public.job_schedule_statistics AS
                             master_ordered_commits_with_metadata.sha1,
                             lag(builds_deduped.queued_at) OVER (PARTITION BY builds_deduped.job_name ORDER BY builds_deduped.queued_at) AS prev_queued_at
                            FROM (public.builds_deduped
-                             JOIN public.master_ordered_commits_with_metadata ON ((builds_deduped.vcs_revision = master_ordered_commits_with_metadata.sha1)))) foo
-                  WHERE (foo.prev_queued_at IS NOT NULL)) bar
+                             JOIN public.master_ordered_commits_with_metadata ON ((builds_deduped.vcs_revision = master_ordered_commits_with_metadata.sha1)))) foo) bar
           GROUP BY bar.job_name
           ORDER BY bar.job_name DESC) baz
   ORDER BY baz.job_name;
@@ -1711,16 +1711,19 @@ ALTER TABLE public.latest_pattern_scanned_for_build_step OWNER TO postgres;
 -- Name: master_built_commit_groups; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.master_built_commit_groups AS
- SELECT count(*) AS commit_group_size,
-    max(bar.commit_id) AS built_commit_id
-   FROM ( SELECT sum(((foo.commit_sha1 IS NOT NULL))::integer) OVER (ORDER BY ordered_master_commits.id DESC) AS commit_group,
-            ordered_master_commits.id AS commit_id
+CREATE VIEW public.master_built_commit_groups WITH (security_barrier='false') AS
+ SELECT count(*) OVER (PARTITION BY bar.commit_group) AS group_size,
+    first_value(bar.commit_id) OVER (PARTITION BY bar.commit_group) AS representative_commit_id,
+    bar.was_built,
+    bar.commit_id,
+    bar.sha1
+   FROM ( SELECT (foo.commit_sha1 IS NOT NULL) AS was_built,
+            sum(((foo.commit_sha1 IS NOT NULL))::integer) OVER (ORDER BY ordered_master_commits.id DESC) AS commit_group,
+            ordered_master_commits.id AS commit_id,
+            ordered_master_commits.sha1
            FROM (public.ordered_master_commits
              LEFT JOIN ( SELECT DISTINCT universal_builds.commit_sha1
-                   FROM public.universal_builds) foo ON ((foo.commit_sha1 = ordered_master_commits.sha1)))) bar
-  GROUP BY bar.commit_group
-  ORDER BY (max(bar.commit_id)) DESC;
+                   FROM public.universal_builds) foo ON ((foo.commit_sha1 = ordered_master_commits.sha1)))) bar;
 
 
 ALTER TABLE public.master_built_commit_groups OWNER TO postgres;
@@ -1735,6 +1738,37 @@ This view identifies the built commits of a series such that the unbuilt commits
 
 Note that this technique of grouping unbuilt commits with the next built commit should also be applied on a per-job basis for the "master_contiguous_failures" view.';
 
+
+--
+-- Name: master_commit_job_coverage_by_week; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_commit_job_coverage_by_week AS
+ WITH commit_weeks AS (
+         SELECT date_trunc('week'::text, master_ordered_commits_with_metadata.committer_date) AS week,
+            master_ordered_commits_with_metadata.sha1,
+            master_ordered_commits_with_metadata.id
+           FROM public.master_ordered_commits_with_metadata
+        )
+ SELECT bar.week,
+    bar.job_name,
+    bar.count,
+    blarg.total_built_commits_for_week,
+    ((bar.count)::double precision / (blarg.total_built_commits_for_week)::double precision) AS covered_commit_fraction
+   FROM (( SELECT builds_deduped.job_name,
+            commit_weeks.week,
+            count(*) AS count
+           FROM (commit_weeks
+             JOIN public.builds_deduped ON ((builds_deduped.vcs_revision = commit_weeks.sha1)))
+          GROUP BY builds_deduped.job_name, commit_weeks.week) bar
+     JOIN ( SELECT commit_weeks.week,
+            sum((master_built_commit_groups.was_built)::integer) AS total_built_commits_for_week
+           FROM (public.master_built_commit_groups
+             JOIN commit_weeks ON ((commit_weeks.id = master_built_commit_groups.commit_id)))
+          GROUP BY commit_weeks.week) blarg ON ((bar.week = blarg.week)));
+
+
+ALTER TABLE public.master_commit_job_coverage_by_week OWNER TO postgres;
 
 --
 -- Name: master_contiguous_failures; Type: VIEW; Schema: public; Owner: postgres
@@ -3885,6 +3919,13 @@ GRANT SELECT ON TABLE lambda_logging.materialized_view_refresh_events TO logan;
 
 
 --
+-- Name: TABLE materialized_view_refresh_event_stats; Type: ACL; Schema: lambda_logging; Owner: postgres
+--
+
+GRANT SELECT ON TABLE lambda_logging.materialized_view_refresh_event_stats TO logan;
+
+
+--
 -- Name: TABLE code_breakage_cause; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -4365,6 +4406,13 @@ GRANT ALL ON TABLE public.latest_pattern_scanned_for_build_step TO logan;
 --
 
 GRANT ALL ON TABLE public.master_built_commit_groups TO logan;
+
+
+--
+-- Name: TABLE master_commit_job_coverage_by_week; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_commit_job_coverage_by_week TO logan;
 
 
 --

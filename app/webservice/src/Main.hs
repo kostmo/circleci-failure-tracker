@@ -56,30 +56,6 @@ mainAppCode args = do
   let persistence_data = Routes.PersistenceData cache session store
 
 
-
-  when (AuthConfig.is_local github_config) $ do
-    -- XXX FOR TESTING ONLY
-
-    conn <- DbHelpers.get_connection connection_data
-    latest_pattern_id <- SqlRead.getLatestPatternId conn
-    putStrLn $ unwords ["Latest pattern ID:", show latest_pattern_id]
-
-    find_master_ancestor <- SqlWrite.findMasterAncestor
-      conn
-      access_token
-      (DbHelpers.OwnerAndRepo Constants.project_name Constants.repo_name)
-      (Builds.RawCommit "058beae4115afb76ee5f45dfa42c6ab4ee01895c")
-
-    putStrLn $ "Master ancestor: " ++ show find_master_ancestor
-  {-
-    SqlWrite.populateLatestMasterCommits
-      connection_data
-      access_token
-      (DbHelpers.OwnerAndRepo Constants.project_name Constants.repo_name)
-  -}
-    return ()
-
-
   S.scotty prt $ Routes.scottyApp persistence_data credentials_data
 
   where

@@ -102,7 +102,37 @@ function gen_log_size_histogram() {
 }
 
 
+function gen_builds_table(element_id, data_url, height_string) {
+
+	const column_list = [
+		{title: "View name", field: "view_name", width: 400,},
+
+		{title: "Latest refresh", field: "latest", width: 100, formatter: function(cell, formatterParams, onRendered) {
+				return moment(cell.getValue()).fromNow();
+			}
+		},
+		{title: "Refresh count", field: "event_count", width: 75,
+		},
+		{title: "Average execution time (s)", field: "average_execution_time", width: 75, formatter: function(cell, formatterParams, onRendered) {
+				return cell.getValue().toFixed(1);
+			},
+		},
+
+	];
+
+	const table = new Tabulator("#" + element_id, {
+		height: height_string,
+		layout: "fitColumns",
+		placeholder: "No Data Set",
+		columns: column_list,
+		ajaxURL: data_url,
+	});
+}
+
+
 function main() {
 	gen_log_size_histogram();
+
+	gen_builds_table("mview-updates-table", "/api/mview-refreshes", null);
 }
 

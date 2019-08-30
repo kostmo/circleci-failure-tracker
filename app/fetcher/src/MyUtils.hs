@@ -15,6 +15,12 @@ import           System.Clock
 import qualified Constants
 
 
+applyIf :: Bool -> (a -> a) -> a -> a
+applyIf should func = f
+  where
+  f = if should then func else id
+
+
 debugList :: [String] -> IO ()
 debugList = debugStr . unwords
 

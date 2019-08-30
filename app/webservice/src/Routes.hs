@@ -236,6 +236,9 @@ scottyApp
   get "/api/master-deterministic-failure-modes" $
     pure SqlRead.apiDeterministicFailureModes
 
+  get "/api/mview-refreshes" $
+    pure SqlRead.apiMaterializedViewRefreshes
+
   get "/api/summary" $
     pure SqlRead.apiSummaryStats
 
