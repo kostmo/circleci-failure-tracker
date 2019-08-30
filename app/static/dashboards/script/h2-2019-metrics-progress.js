@@ -12,7 +12,24 @@ function dashboard_main() {
 	});
 
 
-	render(weeks_count);
+
+	$("#scan-throbber").show();
+	$.getJSON('/api/master-weekly-failure-stats', {"weeks": weeks_count}, function (data) {
+		$("#scan-throbber").hide();
+
+		plot_differentiated_master_failures(data);
+	});
+
+
+
+	$("#scan-throbber3").show();
+	$.getJSON("/api/master-pr-merge-time-weekly-failure-stats", {"weeks": 26}, function (data) {
+
+		$("#scan-throbber3").hide();
+
+		pr_merges_timeline_highchart("pr-merges-by-week-percent", data, "percent", "percent");
+
+	});
 
 }
 

@@ -24,14 +24,16 @@
 <script src="/script/html-utils.js"></script>
 <script src="/script/table-helpers.js"></script>
 
+<!--
+XXX These scripts were written with the assumption of isolated
+namespaces; some of the function names will collide.
+-->
+<script src="/script/master-commits-plot.js"></script>
 <script src="/script/master-stats.js"></script>
 <script src="/script/code-breakages.js"></script>
 
 
 <script src="/dashboards/script/h2-2019-metrics-progress.js"></script>
-
-
-
 
 </head>
 
@@ -51,7 +53,16 @@ Weeks:
 <input id="weeks-count-input" type="number" value="10" min="1" size="2"/>
 </label>
 
-<button onclick="render();">Go</button>
+<button onclick="dashboard_main();">Go</button>
+
+
+
+<h2>PRs merged with failing builds</h2>
+
+
+<div id="scan-throbber3" style="display: none;"><img src="/images/duck.gif"/></div>
+<div id="pr-merges-by-week-percent" style="min-width: 500px; height: 500px; max-width: 800px; margin: 0 auto"></div>
+
 
 
 <h2>Downstream impact of breakages</h2>
@@ -63,34 +74,16 @@ other devs ever noticing.
 </p>
 <div id="container-stacked-percent-downstream-impact-by-week" style="min-width: 400px; height: 500px; max-width: 800px; margin: 0 auto"></div>
 
-<h2>Undifferentiated failures</h2>
-
-
-<table style="width: 100%;"><tr><td>
-<div id="container-normalized-commit-failures-by-week" style="min-width: 500px; height: 500px; max-width: 800px; margin: 0 auto"></div>
-</td><td>
-<div id="container-normalized-build-failures-by-week" style="min-width: 500px; height: 500px; max-width: 800px; margin: 0 auto"></div>
-</td></tr></table>
-
 
 <h2><a name="split-by-causes">Split by causes</a></h2>
 
-<p>The following three charts all show the same data in different presentation forms.</p>
+<!-- here only to satisfy rendering function that expects this chart to exist -->
+<div id="container-column-separated-occurrences-by-week" style="display: none"></div>
 
-<div id="scan-throbber2" style="display: none;"><img src="/images/duck.gif"/></div>
+<!-- here only to satisfy rendering function that expects this chart to exist -->
+<div id="container-stacked-timeline-separated-occurrences-by-week" style="display: none"></div>
 
-<div id="container-column-separated-occurrences-by-week" style="min-width: 500px; height: 600px; max-width: 1000px; margin: 0 auto"></div>
-
-
-<table style="width: 100%;"><tr><td>
-<div id="container-stacked-timeline-separated-occurrences-by-week" style="min-width: 500px; height: 600px; max-width: 1000px; margin: 0 auto"></div>
-</td><td>
 <div id="container-percent-timeline-separated-occurrences-by-week" style="min-width: 500px; height: 600px; max-width: 1000px; margin: 0 auto"></div>
-
-</td></tr></table>
-
-
-
 
 <hr/>
 

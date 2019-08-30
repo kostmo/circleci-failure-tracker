@@ -75,6 +75,21 @@ CREATE TABLE lambda_logging.materialized_view_refresh_events (
 ALTER TABLE lambda_logging.materialized_view_refresh_events OWNER TO postgres;
 
 --
+-- Name: materialized_view_refresh_event_stats; Type: VIEW; Schema: lambda_logging; Owner: postgres
+--
+
+CREATE VIEW lambda_logging.materialized_view_refresh_event_stats AS
+ SELECT materialized_view_refresh_events.view_name,
+    max(materialized_view_refresh_events."timestamp") AS latest,
+    avg(materialized_view_refresh_events.execution_duration_seconds) AS average_execution_time,
+    count(*) AS event_count
+   FROM lambda_logging.materialized_view_refresh_events
+  GROUP BY materialized_view_refresh_events.view_name;
+
+
+ALTER TABLE lambda_logging.materialized_view_refresh_event_stats OWNER TO postgres;
+
+--
 -- Name: code_breakage_cause; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -2187,6 +2202,40 @@ COMMENT ON VIEW public.master_failures_weekly_aggregation IS 'NOTE: includes com
 
 
 --
+-- Name: master_failures_weekly_aggregation_mview; Type: MATERIALIZED VIEW; Schema: public; Owner: materialized_view_updater
+--
+
+CREATE MATERIALIZED VIEW public.master_failures_weekly_aggregation_mview AS
+ SELECT master_failures_weekly_aggregation.had_failure,
+    master_failures_weekly_aggregation.had_idiopathic,
+    master_failures_weekly_aggregation.had_timeout,
+    master_failures_weekly_aggregation.had_known_broken,
+    master_failures_weekly_aggregation.had_pattern_matched,
+    master_failures_weekly_aggregation.had_flaky,
+    master_failures_weekly_aggregation.week,
+    master_failures_weekly_aggregation.commit_count,
+    master_failures_weekly_aggregation.failure_count,
+    master_failures_weekly_aggregation.idiopathic_count,
+    master_failures_weekly_aggregation.timeout_count,
+    master_failures_weekly_aggregation.known_broken_count,
+    master_failures_weekly_aggregation.pattern_matched_count,
+    master_failures_weekly_aggregation.flaky_count,
+    master_failures_weekly_aggregation.earliest_commit_index,
+    master_failures_weekly_aggregation.latest_commit_index,
+    master_failures_weekly_aggregation.pattern_unmatched_count,
+    master_failures_weekly_aggregation.succeeded_count,
+    master_failures_weekly_aggregation.total_failures_sanity_check_sum,
+    master_failures_weekly_aggregation.sanity_check_is_failure_count_equal,
+    master_failures_weekly_aggregation.total_count,
+    master_failures_weekly_aggregation.sanity_check_successes_plus_failures,
+    master_failures_weekly_aggregation.sanity_check_total_is_successes_plus_failures
+   FROM public.master_failures_weekly_aggregation
+  WITH NO DATA;
+
+
+ALTER TABLE public.master_failures_weekly_aggregation_mview OWNER TO materialized_view_updater;
+
+--
 -- Name: master_granular_commit_stats; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -2859,6 +2908,23 @@ CREATE VIEW public.pr_merge_time_failing_builds_by_week WITH (security_barrier='
 
 
 ALTER TABLE public.pr_merge_time_failing_builds_by_week OWNER TO postgres;
+
+--
+-- Name: pr_merge_time_failing_builds_by_week_mview; Type: MATERIALIZED VIEW; Schema: public; Owner: materialized_view_updater
+--
+
+CREATE MATERIALIZED VIEW public.pr_merge_time_failing_builds_by_week_mview AS
+ SELECT pr_merge_time_failing_builds_by_week.week,
+    pr_merge_time_failing_builds_by_week.total_pr_count,
+    pr_merge_time_failing_builds_by_week.failing_pr_count,
+    pr_merge_time_failing_builds_by_week.total_build_count,
+    pr_merge_time_failing_builds_by_week.total_failed_build_count,
+    pr_merge_time_failing_builds_by_week.foreshadowed_breakage_count
+   FROM public.pr_merge_time_failing_builds_by_week
+  WITH NO DATA;
+
+
+ALTER TABLE public.pr_merge_time_failing_builds_by_week_mview OWNER TO materialized_view_updater;
 
 --
 -- Name: presumed_stable_branches; Type: TABLE; Schema: public; Owner: postgres
@@ -3565,6 +3631,20 @@ CREATE INDEX idx_line_number ON public.matches USING btree (line_number);
 
 
 --
+-- Name: idx_master_failures_weekly_aggregation_week; Type: INDEX; Schema: public; Owner: materialized_view_updater
+--
+
+CREATE UNIQUE INDEX idx_master_failures_weekly_aggregation_week ON public.master_failures_weekly_aggregation_mview USING btree (week);
+
+
+--
+-- Name: idx_pr_merge_time_failing_builds_by_week_mview_week; Type: INDEX; Schema: public; Owner: materialized_view_updater
+--
+
+CREATE UNIQUE INDEX idx_pr_merge_time_failing_builds_by_week_mview_week ON public.pr_merge_time_failing_builds_by_week_mview USING btree (week);
+
+
+--
 -- Name: idx_specificity; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -4263,7 +4343,6 @@ GRANT SELECT ON TABLE public.job_schedule_statistics TO materialized_view_update
 -- Name: TABLE job_schedule_statistics_mview; Type: ACL; Schema: public; Owner: materialized_view_updater
 --
 
-REVOKE ALL ON TABLE public.job_schedule_statistics_mview FROM materialized_view_updater;
 GRANT SELECT ON TABLE public.job_schedule_statistics_mview TO logan;
 
 
@@ -4385,6 +4464,14 @@ GRANT SELECT ON TABLE public.master_failures_raw_causes_mview TO logan;
 --
 
 GRANT ALL ON TABLE public.master_failures_weekly_aggregation TO logan;
+GRANT SELECT ON TABLE public.master_failures_weekly_aggregation TO materialized_view_updater;
+
+
+--
+-- Name: TABLE master_failures_weekly_aggregation_mview; Type: ACL; Schema: public; Owner: materialized_view_updater
+--
+
+GRANT SELECT ON TABLE public.master_failures_weekly_aggregation_mview TO logan;
 
 
 --
@@ -4546,6 +4633,14 @@ GRANT ALL ON TABLE public.pr_merge_time_build_stats_by_master_commit TO logan;
 --
 
 GRANT ALL ON TABLE public.pr_merge_time_failing_builds_by_week TO logan;
+GRANT SELECT ON TABLE public.pr_merge_time_failing_builds_by_week TO materialized_view_updater;
+
+
+--
+-- Name: TABLE pr_merge_time_failing_builds_by_week_mview; Type: ACL; Schema: public; Owner: materialized_view_updater
+--
+
+GRANT SELECT ON TABLE public.pr_merge_time_failing_builds_by_week_mview TO logan;
 
 
 --

@@ -368,7 +368,8 @@ function get_cell_value_indirect(cell) {
 }
 
 
-function define_column(col) {
+function define_job_column(col) {
+
 	const col_dict = {
 		title: col,
 		field: col,
@@ -491,6 +492,15 @@ function define_column(col) {
 			  });
 		},
 		headerTooltip: "Click to copy to clipboard",
+		cellMouseEnter: function(e, cell) {
+
+			const job_name = cell.getColumn().getField();
+			$("#floating-job-name-container").html(job_name);
+			$("#floating-job-name-container").show();
+		},
+		cellMouseLeave: function(e, cell) {
+			$("#floating-job-name-container").hide();
+		},
 		cellContext: function(e, cell) {
 
 			const dropdown_element = document.getElementById("myDropdown");
@@ -651,7 +661,7 @@ function generate_column_tree_recursive(column_name_suffix_pairs, depth) {
 		if (grouped_col_pairs.length < MIN_HEADER_GROUPING_COLUMNS) {
 
 			for (var col_pair of grouped_col_pairs) {
-				column_list.push(define_column(col_pair[0]));
+				column_list.push(define_job_column(col_pair[0]));
 			}
 
 		} else {

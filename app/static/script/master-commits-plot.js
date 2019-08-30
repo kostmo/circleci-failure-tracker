@@ -215,7 +215,7 @@ function pr_merges_timeline_highchart(chart_id, data, stacking_type, y_label_pre
 }
 
 
-function render() {
+function render_master_commits_plots() {
 
 	$("#scan-throbber").show();
 	$.getJSON("/api/master-commits-granular",  function (data) {
@@ -247,6 +247,6 @@ function render() {
 
 
 function main() {
-	render();
+	render_master_commits_plots();
 }
 

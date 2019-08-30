@@ -39,6 +39,21 @@
 	box-shadow: 10px 10px 5px grey;
 	display: none;
 }
+
+
+#floating-job-name-container {
+	position: fixed;
+	background-color: #fdfdfd;
+	bottom: 100px;
+	right: 100px;
+
+	border: 3px solid #ddd;
+	padding: 0.5em;
+
+	box-shadow: 10px 10px 5px grey;
+	display: none;
+}
+
 </style>
 
 </head>
@@ -98,7 +113,12 @@ commits
 <div id="myDropdown" class="dropdown-content"></div>
 
 
+
+
+<div id="floating-job-name-container"></div>
+
 <div id="floating-selection-helper">
+
 <div id="floating-selection-helper-header"></div>
 <button id="floating-selection-helper-go-button">Annotate failure</button>
 
