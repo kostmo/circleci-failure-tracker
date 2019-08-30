@@ -274,17 +274,13 @@ function separated_causes_timeline_highchart(container_element, series_list, sta
 
 function render_master_stats(weeks_count) {
 
-	$("#scan-throbber").show();
-	$("#scan-throbber2").show();
-	$.getJSON('/api/master-weekly-failure-stats', {"weeks": weeks_count}, function (data) {
 
-		$("#scan-throbber").hide();
-		$("#scan-throbber2").hide();
+	getJsonWithThrobber(".scan-throbbers", "/api/master-weekly-failure-stats", {"weeks": weeks_count}, function (data) {
 
 		plot_undifferentiated_master_failures(data);
 
 		plot_differentiated_master_failures(data);
-	});
+	})
 }
 
 

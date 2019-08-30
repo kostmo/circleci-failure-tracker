@@ -64,6 +64,19 @@ function render_pair(term, definition) {
 }
 
 
+
+function getJsonWithThrobber(throbber_id, url, parms_dict, callback) {
+
+	$(throbber_id).show();
+	$.getJSON(url, parms_dict, function (data) {
+
+		$(throbber_id).hide();
+
+		callback(data);
+	});
+}
+
+
 function render_list(items) {
 
 	var content = "";

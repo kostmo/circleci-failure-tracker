@@ -217,31 +217,15 @@ function pr_merges_timeline_highchart(chart_id, data, stacking_type, y_label_pre
 
 function render_master_commits_plots() {
 
-	$("#scan-throbber").show();
-	$.getJSON("/api/master-commits-granular",  function (data) {
+	getJsonWithThrobber("#scan-throbber", "/api/master-commits-granular", {}, breakages_gantt_highchart)
 
-		$("#scan-throbber").hide();
-
-		breakages_gantt_highchart(data);
-	});
-
-	$("#scan-throbber2").show();
-	$.getJSON("/api/master-pr-merge-time-weekly-failure-stats", {"weeks": 26}, function (data) {
-
-		$("#scan-throbber2").hide();
-
+	getJsonWithThrobber("#scan-throbber2", "/api/master-pr-merge-time-weekly-failure-stats", {"weeks": 26}, function (data) {
 		pr_merges_timeline_highchart("pr-merges-by-week-stacked", data, "normal", "count");
 		pr_merges_timeline_highchart("pr-merges-by-week-percent", data, "percent", "percent");
-
 	});
 
-	$("#scan-throbber3").show();
-	$.getJSON("/api/master-breakages-monthly-stats", function (data) {
-
-		$("#scan-throbber3").hide();
-
+	getJsonWithThrobber("#scan-throbber3", "/api/master-breakages-monthly-stats", {}, function (data) {
 		master_breakages_timeline_highchart("avoidable-breakages-by-month-stacked", data);
-
 	});
 }
 
