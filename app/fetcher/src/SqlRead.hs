@@ -865,19 +865,23 @@ instance FromRow CommitBuilds.CommitBuild where
           span_end
           specificity
 
+        provider_with_id = DbHelpers.WithId provider_id provider_obj
+
     return $ CommitBuilds.NewCommitBuild
-        parent_build_obj
-        match_obj
-        (DbHelpers.WithId provider_id provider_obj)
+      parent_build_obj
+      match_obj
+      provider_with_id
 
 
+-- | For commit-details page
 getRevisionBuilds ::
      GitRev.GitSha1
-  -> DbIO [CommitBuilds.CommitBuild]
+  -> DbIO (DbHelpers.BenchmarkedResponse Float [CommitBuilds.CommitBuild])
 getRevisionBuilds git_revision = do
   conn <- ask
-  liftIO $ query conn sql $ Only $ GitRev.sha1 git_revision
 
+  (timing, content) <- MyUtils.timeThisFloat $ liftIO $ query conn sql $ Only $ GitRev.sha1 git_revision
+  return $ DbHelpers.BenchmarkedResponse timing content
   where
     sql = "SELECT step_name, match_id, build, vcs_revision, queued_at, job_name, branch, pattern_id, line_number, line_count, line_text, span_start, span_end, specificity, universal_build, provider, build_namespace, succeeded, label, icon_url, started_at, finished_at FROM best_pattern_match_augmented_builds JOIN ci_providers ON ci_providers.id = best_pattern_match_augmented_builds.provider WHERE vcs_revision = ?;"
 
@@ -969,7 +973,6 @@ instance FromRow NonannotatedBuildBreakages where
       wrapped_universal_build
 
 
-
 data CommitBreakageRegionCounts = CommitBreakageRegionCounts {
     _commit            :: DbHelpers.WithId Builds.RawCommit
   , _only_longitudinal :: Int64
@@ -981,17 +984,8 @@ instance ToJSON CommitBreakageRegionCounts where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 instance FromRow CommitBreakageRegionCounts where
-  fromRow = do
-    commit_with_id <- fromRow
-    num1 <- field
-    num2 <- field
-    num3 <- field
-
-    return $ CommitBreakageRegionCounts
-      commit_with_id
-      num1
-      num2
-      num3
+  fromRow =
+    CommitBreakageRegionCounts <$> fromRow <*> field <*> field <*> field
 
 
 apiLeftoverCodeBreakagesByCommit :: DbIO [CommitBreakageRegionCounts]
@@ -1149,7 +1143,7 @@ instance ToJSON MaterializedViewRefreshInfo where
 apiMaterializedViewRefreshes :: DbIO [MaterializedViewRefreshInfo]
 apiMaterializedViewRefreshes = runQuery sql
   where
-    sql = "SELECT view_name, latest, average_execution_time, event_count, EXTRACT(EPOCH FROM latest_age) AS latest_age_seconds FROM lambda_logging.materialized_view_refresh_event_stats;"
+    sql = "SELECT view_name, latest, average_execution_time, event_count, EXTRACT(EPOCH FROM latest_age) AS latest_age_seconds FROM lambda_logging.materialized_view_refresh_event_stats ORDER BY latest_age;"
 
 
 -- | XXX Threshold of 0.8 was empirically determined
@@ -1173,7 +1167,7 @@ getScheduledJobNames = listFlat sql
 -- then gets the associated builds
 apiMasterBuilds ::
      Pagination.TimelineParms
-  -> DbIO (Either Text BuildResults.MasterBuildsResponse)
+  -> DbIO (Either Text (DbHelpers.BenchmarkedResponse BuildResults.DbMasterBuildsBenchmarks BuildResults.MasterBuildsResponse))
 apiMasterBuilds timeline_parms = do
 
   (code_breakages_time, code_breakage_ranges) <- MyUtils.timeThisFloat apiAnnotatedCodeBreakages
@@ -1204,16 +1198,17 @@ apiMasterBuilds timeline_parms = do
           (`Set.difference` Set.fromList scheduled_job_names)
           raw_job_names
 
-    return $ BuildResults.MasterBuildsResponse
-      filtered_job_names
-      master_commits
-      completed_builds
-      code_breakage_ranges $
-        BuildResults.DbMasterBuildsBenchmarks
+        timing_data = BuildResults.DbMasterBuildsBenchmarks
           builds_list_time
           commits_list_time
           code_breakages_time
           last_update_time
+
+    return $ DbHelpers.BenchmarkedResponse timing_data $ BuildResults.MasterBuildsResponse
+      filtered_job_names
+      master_commits
+      completed_builds
+      code_breakage_ranges
 
   where
     builds_list_sql = "SELECT sha1, succeeded, is_idiopathic, is_flaky, is_timeout, is_matched, is_known_broken, build_num, queued_at, job_name, branch, step_name, pattern_id, match_id, line_number, line_count, line_text, span_start, span_end, specificity, is_serially_isolated, started_at, finished_at, global_build, provider, build_namespace, contiguous_run_count, contiguous_group_index, contiguous_start_commit_index, contiguous_end_commit_index, contiguous_length, cluster_id, cluster_member_count FROM master_failures_raw_causes_mview WHERE commit_index >= ? AND commit_index <= ?;"
@@ -1521,10 +1516,11 @@ instance ToJSON PatternOccurrence where
 
 getBuildPatternMatches ::
      Builds.UniversalBuildId
-  -> DbIO [MatchOccurrences.MatchOccurrencesForBuild]
+  -> DbIO (DbHelpers.BenchmarkedResponse Float [MatchOccurrences.MatchOccurrencesForBuild])
 getBuildPatternMatches (Builds.UniversalBuildId build_id) = do
   conn <- ask
-  liftIO $ query conn sql $ Only build_id
+  (timing, result) <- MyUtils.timeThisFloat $ liftIO $ query conn sql $ Only build_id
+  return $ DbHelpers.BenchmarkedResponse timing result
   where
     sql = "SELECT step_name, pattern, matches_with_log_metadata.id, line_number, line_count, line_text, span_start, span_end, specificity FROM matches_with_log_metadata JOIN build_steps_deduped_mitigation ON matches_with_log_metadata.build_step = build_steps_deduped_mitigation.id JOIN patterns_augmented ON patterns_augmented.id = matches_with_log_metadata.pattern WHERE build_steps_deduped_mitigation.universal_build = ? ORDER BY specificity DESC, patterns_augmented.id ASC, line_number ASC;"
 
@@ -1601,11 +1597,14 @@ getPostedGithubStatus conn (DbHelpers.OwnerAndRepo project repo) (Builds.RawComm
 -- We use a list instead of a Maybe so that
 -- the javascript table renderer code can be reused
 -- for multi-item lists.
-getBestBuildMatch :: Builds.UniversalBuildId -> DbIO [PatternOccurrence]
+getBestBuildMatch ::
+     Builds.UniversalBuildId
+  -> DbIO (DbHelpers.BenchmarkedResponse Float [PatternOccurrence])
 getBestBuildMatch ubuild_id@(Builds.UniversalBuildId build_id) = do
 
   conn <- ask
-  liftIO $ map f <$> query conn sql (Only build_id)
+  (timing, content) <- MyUtils.timeThisFloat $ liftIO $ map f <$> query conn sql (Only build_id)
+  return $ DbHelpers.BenchmarkedResponse timing content
 
   where
     f (pattern_id, build, step_name, match_id, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch) = pattern_occurrence_txform

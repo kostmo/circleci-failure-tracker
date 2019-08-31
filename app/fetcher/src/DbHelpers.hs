@@ -19,6 +19,16 @@ import           GHC.Int                            (Int64)
 import qualified JsonUtils
 
 
+
+data BenchmarkedResponse a b = BenchmarkedResponse {
+    _timing  :: a
+  , _content :: b
+  } deriving Generic
+
+instance (ToJSON a, ToJSON b) => ToJSON (BenchmarkedResponse a b) where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
 -- | TODO Use this for more weekly data
 data TimestampedDatum a = TimestampedDatum {
     _timestamp :: UTCTime

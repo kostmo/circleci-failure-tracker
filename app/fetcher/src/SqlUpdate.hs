@@ -69,14 +69,23 @@ instance ToJSON SingleBuildInfo where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
+data BuildInfoRetrievalBenchmarks = BuildInfoRetrievalBenchmarks {
+    _best_match_retrieval       :: Float
+  , _breakages_retrieval_timing :: Float
+  } deriving Generic
+
+instance ToJSON BuildInfoRetrievalBenchmarks where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
 getBuildInfo ::
      OAuth2.AccessToken
   -> Builds.UniversalBuildId
-  -> SqlRead.DbIO (Either Text SingleBuildInfo)
+  -> SqlRead.DbIO (Either Text (DbHelpers.BenchmarkedResponse BuildInfoRetrievalBenchmarks SingleBuildInfo))
 getBuildInfo access_token build@(Builds.UniversalBuildId build_id) = do
 
   -- TODO Replace this with SQL COUNT()
-  matches <- SqlRead.getBuildPatternMatches build
+  DbHelpers.BenchmarkedResponse best_match_retrieval_timing matches <- SqlRead.getBuildPatternMatches build
 
   storable_build <- SqlRead.getGlobalBuild build
 
@@ -93,10 +102,14 @@ getBuildInfo access_token build@(Builds.UniversalBuildId build_id) = do
       let sha1 = Builds.vcs_revision $ BuildSteps.build step_container
           job_name = Builds.job_name $ BuildSteps.build step_container
 
-      breakages <- ExceptT $ findKnownBuildBreakages conn access_token pytorchRepoOwner sha1
+      (breakages_retrieval_timing, breakages) <- MyUtils.timeThisFloat $ ExceptT $ findKnownBuildBreakages conn access_token pytorchRepoOwner sha1
       let applicable_breakages = filter (Set.member job_name . SqlRead._jobs . DbHelpers.record) breakages
 
-      return $ SingleBuildInfo
+          timing_info = BuildInfoRetrievalBenchmarks
+            best_match_retrieval_timing
+            breakages_retrieval_timing
+
+      return $ DbHelpers.BenchmarkedResponse timing_info $ SingleBuildInfo
         multi_match_count
         step_container
         applicable_breakages
@@ -123,14 +136,24 @@ getBuildInfo access_token build@(Builds.UniversalBuildId build_id) = do
     sql = "SELECT step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch, started_at, finished_at FROM builds_join_steps WHERE universal_build = ?;"
 
 
+
+data RevisionBuildCountBenchmarks = RevisionBuildCountBenchmarks {
+    _row_retrieval              :: Float
+  , _known_broken_determination :: Float
+  } deriving Generic
+
+instance ToJSON RevisionBuildCountBenchmarks where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
 countRevisionBuilds ::
      OAuth2.AccessToken
   -> GitRev.GitSha1
-  -> SqlRead.DbIO (Either Text CommitInfo)
+  -> SqlRead.DbIO (Either Text (DbHelpers.BenchmarkedResponse RevisionBuildCountBenchmarks CommitInfo))
 countRevisionBuilds access_token git_revision = do
   conn <- ask
 
-  rows <- liftIO $ query conn aggregate_causes_sql only_commit
+  (row_retrieval_time, rows) <- MyUtils.timeThisFloat $ liftIO $ query conn aggregate_causes_sql only_commit
 
   liftIO $ runExceptT $ do
 
@@ -143,9 +166,9 @@ countRevisionBuilds access_token git_revision = do
 
     (total, idiopathic, timeout, known_broken, pattern_matched, pattern_matched_other, flaky, pattern_unmatched, succeeded) <- except $ maybeToEither err $ Safe.headMay rows
 
-    breakages <- ExceptT $ findKnownBuildBreakages conn access_token pytorchRepoOwner $ Builds.RawCommit sha1
+    (known_broken_determination_time, breakages) <- MyUtils.timeThisFloat $ ExceptT $ findKnownBuildBreakages conn access_token pytorchRepoOwner $ Builds.RawCommit sha1
 
-    return $ NewCommitInfo breakages $ NewCommitInfoCounts
+    return $ DbHelpers.BenchmarkedResponse (RevisionBuildCountBenchmarks row_retrieval_time known_broken_determination_time) $ NewCommitInfo breakages $ NewCommitInfoCounts
       (total - succeeded)
       timeout
       pattern_matched

@@ -35,6 +35,10 @@ function gen_builds_table(element_id, data_url, height_string) {
 		placeholder: "No Data Set",
 		columns: column_list,
 		ajaxURL: data_url,
+		ajaxResponse: function(url, params, response) {
+			console.log("Loaded DB content for URL '" + data_url + "' in " + response.timing.toFixed(1) + " seconds.");
+			return response.content;
+		},
 	});
 }
 
@@ -101,7 +105,8 @@ function get_build_info(universal_build_id) {
 
 	$.getJSON('/api/single-build-info', {"build_id": universal_build_id}, function (data) {
 		if (data.success) {
-			populate_build_info(universal_build_id, data.payload);
+			console.log("Retrieved best match info wihin '/api/single-build-info' api call in " + data.payload.timing.best_match_retrieval.toFixed(1) + " seconds");
+			populate_build_info(universal_build_id, data.payload.content);
 		} else {
 		        $("#build-info-box").html(render_tag("span", "Error: " + data.error.message, {"style": "color: red;"}));
 		}

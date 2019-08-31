@@ -170,6 +170,20 @@ function pr_merges_timeline_highchart(chart_id, data, stacking_type, y_label_pre
 	series_list.push({"name": "Some build failures foreshadowed master breakage", data: failing_pr_foreshadowing_breakage_points})
 
 
+	const foreshadowed_breakage_high_water_mark = Math.max(...(failing_pr_foreshadowing_breakage_points.map(x => x[1])))
+
+	const y_axis_plotlines = [];
+
+	if (stacking_type != "percent") {
+		y_axis_plotlines.push({
+			color: 'red', // Color value
+			dashStyle: 'longdashdot', // Style of the plot line. Default to solid
+			value: foreshadowed_breakage_high_water_mark, // Value of where the line will appear
+			width: 2 // Width of the line    
+		});
+	}
+
+
 	Highcharts.chart(chart_id, {
 		chart: {
 			type: 'area', // TODO use "step"
@@ -195,7 +209,8 @@ function pr_merges_timeline_highchart(chart_id, data, stacking_type, y_label_pre
 			title: {
 				text: y_label_prefix + ' by week'
 			},
-			min: 0
+			min: 0,
+			plotLines: y_axis_plotlines,
 		},
 		plotOptions: {
 			line: {

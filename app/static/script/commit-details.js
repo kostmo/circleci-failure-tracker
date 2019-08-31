@@ -3,7 +3,7 @@
 function populate_commit_info(commit_sha1, data) {
 
 	const github_link = link("View on GitHub", "https://github.com/pytorch/pytorch/commits/" + commit_sha1);
-	const counts_obj = data["payload"]["counts"];
+	const counts_obj = data["payload"]["content"]["counts"];
 
 	const items = [
 		["Commit ancestry:", github_link],
@@ -129,7 +129,9 @@ function gen_builds_table(element_id, data_url) {
 		],
 		ajaxURL: data_url,
 		ajaxResponse: function(url, params, response) {
-			return response.payload;
+
+			console.log("Loaded build records in " + response.payload.timing.toFixed(1) + " seconds.");
+			return response.payload.content;
 		},
 	});
 }

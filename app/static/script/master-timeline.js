@@ -57,7 +57,7 @@ function get_timeline_data(parms) {
 		const end_time = new Date();
 		if (mydata.success) {
 
-			const last_cache_update_utctime_tuple = mydata["payload"]["db_benchmarking"]["last_mview_update"];
+			const last_cache_update_utctime_tuple = mydata["payload"]["timing"]["last_mview_update"];
 			const last_cache_update_utctime = last_cache_update_utctime_tuple[0]
 			console.log("Last update UTCTime: " + last_cache_update_utctime + " by " + last_cache_update_utctime_tuple[1]);
 
@@ -68,13 +68,13 @@ function get_timeline_data(parms) {
 
 			console.log("Fetched timeline data in " + seconds_diff.toFixed(1) + " seconds.");
 
-			const all_commit_times = mydata.payload.commits.map(x => Date.parse(x["record"]["metadata"]["committer_date"]));
+			const all_commit_times = mydata.payload.content.commits.map(x => Date.parse(x["record"]["metadata"]["committer_date"]));
 			const min_commit_time = Math.min(...all_commit_times);
 			const max_commit_time = Math.max(...all_commit_times);
 
 			$("#commit-timespan-container").html("Showing commits from " + moment(min_commit_time).fromNow() + " to " + moment(max_commit_time).fromNow());
 
-			gen_timeline_table("master-timeline-table", mydata.payload);
+			gen_timeline_table("master-timeline-table", mydata.payload.content);
 
 		} else {
 			alert("got an error: " + mydata.error);
