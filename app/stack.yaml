@@ -14,11 +14,14 @@ packages:
 - fetcher
 - oneoff
 - session-demo
+- log-postgres
 
 extra-deps:
 - time-1.9.2
 - wai-session-clientsession-0.1
 - github-0.21
 - json-stream-0.4.2.4
+- hpqtypes-1.6.1.0
+- wai-log-0.1.0.0
 
 allow-newer: true

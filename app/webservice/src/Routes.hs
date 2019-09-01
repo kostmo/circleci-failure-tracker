@@ -14,8 +14,11 @@ import           Data.String                     (fromString)
 import           Data.Text                       (Text)
 import qualified Data.Text.Lazy                  as LT
 import qualified Data.Vault.Lazy                 as Vault
+import           Log                             (LogT, localDomain)
 import           Network.Wai
+import           Network.Wai.Log                 (logRequestsWith)
 import           Network.Wai.Middleware.ForceSSL (forceSSL)
+import           Network.Wai.Middleware.Gzip     (gzip)
 import           Network.Wai.Middleware.Static   hiding ((<|>))
 import           Network.Wai.Session             (Session, SessionStore,
                                                   withSession)
@@ -57,17 +60,28 @@ data PersistenceData = PersistenceData {
   }
 
 
+--changeThing :: ((Logger -> IO r) -> IO r) -> (LogT IO () -> IO ())
+--changeThing logger_thing = LogT $ ReaderT $ LoggerEnv logger_thing "blarg" [] []
+
+
 scottyApp ::
-     PersistenceData
+     (LogT IO () -> IO ())
+  -> PersistenceData
   -> SetupData
   -> ScottyTypes.ScottyT LT.Text IO ()
 scottyApp
+    logger
     (PersistenceData cache session store)
     (SetupData static_base github_config connection_data mview_connection_data) = do
+
+  S.middleware $ logRequestsWith $
+    \logger_t -> logger $ localDomain logger_domain_identifier logger_t
 
   S.middleware $ withSession store (fromString "SESSION") def session
 
   S.middleware $ staticPolicy $ noDots >-> addBase static_base
+
+  S.middleware $ gzip def
 
   unless (AuthConfig.no_force_ssl github_config || AuthConfig.is_local github_config) $
     S.middleware forceSSL
@@ -472,3 +486,7 @@ scottyApp
     withAuth :: ToJSON a => ScottyTypes.ActionT LT.Text IO (SqlRead.AuthDbIO (Either Text a))
                          -> ScottyTypes.ActionT LT.Text IO ()
     withAuth = FrontendHelpers.postWithAuthentication connection_data github_config session
+
+    logger_domain_identifier = if AuthConfig.is_local github_config
+      then "localhost"
+      else "dr.pytorch.org"

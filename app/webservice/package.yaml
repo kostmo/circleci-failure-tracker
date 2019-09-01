@@ -42,3 +42,8 @@ executables:
     - wai-session-clientsession
     - clientsession
     - transformers
+    - wai-log
+    - hpqtypes
+    - log-base
+    - log-postgres
+    - modern-uri

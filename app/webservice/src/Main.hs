@@ -1,16 +1,22 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-import           Control.Monad                     (when)
-import qualified Data.Maybe                        as Maybe
-import           Data.Text                         (Text)
-import qualified Data.Vault.Lazy                   as Vault
-import qualified Network.OAuth.OAuth2              as OAuth2
-import           Network.Wai.Session.ClientSession (clientsessionStore)
+import qualified Data.Maybe                                      as Maybe
+import           Data.Text                                       (Text)
+import qualified Data.Text                                       as T
+import qualified Data.Vault.Lazy                                 as Vault
+import           Database.PostgreSQL.PQTypes.Internal.Connection (ConnectionSettings (ConnectionSettings),
+                                                                  simpleSource,
+                                                                  unConnectionSource)
+import           Log.Backend.PostgreSQL                          (withPgLogger)
+import           Log.Monad                                       (runLogT)
+import qualified Network.OAuth.OAuth2                            as OAuth2
+import           Network.Wai.Session.ClientSession               (clientsessionStore)
 import           Options.Applicative
-import           System.Environment                (lookupEnv)
-import           Text.Read                         (readMaybe)
-import           Web.ClientSession                 (getDefaultKey)
-import qualified Web.Scotty                        as S
+import           System.Environment                              (lookupEnv)
+import           Text.Read                                       (readMaybe)
+import qualified Text.URI                                        as URI
+import           Web.ClientSession                               (getDefaultKey)
+import qualified Web.Scotty                                      as S
 
 import qualified AuthConfig
 import qualified Builds
@@ -40,6 +46,31 @@ data CommandLineArgs = NewCommandLineArgs {
   }
 
 
+getPostgresLoggingUri info = do
+
+  postgres_logging_user_info <- URI.UserInfo
+    <$> URI.mkUsername (T.pack $ DbHelpers.dbUsername info)
+    <*> (Just <$> URI.mkPassword (T.pack $ DbHelpers.dbPassword info))
+
+  postgres_logging_host <- URI.mkHost (T.pack $ DbHelpers.dbHostname info)
+
+  let postgres_logging_authority = URI.Authority
+        (Just postgres_logging_user_info)
+        postgres_logging_host
+        (Just 5432)
+
+  postgres_logging_dbname <- URI.mkPathPiece $ T.pack $ DbHelpers.dbName info
+
+  postgres_logging_scheme <- URI.mkScheme "postgres"
+
+  return $ URI.URI
+    (Just postgres_logging_scheme)
+    (Right postgres_logging_authority)
+    (Just (False, pure postgres_logging_dbname))
+    []
+    Nothing
+
+
 mainAppCode :: CommandLineArgs -> IO ()
 mainAppCode args = do
 
@@ -53,12 +84,24 @@ mainAppCode args = do
   session <- Vault.newKey
   store <- fmap clientsessionStore getDefaultKey
 
+  postgres_logging_connection_uri <- getPostgresLoggingUri connection_data
+
   let persistence_data = Routes.PersistenceData cache session store
 
+  with_logger postgres_logging_connection_uri $ \logger ->
 
-  S.scotty prt $ Routes.scottyApp persistence_data credentials_data
+    S.scotty prt $ Routes.scottyApp
+      (runLogT "dr-ci-web-frontend" logger)
+      persistence_data
+      credentials_data
 
   where
+    with_logger logging_db_uri = withPgLogger "frontend_logging.logs" $
+      unConnectionSource $ simpleSource $ ConnectionSettings
+        (URI.render logging_db_uri)
+        Nothing
+        []
+
     credentials_data = Routes.SetupData
       static_base
       github_config

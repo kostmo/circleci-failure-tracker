@@ -39,6 +39,15 @@ SET client_min_messages = warning;
 SET row_security = off;
 
 --
+-- Name: frontend_logging; Type: SCHEMA; Schema: -; Owner: postgres
+--
+
+CREATE SCHEMA frontend_logging;
+
+
+ALTER SCHEMA frontend_logging OWNER TO postgres;
+
+--
 -- Name: lambda_logging; Type: SCHEMA; Schema: -; Owner: postgres
 --
 
@@ -59,6 +68,24 @@ ALTER SCHEMA work_queues OWNER TO postgres;
 SET default_tablespace = '';
 
 SET default_with_oids = false;
+
+--
+-- Name: logs; Type: TABLE; Schema: frontend_logging; Owner: postgres
+--
+
+CREATE TABLE frontend_logging.logs (
+    insertion_time timestamp with time zone,
+    insertion_order integer,
+    "time" timestamp with time zone,
+    level text,
+    component text,
+    domain text[],
+    message text,
+    data jsonb
+);
+
+
+ALTER TABLE frontend_logging.logs OWNER TO postgres;
 
 --
 -- Name: materialized_view_refresh_events; Type: TABLE; Schema: lambda_logging; Owner: postgres
@@ -3896,6 +3923,13 @@ ALTER TABLE ONLY public.universal_builds
 
 
 --
+-- Name: SCHEMA frontend_logging; Type: ACL; Schema: -; Owner: postgres
+--
+
+GRANT USAGE ON SCHEMA frontend_logging TO logan;
+
+
+--
 -- Name: SCHEMA lambda_logging; Type: ACL; Schema: -; Owner: postgres
 --
 
@@ -3908,6 +3942,13 @@ GRANT USAGE ON SCHEMA lambda_logging TO logan;
 --
 
 GRANT ALL ON SCHEMA work_queues TO logan;
+
+
+--
+-- Name: TABLE logs; Type: ACL; Schema: frontend_logging; Owner: postgres
+--
+
+GRANT ALL ON TABLE frontend_logging.logs TO logan;
 
 
 --
@@ -4767,6 +4808,14 @@ GRANT SELECT ON TABLE public.upstream_breakages_weekly_aggregation TO materializ
 --
 
 GRANT SELECT ON TABLE public.upstream_breakages_weekly_aggregation_mview TO logan;
+
+
+--
+-- Name: DEFAULT PRIVILEGES FOR TABLES; Type: DEFAULT ACL; Schema: frontend_logging; Owner: postgres
+--
+
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA frontend_logging REVOKE ALL ON TABLES  FROM postgres;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA frontend_logging GRANT ALL ON TABLES  TO logan;
 
 
 --
