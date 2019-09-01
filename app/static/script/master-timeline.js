@@ -6,6 +6,7 @@ var grid_table = null;
 const MAX_HORIZONTAL_LETTERS = 5;
 const FITTABLE_LETTERS_PER_COLUMN = 2; // empirically determined
 
+
 // empirically, < 3 leaves enough space to fit all header names horizontally
 const MIN_HEADER_GROUPING_COLUMNS = 3;
 

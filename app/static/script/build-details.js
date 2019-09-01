@@ -97,6 +97,12 @@ function populate_build_info(universal_build_id, parent_data) {
 	if (parent_data["multi_match_count"] > 1) {
 		$("#all-matches-section").show();
 		gen_builds_table("all-build-matches-table", "/api/build-pattern-matches?build_id=" + universal_build_id, "300px");
+
+	} else if (parent_data["multi_match_count"] == 1) {
+
+		$("#all-matches-section").html(render_tag("p", render_tag("b", "Note:") + " Only 1 pattern match was found in the entire log."));
+		$("#all-matches-section").show();
+
 	}
 }
 
