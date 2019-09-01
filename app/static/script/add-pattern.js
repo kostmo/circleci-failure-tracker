@@ -4,8 +4,8 @@ var steps_list = [];
 
 function add_tag() {
 
-	var tag_val = $('#pattern-tag-input').val();
-	var trimmed_val = tag_val.trim();
+	const tag_val = $('#pattern-tag-input').val();
+	const trimmed_val = tag_val.trim();
 	if (trimmed_val) {
 		tags_list.push(trimmed_val);
 
@@ -15,10 +15,10 @@ function add_tag() {
 
 function add_build_step() {
 
-	var step_val = $('#build-step-applicability-input').val();
+	const step_val = $('#build-step-applicability-input').val();
 	steps_list.push(step_val);
 
-	var select = document.getElementById("build-step-applicability-input");
+	const select = document.getElementById("build-step-applicability-input");
 
 	for (var i=0; i<select.options.length; i++) {
 		if (select.options[i].text == step_val) {
@@ -33,8 +33,8 @@ function add_build_step() {
 
 function render_list_html(tag_list) {
 
-	var tag_elements = tag_list.map(function(val) {
-		var class_list = ["tag", "deletable"];
+	const tag_elements = tag_list.map(function(val) {
+		const class_list = ["tag", "deletable"];
 		if (TAG_CLASSES.has(val)) {
 			class_list.push("tag-class-" + val);
 		}
@@ -50,7 +50,7 @@ function render_lists() {
 	$('#tag-list-container').html(render_list_html(tags_list));
 	$('#tag-list-container').children().click(function(e) {
 
-		var val = e.target.innerText;
+		const val = e.target.innerText;
 		tags_list = tags_list.filter(item => item !== val);
 		render_lists();
 	});
@@ -58,10 +58,10 @@ function render_lists() {
 	$('#step-list-container').html(render_list_html(steps_list));
 	$('#step-list-container').children().click(function(e) {
 
-		var val = e.target.innerText;
+		const val = e.target.innerText;
 		steps_list = steps_list.filter(item => item !== val);
 
-		var select = document.getElementById("build-step-applicability-input");
+		const select = document.getElementById("build-step-applicability-input");
 		select.options[select.options.length] = new Option(val, val);
 
 		render_lists();
@@ -73,7 +73,7 @@ function render_lists() {
 
 function submit_pattern() {
 
-	var pattern_data = gather_pattern_data();
+	const pattern_data = gather_pattern_data();
 
         $.post( {
 		url: "/api/new-pattern-insert",
@@ -99,7 +99,7 @@ function submit_pattern() {
 
 function setup_autocomplete() {
 
-	var select = document.getElementById("build-step-applicability-input");
+	const select = document.getElementById("build-step-applicability-input");
 	$.getJSON('/api/step-list', function (mydata) {
 		for (var val of mydata) {
 		    select.options[select.options.length] = new Option(val, val);
@@ -148,7 +148,7 @@ function test_pattern() {
 
 	$("#test-match-results-container").html("");
 
-	var pattern_data = gather_pattern_data();
+	const pattern_data = gather_pattern_data();
 	pattern_data["build_num"] = $('#test-build-id').val();
 
 	$.get( {
@@ -158,19 +158,19 @@ function test_pattern() {
 
 			var inner_html = "";
 
-			var matches_list = data.payload.matches;
+			const matches_list = data.payload.matches;
 			if (matches_list.length > 0) {
 
-				var table_rows = [];
+				const table_rows = [];
 				for (var i=0; i<matches_list.length; i++) {
-					var match_details = matches_list[i]["match_details"];
-					var one_based_line_number = match_details["line_number"] + 1;
+					const match_details = matches_list[i]["match_details"];
+					const one_based_line_number = match_details["line_number"] + 1;
 					table_rows.push(["Line " + one_based_line_number + ":", match_details["line_text"]]);
 				}
 
 				inner_html += render_table(table_rows, {}, null, false);
 
-				var lines_from_end = data.payload.total_line_count - one_based_line_number;
+				const lines_from_end = data.payload.total_line_count - one_based_line_number;
 				$('#input-lines-from-end').val( lines_from_end );
 
 			} else {
@@ -185,9 +185,9 @@ function test_pattern() {
 
 function shipOff(event) {
 
-	var result = event.target.result;
+	const result = event.target.result;
 
-	var parsed_json_from_file = JSON.parse( result );
+	const parsed_json_from_file = JSON.parse( result );
 
 	$.ajax("/api/patterns-restore", {
 	    'data': JSON.stringify(parsed_json_from_file),
@@ -212,8 +212,8 @@ function continueSubmission(data) {
 
 function import_patterns(button_obj) {
 
-	var file = document.getElementById('selectFiles').files[0];
-	var reader = new FileReader();
+	const file = document.getElementById('selectFiles').files[0];
+	const reader = new FileReader();
 	reader.readAsText(file, 'UTF-8');
 	reader.onload = shipOff;
 
@@ -222,8 +222,8 @@ function import_patterns(button_obj) {
 
 
 function prepopulate_build_number() {
-	var urlParams = new URLSearchParams(window.location.search);
-	var build_id = urlParams.get('build_id');
+	const urlParams = new URLSearchParams(window.location.search);
+	const build_id = urlParams.get('build_id');
 
 	if (build_id) {
 		$("#test-build-id").val(build_id);
@@ -234,7 +234,7 @@ function prepopulate_build_number() {
 function main() {
 
 	$("#is-regex-checkbox").change(function(event) {
-		var checkbox = event.target;
+		const checkbox = event.target;
 		$("#is-nondeterministic-checkbox").prop("disabled", !checkbox.checked);
 	});
 

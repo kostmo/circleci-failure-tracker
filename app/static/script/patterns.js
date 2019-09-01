@@ -24,12 +24,12 @@ function setup_autocomplete() {
 
 function requery_patterns() {
 
-	var branch_name = $("#branch-name-input").val();
+	const branch_name = $("#branch-name-input").val();
 
-	var checked_radio_value = $("input[name='filter-mode']:checked").val();
+	const checked_radio_value = $("input[name='filter-mode']:checked").val();
 
-	var used_presumed_stable_branches = checked_radio_value == "stable-branches";
-	var branches_list = checked_radio_value == "single-branch" ? [branch_name] : [];
+	const used_presumed_stable_branches = checked_radio_value == "stable-branches";
+	const branches_list = checked_radio_value == "single-branch" ? [branch_name] : [];
 
 	gen_patterns_table(null, used_presumed_stable_branches, branches_list);
 }
@@ -39,8 +39,8 @@ function make_tag_histogram(container_id) {
 
 	$.getJSON("/api/tags", function (data) {
 
-		var category_list = [];
-		var build_count_list = [];
+		const category_list = [];
+		const build_count_list = [];
 		for (var tag_obj of data) {
 			category_list.push(tag_obj.tag);
 			build_count_list.push(tag_obj.build_count);

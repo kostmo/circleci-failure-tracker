@@ -2,7 +2,7 @@
 function remove_pattern_tag(pattern_id, tag) {
 
 	if (confirm("Remove tag \"" + tag + "\" from pattern " + pattern_id + "?")) {
-		var data_dict = {"pattern_id": pattern_id, "tag": tag};
+		const data_dict = {"pattern_id": pattern_id, "tag": tag};
 		post_modification("/api/pattern-tag-remove", data_dict);
 	}
 }
@@ -10,28 +10,28 @@ function remove_pattern_tag(pattern_id, tag) {
 
 function add_tag(pattern_id) {
 
-	var prompt_val = prompt("Enter tag name (lowercase, no spaces):");
+	const prompt_val = prompt("Enter tag name (lowercase, no spaces):");
 	if (prompt_val) {
-		var data_dict = {"pattern_id": pattern_id, "tag": prompt_val};
+		const data_dict = {"pattern_id": pattern_id, "tag": prompt_val};
 		post_modification("/api/pattern-tag-add", data_dict);
 	}
 }
 
 
 function update_description(pattern_id, new_value) {
-	var data_dict = {"pattern_id": pattern_id, "description": new_value};
+	const data_dict = {"pattern_id": pattern_id, "description": new_value};
 	post_modification("/api/pattern-description-update", data_dict);
 }
 
 function update_specificity(pattern_id, new_value) {
-	var data_dict = {"pattern_id": pattern_id, "specificity": new_value};
+	const data_dict = {"pattern_id": pattern_id, "specificity": new_value};
 	post_modification("/api/pattern-specificity-update", data_dict);
 }
 
 
 
 function render_relative_time(cell) {
-	var val = cell.getValue();
+	const val = cell.getValue();
 	return val!= null ? moment(val).fromNow() : "never";
 }
 
@@ -42,11 +42,11 @@ function gen_patterns_table(pattern_id, used_presumed_stable_branches, filtered_
 	var api_endpoint_url = "/api/patterns";
 
 	if (pattern_id != null) {
-	        var query_parms = {
+	        const query_parms = {
 			"pattern_id": pattern_id,
 		};
 
-	        var ajax_url_query_string = $.param(query_parms);
+	        const ajax_url_query_string = $.param(query_parms);
 		api_endpoint_url = "/api/pattern?" + ajax_url_query_string;
 
 	} else if (used_presumed_stable_branches) {
@@ -55,21 +55,21 @@ function gen_patterns_table(pattern_id, used_presumed_stable_branches, filtered_
 
 	} else if (filtered_branches.length > 0) {
 
-	        var query_parms = {
+	        const query_parms = {
 			"branches": filtered_branches,
 		};
 
-	        var ajax_url_query_string = $.param(query_parms, true);
+	        const ajax_url_query_string = $.param(query_parms, true);
 		api_endpoint_url = "/api/patterns-branch-filtered?" + ajax_url_query_string;
 	}
 
-        var height = pattern_id == null ? "400px" : null;
+        const height = pattern_id == null ? "400px" : null;
 
-	var table = new Tabulator("#patterns-table", {
+	const table = new Tabulator("#patterns-table", {
 		height: height,
 /*
 		rowClick: function(e, row) {
-			var pattern_id = row.getData()["id"];
+			const pattern_id = row.getData()["id"];
 			window.location.href = "/pattern-details.html?pattern_id=" + pattern_id;
 
 		},
@@ -79,11 +79,11 @@ function gen_patterns_table(pattern_id, used_presumed_stable_branches, filtered_
 		columns:[
 			{title:"Tags", field: "tags", sorter: "string",
 				formatter: function(cell, formatterParams, onRendered) {
-				        var tag_list = cell.getValue();
-					var pattern_id = cell.getRow().getData()["id"];
+				        const tag_list = cell.getValue();
+					const pattern_id = cell.getRow().getData()["id"];
 
-					var tag_elements = tag_list.map(function(val) {
-						var class_list = ["tag"];
+					const tag_elements = tag_list.map(function(val) {
+						const class_list = ["tag"];
 						if (TAG_CLASSES.has(val)) {
 							class_list.push("tag-class-" + val);
 						}
@@ -102,12 +102,12 @@ function gen_patterns_table(pattern_id, used_presumed_stable_branches, filtered_
 					return tag_elements.join(" ");
 				},
 				cellMouseEnter: function(e, cell) {
-					var pattern_id = cell.getRow().getData()["id"];
+					const pattern_id = cell.getRow().getData()["id"];
 					$("#tag-add-button-" + pattern_id).show();
 
 				},
 				cellMouseLeave: function(e, cell) {
-					var pattern_id = cell.getRow().getData()["id"];
+					const pattern_id = cell.getRow().getData()["id"];
 					$("#tag-add-button-" + pattern_id).hide();
 				},
 			},
@@ -125,8 +125,8 @@ function gen_patterns_table(pattern_id, used_presumed_stable_branches, filtered_
 				widthGrow: 2,
 				editor: "input",
 				cellEdited: function(cell) {
-					var pattern_id = cell.getRow().getData()["id"];
-					var new_description = cell.getValue();
+					const pattern_id = cell.getRow().getData()["id"];
+					const new_description = cell.getValue();
 					update_description(pattern_id, new_description);
 				},
 			},
@@ -149,8 +149,8 @@ function gen_patterns_table(pattern_id, used_presumed_stable_branches, filtered_
 				    "max": 100,
 				},
 				cellEdited: function(cell) {
-					var pattern_id = cell.getRow().getData()["id"];
-					var new_specificity = cell.getValue();
+					const pattern_id = cell.getRow().getData()["id"];
+					const new_specificity = cell.getValue();
 					update_specificity(pattern_id, new_specificity);
 				},
 			},
