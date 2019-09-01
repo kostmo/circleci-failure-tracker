@@ -48,7 +48,14 @@ import qualified SqlRead
 
 
 sqlInsertUniversalBuild :: Query
-sqlInsertUniversalBuild = "INSERT INTO universal_builds(provider, build_number, build_namespace, succeeded, commit_sha1) VALUES(?,?,?,?,?) ON CONFLICT ON CONSTRAINT universal_builds_build_number_build_namespace_provider_key DO UPDATE SET build_number = excluded.build_number RETURNING id;"
+sqlInsertUniversalBuild = MyUtils.qjoin [
+    "INSERT INTO universal_builds(provider, build_number, build_namespace, succeeded, commit_sha1)"
+  , "VALUES(?,?,?,?,?)"
+  , "ON CONFLICT"
+  , "ON CONSTRAINT universal_builds_build_number_build_namespace_provider_key"
+  , "DO UPDATE SET build_number = excluded.build_number"
+  , "RETURNING id;"
+  ]
 
 
 storeCommitMetadata ::
@@ -64,7 +71,10 @@ storeCommitMetadata conn commit_list =
   where
     f (Commits.CommitMetadata (Builds.RawCommit sha1) message tree_sha1 author_name author_email author_date committer_name committer_email committer_date) = (sha1, message, tree_sha1, author_name, author_email, author_date, committer_name, committer_email, committer_date)
 
-    insertion_sql = "INSERT INTO commit_metadata(sha1, message, tree_sha1, author_name, author_email, author_date, committer_name, committer_email, committer_date) VALUES(?,?,?,?,?,?,?,?,?);"
+    insertion_sql = MyUtils.qjoin [
+      "INSERT INTO commit_metadata(sha1, message, tree_sha1, author_name, author_email, author_date, committer_name, committer_email, committer_date)"
+      , "VALUES(?,?,?,?,?,?,?,?,?);"
+      ]
 
     catcher _ (UniqueViolation some_error) = return $ Left $
       "Insertion error: " <> T.pack (BS.unpack some_error)
@@ -151,9 +161,16 @@ findMasterAncestorWithPrecomputation maybe_all_master_commits conn access_token 
           return merge_base_commit
 
   where
-    cached_merge_bases_sql = "SELECT master_commit FROM cached_master_merge_base WHERE branch_commit = ?;"
+    cached_merge_bases_sql = MyUtils.qjoin [
+        "SELECT master_commit"
+      , "FROM cached_master_merge_base"
+      , "WHERE branch_commit = ?;"
+      ]
 
-    merge_base_insertion_sql = "INSERT INTO cached_master_merge_base(branch_commit, master_commit, distance) VALUES(?,?,?);"
+    merge_base_insertion_sql = MyUtils.qjoin [
+        "INSERT INTO cached_master_merge_base(branch_commit, master_commit, distance)"
+      , "VALUES(?,?,?);"
+      ]
 
 
 findMasterAncestor ::
@@ -204,7 +221,13 @@ getAllPullRequestHeadCommits conn git_dir = do
 
   return $ Right retrieved_pr_heads
   where
-    insertion_sql = "INSERT INTO pull_request_heads(pr_number, head_sha1) VALUES(?,?) ON CONFLICT ON CONSTRAINT pull_request_heads_pr_number_head_sha1_key DO UPDATE SET timestamp = NOW();"
+    insertion_sql = MyUtils.qjoin [
+        "INSERT INTO pull_request_heads(pr_number, head_sha1)"
+      , "VALUES(?,?)"
+      , "ON CONFLICT"
+      , "ON CONSTRAINT pull_request_heads_pr_number_head_sha1_key"
+      , "DO UPDATE SET timestamp = NOW();"
+      ]
 
 
 storeCachedMergeBases ::
@@ -357,7 +380,13 @@ storeBuildsList conn builds_list =
         queued_at_string = T.pack $ formatTime defaultTimeLocale rfc822DateFormat queuedat
         (Builds.NewBuild _ _ queuedat jobname branch start_time stop_time) = rbuild
 
-    sql = "INSERT INTO builds(queued_at, job_name, branch, global_build_num, started_at, finished_at) VALUES(?,?,?,?,?,?) ON CONFLICT (global_build_num) DO UPDATE SET branch = COALESCE(builds.branch, EXCLUDED.branch), queued_at = COALESCE(builds.queued_at, EXCLUDED.queued_at), started_at = COALESCE(builds.started_at, EXCLUDED.started_at), finished_at = COALESCE(builds.finished_at, EXCLUDED.finished_at);"
+    sql = MyUtils.qjoin [
+        "INSERT INTO builds(queued_at, job_name, branch, global_build_num, started_at, finished_at)"
+      , "VALUES(?,?,?,?,?,?)"
+      , "ON CONFLICT (global_build_num)"
+      , "DO UPDATE"
+      , "SET branch = COALESCE(builds.branch, EXCLUDED.branch), queued_at = COALESCE(builds.queued_at, EXCLUDED.queued_at), started_at = COALESCE(builds.started_at, EXCLUDED.started_at), finished_at = COALESCE(builds.finished_at, EXCLUDED.finished_at);"
+      ]
 
 
 storeMatches ::
@@ -399,7 +428,10 @@ storeMatches scan_resources (Builds.NewBuildStepId build_step_id) scoped_matches
       where
         match_deets = ScanPatterns.match_details match
 
-    insertion_sql = "INSERT INTO matches(scan_id, build_step, pattern, line_number, line_text, span_start, span_end) VALUES(?,?,?,?,?,?,?);"
+    insertion_sql = MyUtils.qjoin [
+      "INSERT INTO matches(scan_id, build_step, pattern, line_number, line_text, span_start, span_end)"
+      , "VALUES(?,?,?,?,?,?,?);"
+      ]
 
 
 insertSingleCIProvider :: Connection -> String -> IO (DbHelpers.WithId String)
@@ -435,7 +467,10 @@ insertPostedGithubStatus conn (Builds.RawCommit git_sha1) (DbHelpers.OwnerAndRep
   [Only pattern_id] <- query conn sql (id, git_sha1, owner, repo, url, state, desc, target_url, context, created_at, updated_at)
   return pattern_id
   where
-    sql = "INSERT INTO created_github_statuses(id, sha1, project, repo, url, state, description, target_url, context, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?) RETURNING id;"
+    sql = MyUtils.qjoin [
+        "INSERT INTO created_github_statuses(id, sha1, project, repo, url, state, description, target_url, context, created_at, updated_at)"
+      , "VALUES(?,?,?,?,?,?,?,?,?,?,?) RETURNING id;"
+      ]
 
 
 addPatternTag ::
@@ -583,9 +618,15 @@ insertSinglePattern either_pattern = do
       ScanPatterns.RegularExpression _ has_nondeterministic -> has_nondeterministic
       ScanPatterns.LiteralExpression _                       -> False
 
-    pattern_insertion_sql = "INSERT INTO patterns(regex, expression, description, is_retired, has_nondeterministic_values, specificity, lines_from_end) VALUES(?,?,?,?,?,?,?) RETURNING id;"
+    pattern_insertion_sql = MyUtils.qjoin [
+        "INSERT INTO patterns(regex, expression, description, is_retired, has_nondeterministic_values, specificity, lines_from_end)"
+      , "VALUES(?,?,?,?,?,?,?) RETURNING id;"
+      ]
 
-    pattern_insertion_with_id_sql = "INSERT INTO patterns(id, regex, expression, description, is_retired, has_nondeterministic_values, specificity, lines_from_end) VALUES(?,?,?,?,?,?,?,?) RETURNING id;"
+    pattern_insertion_with_id_sql = MyUtils.qjoin [
+        "INSERT INTO patterns(id, regex, expression, description, is_retired, has_nondeterministic_values, specificity, lines_from_end)"
+      , "VALUES(?,?,?,?,?,?,?,?) RETURNING id;"
+      ]
 
     tag_insertion_sql = "INSERT INTO pattern_tags(tag, pattern) VALUES(?,?);"
 
@@ -662,7 +703,13 @@ storeLogInfo
 
   execute conn sql (step_id, line_count, byte_count, log_content, modified_by_ansi_stripping, was_truncated_for_size)
   where
-    sql = "INSERT INTO log_metadata(step, line_count, byte_count, content, modified_by_ansi_stripping, was_truncated_for_size) VALUES(?,?,?,?,?,?) ON CONFLICT (step) DO UPDATE SET line_count = EXCLUDED.line_count, byte_count = EXCLUDED.byte_count, content = EXCLUDED.content, modified_by_ansi_stripping = EXCLUDED.modified_by_ansi_stripping, was_truncated_for_size = EXCLUDED.was_truncated_for_size;"
+    sql = MyUtils.qjoin [
+        "INSERT INTO log_metadata(step, line_count, byte_count, content, modified_by_ansi_stripping, was_truncated_for_size)"
+      , "VALUES(?,?,?,?,?,?)"
+      , "ON CONFLICT (step)"
+      , "DO UPDATE"
+      , "SET line_count = EXCLUDED.line_count, byte_count = EXCLUDED.byte_count, content = EXCLUDED.content, modified_by_ansi_stripping = EXCLUDED.modified_by_ansi_stripping, was_truncated_for_size = EXCLUDED.was_truncated_for_size;"
+      ]
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
 
 
@@ -707,7 +754,14 @@ insertBuildVisitation scan_resources (ubuild, visitation_result) = do
   where
     universal_build_id = DbHelpers.db_id ubuild
 
-    insertion_sql = "INSERT INTO build_steps(name, is_timeout, universal_build, step_index) VALUES(?,?,?,?) ON CONFLICT ON CONSTRAINT build_steps_universal_build_step_index_key DO UPDATE SET name = excluded.name, is_timeout = excluded.is_timeout RETURNING id;"
+    insertion_sql = MyUtils.qjoin [
+        "INSERT INTO build_steps(name, is_timeout, universal_build, step_index)"
+      , "VALUES(?,?,?,?)"
+      , "ON CONFLICT"
+      , "ON CONSTRAINT build_steps_universal_build_step_index_key"
+      , "DO UPDATE SET name = excluded.name, is_timeout = excluded.is_timeout"
+      , "RETURNING id;"
+      ]
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
 
 
@@ -721,7 +775,10 @@ insertScanId conn maybe_initiator (ScanPatterns.PatternId pattern_id)  = do
   return pattern_id
   where
     inititator = fmap (\(AuthStages.Username x) -> x) maybe_initiator
-    sql = "INSERT INTO scans(latest_pattern_id, initiator) VALUES(?,?) RETURNING id;"
+    sql = MyUtils.qjoin [
+        "INSERT INTO scans(latest_pattern_id, initiator)"
+      , "VALUES(?,?) RETURNING id;"
+      ]
 
 
 reportBreakage ::
@@ -837,7 +894,10 @@ apiCodeBreakageResolutionInsert
     return $ Right report_id
 
   where
-    insertion_sql = "INSERT INTO code_breakage_resolution(sha1, cause, reporter) VALUES(?,?,?) RETURNING id;"
+    insertion_sql = MyUtils.qjoin [
+        "INSERT INTO code_breakage_resolution(sha1, cause, reporter)"
+      , "VALUES(?,?,?) RETURNING id;"
+      ]
 
     catcher _ (UniqueViolation some_error) = return $ Left $ "Insertion error: " <> T.pack (BS.unpack some_error)
     catcher e _                                  = throwIO e
@@ -896,7 +956,10 @@ copyPattern conn_data pattern_id@(ScanPatterns.PatternId pat_id) username field_
       return new_id
 
   where
-    sql = "SELECT regex, has_nondeterministic_values, expression, description, tags, steps, specificity, lines_from_end FROM patterns_augmented WHERE id = ?;"
+    sql = MyUtils.qjoin [
+        "SELECT regex, has_nondeterministic_values, expression, description, tags, steps, specificity, lines_from_end"
+      , "FROM patterns_augmented WHERE id = ?;"
+      ]
 
 
 apiNewPatternWrapped ::

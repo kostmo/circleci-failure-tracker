@@ -133,8 +133,11 @@ getBuildInfo access_token build@(Builds.UniversalBuildId build_id) = do
           started_at
           finished_at
 
-    sql = "SELECT step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch, started_at, finished_at FROM builds_join_steps WHERE universal_build = ?;"
-
+    sql = MyUtils.qjoin [
+        "SELECT step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch, started_at, finished_at"
+      , "FROM builds_join_steps"
+      , "WHERE universal_build = ?;"
+      ]
 
 
 data RevisionBuildCountBenchmarks = RevisionBuildCountBenchmarks {
@@ -182,7 +185,11 @@ countRevisionBuilds access_token git_revision = do
     sha1 = GitRev.sha1 git_revision
     only_commit = Only sha1
 
-    aggregate_causes_sql = "SELECT total, idiopathic, timeout, known_broken, pattern_matched, pattern_matched_other, flaky, pattern_unmatched, succeeded FROM build_failure_disjoint_causes_by_commit WHERE sha1 = ? LIMIT 1;"
+    aggregate_causes_sql = MyUtils.qjoin [
+        "SELECT total, idiopathic, timeout, known_broken, pattern_matched, pattern_matched_other, flaky, pattern_unmatched, succeeded"
+      , "FROM build_failure_disjoint_causes_by_commit"
+      , "WHERE sha1 = ? LIMIT 1;"
+      ]
 
 
 -- TODO This is not finished!
@@ -239,7 +246,18 @@ diagnoseCommitsBatch maybe_local_repo_path conn access_token owned_repo =
 
   where
     -- Excludes commits from the master branch and commits that are already cached
-    commit_list_sql = "SELECT DISTINCT vcs_revision FROM builds_join_steps LEFT JOIN ordered_master_commits ON ordered_master_commits.sha1 = builds_join_steps.vcs_revision LEFT JOIN cached_master_merge_base ON cached_master_merge_base.branch_commit = builds_join_steps.vcs_revision WHERE ordered_master_commits.sha1 IS NULL AND cached_master_merge_base.branch_commit IS NULL AND NOT succeeded AND NOT is_timeout;"
+    commit_list_sql = MyUtils.qjoin [
+        "SELECT DISTINCT vcs_revision"
+      , "FROM builds_join_steps"
+      , "LEFT JOIN ordered_master_commits"
+      , "ON ordered_master_commits.sha1 = builds_join_steps.vcs_revision"
+      , "LEFT JOIN cached_master_merge_base"
+      , "ON cached_master_merge_base.branch_commit = builds_join_steps.vcs_revision"
+      , "WHERE ordered_master_commits.sha1 IS NULL"
+      , "AND cached_master_merge_base.branch_commit IS NULL"
+      , "AND NOT succeeded"
+      , "AND NOT is_timeout;"
+      ]
 
 
 -- | Find known build breakages applicable to the merge base
