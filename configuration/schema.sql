@@ -780,50 +780,24 @@ CREATE TABLE public.log_metadata (
 ALTER TABLE public.log_metadata OWNER TO postgres;
 
 --
--- Name: matches_with_log_metadata; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.matches_with_log_metadata WITH (security_barrier='false') AS
- SELECT matches_distinct.id,
-    matches_distinct.build_step,
-    matches_distinct.pattern,
-    matches_distinct.line_number,
-    matches_distinct.line_text,
-    matches_distinct.span_start,
-    matches_distinct.span_end,
-    matches_distinct.scan_id,
-    log_metadata.line_count,
-    log_metadata.byte_count,
-    log_metadata.step,
-    builds_join_steps.step_name,
-    builds_join_steps.build_num,
-    builds_join_steps.universal_build
-   FROM ((public.matches_distinct
-     JOIN public.log_metadata ON ((log_metadata.step = matches_distinct.build_step)))
-     JOIN public.builds_join_steps ON ((builds_join_steps.step_id = log_metadata.step)));
-
-
-ALTER TABLE public.matches_with_log_metadata OWNER TO postgres;
-
---
 -- Name: best_pattern_match_augmented_builds; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.best_pattern_match_augmented_builds AS
- SELECT DISTINCT ON (best_pattern_match_for_builds.universal_build) best_pattern_match_for_builds.build,
+CREATE VIEW public.best_pattern_match_augmented_builds WITH (security_barrier='false') AS
+ SELECT best_pattern_match_for_builds.build,
     builds_join_steps.step_name,
-    matches_with_log_metadata.line_number,
-    matches_with_log_metadata.line_count,
-    matches_with_log_metadata.line_text,
-    matches_with_log_metadata.span_start,
-    matches_with_log_metadata.span_end,
+    matches.line_number,
+    log_metadata.line_count,
+    matches.line_text,
+    matches.span_start,
+    matches.span_end,
     builds_join_steps.vcs_revision,
     builds_join_steps.queued_at,
     builds_join_steps.job_name,
     builds_join_steps.branch,
     best_pattern_match_for_builds.pattern_id,
     best_pattern_match_for_builds.specificity,
-    matches_with_log_metadata.id AS match_id,
+    best_pattern_match_for_builds.match_id,
     best_pattern_match_for_builds.is_flaky,
     builds_join_steps.universal_build,
     builds_join_steps.provider,
@@ -831,10 +805,10 @@ CREATE VIEW public.best_pattern_match_augmented_builds AS
     builds_join_steps.build_namespace,
     builds_join_steps.started_at,
     builds_join_steps.finished_at
-   FROM ((public.best_pattern_match_for_builds
-     JOIN public.matches_with_log_metadata ON ((matches_with_log_metadata.id = best_pattern_match_for_builds.match_id)))
-     JOIN public.builds_join_steps ON ((builds_join_steps.step_id = best_pattern_match_for_builds.step_id)))
-  ORDER BY best_pattern_match_for_builds.universal_build DESC, matches_with_log_metadata.line_number;
+   FROM (((public.best_pattern_match_for_builds
+     JOIN public.matches ON ((matches.id = best_pattern_match_for_builds.match_id)))
+     JOIN public.log_metadata ON ((log_metadata.step = best_pattern_match_for_builds.step_id)))
+     JOIN public.builds_join_steps ON ((builds_join_steps.universal_build = best_pattern_match_for_builds.universal_build)));
 
 
 ALTER TABLE public.best_pattern_match_augmented_builds OWNER TO postgres;
@@ -2557,6 +2531,32 @@ CREATE VIEW public.match_position_stats AS
 ALTER TABLE public.match_position_stats OWNER TO postgres;
 
 --
+-- Name: matches_with_log_metadata; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.matches_with_log_metadata WITH (security_barrier='false') AS
+ SELECT matches_distinct.id,
+    matches_distinct.build_step,
+    matches_distinct.pattern,
+    matches_distinct.line_number,
+    matches_distinct.line_text,
+    matches_distinct.span_start,
+    matches_distinct.span_end,
+    matches_distinct.scan_id,
+    log_metadata.line_count,
+    log_metadata.byte_count,
+    log_metadata.step,
+    builds_join_steps.step_name,
+    builds_join_steps.build_num,
+    builds_join_steps.universal_build
+   FROM ((public.matches_distinct
+     JOIN public.log_metadata ON ((log_metadata.step = matches_distinct.build_step)))
+     JOIN public.builds_join_steps ON ((builds_join_steps.step_id = log_metadata.step)));
+
+
+ALTER TABLE public.matches_with_log_metadata OWNER TO postgres;
+
+--
 -- Name: ordered_master_commits_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
 --
 
@@ -4179,13 +4179,6 @@ GRANT ALL ON TABLE public.log_metadata TO logan;
 
 
 --
--- Name: TABLE matches_with_log_metadata; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.matches_with_log_metadata TO logan;
-
-
---
 -- Name: TABLE best_pattern_match_augmented_builds; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -4617,6 +4610,13 @@ GRANT ALL ON TABLE public.match_last_position_frequencies TO logan;
 --
 
 GRANT ALL ON TABLE public.match_position_stats TO logan;
+
+
+--
+-- Name: TABLE matches_with_log_metadata; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.matches_with_log_metadata TO logan;
 
 
 --
