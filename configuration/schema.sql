@@ -738,6 +738,57 @@ CREATE VIEW public.aggregated_github_status_postings AS
 ALTER TABLE public.aggregated_github_status_postings OWNER TO postgres;
 
 --
+-- Name: log_metadata; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.log_metadata (
+    line_count integer NOT NULL,
+    byte_count integer NOT NULL,
+    step integer NOT NULL,
+    content text,
+    modified_by_ansi_stripping boolean,
+    was_truncated_for_size boolean DEFAULT false NOT NULL
+);
+
+
+ALTER TABLE public.log_metadata OWNER TO postgres;
+
+--
+-- Name: best_pattern_match_augmented_builds; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.best_pattern_match_augmented_builds WITH (security_barrier='false') AS
+ SELECT best_pattern_match_for_builds.build,
+    build_steps.name AS step_name,
+    matches.line_number,
+    log_metadata.line_count,
+    matches.line_text,
+    matches.span_start,
+    matches.span_end,
+    global_builds.vcs_revision,
+    global_builds.queued_at,
+    global_builds.job_name,
+    global_builds.branch,
+    best_pattern_match_for_builds.pattern_id,
+    best_pattern_match_for_builds.specificity,
+    best_pattern_match_for_builds.match_id,
+    best_pattern_match_for_builds.is_flaky,
+    best_pattern_match_for_builds.universal_build,
+    global_builds.provider,
+    global_builds.succeeded,
+    global_builds.build_namespace,
+    global_builds.started_at,
+    global_builds.finished_at
+   FROM ((((public.best_pattern_match_for_builds
+     JOIN public.matches ON ((matches.id = best_pattern_match_for_builds.match_id)))
+     JOIN public.log_metadata ON ((log_metadata.step = best_pattern_match_for_builds.step_id)))
+     JOIN public.global_builds ON ((global_builds.global_build_num = best_pattern_match_for_builds.universal_build)))
+     JOIN public.build_steps ON ((build_steps.universal_build = best_pattern_match_for_builds.universal_build)));
+
+
+ALTER TABLE public.best_pattern_match_augmented_builds OWNER TO postgres;
+
+--
 -- Name: builds_join_steps; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -762,56 +813,6 @@ CREATE VIEW public.builds_join_steps WITH (security_barrier='false') AS
 
 
 ALTER TABLE public.builds_join_steps OWNER TO postgres;
-
---
--- Name: log_metadata; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.log_metadata (
-    line_count integer NOT NULL,
-    byte_count integer NOT NULL,
-    step integer NOT NULL,
-    content text,
-    modified_by_ansi_stripping boolean,
-    was_truncated_for_size boolean DEFAULT false NOT NULL
-);
-
-
-ALTER TABLE public.log_metadata OWNER TO postgres;
-
---
--- Name: best_pattern_match_augmented_builds; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.best_pattern_match_augmented_builds WITH (security_barrier='false') AS
- SELECT best_pattern_match_for_builds.build,
-    builds_join_steps.step_name,
-    matches.line_number,
-    log_metadata.line_count,
-    matches.line_text,
-    matches.span_start,
-    matches.span_end,
-    builds_join_steps.vcs_revision,
-    builds_join_steps.queued_at,
-    builds_join_steps.job_name,
-    builds_join_steps.branch,
-    best_pattern_match_for_builds.pattern_id,
-    best_pattern_match_for_builds.specificity,
-    best_pattern_match_for_builds.match_id,
-    best_pattern_match_for_builds.is_flaky,
-    builds_join_steps.universal_build,
-    builds_join_steps.provider,
-    builds_join_steps.succeeded,
-    builds_join_steps.build_namespace,
-    builds_join_steps.started_at,
-    builds_join_steps.finished_at
-   FROM (((public.best_pattern_match_for_builds
-     JOIN public.matches ON ((matches.id = best_pattern_match_for_builds.match_id)))
-     JOIN public.log_metadata ON ((log_metadata.step = best_pattern_match_for_builds.step_id)))
-     JOIN public.builds_join_steps ON ((builds_join_steps.universal_build = best_pattern_match_for_builds.universal_build)));
-
-
-ALTER TABLE public.best_pattern_match_augmented_builds OWNER TO postgres;
 
 --
 -- Name: code_breakage_affected_jobs; Type: TABLE; Schema: public; Owner: postgres
@@ -4165,13 +4166,6 @@ GRANT ALL ON TABLE public.aggregated_github_status_postings TO logan;
 
 
 --
--- Name: TABLE builds_join_steps; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.builds_join_steps TO logan;
-
-
---
 -- Name: TABLE log_metadata; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -4183,6 +4177,13 @@ GRANT ALL ON TABLE public.log_metadata TO logan;
 --
 
 GRANT ALL ON TABLE public.best_pattern_match_augmented_builds TO logan;
+
+
+--
+-- Name: TABLE builds_join_steps; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.builds_join_steps TO logan;
 
 
 --
