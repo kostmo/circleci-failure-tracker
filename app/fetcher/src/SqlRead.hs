@@ -1098,8 +1098,74 @@ getRevisionBuilds git_revision = do
   (timing, content) <- MyUtils.timeThisFloat $ liftIO $ query conn sql $ Only $ GitRev.sha1 git_revision
   return $ DbHelpers.BenchmarkedResponse timing content
   where
+
+    -- TODO FIXME
+    -- This is copying the logic from multiple nested views so that
+    -- a query for a single git revision is optimized.
+    -- Beware especially of divergence of the match ranking logic (e.g. on "specificity"),
+    -- if the logic is updated in the VIEW definition on the database side.
+    --
+    -- See Github Issue #52
     sql = MyUtils.qjoin [
-        "SELECT step_name, match_id, build, vcs_revision, queued_at, job_name, branch, pattern_id, line_number, line_count, line_text, span_start, span_end, specificity, universal_build, provider, build_namespace, succeeded, label, icon_url, started_at, finished_at"
+        "SELECT"
+      , "build_steps.name AS step_name, match_id, build, global_builds.vcs_revision, queued_at, job_name, branch, pattern_id, line_number, line_count, line_text, span_start, span_end, specificity, global_builds.global_build_num AS universal_build, provider, build_namespace, succeeded, label, icon_url, started_at, finished_at"
+{-
+      , "best_pattern_match_for_builds.build,"
+      , "build_steps.name AS step_name,"
+      , "matches.line_number,"
+      , "log_metadata.line_count,"
+      , "matches.line_text,"
+      , "matches.span_start,"
+      , "matches.span_end,"
+      , "global_builds.vcs_revision,"
+      , "global_builds.queued_at,"
+      , "global_builds.job_name,"
+      , "global_builds.branch,"
+      , "best_pattern_match_for_builds.pattern_id,"
+      , "best_pattern_match_for_builds.specificity,"
+      , "best_pattern_match_for_builds.match_id,"
+      , "best_pattern_match_for_builds.is_flaky,"
+      , "best_pattern_match_for_builds.universal_build,"
+      , "global_builds.provider,"
+      , "global_builds.succeeded,"
+      , "global_builds.build_namespace,"
+      , "global_builds.started_at,"
+      , "global_builds.finished_at"
+-}
+      , "FROM  (SELECT DISTINCT ON (matches_for_build.universal_build) matches_for_build.build,"
+      , "matches_for_build.pat AS pattern_id,"
+      , "patterns_rich.expression,"
+      , "patterns_rich.regex,"
+      , "patterns_rich.has_nondeterministic_values,"
+      , "patterns_rich.is_retired,"
+      , "patterns_rich.specificity,"
+      , "NULL::bigint AS distinct_matching_pattern_count,"
+      , "count(matches_for_build.match_id) OVER (PARTITION BY matches_for_build.universal_build)::numeric AS total_pattern_matches,"
+      , "patterns_rich.is_flaky,"
+      , "matches_for_build.universal_build,"
+      , "matches_for_build.match_id,"
+      , "matches_for_build.step_id,"
+      , "matches_for_build.vcs_revision,"
+      , "patterns_rich.is_network"
+      , "FROM matches_for_build"
+      , "JOIN patterns_rich ON matches_for_build.pat = patterns_rich.id"
+      , "WHERE vcs_revision = ?"
+        -- BEWARE OF DIVERGENCE OF THIS LOGIC!
+      , "ORDER BY matches_for_build.universal_build, patterns_rich.specificity DESC, patterns_rich.is_retired, patterns_rich.regex, patterns_rich.id DESC, matches_for_build.match_id DESC) best_pattern_match_for_builds"
+      , "JOIN matches ON matches.id = best_pattern_match_for_builds.match_id"
+      , "JOIN log_metadata ON log_metadata.step = best_pattern_match_for_builds.step_id"
+      , "JOIN global_builds ON global_builds.global_build_num = best_pattern_match_for_builds.universal_build"
+      , "JOIN build_steps ON build_steps.universal_build = best_pattern_match_for_builds.universal_build"
+      , "JOIN ci_providers"
+      , "ON ci_providers.id = global_builds.provider"
+      ]
+
+
+    -- THIS is not used for now; it is perserved so that at some point
+    -- we can go back to this simpler query.
+    _sql_unoptimized = MyUtils.qjoin [
+        "SELECT"
+      , "step_name, match_id, build, vcs_revision, queued_at, job_name, branch, pattern_id, line_number, line_count, line_text, span_start, span_end, specificity, universal_build, provider, build_namespace, succeeded, label, icon_url, started_at, finished_at"
       , "FROM best_pattern_match_augmented_builds"
       , "JOIN ci_providers"
       , "ON ci_providers.id = best_pattern_match_augmented_builds.provider"
@@ -1883,6 +1949,14 @@ pattern_occurrence_txform pattern_id = f
       universal_build_id
 
 
+commonQueryPrefixPatternMatches :: Query
+commonQueryPrefixPatternMatches = MyUtils.qjoin [
+    "SELECT build, step_name, match_id, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch, universal_build"
+  , "FROM best_pattern_match_augmented_builds"
+  , "WHERE pattern_id = ?"
+  ]
+
+
 -- | Limit is arbitrary
 getBestPatternMatches :: ScanPatterns.PatternId -> DbIO [PatternOccurrence]
 getBestPatternMatches pat@(ScanPatterns.PatternId pattern_id) = do
@@ -1891,9 +1965,7 @@ getBestPatternMatches pat@(ScanPatterns.PatternId pattern_id) = do
 
   where
     sql = MyUtils.qjoin [
-        "SELECT build, step_name, match_id, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch, universal_build"
-      , "FROM best_pattern_match_augmented_builds"
-      , "WHERE pattern_id = ?"
+        commonQueryPrefixPatternMatches
       , "LIMIT 100;"
       ]
 
@@ -1904,9 +1976,7 @@ getBestPatternMatchesWhitelistedBranches pat@(ScanPatterns.PatternId pattern_id)
   liftIO $ map (pattern_occurrence_txform pat) <$> query conn sql (Only pattern_id)
   where
     sql = MyUtils.qjoin [
-        "SELECT build, step_name, match_id, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch, universal_build"
-      , "FROM best_pattern_match_augmented_builds"
-      , "WHERE pattern_id = ?"
+        commonQueryPrefixPatternMatches
       , "AND branch IN (SELECT branch from presumed_stable_branches);"
       ]
 
@@ -1940,7 +2010,9 @@ getBestBuildMatch ::
 getBestBuildMatch ubuild_id@(Builds.UniversalBuildId build_id) = do
 
   conn <- ask
-  (timing, content) <- MyUtils.timeThisFloat $ liftIO $ map f <$> query conn sql (Only build_id)
+  (timing, content) <- MyUtils.timeThisFloat $ liftIO $
+    map f <$> query conn sql (Only build_id)
+
   return $ DbHelpers.BenchmarkedResponse timing content
 
   where
