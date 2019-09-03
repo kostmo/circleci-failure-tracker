@@ -590,7 +590,17 @@ apiUnmatchedCommitBuilds sha1 = do
   liftIO $ query conn sql $ Only sha1
   where
     sql = MyUtils.qjoin [
-        "SELECT build_num, step_name, queued_at, job_name, unattributed_failed_builds.branch, builds_join_steps.universal_build, ci_providers.icon_url, ci_providers.label"
+        "SELECT"
+      , MyUtils.qlist [
+          "build_num"
+        , "step_name"
+        , "queued_at"
+        , "job_name"
+        , "unattributed_failed_builds.branch"
+        , "builds_join_steps.universal_build"
+        , "ci_providers.icon_url"
+        , "ci_providers.label"
+        ]
       , "FROM unattributed_failed_builds"
       , "JOIN builds_join_steps"
       , "ON unattributed_failed_builds.global_build = builds_join_steps.universal_build"
@@ -605,9 +615,29 @@ apiIdiopathicCommitBuilds sha1 = do
   conn <- ask
   liftIO $ map f <$> query conn sql (Only sha1)
   where
-    f (build, step_name, queued_at, job_name, branch, universal_build_id, provider_icon_url, provider_label) = WebApi.UnmatchedBuild (Builds.NewBuildNumber build) step_name queued_at job_name branch (Builds.UniversalBuildId universal_build_id) provider_icon_url provider_label
+    f (build, step_name, queued_at, job_name, branch, universal_build_id, provider_icon_url, provider_label) =
+      WebApi.UnmatchedBuild
+        (Builds.NewBuildNumber build)
+        step_name
+        queued_at
+        job_name
+        branch
+        (Builds.UniversalBuildId universal_build_id)
+        provider_icon_url
+        provider_label
+
     sql = MyUtils.qjoin [
-        "SELECT build_num, step_name, queued_at, job_name, idiopathic_build_failures.branch, builds_join_steps.universal_build, ci_providers.icon_url, ci_providers.label"
+        "SELECT"
+      , MyUtils.qlist [
+          "build_num"
+        , "step_name"
+        , "queued_at"
+        , "job_name"
+        , "idiopathic_build_failures.branch"
+        , "builds_join_steps.universal_build"
+        , "ci_providers.icon_url"
+        , "ci_providers.label"
+        ]
       , "FROM idiopathic_build_failures"
       , "JOIN builds_join_steps"
       , "ON idiopathic_build_failures.global_build_num = builds_join_steps.universal_build"
@@ -686,7 +716,15 @@ instance ToJSON MasterBuildStats where
 -- | TODO head is partial
 masterBuildFailureStats :: DbIO MasterBuildStats
 masterBuildFailureStats = fmap head $ runQuery $ MyUtils.qjoin [
-    "SELECT count(*) AS total, sum(is_idiopathic::int) AS idiopathic, sum(is_timeout::int) AS timeout, sum(is_known_broken::int) AS known_broken, sum((NOT is_unmatched)::int) AS pattern_matched, sum(is_flaky::int) AS flaky"
+    "SELECT"
+  , MyUtils.qlist [
+      "count(*) AS total"
+    , "sum(is_idiopathic::int) AS idiopathic"
+    , "sum(is_timeout::int) AS timeout"
+    , "sum(is_known_broken::int) AS known_broken"
+    , "sum((NOT is_unmatched)::int) AS pattern_matched"
+    , "sum(is_flaky::int) AS flaky"
+    ]
   , "FROM build_failure_causes"
   , "JOIN ordered_master_commits"
   , "ON build_failure_causes.vcs_revision = ordered_master_commits.sha1;"
@@ -704,7 +742,26 @@ masterWeeklyFailureStats week_count = do
     (reverse $ map f xs)
   where
     sql = MyUtils.qjoin [
-        "SELECT commit_count, had_failure, had_idiopathic, had_timeout, had_known_broken, had_pattern_matched, had_flaky, failure_count::int, idiopathic_count::int, timeout_count::int, known_broken_count::int, pattern_matched_count::int, pattern_unmatched_count::int, flaky_count::int, earliest_commit_index, latest_commit_index, week"
+        "SELECT"
+      , MyUtils.qlist [
+          "commit_count"
+        , "had_failure"
+        , "had_idiopathic"
+        , "had_timeout"
+        , "had_known_broken"
+        , "had_pattern_matched"
+        , "had_flaky"
+        , "failure_count::int"
+        , "idiopathic_count::int"
+        , "timeout_count::int"
+        , "known_broken_count::int"
+        , "pattern_matched_count::int"
+        , "pattern_unmatched_count::int"
+        , "flaky_count::int"
+        , "earliest_commit_index"
+        , "latest_commit_index"
+        , "week"
+        ]
       , "FROM master_failures_weekly_aggregation_mview"
       , "ORDER BY week DESC LIMIT ? OFFSET 1;"
       ]
@@ -786,7 +843,15 @@ downstreamWeeklyFailureStats week_count = do
           unavoidable_downstream_broken_build_count
 
     sql = MyUtils.qjoin [
-        "SELECT week, distinct_breakages, downstream_broken_commit_count, downstream_broken_build_count, unavoidable_downstream_broken_commit_count, unavoidable_downstream_broken_build_count"
+        "SELECT"
+      , MyUtils.qlist [
+          "week"
+        , "distinct_breakages"
+        , "downstream_broken_commit_count"
+        , "downstream_broken_build_count"
+        , "unavoidable_downstream_broken_commit_count"
+        , "unavoidable_downstream_broken_build_count"
+        ]
       , "FROM upstream_breakages_weekly_aggregation_mview"
       , "ORDER BY week DESC"
       , "LIMIT ? OFFSET 1;"
@@ -871,7 +936,9 @@ getSpanningBreakages conn sha1 =
 
     sql = MyUtils.qjoin [
         "SELECT code_breakage_cause.sha1, code_breakage_cause.description, cause_id, COALESCE(jobs, ''::text) AS jobs"
-      , "FROM (" <> inner_q <> ") foo"
+      , "FROM"
+      , MyUtils.qparens inner_q
+      , "foo"
       , "JOIN code_breakage_cause"
       , "ON foo.cause_id = code_breakage_cause.id;"
       ]
@@ -1095,6 +1162,12 @@ getRevisionBuilds ::
 getRevisionBuilds git_revision = do
   conn <- ask
 
+  {-
+  liftIO $ do
+    putStrLn "SQL string:"
+    putStrLn $ show sql
+  -}
+
   (timing, content) <- MyUtils.timeThisFloat $ liftIO $ query conn sql $ Only $ GitRev.sha1 git_revision
   return $ DbHelpers.BenchmarkedResponse timing content
   where
@@ -1108,50 +1181,60 @@ getRevisionBuilds git_revision = do
     -- See Github Issue #52
     sql = MyUtils.qjoin [
         "SELECT"
-      , "build_steps.name AS step_name, match_id, build, global_builds.vcs_revision, queued_at, job_name, branch, pattern_id, line_number, line_count, line_text, span_start, span_end, specificity, global_builds.global_build_num AS universal_build, provider, build_namespace, succeeded, label, icon_url, started_at, finished_at"
-{-
-      , "best_pattern_match_for_builds.build,"
-      , "build_steps.name AS step_name,"
-      , "matches.line_number,"
-      , "log_metadata.line_count,"
-      , "matches.line_text,"
-      , "matches.span_start,"
-      , "matches.span_end,"
-      , "global_builds.vcs_revision,"
-      , "global_builds.queued_at,"
-      , "global_builds.job_name,"
-      , "global_builds.branch,"
-      , "best_pattern_match_for_builds.pattern_id,"
-      , "best_pattern_match_for_builds.specificity,"
-      , "best_pattern_match_for_builds.match_id,"
-      , "best_pattern_match_for_builds.is_flaky,"
-      , "best_pattern_match_for_builds.universal_build,"
-      , "global_builds.provider,"
-      , "global_builds.succeeded,"
-      , "global_builds.build_namespace,"
-      , "global_builds.started_at,"
-      , "global_builds.finished_at"
--}
-      , "FROM  (SELECT DISTINCT ON (matches_for_build.universal_build) matches_for_build.build,"
-      , "matches_for_build.pat AS pattern_id,"
-      , "patterns_rich.expression,"
-      , "patterns_rich.regex,"
-      , "patterns_rich.has_nondeterministic_values,"
-      , "patterns_rich.is_retired,"
-      , "patterns_rich.specificity,"
-      , "NULL::bigint AS distinct_matching_pattern_count,"
-      , "count(matches_for_build.match_id) OVER (PARTITION BY matches_for_build.universal_build)::numeric AS total_pattern_matches,"
-      , "patterns_rich.is_flaky,"
-      , "matches_for_build.universal_build,"
-      , "matches_for_build.match_id,"
-      , "matches_for_build.step_id,"
-      , "matches_for_build.vcs_revision,"
-      , "patterns_rich.is_network"
-      , "FROM matches_for_build"
-      , "JOIN patterns_rich ON matches_for_build.pat = patterns_rich.id"
-      , "WHERE vcs_revision = ?"
-        -- BEWARE OF DIVERGENCE OF THIS LOGIC!
-      , "ORDER BY matches_for_build.universal_build, patterns_rich.specificity DESC, patterns_rich.is_retired, patterns_rich.regex, patterns_rich.id DESC, matches_for_build.match_id DESC) best_pattern_match_for_builds"
+      , MyUtils.qlist [
+          "build_steps.name AS step_name"
+        , "match_id"
+        , "build"
+        , "global_builds.vcs_revision"
+        , "queued_at"
+        , "job_name"
+        , "branch"
+        , "pattern_id"
+        , "line_number"
+        , "line_count"
+        , "line_text"
+        , "span_start"
+        , "span_end"
+        , "specificity"
+        , "global_builds.global_build_num AS universal_build"
+        , "provider"
+        , "build_namespace"
+        , "succeeded"
+        , "label"
+        , "icon_url"
+        , "started_at"
+        , "finished_at"
+        ]
+      , "FROM"
+      , MyUtils.qparens $ MyUtils.qjoin [
+          "SELECT DISTINCT ON (matches_for_build.universal_build)"
+        , MyUtils.qlist [
+            "matches_for_build.build"
+          , "matches_for_build.pat AS pattern_id"
+          , "patterns_rich.expression"
+          , "patterns_rich.regex"
+          , "patterns_rich.is_retired"
+          , "patterns_rich.specificity"
+          , "matches_for_build.universal_build"
+          , "matches_for_build.match_id"
+          , "matches_for_build.step_id"
+          , "matches_for_build.vcs_revision"
+          ]
+        , "FROM matches_for_build"
+        , "JOIN patterns_rich ON matches_for_build.pat = patterns_rich.id"
+        , "WHERE vcs_revision = ?"
+          -- BEWARE OF DIVERGENCE OF THIS LOGIC!
+        , "ORDER BY"
+        , MyUtils.qlist [
+            "matches_for_build.universal_build"
+          , "patterns_rich.specificity DESC"
+          , "patterns_rich.is_retired"
+          , "patterns_rich.regex"
+          , "patterns_rich.id DESC"
+          , "matches_for_build.match_id DESC"
+          ]
+        ]
+      , "best_pattern_match_for_builds"
       , "JOIN matches ON matches.id = best_pattern_match_for_builds.match_id"
       , "JOIN log_metadata ON log_metadata.step = best_pattern_match_for_builds.step_id"
       , "JOIN global_builds ON global_builds.global_build_num = best_pattern_match_for_builds.universal_build"
@@ -1208,7 +1291,18 @@ getMasterCommits conn parent_offset_mode =
       return (WeeklyStats.InclusiveNumericBounds first_commit_index latest_id, mapped_rows)
 
   where
-    f (commit_id, commit_sha1, commit_number, maybe_pr_number, maybe_message, maybe_tree_sha1, maybe_author_name, maybe_author_email, maybe_author_date, maybe_committer_name, maybe_committer_email, maybe_committer_date) =
+    f ( commit_id
+      , commit_sha1
+      , commit_number
+      , maybe_pr_number
+      , maybe_message
+      , maybe_tree_sha1
+      , maybe_author_name
+      , maybe_author_email
+      , maybe_author_date
+      , maybe_committer_name
+      , maybe_committer_email
+      , maybe_committer_date) =
       DbHelpers.WithId commit_id $ BuildResults.CommitAndMetadata
         wrapped_sha1
         maybe_metadata
@@ -1229,17 +1323,34 @@ getMasterCommits conn parent_offset_mode =
     sql_first_commit_id = "SELECT id FROM ordered_master_commits ORDER BY id DESC LIMIT 1 OFFSET ?;"
     sql_associated_commit_id = "SELECT id FROM ordered_master_commits WHERE sha1 = ?;"
 
-    sql_commit_id_and_offset = MyUtils.qjoin [
-        "SELECT master_ordered_commits_with_metadata.id, master_ordered_commits_with_metadata.sha1, master_ordered_commits_with_metadata.commit_number, master_ordered_commits_with_metadata.github_pr_number, message, tree_sha1, author_name, author_email, author_date, committer_name, committer_email, committer_date"
+    commits_query_prefix = MyUtils.qjoin [
+        "SELECT"
+      , MyUtils.qlist [
+            "id"
+          , "sha1"
+          , "commit_number"
+          , "github_pr_number"
+          , "message"
+          , "tree_sha1"
+          , "author_name"
+          , "author_email"
+          , "author_date"
+          , "committer_name"
+          , "committer_email"
+          , "committer_date"
+          ]
       , "FROM master_ordered_commits_with_metadata"
+      ]
+
+    sql_commit_id_and_offset = MyUtils.qjoin [
+        commits_query_prefix
       , "WHERE id <= ?"
       , "ORDER BY id DESC"
       , "LIMIT ?;"
       ]
 
     sql_commit_id_bounds = MyUtils.qjoin [
-        "SELECT master_ordered_commits_with_metadata.id, master_ordered_commits_with_metadata.sha1, master_ordered_commits_with_metadata.commit_number, master_ordered_commits_with_metadata.github_pr_number, message, tree_sha1, author_name, author_email, author_date, committer_name, committer_email, committer_date"
-      , "FROM master_ordered_commits_with_metadata"
+        commits_query_prefix
       , "WHERE id >= ? AND id <= ?"
       , "ORDER BY id DESC;"
       ]
@@ -1295,7 +1406,22 @@ apiLeftoverCodeBreakagesByCommit = runQuery $ MyUtils.qjoin [
 
 apiLeftoverDetectedCodeBreakages :: DbIO [NonannotatedBuildBreakages]
 apiLeftoverDetectedCodeBreakages = runQuery $ MyUtils.qjoin [
-    "SELECT master_detected_breakages_without_annotations.contiguous_group_position, master_detected_breakages_without_annotations.contiguous_group_index, master_detected_breakages_without_annotations.contiguous_start_commit_index, master_detected_breakages_without_annotations.contiguous_end_commit_index, master_detected_breakages_without_annotations.contiguous_length, master_detected_breakages_without_annotations.cluster_id, master_detected_breakages_without_annotations.cluster_member_count, builds_join_steps.universal_build, builds_join_steps.build_num, builds_join_steps.provider, builds_join_steps.build_namespace, builds_join_steps.succeeded, builds_join_steps.vcs_revision"
+    "SELECT"
+  , MyUtils.qlist [
+      "master_detected_breakages_without_annotations.contiguous_group_position"
+    , "master_detected_breakages_without_annotations.contiguous_group_index"
+    , "master_detected_breakages_without_annotations.contiguous_start_commit_index"
+    , "master_detected_breakages_without_annotations.contiguous_end_commit_index"
+    , "master_detected_breakages_without_annotations.contiguous_length"
+    , "master_detected_breakages_without_annotations.cluster_id"
+    , "master_detected_breakages_without_annotations.cluster_member_count"
+    , "builds_join_steps.universal_build"
+    , "builds_join_steps.build_num"
+    , "builds_join_steps.provider"
+    , "builds_join_steps.build_namespace"
+    , "builds_join_steps.succeeded"
+    , "builds_join_steps.vcs_revision"
+    ]
   , "FROM master_detected_breakages_without_annotations"
   , "JOIN builds_join_steps"
   , "ON master_detected_breakages_without_annotations.universal_build = builds_join_steps.universal_build;"
@@ -1452,7 +1578,14 @@ apiMaterializedViewRefreshes :: DbIO [MaterializedViewRefreshInfo]
 apiMaterializedViewRefreshes = runQuery sql
   where
     sql = MyUtils.qjoin [
-        "SELECT view_name, latest, average_execution_time, event_count, EXTRACT(EPOCH FROM latest_age) AS latest_age_seconds"
+        "SELECT"
+        , MyUtils.qlist [
+            "view_name"
+          , "latest"
+          , "average_execution_time"
+          , "event_count"
+          , "EXTRACT(EPOCH FROM latest_age) AS latest_age_seconds"
+          ]
       , "FROM lambda_logging.materialized_view_refresh_event_stats"
       , "ORDER BY latest_age;"
       ]
@@ -1530,7 +1663,42 @@ apiMasterBuilds timeline_parms = do
 
   where
     builds_list_sql = MyUtils.qjoin [
-        "SELECT sha1, succeeded, is_idiopathic, is_flaky, is_timeout, is_matched, is_known_broken, build_num, queued_at, job_name, branch, step_name, pattern_id, match_id, line_number, line_count, line_text, span_start, span_end, specificity, is_serially_isolated, started_at, finished_at, global_build, provider, build_namespace, contiguous_run_count, contiguous_group_index, contiguous_start_commit_index, contiguous_end_commit_index, contiguous_length, cluster_id, cluster_member_count"
+        "SELECT"
+      , MyUtils.qlist [
+          "sha1"
+        , "succeeded"
+        , "is_idiopathic"
+        , "is_flaky"
+        , "is_timeout"
+        , "is_matched"
+        , "is_known_broken"
+        , "build_num"
+        , "queued_at"
+        , "job_name"
+        , "branch"
+        , "step_name"
+        , "pattern_id"
+        , "match_id"
+        , "line_number"
+        , "line_count"
+        , "line_text"
+        , "span_start"
+        , "span_end"
+        , "specificity"
+        , "is_serially_isolated"
+        , "started_at"
+        , "finished_at"
+        , "global_build"
+        , "provider"
+        , "build_namespace"
+        , "contiguous_run_count"
+        , "contiguous_group_index"
+        , "contiguous_start_commit_index"
+        , "contiguous_end_commit_index"
+        , "contiguous_length"
+        , "cluster_id"
+        , "cluster_member_count"
+        ]
       , "FROM master_failures_raw_causes_mview"
       , "WHERE commit_index >= ? AND commit_index <= ?;"
       ]
@@ -1618,7 +1786,14 @@ instance ToJSON JobScheduleStats where
 
 apiJobScheduleStats :: DbIO [JobScheduleStats]
 apiJobScheduleStats = runQuery $ MyUtils.qjoin [
-    "SELECT job_name, commit_to_build_latency_coefficient_of_variation, build_interval_coefficient_of_variation, circular_time_of_day_stddev, circular_time_of_day_average"
+    "SELECT"
+  , MyUtils.qlist [
+      "job_name"
+    , "commit_to_build_latency_coefficient_of_variation"
+    , "build_interval_coefficient_of_variation"
+    , "circular_time_of_day_stddev"
+    , "circular_time_of_day_average"
+    ]
   , "FROM job_schedule_statistics_mview"
   , "WHERE build_count > 1;"
   ]
@@ -1626,7 +1801,22 @@ apiJobScheduleStats = runQuery $ MyUtils.qjoin [
 
 apiDetectedCodeBreakages :: DbIO [BuildResults.DetectedBreakageSpan]
 apiDetectedCodeBreakages = runQuery $ MyUtils.qjoin [
-    "SELECT first_commit_id, jobs, job_count, min_run_length, max_run_length, modal_run_length, min_last_commit_id, max_last_commit_id, modal_last_commit_id, first_commit, min_last_commit, max_last_commit, modal_last_commit"
+    "SELECT"
+  , MyUtils.qlist [
+      "first_commit_id"
+    , "jobs"
+    , "job_count"
+    , "min_run_length"
+    , "max_run_length"
+    , "modal_run_length"
+    , "min_last_commit_id"
+    , "max_last_commit_id"
+    , "modal_last_commit_id"
+    , "first_commit"
+    , "min_last_commit"
+    , "max_last_commit"
+    , "modal_last_commit"
+    ]
   , "FROM master_contiguous_failure_blocks_with_commits"
   , "ORDER BY first_commit_id DESC;"
   ]
@@ -1641,7 +1831,32 @@ apiListFailureModes = runQuery $ MyUtils.qjoin [
 
 apiAnnotatedCodeBreakages :: DbIO [BuildResults.BreakageSpan Text ()]
 apiAnnotatedCodeBreakages = runQuery $ MyUtils.qjoin [
-    "SELECT cause_id, cause_commit_index, cause_sha1, description, failure_mode_reporter, failure_mode_reported_at, failure_mode_id, cause_reporter, cause_reported_at, cause_jobs, breakage_commit_author, breakage_commit_message, breakage_commit_date, resolution_id, resolved_commit_index, resolution_sha1, resolution_reporter, resolution_reported_at, resolution_commit_author, resolution_commit_message, resolution_commit_date, spanned_commit_count, commit_timespan_seconds"
+    "SELECT"
+  , MyUtils.qlist [
+      "cause_id"
+    , "cause_commit_index"
+    , "cause_sha1"
+    , "description"
+    , "failure_mode_reporter"
+    , "failure_mode_reported_at"
+    , "failure_mode_id"
+    , "cause_reporter"
+    , "cause_reported_at"
+    , "cause_jobs"
+    , "breakage_commit_author"
+    , "breakage_commit_message"
+    , "breakage_commit_date"
+    , "resolution_id"
+    , "resolved_commit_index"
+    , "resolution_sha1"
+    , "resolution_reporter"
+    , "resolution_reported_at"
+    , "resolution_commit_author"
+    , "resolution_commit_message"
+    , "resolution_commit_date"
+    , "spanned_commit_count"
+    , "commit_timespan_seconds"
+    ]
   , "FROM known_breakage_summaries_sans_impact"
   , "ORDER BY cause_commit_index DESC;"
   ]
@@ -1655,7 +1870,37 @@ apiAnnotatedCodeBreakages = runQuery $ MyUtils.qjoin [
 -- * foreshadowed_broken_jobs_delimited
 apiAnnotatedCodeBreakagesWithImpact :: DbIO [BuildResults.BreakageSpan Text BuildResults.BreakageImpactStats]
 apiAnnotatedCodeBreakagesWithImpact = runQuery $ MyUtils.qjoin [
-  "SELECT cause_id, cause_commit_index, cause_sha1, description, failure_mode_reporter, failure_mode_reported_at, failure_mode_id, cause_reporter, cause_reported_at, cause_jobs, breakage_commit_author, breakage_commit_message, breakage_commit_date, resolution_id, resolved_commit_index, resolution_sha1, resolution_reporter, resolution_reported_at, resolution_commit_author, resolution_commit_message, resolution_commit_date, spanned_commit_count, commit_timespan_seconds, downstream_broken_commit_count, failed_downstream_build_count, github_pr_number, github_pr_head_commit, foreshadowed_broken_jobs_delimited"
+    "SELECT"
+  , MyUtils.qlist [
+      "cause_id"
+    , "cause_commit_index"
+    , "cause_sha1"
+    , "description"
+    , "failure_mode_reporter"
+    , "failure_mode_reported_at"
+    , "failure_mode_id"
+    , "cause_reporter"
+    , "cause_reported_at"
+    , "cause_jobs"
+    , "breakage_commit_author"
+    , "breakage_commit_message"
+    , "breakage_commit_date"
+    , "resolution_id"
+    , "resolved_commit_index"
+    , "resolution_sha1"
+    , "resolution_reporter"
+    , "resolution_reported_at"
+    , "resolution_commit_author"
+    , "resolution_commit_message"
+    , "resolution_commit_date"
+    , "spanned_commit_count"
+    , "commit_timespan_seconds"
+    , "downstream_broken_commit_count"
+    , "failed_downstream_build_count"
+    , "github_pr_number"
+    , "github_pr_head_commit"
+    , "foreshadowed_broken_jobs_delimited"
+    ]
   , "FROM known_breakage_summaries"
   , "ORDER BY cause_commit_index DESC;"
   ]
@@ -1663,7 +1908,14 @@ apiAnnotatedCodeBreakagesWithImpact = runQuery $ MyUtils.qjoin [
 
 apiBreakageAuthorStats :: DbIO [BuildResults.BreakageAuthorStats]
 apiBreakageAuthorStats = runQuery $ MyUtils.qjoin [
-    "SELECT breakage_commit_author, distinct_breakage_count, cumulative_breakage_duration_seconds, cumulative_downstream_affected_commits, cumulative_spanned_master_commits"
+    "SELECT"
+  , MyUtils.qlist [
+      "breakage_commit_author"
+    , "distinct_breakage_count"
+    , "cumulative_breakage_duration_seconds"
+    , "cumulative_downstream_affected_commits"
+    , "cumulative_spanned_master_commits"
+    ]
   , "FROM upstream_breakage_author_stats"
   , "ORDER BY distinct_breakage_count DESC;"
   ]
@@ -1775,7 +2027,7 @@ instance ToJSON PatternRecord where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
-make_pattern_records =
+makePatternRecords =
   map $ \(a, b, c, d, e, f, g, h, i, j, k) ->
     PatternRecord a b c d e f g (DbHelpers.splitAggText h) (DbHelpers.splitAggText i) j k
 
@@ -1784,7 +2036,7 @@ make_pattern_records =
 apiSinglePattern :: ScanPatterns.PatternId -> DbIO [PatternRecord]
 apiSinglePattern (ScanPatterns.PatternId pattern_id) = do
   conn <- ask
-  liftIO $ fmap make_pattern_records $ query conn sql $ Only pattern_id
+  liftIO $ fmap makePatternRecords $ query conn sql $ Only pattern_id
   where
     sql = MyUtils.qjoin [
         "SELECT id, regex, expression, description, matching_build_count, most_recent, earliest, tags, steps, specificity, CAST((scanned_count * 100 / total_scanned_builds) AS DECIMAL(6, 1)) AS percent_scanned"
@@ -1794,7 +2046,7 @@ apiSinglePattern (ScanPatterns.PatternId pattern_id) = do
 
 
 apiPatterns :: DbIO [PatternRecord]
-apiPatterns = fmap make_pattern_records $ runQuery $ MyUtils.qjoin [
+apiPatterns = fmap makePatternRecords $ runQuery $ MyUtils.qjoin [
   "SELECT id, regex, expression, description, matching_build_count, most_recent, earliest, tags, steps, specificity, CAST((scanned_count * 100 / total_scanned_builds) AS DECIMAL(6, 1)) AS percent_scanned"
   , "FROM pattern_frequency_summary"
   , "ORDER BY most_recent DESC NULLS LAST;"
@@ -1813,7 +2065,21 @@ dumpPatterns = map f <$> runQuery q
 
   where
     q = MyUtils.qjoin [
-        "SELECT author, created, id, regex, expression, has_nondeterministic_values, description, tags, steps, specificity, is_retired, lines_from_end"
+        "SELECT"
+      , MyUtils.qlist [
+          "author"
+        , "created"
+        , "id"
+        , "regex"
+        , "expression"
+        , "has_nondeterministic_values"
+        , "description"
+        , "tags"
+        , "steps"
+        , "specificity"
+        , "is_retired"
+        , "lines_from_end"
+        ]
       , "FROM patterns_augmented"
       , "ORDER BY id;"
       ]
@@ -1843,7 +2109,7 @@ dumpPatterns = map f <$> runQuery q
 apiPatternsBranchFiltered :: [Text] -> DbIO [PatternRecord]
 apiPatternsBranchFiltered branches = do
   conn <- ask
-  liftIO $ fmap make_pattern_records $ query conn sql $ Only $ In branches
+  liftIO $ fmap makePatternRecords $ query conn sql $ Only $ In branches
 
   where
     sql = MyUtils.qjoin [
@@ -1900,7 +2166,18 @@ getBuildPatternMatches (Builds.UniversalBuildId build_id) = do
   return $ DbHelpers.BenchmarkedResponse timing result
   where
     sql = MyUtils.qjoin [
-        "SELECT step_name, pattern, matches_with_log_metadata.id, line_number, line_count, line_text, span_start, span_end, specificity"
+        "SELECT"
+      , MyUtils.qlist [
+          "step_name"
+        , "pattern"
+        , "matches_with_log_metadata.id"
+        , "line_number"
+        , "line_count"
+        , "line_text"
+        , "span_start"
+        , "span_end"
+        , "specificity"
+        ]
       , "FROM matches_with_log_metadata"
       , "JOIN build_steps_deduped_mitigation"
       , "ON matches_with_log_metadata.build_step = build_steps_deduped_mitigation.id"
@@ -1929,7 +2206,7 @@ apiStorageStats = fmap head $ runQuery $ MyUtils.qjoin [
   ]
 
 
-pattern_occurrence_txform pattern_id = f
+patternOccurrenceTxForm pattern_id = f
   where
     -- TODO consolidate this transformation with "getPatternMatches"
     f (buildnum, stepname, match_id, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch, universal_build_id) =
@@ -1961,7 +2238,7 @@ commonQueryPrefixPatternMatches = MyUtils.qjoin [
 getBestPatternMatches :: ScanPatterns.PatternId -> DbIO [PatternOccurrence]
 getBestPatternMatches pat@(ScanPatterns.PatternId pattern_id) = do
   conn <- ask
-  liftIO $ map (pattern_occurrence_txform pat) <$> query conn sql (Only pattern_id)
+  liftIO $ map (patternOccurrenceTxForm pat) <$> query conn sql (Only pattern_id)
 
   where
     sql = MyUtils.qjoin [
@@ -1973,7 +2250,7 @@ getBestPatternMatches pat@(ScanPatterns.PatternId pattern_id) = do
 getBestPatternMatchesWhitelistedBranches :: ScanPatterns.PatternId -> DbIO [PatternOccurrence]
 getBestPatternMatchesWhitelistedBranches pat@(ScanPatterns.PatternId pattern_id) = do
   conn <- ask
-  liftIO $ map (pattern_occurrence_txform pat) <$> query conn sql (Only pattern_id)
+  liftIO $ map (patternOccurrenceTxForm pat) <$> query conn sql (Only pattern_id)
   where
     sql = MyUtils.qjoin [
         commonQueryPrefixPatternMatches
@@ -2016,12 +2293,51 @@ getBestBuildMatch ubuild_id@(Builds.UniversalBuildId build_id) = do
   return $ DbHelpers.BenchmarkedResponse timing content
 
   where
-    f (pattern_id, build, step_name, match_id, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch) = pattern_occurrence_txform
-      (ScanPatterns.PatternId pattern_id)
-      (build, step_name, match_id, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch, ubuild_id)
+    f ( pattern_id
+      , build
+      , step_name
+      , match_id
+      , line_number
+      , line_count
+      , line_text
+      , span_start
+      , span_end
+      , vcs_revision
+      , queued_at
+      , job_name
+      , branch) = patternOccurrenceTxForm
+        (ScanPatterns.PatternId pattern_id)
+        ( build
+        , step_name
+        , match_id
+        , line_number
+        , line_count
+        , line_text
+        , span_start
+        , span_end
+        , vcs_revision
+        , queued_at
+        , job_name
+        , branch
+        , ubuild_id)
 
     sql = MyUtils.qjoin [
-        "SELECT pattern_id, build, step_name, match_id, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch"
+        "SELECT"
+      , MyUtils.qlist [
+          "pattern_id"
+        , "build"
+        , "step_name"
+        , "match_id"
+        , "line_number"
+        , "line_count"
+        , "line_text"
+        , "span_start"
+        , "span_end"
+        , "vcs_revision"
+        , "queued_at"
+        , "job_name"
+        , "branch"
+        ]
       , "FROM best_pattern_match_augmented_builds"
       , "WHERE universal_build = ?;"
       ]
@@ -2036,6 +2352,10 @@ data LogContext = LogContext {
 
 instance ToJSON LogContext where
   toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+hiddenContextLinecount :: Int
+hiddenContextLinecount = 1000
 
 
 logContextFunc ::
@@ -2056,10 +2376,14 @@ logContextFunc (MatchOccurrences.MatchId match_id) context_linecount = do
           match_info = ScanPatterns.NewMatchDetails line_text line_number $ ScanPatterns.NewMatchSpan span_start span_end
           wrapped_build_num = Builds.NewBuildNumber build_num
 
-          first_context_line = max 0 $ line_number - context_linecount
-          retrieval_line_count = 2 * context_linecount + 1
+          first_context_line = max 0 $ line_number - context_linecount - hiddenContextLinecount
 
-      log_lines <- liftIO $ runReaderT (SqlRead.readLogSubset universal_build first_context_line retrieval_line_count) conn
+          last_context_line = line_number + context_linecount + 1
+          retrieval_line_count = last_context_line - first_context_line
+
+      log_lines <- liftIO $ runReaderT
+        (SqlRead.readLogSubset universal_build first_context_line retrieval_line_count)
+        conn
 
       let tuples = zip [first_context_line..] log_lines
 
@@ -2085,7 +2409,7 @@ logContextFunc (MatchOccurrences.MatchId match_id) context_linecount = do
 
 getPatternMatches :: ScanPatterns.PatternId -> DbIO [PatternOccurrence]
 getPatternMatches pattern_id =
-  map f <$> get_pattern_occurrence_rows pattern_id
+  map f <$> getPatternOccurrenceRows pattern_id
   where
     f (build_obj, stepname, line_count, match_id, match_details, global_build_id) =
       NewPatternOccurrence
@@ -2108,17 +2432,31 @@ getPatternMatches pattern_id =
         (ScanPatterns.NewMatchDetails line_text line_number (ScanPatterns.NewMatchSpan start end)) = match_details
 
 
-get_pattern_occurrence_rows ::
+getPatternOccurrenceRows ::
      ScanPatterns.PatternId
   -> DbIO [(Builds.Build, Text, Int, MatchOccurrences.MatchId, ScanPatterns.MatchDetails, Builds.UniversalBuildId)]
-get_pattern_occurrence_rows (ScanPatterns.PatternId pattern_id) = do
+getPatternOccurrenceRows (ScanPatterns.PatternId pattern_id) = do
 
   conn <- ask
   liftIO $ fmap (map f) $ query conn sql $ Only pattern_id
 
   where
-    f (buildnum, stepname, match_id, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch, global_build_num, maybe_started_at, maybe_finished_at) =
-      (build_obj, stepname, line_count, MatchOccurrences.MatchId match_id, match_details, Builds.UniversalBuildId global_build_num)
+    f ( buildnum
+      , stepname
+      , match_id
+      , line_number
+      , line_count
+      , line_text
+      , span_start
+      , span_end
+      , vcs_revision
+      , queued_at
+      , job_name
+      , branch
+      , global_build_num
+      , maybe_started_at
+      , maybe_finished_at) =
+        (build_obj, stepname, line_count, MatchOccurrences.MatchId match_id, match_details, Builds.UniversalBuildId global_build_num)
       where
         build_obj = Builds.NewBuild
           (Builds.NewBuildNumber buildnum)
@@ -2135,7 +2473,24 @@ get_pattern_occurrence_rows (ScanPatterns.PatternId pattern_id) = do
             ScanPatterns.NewMatchSpan span_start span_end
 
     sql = MyUtils.qjoin [
-        "SELECT global_builds.build_number, step_name, matches_with_log_metadata.id, line_number, line_count, line_text, span_start, span_end, global_builds.vcs_revision, queued_at, job_name, branch, global_build_num, global_builds.started_at, global_builds.finished_at"
+        "SELECT"
+      , MyUtils.qlist [
+          "global_builds.build_number"
+        , "step_name"
+        , "matches_with_log_metadata.id"
+        , "line_number"
+        , "line_count"
+        , "line_text"
+        , "span_start"
+        , "span_end"
+        , "global_builds.vcs_revision"
+        , "queued_at"
+        , "job_name"
+        , "branch"
+        , "global_build_num"
+        , "global_builds.started_at"
+        , "global_builds.finished_at"
+        ]
       , "FROM matches_with_log_metadata"
       , "JOIN global_builds"
       , "ON matches_with_log_metadata.universal_build = global_builds.global_build_num"

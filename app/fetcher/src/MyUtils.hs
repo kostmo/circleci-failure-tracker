@@ -20,6 +20,14 @@ import qualified Constants
 qjoin :: [Query] -> Query
 qjoin = mconcat . intersperse " "
 
+-- | Comma-separated entities
+qlist :: [Query] -> Query
+qlist = mconcat . intersperse ", "
+
+
+qparens :: Query -> Query
+qparens x = mconcat ["(", x, ")"]
+
 
 applyIf :: Bool -> (a -> a) -> a -> a
 applyIf should func = f

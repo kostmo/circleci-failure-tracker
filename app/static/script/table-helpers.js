@@ -11,6 +11,43 @@ function gen_error_cell_html(cell) {
 }
 
 
+function revealHiddenLogContext(link_container_id) {
+
+	$(".hidden-preloaded-log-line").show();
+	$("#" + link_container_id).html(render_tag("i", "extra context shown"));
+}
+
+
+function renderLogLineTableWithOffset(table_items, matched_line_number, context_linecount) {
+
+	var content = "";
+	for (var row of table_items) {
+
+		const zero_based_line_number = row[0];
+
+		const one_based_line_number = zero_based_line_number + 1;
+
+		const repackaged_row = [
+			render_tag("div", one_based_line_number, {"class": "line-number"}),
+			row[1],
+		];
+		
+		const row_content = render_table_row(repackaged_row, "td");
+
+		const is_hidden_context = matched_line_number - zero_based_line_number > context_linecount;
+
+		const attrs = {};
+		if (is_hidden_context) {
+			attrs["class"] = "hidden-preloaded-log-line";
+		}
+
+		content += render_tag("tr", row_content, attrs);
+	}
+
+	return render_tag("table", render_tag("tbody", content));
+}
+
+
 function get_log_text(match_id, context_linecount) {
 	$.getJSON('/api/view-log-context', {"match_id": match_id, "context_linecount": context_linecount}, function (data) {
 
@@ -22,7 +59,6 @@ function get_log_text(match_id, context_linecount) {
 				const zero_based_line_number = tuple[0];
 				const line_text = tuple[1];
 
-				const one_based_line_number = zero_based_line_number + 1;
 
 				var formatted_line_text;
 				if (zero_based_line_number == data.payload.match_info.line_number) {
@@ -31,20 +67,33 @@ function get_log_text(match_id, context_linecount) {
 					formatted_line_text = line_text;
 				}
 
-				const row = [render_tag("div", one_based_line_number, {"class": "line-number"}), render_tag("code", formatted_line_text)]
+
+				const row = [zero_based_line_number, render_tag("code", formatted_line_text)]
 				table_items.push(row);
 			}
 
+
+			const left_corner_links = [
+				render_tag("span", link("+1000 lines", "javascript: revealHiddenLogContext('context-reveal-link-container');"), {"id": "context-reveal-link-container"}),
+				link("Full plaintext log", "/api/view-log-full?build_id=" + data.payload.universal_build_id),
+				link("on CircleCI", "https://circleci.com/gh/pytorch/pytorch/" + data.payload.build_number, true)
+			]
+
+
 			const dialog_content = [
-				render_tag("div", "<a href='javascript: document.getElementById(\"myDialog\").close();'>Press <i>Esc</i> to close</a>", {"style": "color: gray; text-align: right; float: right;"}),
-				render_tag("div", link("Full plaintext log", "/api/view-log-full?build_id=" + data.payload.universal_build_id) + " | " + link("on CircleCI", "https://circleci.com/gh/pytorch/pytorch/" + data.payload.build_number, true)),
-				render_table(table_items, {"class": "code-lines"}, null, false),
+				render_tag("div", link(
+					"Press " + render_tag("i", "Esc") + " to close",
+					"javascript: document.getElementById('myDialog').close();"
+				), {"style": "color: gray; text-align: right; float: right;"}),
+				render_tag("div", left_corner_links.join(" | ")),
+				render_tag("div", renderLogLineTableWithOffset(table_items, data.payload.match_info.line_number, context_linecount)),
 			];
 
 			$("#myDialog").html(dialog_content.join(""));
 
 			const dialog = document.getElementById("myDialog");
-			dialog.addEventListener('click', function (event) {
+			dialog.addEventListener('click',
+				function (event) {
 					const rect = dialog.getBoundingClientRect();
 					const isInDialog = (rect.top <= event.clientY && event.clientY <= rect.top + rect.height
 						&& rect.left <= event.clientX && event.clientX <= rect.left + rect.width);
