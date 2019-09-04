@@ -30,16 +30,20 @@ function get_commit_subject(msg) {
 }
 
 
+function enclose_angle_brackets(x) {
+	return "<" + x + ">";
+}
+
 function render_tag(tag, content, attributes) {
 
 	var attributes = attributes || {};
-	var kv_pairs = [tag];
+	const kv_pairs = [tag];
 
 	$.each(attributes, function(key, value) {
 		kv_pairs.push(key + '="' + value + '"')
 	});
 
-	return "<" + kv_pairs.join(" ") + ">" + content + "</" + tag + ">";
+	return enclose_angle_brackets(kv_pairs.join(" ")) + content + enclose_angle_brackets("/" + tag);
 }
 
 
@@ -50,7 +54,7 @@ function sha1_link(full_sha1) {
 
 function link(text, url, new_window) {
 
-	var prop_dict = {"href": url}
+	const prop_dict = {"href": url}
 	if (new_window) {
 		prop_dict["target"] = "_blank";
 	}
@@ -62,7 +66,6 @@ function link(text, url, new_window) {
 function render_pair(term, definition) {
 	return render_tag("dt", term) + render_tag("dd", definition);
 }
-
 
 
 function getJsonWithThrobber(throbber_id, url, parms_dict, callback) {
@@ -95,18 +98,15 @@ function render_table_vertical_headers(rows, attrs, caption) {
 		var row_content = "";
 
 		for (var i=0; i<row.length; i++) {
-			var item = row[i];
-			var cell = i ? render_tag("td", item) : render_tag("th", item, {"style": "text-align: right;"});
+			const item = row[i];
+			const cell = i ? render_tag("td", item) : render_tag("th", item, {"style": "text-align: right;"});
 			row_content += cell;
 		}
 
 		content += render_tag("tr", row_content);
 	}
 
-	var caption_html = "";
-	if (caption) {
-		caption_html = render_tag("caption", caption);
-	}
+	const caption_html = caption ? render_tag("caption", caption) : "";
 
 	return render_tag("table", render_tag("tbody", content) + caption_html, attrs);
 }
@@ -128,7 +128,7 @@ function render_table_content(rows, first_row_header) {
 
 	var row_count = 0;
 	for (var row of rows) {
-		var row_content = render_table_row(row, row_count == 0 && first_row_header ? "th" : "td");
+		const row_content = render_table_row(row, row_count == 0 && first_row_header ? "th" : "td");
 		content += render_tag("tr", row_content);
 
 		row_count += 1;
@@ -139,12 +139,8 @@ function render_table_content(rows, first_row_header) {
 
 function render_table(rows, attrs, caption, first_row_header) {
 
-	var content = render_table_content(rows, first_row_header);
-
-	var caption_html = "";
-	if (caption) {
-		caption_html = render_tag("caption", caption);
-	}
+	const content = render_table_content(rows, first_row_header);
+	const caption_html = caption ? render_tag("caption", caption) : "";
 
 	return render_tag("table", render_tag("tbody", content) + caption_html, attrs);
 }

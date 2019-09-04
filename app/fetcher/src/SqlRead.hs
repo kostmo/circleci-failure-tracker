@@ -306,6 +306,32 @@ getMergeTimeFailingPullRequestBuildsByWeek week_count = do
       ]
 
 
+data PageRequestCounts = PageRequestCounts {
+    _page_url :: Text
+  , _count    :: Int
+  } deriving (Generic, FromRow)
+
+instance ToJSON PageRequestCounts where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+-- | TODO: offset 1 so we only obtain full weeks of data
+--
+-- Note also the list order reversal for Highcharts
+getPageViewsByWeek :: Int -> DbIO [DbHelpers.TimestampedDatum PageRequestCounts]
+getPageViewsByWeek week_count = do
+  conn <- ask
+  liftIO $ fmap reverse $ query conn sql $ Only week_count
+  where
+    sql = MyUtils.qjoin [
+        "SELECT week, url, request_count"
+      , "FROM frontend_logging.page_requests_by_week"
+      , "ORDER BY week DESC"
+--      , "OFFSET 1"
+      , "LIMIT ?;"
+      ]
+
+
 data PatternsTimelinePoint = PatternsTimelinePoint {
     _pattern_id :: Int64
   , _count      :: Int

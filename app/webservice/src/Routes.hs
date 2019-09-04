@@ -304,6 +304,10 @@ scottyApp
   get "/api/master-pr-merge-time-weekly-failure-stats" $
     SqlRead.getMergeTimeFailingPullRequestBuildsByWeek <$> S.param "weeks"
 
+  get "/api/page-views-by-week" $
+    SqlRead.getPageViewsByWeek
+      <$> S.param "weeks"
+
   get "/api/unmatched-builds-for-commit" $
     SqlRead.apiUnmatchedCommitBuilds <$> S.param "sha1"
 

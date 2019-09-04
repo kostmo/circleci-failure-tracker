@@ -143,7 +143,6 @@ function normalized_commit_failure_count_highchart(series_list) {
 
 function separated_causes_column_highchart(color_key, data_by_week, column_chart_series) {
 
-
 	const columns = [];
 	for (var datum of data_by_week) {
 
@@ -274,13 +273,12 @@ function separated_causes_timeline_highchart(container_element, series_list, sta
 
 function render_master_stats(weeks_count) {
 
-
 	getJsonWithThrobber(".scan-throbbers", "/api/master-weekly-failure-stats", {"weeks": weeks_count}, function (data) {
 
 		plot_undifferentiated_master_failures(data);
 
 		plot_differentiated_master_failures(data);
-	})
+	});
 }
 
 
@@ -333,7 +331,6 @@ function plot_differentiated_master_failures(data) {
 
 	separated_causes_column_highchart(build_colors, data_by_week, column_chart_series);
 }
-
 
 
 function get_separated_causes_series_list(build_colors, separated_causes_series_points) {
