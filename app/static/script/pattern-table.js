@@ -54,6 +54,19 @@ function gen_patterns_table(pattern_id, used_presumed_stable_branches, filtered_
 	// Note the plural ("s")
 	var api_endpoint_url = "/api/patterns";
 
+	const pattern_column = {
+		title:"Pattern",
+		field:"pattern",
+		sorter:"string",
+		widthGrow: 3,
+		cssClass: "pattern-expression",
+		formatter: "link",
+		formatterParams: {
+			urlPrefix: "/pattern-details.html?pattern_id=",
+			urlField: "id",
+		},
+        }
+
 	if (pattern_id != null) {
 	        const query_parms = {
 			"pattern_id": pattern_id,
@@ -62,18 +75,23 @@ function gen_patterns_table(pattern_id, used_presumed_stable_branches, filtered_
 	        const ajax_url_query_string = $.param(query_parms);
 		api_endpoint_url = "/api/pattern?" + ajax_url_query_string;
 
-	} else if (used_presumed_stable_branches) {
+	} else {
 
-		api_endpoint_url = "/api/patterns-presumed-stable-branches"
+		pattern_column["headerFilter"] = "input";
 
-	} else if (filtered_branches.length > 0) {
+		if (used_presumed_stable_branches) {
 
-	        const query_parms = {
-			"branches": filtered_branches,
-		};
+			api_endpoint_url = "/api/patterns-presumed-stable-branches"
 
-	        const ajax_url_query_string = $.param(query_parms, true);
-		api_endpoint_url = "/api/patterns-branch-filtered?" + ajax_url_query_string;
+		} else if (filtered_branches.length > 0) {
+
+			const query_parms = {
+				"branches": filtered_branches,
+			};
+
+			const ajax_url_query_string = $.param(query_parms, true);
+			api_endpoint_url = "/api/patterns-branch-filtered?" + ajax_url_query_string;
+		}
 	}
 
         const height = pattern_id == null ? "400px" : null;
@@ -107,7 +125,6 @@ function gen_patterns_table(pattern_id, used_presumed_stable_branches, filtered_
 					if (!tag_list.length) {
 
 						tag_elements.push("<i style='color: #ccc;' onclick='add_tag(" + pattern_id + ");'>add tag</i>");
-
 					}
 
 					tag_elements.push("<button class='tag-add-button' style='display: none;' id='tag-add-button-" + pattern_id + "' onclick='add_tag(" + pattern_id + ");'>+</button>");
@@ -126,14 +143,7 @@ function gen_patterns_table(pattern_id, used_presumed_stable_branches, filtered_
 			},
 			{title:"Applicable Steps", field:"steps", sorter:"string"},
 			{title:"Regex?", field:"is_regex", align:"center", formatter:"tickCross", sorter:"boolean", formatterParams: {crossElement: false}, width: 75},
-			{title:"Pattern", field:"pattern", sorter:"string", widthGrow: 3,
-				cssClass: "pattern-expression",
-				formatter: "link",
-				formatterParams: {
-					urlPrefix: "/pattern-details.html?pattern_id=",
-					urlField: "id",
-				},
-		        },
+			pattern_column,
 			{title:"Description", field:"description", sorter:"string",
 				widthGrow: 2,
 				editor: "input",
