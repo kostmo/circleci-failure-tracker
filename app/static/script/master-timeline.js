@@ -215,17 +215,31 @@ function mark_failure_resolution(commit_sha1, active_breakages) {
 		data: {
 			"sha1": commit_sha1,
 			"causes": causes_delimited,
+			"login_redirect_path": get_url_path_for_redirect(),
 		},
 		success: function( data ) {
-
-			if (data.success) {
-				alert("submitted report with ID: " + data.payload);
-				update_url_from_form();
-			} else {
-				alert("Error: " + data.error.message);
-			}
+			handle_report_submission_response(data);
 		}
         });
+}
+
+
+function handle_report_submission_response(data) {
+
+	if (data.success) {
+		alert("submitted report with ID: " + data.payload);
+		update_url_from_form();
+	} else {
+
+		if (data.error.details.authentication_failed) {
+			alert("Not logged in: " + data.error.message);
+			window.location.href = data.error.details.login_url;
+		} else if (data.error.details.database_failed) {
+			alert("Database error: " + data.error.message);
+		} else {
+			alert("Unknown error: " + data.error.message);
+		}
+	}
 }
 
 
@@ -336,15 +350,10 @@ function mark_failure_cause_common(api_url) {
 					"failure_mode_id": breakage_mode_id,
 					"is_ongoing": is_ongoing,
 					"last_affected_sha1": last_affected_sha1,
+					"login_redirect_path": get_url_path_for_redirect(),
 				},
 				success: function( data ) {
-
-					if (data.success) {
-						alert("submitted report with ID: " + data.payload);
-						update_url_from_form();
-					} else {
-						alert("Error: " + data.error.message);
-					}
+					handle_report_submission_response(data);
 				}
 			});
 

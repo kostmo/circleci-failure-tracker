@@ -5,9 +5,9 @@
 module DbInsertion (toInsertionResponse) where
 
 import           Data.Aeson
-import           Data.Text    (Text)
+import           Data.Text      (Text)
+import qualified Data.Text.Lazy as TL
 import           GHC.Generics
-
 
 import qualified AuthConfig
 import qualified AuthStages
@@ -25,25 +25,38 @@ instance ToJSON BackendFailureResponse where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
-backendFailureToResponse :: AuthConfig.GithubConfig -> AuthStages.BackendFailure Text -> WebApi.JsonEither a b
-backendFailureToResponse auth_config failure_mode =
+backendFailureToResponse ::
+     TL.Text
+  -> AuthConfig.GithubConfig
+  -> AuthStages.BackendFailure Text
+  -> WebApi.JsonEither a b
+backendFailureToResponse redirect_path auth_config failure_mode =
   WebApi.JsonEither False (Just stuff) Nothing
   where
   stuff = case failure_mode of
     AuthStages.AuthFailure (AuthStages.AuthenticationFailure _maybe_login_url auth_failure_stage) -> let
-         inner = BackendFailureResponse (Just True) Nothing (Just $ AuthConfig.getLoginUrl auth_config)
+         inner = BackendFailureResponse
+           (Just True)
+           Nothing
+           (Just $ AuthConfig.getLoginUrl redirect_path auth_config)
+
       in JsonUtils.ErrorDetails (AuthStages.getErrorMessage auth_failure_stage) $ Just $ toJSON inner
 
     AuthStages.DbFailure db_failure_reason -> let
-      inner = Just $ toJSON $ BackendFailureResponse Nothing (Just True) Nothing
+      inner = Just $ toJSON $ BackendFailureResponse
+        Nothing
+        (Just True)
+        Nothing
+
       in JsonUtils.ErrorDetails db_failure_reason inner
 
 
 toInsertionResponse :: ToJSON a =>
-     AuthConfig.GithubConfig
+     TL.Text
+  -> AuthConfig.GithubConfig
   -> Either (AuthStages.BackendFailure Text) a
   -> WebApi.JsonEither BackendFailureResponse a
-toInsertionResponse auth_config interaction_result = case interaction_result of
+toInsertionResponse redirect_path auth_config interaction_result = case interaction_result of
   Right record_id   -> WebApi.JsonEither True Nothing $ Just record_id
-  Left failure_mode -> backendFailureToResponse auth_config failure_mode
+  Left failure_mode -> backendFailureToResponse redirect_path auth_config failure_mode
 

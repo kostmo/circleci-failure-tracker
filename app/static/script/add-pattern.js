@@ -77,7 +77,7 @@ function submit_pattern() {
 
         $.post( {
 		url: "/api/new-pattern-insert",
-		data: pattern_data,
+		data: add_redirect_path_to_query_parms(pattern_data),
 		success: function( data ) {
 			if (data.success) {
 				alert("submitted pattern with ID: " + data.payload);
@@ -189,7 +189,7 @@ function shipOff(event) {
 
 	const parsed_json_from_file = JSON.parse( result );
 
-	$.ajax("/api/patterns-restore", {
+	$.ajax("/api/patterns-restore?login_redirect_path=" + get_url_path_for_redirect(), {
 	    'data': JSON.stringify(parsed_json_from_file),
 	    'type': 'POST',
 	    'processData': false,

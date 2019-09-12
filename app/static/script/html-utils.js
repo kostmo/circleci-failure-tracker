@@ -1,12 +1,21 @@
 const PULL_REQUEST_URL_PREFIX = "https://github.com/pytorch/pytorch/pull/";
 
 
+function add_redirect_path_to_query_parms(data_dict) {
+
+	const modified_data_dict = Object.assign({}, data_dict);
+	modified_data_dict["login_redirect_path"] = get_url_path_for_redirect();
+	return modified_data_dict;
+}
+
+
 function post_modification(api_endpoint, data_dict) {
 
 	$.post( {
 		url: api_endpoint,
-		data: data_dict,
+		data: add_redirect_path_to_query_parms(data_dict),
 		success: function( data ) {
+
 			if (data.success) {
 				console.log("Result: " + data.payload);
 				location.reload();
@@ -22,6 +31,13 @@ function post_modification(api_endpoint, data_dict) {
 			}
 		}
 	});
+}
+
+
+function get_url_path_for_redirect() {
+
+	const parsedUrl = new URL(window.location.href);
+	return parsedUrl.pathname + parsedUrl.search;
 }
 
 

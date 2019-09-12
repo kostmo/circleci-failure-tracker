@@ -60,10 +60,6 @@ data PersistenceData = PersistenceData {
   }
 
 
---changeThing :: ((Logger -> IO r) -> IO r) -> (LogT IO () -> IO ())
---changeThing logger_thing = LogT $ ReaderT $ LoggerEnv logger_thing "blarg" [] []
-
-
 scottyApp ::
      (LogT IO () -> IO ())
   -> PersistenceData
@@ -89,6 +85,22 @@ scottyApp
 
   -- For debugging only
   when (AuthConfig.is_local github_config) FrontendHelpers.echoEndpoint
+
+
+  -- XXX IMPORTANT:
+  -- The session cookie is specific to the parent dir of the path.
+  -- So with the path "/api/callback", only HTTP accesses to paths
+  -- at or below the "/api/" path will be members of the same session.
+  -- Consequentially, a cookie set (namely, the github access token)
+  -- in a request to a certain path will only be accessible to
+  -- other requests at or below that same parent directory.
+  S.get "/api/github-auth-callback" $ do
+
+    rq <- S.request
+    let Just (_sessionLookup, sessionInsert) = Vault.lookup session $ vault rq
+    Auth.callbackH cache github_config $ sessionInsert Auth.githubAuthTokenSessionKey
+
+  S.get "/logout" $ Auth.logoutH cache
 
 
   S.post "/api/github-event" $ StatusUpdate.githubEventEndpoint connection_data github_config
@@ -158,22 +170,6 @@ scottyApp
       SqlWrite.updateCodeBreakageMode
         <$> S.param "cause_id"
         <*> S.param "mode"
-
-
-  -- XXX IMPORTANT:
-  -- The session cookie is specific to the parent dir of the path.
-  -- So with the path "/api/callback", only HTTP accesses to paths
-  -- at or below the "/api/" path will be members of the same session.
-  -- Consequentially, a cookie set (namely, the github access token)
-  -- in a request to a certain path will only be accessible to
-  -- other requests at or below that same parent directory.
-  S.get "/api/github-auth-callback" $ do
-    rq <- S.request
-    let Just (_sessionLookup, sessionInsert) = Vault.lookup session $ vault rq
-    Auth.callbackH cache github_config $ sessionInsert Auth.githubAuthTokenSessionKey
-
-  S.get "/logout" $ Auth.logoutH cache
-
 
   get "/api/latest-master-commit-with-metadata" $
     pure $ WebApi.toJsonEither <$> SqlRead.getLatestMasterCommitWithMetadata
@@ -401,6 +397,11 @@ scottyApp
   S.get "/api/view-log-full" $ do
     build_id <- S.param "build_id"
 
+    -- TODO
+    let login_redirect_path = "/"
+--    login_redirect_path <- S.param "login_redirect_path"
+
+
     let callback_func :: AuthStages.Username -> IO (Either Text LT.Text)
 
         universal_build_id = Builds.UniversalBuildId build_id
@@ -414,7 +415,13 @@ scottyApp
           return $ maybeToEither "log not in database" maybe_log
 
     rq <- S.request
-    either_log_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
+    either_log_result <- liftIO $ Auth.getAuthenticatedUser
+      login_redirect_path
+      rq
+      session
+      github_config
+      callback_func
+
     case either_log_result of
       Right logs  -> S.text logs
       Left errors -> S.html $ LT.fromStrict $ JsonUtils._message $ JsonUtils.getDetails errors
@@ -458,15 +465,15 @@ scottyApp
       <$> S.param "cause_id"
       <*> (Builds.RawCommit <$> S.param "resolution_sha1")
 
+  post "/api/code-breakage-delete" $
+    SqlWrite.deleteCodeBreakage
+      <$> S.param "cause_id"
+
   S.post "/api/code-breakage-add-affected-job" $
     withAuth $
       SqlWrite.addCodeBreakageJobName
         <$> S.param "cause_id"
         <*> S.param "job_name"
-
-  post "/api/code-breakage-delete" $
-    SqlWrite.deleteCodeBreakage
-      <$> S.param "cause_id"
 
 
   S.get "/favicon.ico" $ do
@@ -487,9 +494,13 @@ scottyApp
     post x y = S.post x $
       FrontendHelpers.jsonAuthorizedDbInteract connection_data session github_config y
 
-    withAuth :: ToJSON a => ScottyTypes.ActionT LT.Text IO (SqlRead.AuthDbIO (Either Text a))
-                         -> ScottyTypes.ActionT LT.Text IO ()
-    withAuth = FrontendHelpers.postWithAuthentication connection_data github_config session
+    withAuth :: ToJSON a =>
+         ScottyTypes.ActionT LT.Text IO (SqlRead.AuthDbIO (Either Text a))
+      -> ScottyTypes.ActionT LT.Text IO ()
+    withAuth = FrontendHelpers.postWithAuthentication
+      connection_data
+      github_config
+      session
 
     logger_domain_identifier = if AuthConfig.is_local github_config
       then "localhost"

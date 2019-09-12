@@ -98,18 +98,28 @@ validateMaybeRevision key = do
       return $ Just validated_revision
 
 
-echoEndpoint :: S.ScottyM ()
-echoEndpoint = S.post "/api/echo" $ do
+printBodyAndHeaders :: ScottyTypes.ActionT LT.Text IO ()
+printBodyAndHeaders = do
   body <- S.body
+  query_parms <- S.params
   headers <- S.headers
 
   liftIO $ do
     putStrLn "===== HEADERS ===="
     mapM_ (\(x, y) -> putStrLn $ LT.unpack $ x <> ": " <> y) headers
     putStrLn "== END HEADERS ==="
+
+    putStrLn "===== QUERY PARAMETERS ===="
+    mapM_ (\(x, y) -> putStrLn $ LT.unpack $ x <> ": " <> y) query_parms
+    putStrLn "== END QUERY PARAMETERS ==="
+
     putStrLn "====== BODY ======"
     putStrLn $ LBSC.unpack body
     putStrLn "==== END BODY ===="
+
+
+echoEndpoint :: S.ScottyM ()
+echoEndpoint = S.post "/api/echo" printBodyAndHeaders
 
 
 getOffsetMode :: ScottyTypes.ActionT LT.Text IO Pagination.TimelineParms
@@ -123,7 +133,6 @@ getOffsetMode = do
   commit_count <- S.param "count"
   should_suppress_scheduled_builds_text <- S.param "should_suppress_scheduled_builds"
   should_suppress_fully_successful_columns_text <- S.param "should_suppress_fully_successful_columns"
-
 
   let
     offset_mode
@@ -168,7 +177,11 @@ jsonAuthorizedDbInteract :: ToJSON a =>
   -> AuthConfig.GithubConfig
   -> ScottyTypes.ActionT LT.Text IO (ReaderT Connection IO (Either Text a))
   -> ScottyTypes.ActionT LT.Text IO ()
-jsonAuthorizedDbInteract connection_data session github_config f = do
+jsonAuthorizedDbInteract
+    connection_data
+    session
+    github_config
+    f = do
 
   func <- f
 
@@ -176,9 +189,16 @@ jsonAuthorizedDbInteract connection_data session github_config f = do
         conn <- DbHelpers.get_connection connection_data
         runReaderT func conn
 
+  login_redirect_path <- S.param "login_redirect_path"
+
   rq <- S.request
   insertion_result <- liftIO $
-    Auth.getAuthenticatedUser rq session github_config callback_func
+    Auth.getAuthenticatedUser
+      login_redirect_path
+      rq
+      session
+      github_config
+      callback_func
 
   S.json $ WebApi.toJsonEither insertion_result
 
@@ -203,6 +223,8 @@ breakageCauseReport
   last_affected_sha1 <- S.param "last_affected_sha1"
 
   failure_mode_id <- S.param "failure_mode_id"
+
+  login_redirect_path <- S.param "login_redirect_path"
 
   let is_still_ongoing = checkboxIsTrue is_ongoing_text
 
@@ -230,7 +252,13 @@ breakageCauseReport
           -}
           return result
 
-    ExceptT $ Auth.getAuthenticatedUser rq session github_config callback_func
+    ExceptT $ Auth.getAuthenticatedUser
+      login_redirect_path
+      rq
+      session
+      github_config
+      callback_func
+
   S.json $ WebApi.toJsonEither insertion_result
 
 
@@ -249,6 +277,8 @@ breakageResolutionReport
   sha1 <- S.param "sha1"
   cause_ids_delimited <- S.param "causes"
 
+  login_redirect_path <- S.param "login_redirect_path"
+
   rq <- S.request
   insertion_result <- liftIO $ runExceptT $ do
 
@@ -266,7 +296,13 @@ breakageResolutionReport
           -}
           return result
 
-    ExceptT $ Auth.getAuthenticatedUser rq session github_config callback_func
+    ExceptT $ Auth.getAuthenticatedUser
+      login_redirect_path
+      rq
+      session
+      github_config
+      callback_func
+
   S.json $ WebApi.toJsonEither insertion_result
 
 
@@ -297,16 +333,31 @@ postWithAuthentication :: ToJSON a =>
   -> Vault.Key (Session IO String String)
   -> ScottyTypes.ActionT LT.Text IO (ReaderT SqlRead.AuthConnection IO (Either Text a))
   -> ScottyTypes.ActionT LT.Text IO ()
-postWithAuthentication connection_data github_config session f = do
+postWithAuthentication
+    connection_data
+    github_config
+    session
+    f = do
 
   func <- f
   let callback_func user_alias = do
         conn <- DbHelpers.get_connection connection_data
         runReaderT func $ SqlRead.AuthConnection conn user_alias
 
+  login_redirect_path <- S.param "login_redirect_path"
+
   rq <- S.request
-  insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
-  S.json $ DbInsertion.toInsertionResponse github_config insertion_result
+  insertion_result <- liftIO $ Auth.getAuthenticatedUser
+    login_redirect_path
+    rq
+    session
+    github_config
+    callback_func
+
+  S.json $ DbInsertion.toInsertionResponse
+    login_redirect_path
+    github_config
+    insertion_result
 
 
 rescanCommitCallback :: (MonadIO m) =>

@@ -2,7 +2,12 @@
 function remove_pattern_tag(pattern_id, tag) {
 
 	if (confirm("Remove tag \"" + tag + "\" from pattern " + pattern_id + "?")) {
-		const data_dict = {"pattern_id": pattern_id, "tag": tag};
+
+		const data_dict = {
+			"pattern_id": pattern_id,
+			"tag": tag,
+		};
+
 		post_modification("/api/pattern-tag-remove", data_dict);
 	}
 }
@@ -12,22 +17,30 @@ function add_tag(pattern_id) {
 
 	const prompt_val = prompt("Enter tag name (lowercase, no spaces):");
 	if (prompt_val) {
-		const data_dict = {"pattern_id": pattern_id, "tag": prompt_val};
+		const data_dict = {
+			"pattern_id": pattern_id,
+			"tag": prompt_val,
+		};
 		post_modification("/api/pattern-tag-add", data_dict);
 	}
 }
 
 
 function update_description(pattern_id, new_value) {
-	const data_dict = {"pattern_id": pattern_id, "description": new_value};
+	const data_dict = {
+		"pattern_id": pattern_id,
+		"description": new_value,
+	};
 	post_modification("/api/pattern-description-update", data_dict);
 }
 
 function update_specificity(pattern_id, new_value) {
-	const data_dict = {"pattern_id": pattern_id, "specificity": new_value};
+	const data_dict = {
+		"pattern_id": pattern_id,
+		"specificity": new_value,
+	};
 	post_modification("/api/pattern-specificity-update", data_dict);
 }
-
 
 
 function render_relative_time(cell) {

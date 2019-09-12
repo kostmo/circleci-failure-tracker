@@ -134,22 +134,40 @@ function rescan_build(button) {
 
         $.post({
 		url: "/api/rescan-build",
-		data: {"build": universal_build_id},
+		data: {
+			"build": universal_build_id,
+			"login_redirect_path": get_url_path_for_redirect(),
+		},
 		success: function( data ) {
 
 			$(button).prop("disabled", false);
 			$("#scan-throbber").hide();
 
-			if (data.success) {
-				location.reload();
-			} else {
-				alert("Error: " + data.error.message);
-			}
+			handle_submission_response(data);
 		},
 		error: function( data ) {
 			$("#scan-throbber").hide();
+			alert("Server error!");
 		},
         });
+}
+
+
+function handle_submission_response(data) {
+
+	if (data.success) {
+		location.reload();
+	} else {
+
+		if (data.error.details.authentication_failed) {
+			alert("Not logged in: " + data.error.message);
+			window.location.href = data.error.details.login_url;
+		} else if (data.error.details.database_failed) {
+			alert("Database error: " + data.error.message);
+		} else {
+			alert("Unknown error: " + data.error.message);
+		}
+	}
 }
 
 

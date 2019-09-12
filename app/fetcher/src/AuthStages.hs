@@ -34,7 +34,8 @@ instance (JsonUtils.WithErrorDetails a) => JsonUtils.WithErrorDetails (BackendFa
 
 
 data LoginUrl = LoginUrl {
-    login_url :: Text
+    login_url             :: Text
+  , authentication_failed :: Bool
   } deriving Generic
 
 instance ToJSON LoginUrl

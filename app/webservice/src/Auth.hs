@@ -52,15 +52,17 @@ wrap_login_err ::
      T.Text
   -> AuthStages.AuthenticationFailureStageInfo
   -> AuthStages.BackendFailure a
-wrap_login_err login_url = AuthStages.AuthFailure . AuthStages.AuthenticationFailure (Just $ AuthStages.LoginUrl login_url)
+wrap_login_err login_url =
+  AuthStages.AuthFailure . AuthStages.AuthenticationFailure (Just $ AuthStages.LoginUrl login_url True)
 
 
 getAuthenticatedUserByToken ::
-     OAuth2.AccessToken -- ^ token
+     TL.Text -- ^ redirect path
+  -> OAuth2.AccessToken -- ^ token
   -> AuthConfig.GithubConfig
   -> (AuthStages.Username -> IO (Either a b))
   -> IO (Either (AuthStages.BackendFailure a) b)
-getAuthenticatedUserByToken wrapped_token github_config callback = do
+getAuthenticatedUserByToken redirect_path wrapped_token github_config callback = do
 
   mgr <- newManager tlsManagerSettings
   let api_support_data = GithubApiFetch.GitHubApiSupport mgr wrapped_token
@@ -75,36 +77,45 @@ getAuthenticatedUserByToken wrapped_token github_config callback = do
       return $ first (wrap_login_err login_url) either_membership
 
     unless is_org_member $ except $
-      Left $ AuthStages.AuthFailure $ AuthStages.AuthenticationFailure (Just $ AuthStages.LoginUrl login_url)
+      Left $ AuthStages.AuthFailure $ AuthStages.AuthenticationFailure (Just $ AuthStages.LoginUrl login_url True)
         $ AuthStages.FailOrgMembership (AuthStages.Username username_text) $ T.pack Constants.project_name
 
     ExceptT $ fmap (first AuthStages.DbFailure) $
       callback $ AuthStages.Username username_text
 
   where
-    login_url = AuthConfig.getLoginUrl github_config
+    login_url = AuthConfig.getLoginUrl redirect_path github_config
 
 
 getAuthenticatedUser ::
-     Request
+     TL.Text -- ^ redirect path
+  -> Request
   -> Vault.Key (Session IO String String)
   -> AuthConfig.GithubConfig
   -> (AuthStages.Username -> IO (Either a b))
   -> IO (Either (AuthStages.BackendFailure a) b)
-getAuthenticatedUser rq session github_config callback = do
+getAuthenticatedUser redirect_path rq session github_config callback = do
 
   u <- sessionLookup githubAuthTokenSessionKey
   case u of
     Nothing -> return $ Left $ wrap_login_err login_url AuthStages.FailLoginRequired
-    Just api_token -> getAuthenticatedUserByToken (OAuth2.AccessToken $ T.pack api_token) github_config callback
+    Just api_token -> getAuthenticatedUserByToken
+      redirect_path
+      (OAuth2.AccessToken $ T.pack api_token)
+      github_config
+      callback
 
   where
     Just (sessionLookup, _sessionInsert) = Vault.lookup session $ vault rq
-    login_url = AuthConfig.getLoginUrl github_config
+    login_url = AuthConfig.getLoginUrl redirect_path github_config
 
 
 redirectToHomeM :: ActionM ()
 redirectToHomeM = redirect "/"
+
+
+redirectToPathM :: TL.Text -> ActionM ()
+redirectToPathM = redirect
 
 
 errorM :: TL.Text -> ActionM ()
@@ -128,15 +139,22 @@ callbackH c github_config session_insert = do
   when (null codeP) $ errorM "callbackH: no code from callback request"
   when (null stateP) $ errorM "callbackH: no state from callback request"
 
-  fetchTokenAndUser c github_config (head codeP) session_insert
+  fetchTokenAndUser
+    (head stateP)
+    c
+    github_config
+    (head codeP)
+    session_insert
 
 
-fetchTokenAndUser :: CacheStore
-                  -> AuthConfig.GithubConfig
-                  -> TL.Text           -- ^ code
-                  -> (String -> IO ())
-                  -> ActionM ()
-fetchTokenAndUser c github_config code session_insert = do
+fetchTokenAndUser ::
+     TL.Text
+  -> CacheStore
+  -> AuthConfig.GithubConfig
+  -> TL.Text           -- ^ code
+  -> (String -> IO ())
+  -> ActionM ()
+fetchTokenAndUser redirect_path c github_config code session_insert = do
   maybeIdpData <- lookIdp c idp
 
   case maybeIdpData of
@@ -146,7 +164,7 @@ fetchTokenAndUser c github_config code session_insert = do
       result <- liftIO $ tryFetchUser github_config code session_insert
 
       case result of
-        Right luser -> updateIdp c idpData luser >> redirectToHomeM
+        Right luser -> updateIdp c idpData luser >> redirectToPathM redirect_path
         Left err    -> errorM $ "fetchTokenAndUser: " `TL.append` err
 
   where lookIdp c1 idp1 = liftIO $ lookupKey c1 (idpLabel idp1)

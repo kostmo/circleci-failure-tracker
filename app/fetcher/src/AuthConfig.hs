@@ -4,6 +4,7 @@
 module AuthConfig where
 
 import           Data.Text            (Text)
+import           Data.Text.Encoding   (encodeUtf8)
 import qualified Data.Text.Lazy       as TL
 import           Network.OAuth.OAuth2
 import           URI.ByteString.QQ
@@ -26,13 +27,18 @@ data GithubConfig = NewGithubConfig {
 
 
 initIdps :: CacheStore -> GithubConfig -> IO ()
-initIdps c = insertIDPData c . mkIDPData
+initIdps c = insertIDPData c . mkIDPData "Github.test-state-123"
 
 
-mkIDPData :: GithubConfig -> IDPData
-mkIDPData auth_config = IDPData code_uri Nothing $ idpLabel Github.Github
+mkIDPData :: TL.Text -> GithubConfig -> IDPData
+mkIDPData redirect_path auth_config = IDPData code_uri Nothing $ idpLabel Github.Github
   where
-    code_uri = Utils.createCodeUri (githubKey auth_config) [("state", "Github.test-state-123")]
+    code_uri = Utils.createCodeUri
+      (githubKey auth_config)
+      -- Apparently this is the proper parameter to propagate
+      -- the redirect URL.
+      -- See https://www.gvj-web.com/blog/oauth2-redirect-original-url
+      [("state", encodeUtf8 $ TL.toStrict redirect_path)]
 
 
 -- | http://developer.github.com/v3/oauth/
@@ -50,5 +56,5 @@ githubKey auth_config = OAuth2 {
       else [uri|https://dr.pytorch.org/api/github-auth-callback|]
 
 
-getLoginUrl :: GithubConfig -> Text
-getLoginUrl = TL.toStrict . codeFlowUri . mkIDPData
+getLoginUrl :: TL.Text -> GithubConfig -> Text
+getLoginUrl redirect_path = TL.toStrict . codeFlowUri . mkIDPData redirect_path

@@ -49,7 +49,16 @@ function renderLogLineTableWithOffset(table_items, matched_line_number, context_
 
 
 function get_log_text(match_id, context_linecount) {
-	$.getJSON('/api/view-log-context', {"match_id": match_id, "context_linecount": context_linecount}, function (data) {
+
+	const current_url_path = get_url_path_for_redirect();
+
+	const parms = {
+		"match_id": match_id,
+		"context_linecount": context_linecount,
+		"login_redirect_path": current_url_path,
+	};
+
+	$.getJSON('/api/view-log-context', parms, function (data) {
 
 		if (data.success) {
 
@@ -58,7 +67,6 @@ function get_log_text(match_id, context_linecount) {
 
 				const zero_based_line_number = tuple[0];
 				const line_text = tuple[1];
-
 
 				var formatted_line_text;
 				if (zero_based_line_number == data.payload.match_info.line_number) {
