@@ -58,6 +58,9 @@ function get_log_text(match_id, context_linecount) {
 		"login_redirect_path": current_url_path,
 	};
 
+	const dialog = displayDialog();
+	$(dialog).html(render_tag("p", "Fetching log from backend...") + "<img src='/images/duck.gif' style='display: block; margin-left: auto; margin-right: auto;'/>");
+
 	$.getJSON('/api/view-log-context', parms, function (data) {
 
 		if (data.success) {
@@ -97,21 +100,7 @@ function get_log_text(match_id, context_linecount) {
 				render_tag("div", renderLogLineTableWithOffset(table_items, data.payload.match_info.line_number, context_linecount)),
 			];
 
-			$("#myDialog").html(dialog_content.join(""));
-
-			const dialog = document.getElementById("myDialog");
-			dialog.addEventListener('click',
-				function (event) {
-					const rect = dialog.getBoundingClientRect();
-					const isInDialog = (rect.top <= event.clientY && event.clientY <= rect.top + rect.height
-						&& rect.left <= event.clientX && event.clientX <= rect.left + rect.width);
-					if (!isInDialog) {
-					dialog.close();
-				}
-			});
-
-
-			document.getElementById("myDialog").showModal(); 
+			$(dialog).html(dialog_content.join(""));
 
 		} else {
 			const proceed = confirm("Need to login first...");
@@ -120,6 +109,24 @@ function get_log_text(match_id, context_linecount) {
 			}
 		}
 	});
+}
+
+
+function displayDialog() {
+
+	const dialog = document.getElementById("myDialog");
+	dialog.addEventListener('click',
+		function (event) {
+			const rect = dialog.getBoundingClientRect();
+			const isInDialog = (rect.top <= event.clientY && event.clientY <= rect.top + rect.height
+				&& rect.left <= event.clientX && event.clientX <= rect.left + rect.width);
+			if (!isInDialog) {
+			dialog.close();
+		}
+	});
+
+	dialog.showModal();
+	return dialog;
 }
 
 
