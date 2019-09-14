@@ -1894,8 +1894,7 @@ apiAnnotatedCodeBreakages = runQuery $ MyUtils.qjoin [
 -- * github_pr_number
 -- * github_pr_head_commit
 -- * foreshadowed_broken_jobs_delimited
-apiAnnotatedCodeBreakagesWithImpact :: DbIO [BuildResults.BreakageSpan Text BuildResults.BreakageImpactStats]
-apiAnnotatedCodeBreakagesWithImpact = runQuery $ MyUtils.qjoin [
+sqlPrefixAnnotatedCodeBreakagesWithImpact = MyUtils.qjoin [
     "SELECT"
   , MyUtils.qlist [
       "cause_id"
@@ -1928,8 +1927,46 @@ apiAnnotatedCodeBreakagesWithImpact = runQuery $ MyUtils.qjoin [
     , "foreshadowed_broken_jobs_delimited"
     ]
   , "FROM known_breakage_summaries"
+  ]
+
+
+apiAnnotatedCodeBreakagesWithImpact :: DbIO [BuildResults.BreakageSpan Text BuildResults.BreakageImpactStats]
+apiAnnotatedCodeBreakagesWithImpact = runQuery $ MyUtils.qjoin [
+    sqlPrefixAnnotatedCodeBreakagesWithImpact
   , "ORDER BY cause_commit_index DESC;"
   ]
+
+
+-- | TODO "head" is partial
+apiCodeBreakagesModeSingle ::
+     Int
+  -> DbIO Int
+apiCodeBreakagesModeSingle cause_id = do
+  conn <- ask
+  liftIO $ do
+    [Only mode_id] <- query conn sql (Only cause_id)
+    return mode_id
+
+  where
+    sql = MyUtils.qjoin [
+        "SELECT"
+      , "mode_id"
+      , "FROM latest_master_failure_mode_attributions"
+      , "WHERE cause_id = ?;"
+      ]
+
+
+apiAnnotatedCodeBreakagesWithImpactSingle ::
+     Int
+  -> DbIO [BuildResults.BreakageSpan Text BuildResults.BreakageImpactStats]
+apiAnnotatedCodeBreakagesWithImpactSingle cause_id = do
+  conn <- ask
+  liftIO $ query conn sql $ Only cause_id
+  where
+    sql = MyUtils.qjoin [
+        sqlPrefixAnnotatedCodeBreakagesWithImpact
+      , "WHERE cause_id = ?;"
+      ]
 
 
 apiBreakageAuthorStats :: DbIO [BuildResults.BreakageAuthorStats]

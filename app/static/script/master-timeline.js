@@ -312,16 +312,7 @@ function mark_failure_cause_common(api_url) {
 	});
 
 
-	$("#mini-throbber-failure-modes").show();
-	$.getJSON('/api/list-failure-modes', function (mydata) {
-		$("#mini-throbber-failure-modes").hide();
-
-		$('#breakage-mode-selector').empty();
-
-		for (var item of mydata) {
-			$('#breakage-mode-selector').append(render_tag("option", item["record"]["label"], {"value": item["db_id"]}));
-		}
-	});
+	setup_breakage_mode_selector();
 
 
 	$('#dialog-submit-button').click(function(e) {

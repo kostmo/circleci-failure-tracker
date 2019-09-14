@@ -15,7 +15,10 @@
 <script src="https://cdn.jsdelivr.net/npm/lodash@4.17.11/lodash.min.js"></script>
 
 <script src="/script/html-utils.js"></script>
+<script src="/script/js-utils.js"></script>
 <script src="/script/table-helpers.js"></script>
+<script src="/script/breakage-definition.js"></script>
+<script src="/script/breakages-table.js"></script>
 <script src="/script/breakage-details.js"></script>
 
 </head>
@@ -29,13 +32,34 @@
 <li><a href="/code-breakages.html">See all breakages</a></li>
 </ul>
 
+
+<!-- TODO Too slow to load!
+<div id="scan-throbber" style="display: none; float:right; clear: all;"><img src="/images/duck.gif"/></div>
+<div id="annotated-breakages-table"></div>
+-->
+
+<h2>Modify</h2>
+
+<table><tr>
+<th>
+<label for="breakage-mode-selector">Cause:</label>
+</th>
+<td><select id="breakage-mode-selector"/> <img id="mini-throbber-failure-modes" src="/images/animated-spinner.svg" style="width: 16px; vertical-align: middle"/></td>
+<td><button id="button-breakage-mode-update">Update</button></td>
+</tr></table>
+
+
 <button onclick="delete_callback();">Delete this breakage</button>
 
-<h2>Resolution</h2>
+<h3>Resolution</h3>
 
 <label>Update resolution commit to: <input id="new-resolution-sha1-field" type="text" size="40"/></label> <button onclick="update_resolution_commit();">Go</button>
+<p>
+Convert to ongoing breakage: 
+<button onclick="delete_resolution();">Delete resolution</button>
+</p>
 
-<h2>Affected Jobs</h2>
+<h3>Affected Jobs</h3>
 <label>Add affected job: <input id="new-affected-job-field" type="text" size="50"/></label> <button onclick="add_affected_job();">Add</button>
 
 <div id="affected-jobs-table" style="min-width: 400px; height: 400px; max-width: 600; margin: 0 auto"></div>

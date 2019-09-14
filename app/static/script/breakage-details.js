@@ -9,7 +9,6 @@ function delete_callback() {
 }
 
 
-
 function add_affected_job() {
 
 	const cause_id = get_cause_id();
@@ -20,6 +19,15 @@ function add_affected_job() {
 	}
 }
 
+
+function delete_resolution() {
+
+	const cause_id = get_cause_id();
+
+	if (confirm("Remove resolution?")) {
+		post_modification("/api/code-breakage-delete-resolution", {"cause_id": cause_id});
+	}
+}
 
 
 function update_resolution_commit() {
@@ -78,7 +86,40 @@ function get_cause_id() {
 
 
 function main() {
+
 	const cause_id = get_cause_id();
+
+	/* TODO Too slow
+	$("#scan-throbber").show();
+	$.getJSON('/api/list-failure-modes', function (mydata) {
+
+		$("#scan-throbber").hide();
+
+		const failure_modes_dict = {};
+		for (var item of mydata) {
+			failure_modes_dict[item["db_id"]] = item["record"];
+		}
+
+		gen_annotated_breakages_table("annotated-breakages-table", "/api/code-breakages-annotated-single?cause_id=" + cause_id, failure_modes_dict);
+	});
+	*/
+
+
+// TODO: use "/api/code-breakage-mode-single" API
+
+	const jquery_selector_element = setup_breakage_mode_selector();
+
+	$.getJSON('/api/code-breakage-mode-single', {"cause_id": cause_id}, function (mydata) {
+
+		console.log("mydata: " + JSON.stringify(mydata))
+		jquery_selector_element.val(mydata);
+	});
+
 	gen_affected_jobs_table("affected-jobs-table", cause_id);
+
+	$("#button-breakage-mode-update").click(function() {
+		const new_failure_mode = jquery_selector_element.val();
+		update_breakage_mode(cause_id, new_failure_mode);
+	});
 }
 

@@ -267,6 +267,12 @@ scottyApp
   get "/api/patterns-presumed-stable-branches" $
     pure SqlRead.apiPatternsPresumedStableBranches
 
+  get "/api/code-breakages-annotated-single" $
+    SqlRead.apiAnnotatedCodeBreakagesWithImpactSingle <$> S.param "cause_id"
+
+  get "/api/code-breakage-mode-single" $
+    SqlRead.apiCodeBreakagesModeSingle <$> S.param "cause_id"
+
   get "/api/patterns-branch-filtered" $
     SqlRead.apiPatternsBranchFiltered <$> S.param "branches"
 
@@ -464,6 +470,10 @@ scottyApp
     SqlWrite.updateCodeBreakageResolutionSha1
       <$> S.param "cause_id"
       <*> (Builds.RawCommit <$> S.param "resolution_sha1")
+
+  post "/api/code-breakage-delete-resolution" $
+    SqlWrite.deleteCodeBreakageResolution
+      <$> S.param "cause_id"
 
   post "/api/code-breakage-delete" $
     SqlWrite.deleteCodeBreakage

@@ -538,6 +538,16 @@ updateCodeBreakageResolutionSha1 cause_id (Builds.RawCommit sha1) = do
     sql = "UPDATE code_breakage_resolution SET sha1 = ? WHERE cause = ?;"
 
 
+deleteCodeBreakageResolution ::
+     Int64
+  -> SqlRead.DbIO (Either Text Int64)
+deleteCodeBreakageResolution cause_id = do
+  conn <- ask
+  liftIO $ Right <$> execute conn sql (Only cause_id)
+  where
+    sql = "DELETE FROM code_breakage_resolution WHERE cause = ?;"
+
+
 addCodeBreakageJobName ::
      Int64 -- ^ cause
   -> Text -- ^ job name
