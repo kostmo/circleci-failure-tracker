@@ -69,7 +69,7 @@ function get_timeline_data(parms) {
 
 			console.log("Fetched timeline data in " + seconds_diff.toFixed(1) + " seconds.");
 
-			const all_commit_times = mydata.payload.content.commits.map(x => Date.parse(x["record"]["metadata"]["committer_date"]));
+			const all_commit_times = mydata.payload.content.commits.map(x => Date.parse(x["record"]["metadata"] && x["record"]["metadata"]["committer_date"]));
 			const min_commit_time = Math.min(...all_commit_times);
 			const max_commit_time = Math.max(...all_commit_times);
 
