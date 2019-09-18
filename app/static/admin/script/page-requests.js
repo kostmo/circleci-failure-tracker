@@ -9,7 +9,7 @@ function make_timeline_highchart(container_element, series_list, stacking_type, 
 			type: 'area'
 		},
 		title: {
-			text: 'Failure Modes by Week (per commit)',
+			text: 'Page views by Week',
 		},
 		subtitle: {
 			text: 'Showing only full weeks, starting on labeled day'
@@ -29,26 +29,6 @@ function make_timeline_highchart(container_element, series_list, stacking_type, 
 				text: label_prefix + ' per commit'
 			},
 			min: 0
-		},
-		tooltip: {
-			useHTML: true,
-			style: {
-				pointerEvents: 'auto'
-			},
-			pointFormatter: function() {
-				const commit_id_bounds = ranges_by_week[this.x]["commit_id_bound"];
-
-				const unnormalized_val = ranges_by_week[this.x][this.series.name];
-
-				const parms_string = $.param({
-					"min_commit_index": commit_id_bounds["min_bound"],
-					"max_commit_index": commit_id_bounds["max_bound"],
-				});
-
-				const link_url = "/master-timeline.html?" + parms_string;
-				const content = this.y.toFixed(2) + " (" + unnormalized_val + ")<br/>" + link("(details)", link_url);
-				return content;
-			},
 		},
 		plotOptions: {
 			line: {

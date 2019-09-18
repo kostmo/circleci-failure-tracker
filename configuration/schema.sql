@@ -88,6 +88,29 @@ CREATE TABLE frontend_logging.logs (
 ALTER TABLE frontend_logging.logs OWNER TO postgres;
 
 --
+-- Name: page_requests_by_week; Type: VIEW; Schema: frontend_logging; Owner: postgres
+--
+
+CREATE VIEW frontend_logging.page_requests_by_week AS
+ SELECT foo.week,
+    foo.url,
+    max(foo."time") AS latest_time,
+    min(foo."time") AS earliest_time,
+    count(*) AS request_count
+   FROM ( SELECT logs."time",
+            date_trunc('week'::text, logs."time") AS week,
+            logs.domain[1] AS domain_prefix,
+            (logs.data ->> 'url'::text) AS url,
+            (logs.data ->> 'method'::text) AS http_method
+           FROM frontend_logging.logs) foo
+  WHERE ((foo.domain_prefix <> 'localhost'::text) AND (foo.http_method = 'GET'::text) AND (foo.url ~~ '%\.html'::text))
+  GROUP BY foo.week, foo.url
+  ORDER BY foo.week DESC, (count(*)) DESC;
+
+
+ALTER TABLE frontend_logging.page_requests_by_week OWNER TO postgres;
+
+--
 -- Name: materialized_view_refresh_events; Type: TABLE; Schema: lambda_logging; Owner: postgres
 --
 
@@ -167,6 +190,36 @@ CREATE TABLE public.commit_metadata (
 ALTER TABLE public.commit_metadata OWNER TO postgres;
 
 --
+-- Name: master_failure_mode_attributions; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.master_failure_mode_attributions (
+    cause_id integer NOT NULL,
+    reporter text NOT NULL,
+    mode_id integer NOT NULL,
+    reported_at timestamp with time zone,
+    id integer NOT NULL
+);
+
+
+ALTER TABLE public.master_failure_mode_attributions OWNER TO postgres;
+
+--
+-- Name: latest_master_failure_mode_attributions; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.latest_master_failure_mode_attributions AS
+ SELECT DISTINCT ON (master_failure_mode_attributions.cause_id) master_failure_mode_attributions.cause_id,
+    master_failure_mode_attributions.reporter,
+    master_failure_mode_attributions.reported_at,
+    master_failure_mode_attributions.mode_id
+   FROM public.master_failure_mode_attributions
+  ORDER BY master_failure_mode_attributions.cause_id, master_failure_mode_attributions.id DESC;
+
+
+ALTER TABLE public.latest_master_failure_mode_attributions OWNER TO postgres;
+
+--
 -- Name: ordered_master_commits; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -197,21 +250,6 @@ CREATE VIEW public.master_commits_contiguously_indexed AS
 
 
 ALTER TABLE public.master_commits_contiguously_indexed OWNER TO postgres;
-
---
--- Name: master_failure_mode_attributions; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.master_failure_mode_attributions (
-    cause_id integer NOT NULL,
-    reporter text NOT NULL,
-    mode_id integer NOT NULL,
-    reported_at timestamp with time zone,
-    id integer NOT NULL
-);
-
-
-ALTER TABLE public.master_failure_mode_attributions OWNER TO postgres;
 
 --
 -- Name: master_ordered_commits_with_metadata; Type: VIEW; Schema: public; Owner: postgres
@@ -257,9 +295,9 @@ CREATE VIEW public.code_breakage_spans WITH (security_barrier='false') AS
     bar.sha1 AS resolution_sha1,
     bar.reporter AS resolution_reporter,
     bar.reported_at AS resolution_reported_at,
-    barx.mode_id AS failure_mode,
-    barx.reporter AS failure_mode_reporter,
-    barx.reported_at AS failure_mode_reported_at,
+    latest_master_failure_mode_attributions.mode_id AS failure_mode,
+    latest_master_failure_mode_attributions.reporter AS failure_mode_reporter,
+    latest_master_failure_mode_attributions.reported_at AS failure_mode_reported_at,
     foo.commit_number AS cause_commit_number,
     bar.commit_number AS resolution_commit_number,
     (bar.commit_number - foo.commit_number) AS spanned_commit_count,
@@ -282,12 +320,7 @@ CREATE VIEW public.code_breakage_spans WITH (security_barrier='false') AS
             code_breakage_resolution.sha1
            FROM (public.code_breakage_resolution
              JOIN public.master_commits_contiguously_indexed ON ((master_commits_contiguously_indexed.sha1 = code_breakage_resolution.sha1)))) bar ON ((foo.cause_id = bar.cause_id)))
-     LEFT JOIN ( SELECT DISTINCT ON (master_failure_mode_attributions.cause_id) master_failure_mode_attributions.cause_id,
-            master_failure_mode_attributions.reporter,
-            master_failure_mode_attributions.reported_at,
-            master_failure_mode_attributions.mode_id
-           FROM public.master_failure_mode_attributions
-          ORDER BY master_failure_mode_attributions.cause_id, master_failure_mode_attributions.id DESC) barx ON ((foo.cause_id = barx.cause_id)))
+     LEFT JOIN public.latest_master_failure_mode_attributions ON ((foo.cause_id = latest_master_failure_mode_attributions.cause_id)))
      LEFT JOIN public.master_ordered_commits_with_metadata meta1 ON ((meta1.id = foo.commit_id)))
   ORDER BY foo.cause_id, bar.resolution_id DESC;
 
@@ -490,6 +523,31 @@ CREATE VIEW public.builds_deduped WITH (security_barrier='false') AS
 ALTER TABLE public.builds_deduped OWNER TO postgres;
 
 --
+-- Name: builds_join_steps; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.builds_join_steps WITH (security_barrier='false') AS
+ SELECT build_steps_deduped_mitigation.id AS step_id,
+    build_steps_deduped_mitigation.name AS step_name,
+    builds_deduped.build_num,
+    builds_deduped.vcs_revision,
+    builds_deduped.queued_at,
+    builds_deduped.job_name,
+    builds_deduped.branch,
+    build_steps_deduped_mitigation.is_timeout,
+    build_steps_deduped_mitigation.universal_build,
+    builds_deduped.provider,
+    builds_deduped.succeeded,
+    builds_deduped.build_namespace,
+    builds_deduped.started_at,
+    builds_deduped.finished_at
+   FROM (public.build_steps_deduped_mitigation
+     JOIN public.builds_deduped ON ((build_steps_deduped_mitigation.universal_build = builds_deduped.global_build)));
+
+
+ALTER TABLE public.builds_join_steps OWNER TO postgres;
+
+--
 -- Name: matches; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -535,7 +593,7 @@ yielding multiple rows for the same pattern on the same line.
 
 This intermediate view eliminates those duplicate matches.
 
-BEWARE: This should not be used in conjunction with "best_match_*" views, as the best match may select one that was excluded by the distinct filter.';
+BEWARE: At one point there was a problem with missing rows, due to misaligned DISTINCT criteria between this view and the best_match_*" views.';
 
 
 --
@@ -544,15 +602,14 @@ BEWARE: This should not be used in conjunction with "best_match_*" views, as the
 
 CREATE VIEW public.matches_for_build WITH (security_barrier='false') AS
  SELECT matches_distinct.pattern AS pat,
-    builds_deduped.build_num AS build,
-    build_steps_deduped_mitigation.name AS step_name,
-    builds_deduped.global_build AS universal_build,
+    builds_join_steps.build_num AS build,
+    builds_join_steps.step_name,
+    builds_join_steps.universal_build,
     matches_distinct.id AS match_id,
     matches_distinct.build_step AS step_id,
-    builds_deduped.vcs_revision
-   FROM ((public.matches_distinct
-     JOIN public.build_steps_deduped_mitigation ON ((matches_distinct.build_step = build_steps_deduped_mitigation.id)))
-     JOIN public.builds_deduped ON ((builds_deduped.global_build = build_steps_deduped_mitigation.universal_build)));
+    builds_join_steps.vcs_revision
+   FROM (public.matches_distinct
+     JOIN public.builds_join_steps ON ((matches_distinct.build_step = builds_join_steps.step_id)));
 
 
 ALTER TABLE public.matches_for_build OWNER TO postgres;
@@ -789,32 +846,6 @@ CREATE VIEW public.best_pattern_match_augmented_builds WITH (security_barrier='f
 ALTER TABLE public.best_pattern_match_augmented_builds OWNER TO postgres;
 
 --
--- Name: builds_join_steps; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.builds_join_steps WITH (security_barrier='false') AS
- SELECT build_steps_deduped_mitigation.id AS step_id,
-    build_steps_deduped_mitigation.name AS step_name,
-    builds_deduped.build_num,
-    builds_deduped.vcs_revision,
-    builds_deduped.queued_at,
-    builds_deduped.job_name,
-    builds_deduped.branch,
-    build_steps_deduped_mitigation.is_timeout,
-    build_steps_deduped_mitigation.universal_build,
-    builds_deduped.provider,
-    builds_deduped.succeeded,
-    builds_deduped.build_namespace,
-    builds_deduped.started_at,
-    builds_deduped.finished_at
-   FROM (public.build_steps_deduped_mitigation
-     JOIN public.builds_deduped ON ((build_steps_deduped_mitigation.universal_build = builds_deduped.global_build)))
-  ORDER BY builds_deduped.vcs_revision, builds_deduped.global_build DESC;
-
-
-ALTER TABLE public.builds_join_steps OWNER TO postgres;
-
---
 -- Name: code_breakage_affected_jobs; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -946,7 +977,9 @@ ALTER TABLE public.build_failure_standalone_causes OWNER TO postgres;
 -- Name: VIEW build_failure_standalone_causes; Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON VIEW public.build_failure_standalone_causes IS 'This is an intermediate table to construct "build_failure_causes", which includes "known broken" (deterministic) failures.';
+COMMENT ON VIEW public.build_failure_standalone_causes IS 'This is an intermediate table to construct "build_failure_causes", which includes "known broken" (deterministic) failures.
+
+NOTE: We are not using the "builds_join_steps" intermediate view, because here we are doing a LEFT JOIN from "builds_deduped" to "build_steps_deduped_mitigation", in contrast with a standard (INNER) JOIN in the "builds_join_steps" VIEW.';
 
 
 --
@@ -2532,6 +2565,42 @@ CREATE VIEW public.match_position_stats AS
 ALTER TABLE public.match_position_stats OWNER TO postgres;
 
 --
+-- Name: matches_for_build_rich_patterns; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.matches_for_build_rich_patterns AS
+ SELECT matches_for_build.build,
+    matches_for_build.pat AS pattern_id,
+    patterns_rich.expression,
+    patterns_rich.regex,
+    patterns_rich.has_nondeterministic_values,
+    patterns_rich.is_retired,
+    patterns_rich.specificity,
+    NULL::bigint AS distinct_matching_pattern_count,
+    (count(matches_for_build.match_id) OVER (PARTITION BY matches_for_build.universal_build))::numeric AS total_pattern_matches,
+    patterns_rich.is_flaky,
+    matches_for_build.universal_build,
+    matches_for_build.match_id,
+    matches_for_build.step_id,
+    matches_for_build.vcs_revision,
+    patterns_rich.is_network
+   FROM (public.matches_for_build
+     JOIN public.patterns_rich ON ((matches_for_build.pat = patterns_rich.id)));
+
+
+ALTER TABLE public.matches_for_build_rich_patterns OWNER TO postgres;
+
+--
+-- Name: VIEW matches_for_build_rich_patterns; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.matches_for_build_rich_patterns IS 'Intermediate view that *should* be used for "best_pattern_match_for_builds".
+
+TODO:
+HOWEVER, somehow using this view negates an optimization in which a WHERE clause is used inside the DISTINCT ON subquery, so currently this view remains unused.';
+
+
+--
 -- Name: matches_with_log_metadata; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -3665,6 +3734,13 @@ CREATE INDEX fki_fk_ubuild ON public.build_steps USING btree (universal_build);
 
 
 --
+-- Name: idx_distinct_match_ranking; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_distinct_match_ranking ON public.matches USING btree (build_step, pattern, line_number, id DESC NULLS LAST);
+
+
+--
 -- Name: idx_github_status_post_description; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -3704,6 +3780,13 @@ CREATE UNIQUE INDEX idx_master_failures_weekly_aggregation_week ON public.master
 --
 
 CREATE UNIQUE INDEX idx_pr_merge_time_failing_builds_by_week_mview_week ON public.pr_merge_time_failing_builds_by_week_mview USING btree (week);
+
+
+--
+-- Name: idx_provider_sha1_universal_build; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_provider_sha1_universal_build ON public.universal_builds USING btree (provider, commit_sha1, id);
 
 
 --
@@ -3953,6 +4036,13 @@ GRANT ALL ON TABLE frontend_logging.logs TO logan;
 
 
 --
+-- Name: TABLE page_requests_by_week; Type: ACL; Schema: frontend_logging; Owner: postgres
+--
+
+GRANT ALL ON TABLE frontend_logging.page_requests_by_week TO logan;
+
+
+--
 -- Name: TABLE materialized_view_refresh_events; Type: ACL; Schema: lambda_logging; Owner: postgres
 --
 
@@ -3989,6 +4079,20 @@ GRANT ALL ON TABLE public.commit_metadata TO logan;
 
 
 --
+-- Name: TABLE master_failure_mode_attributions; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_failure_mode_attributions TO logan;
+
+
+--
+-- Name: TABLE latest_master_failure_mode_attributions; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.latest_master_failure_mode_attributions TO logan;
+
+
+--
 -- Name: TABLE ordered_master_commits; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -4000,13 +4104,6 @@ GRANT ALL ON TABLE public.ordered_master_commits TO logan;
 --
 
 GRANT ALL ON TABLE public.master_commits_contiguously_indexed TO logan;
-
-
---
--- Name: TABLE master_failure_mode_attributions; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.master_failure_mode_attributions TO logan;
 
 
 --
@@ -4079,6 +4176,13 @@ GRANT ALL ON TABLE public.global_builds TO logan;
 --
 
 GRANT ALL ON TABLE public.builds_deduped TO logan;
+
+
+--
+-- Name: TABLE builds_join_steps; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.builds_join_steps TO logan;
 
 
 --
@@ -4177,13 +4281,6 @@ GRANT ALL ON TABLE public.log_metadata TO logan;
 --
 
 GRANT ALL ON TABLE public.best_pattern_match_augmented_builds TO logan;
-
-
---
--- Name: TABLE builds_join_steps; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.builds_join_steps TO logan;
 
 
 --
@@ -4611,6 +4708,13 @@ GRANT ALL ON TABLE public.match_last_position_frequencies TO logan;
 --
 
 GRANT ALL ON TABLE public.match_position_stats TO logan;
+
+
+--
+-- Name: TABLE matches_for_build_rich_patterns; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.matches_for_build_rich_patterns TO logan;
 
 
 --

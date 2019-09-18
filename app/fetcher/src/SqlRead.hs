@@ -315,20 +315,21 @@ instance ToJSON PageRequestCounts where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
--- | TODO: offset 1 so we only obtain full weeks of data
+-- | TODO: offset so we only obtain full weeks of data
 --
 -- Note also the list order reversal for Highcharts
 getPageViewsByWeek :: Int -> DbIO [DbHelpers.TimestampedDatum PageRequestCounts]
-getPageViewsByWeek week_count = do
+getPageViewsByWeek _week_count = do
   conn <- ask
-  liftIO $ fmap reverse $ query conn sql $ Only week_count
+--  liftIO $ fmap reverse $ query conn sql $ Only week_count
+  liftIO $ fmap reverse $ query_ conn sql
   where
     sql = MyUtils.qjoin [
         "SELECT week, url, request_count"
       , "FROM frontend_logging.page_requests_by_week"
       , "ORDER BY week DESC"
 --      , "OFFSET 1"
-      , "LIMIT ?;"
+--      , "LIMIT ?;"
       ]
 
 
