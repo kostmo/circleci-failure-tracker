@@ -40,8 +40,11 @@ It is possible for only specific jobs of a commit to be marked as "known broken"
 Deployment
 -------------
 
-* Uses a Postgres Amazon RDS database.
+### AWS dependencies
+
 * Uses Amazon Elastic Beanstalk with Docker for hosting the webapp
+* Uses a Postgres Amazon RDS database.
+* Uses AWS Lambda with fixed-rate scheduled CloudWatch Events for refreshing materialized views
 
 
 Optimizations
