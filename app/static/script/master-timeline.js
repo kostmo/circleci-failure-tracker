@@ -582,6 +582,7 @@ function get_column_definitions(raw_column_list) {
 			const row_data = cell.getRow().getData();
 			const commit_metadata = row_data["commit_metadata"];
 
+			var commit_info_prefix = "";
 			var message_suffix = "";
 			if (commit_metadata) {
 
@@ -600,10 +601,12 @@ function get_column_definitions(raw_column_list) {
 				}
 
 				const message_subject = get_commit_subject(commit_metadata["message"]);
+
 				message_suffix = pr_link + ": " + message_subject;
+				commit_info_prefix = moment(commit_date).fromNow(true) + ": ";
 			}
 
-			return sha1_link(cell.getValue()) + message_suffix;
+			return commit_info_prefix + sha1_link(cell.getValue()) + message_suffix;
 		},
 		tooltip: function(cell) {
 
