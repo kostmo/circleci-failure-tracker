@@ -1632,10 +1632,8 @@ getScheduledJobNames :: DbIO [Text]
 getScheduledJobNames = listFlat sql
   where
     sql = MyUtils.qjoin [
-        "SELECT job_name FROM job_schedule_statistics_mview"
-      , "WHERE (build_count > 1 AND circular_time_of_day_stddev < 0.8)"
-      , "OR job_name LIKE 'binary\\_%'"
-      , "OR job_name LIKE 'smoke\\_%'"
+        "SELECT job_name FROM job_schedule_discriminated_mview"
+      , "WHERE inferred_scheduled"
       , "ORDER BY job_name;"
       ]
 
