@@ -88,24 +88,35 @@ CREATE TABLE frontend_logging.logs (
 ALTER TABLE frontend_logging.logs OWNER TO postgres;
 
 --
+-- Name: page_requests_extracted_fields; Type: VIEW; Schema: frontend_logging; Owner: postgres
+--
+
+CREATE VIEW frontend_logging.page_requests_extracted_fields AS
+ SELECT logs."time",
+    date_trunc('week'::text, logs."time") AS week,
+    logs.domain[1] AS domain_prefix,
+    (logs.data ->> 'url'::text) AS url,
+    (logs.data ->> 'method'::text) AS http_method,
+    (logs.data ->> 'remote-host'::text) AS remote_host
+   FROM frontend_logging.logs;
+
+
+ALTER TABLE frontend_logging.page_requests_extracted_fields OWNER TO postgres;
+
+--
 -- Name: page_requests_by_week; Type: VIEW; Schema: frontend_logging; Owner: postgres
 --
 
-CREATE VIEW frontend_logging.page_requests_by_week AS
- SELECT foo.week,
-    foo.url,
-    max(foo."time") AS latest_time,
-    min(foo."time") AS earliest_time,
+CREATE VIEW frontend_logging.page_requests_by_week WITH (security_barrier='false') AS
+ SELECT page_requests_extracted_fields.week,
+    page_requests_extracted_fields.url,
+    max(page_requests_extracted_fields."time") AS latest_time,
+    min(page_requests_extracted_fields."time") AS earliest_time,
     count(*) AS request_count
-   FROM ( SELECT logs."time",
-            date_trunc('week'::text, logs."time") AS week,
-            logs.domain[1] AS domain_prefix,
-            (logs.data ->> 'url'::text) AS url,
-            (logs.data ->> 'method'::text) AS http_method
-           FROM frontend_logging.logs) foo
-  WHERE ((foo.domain_prefix <> 'localhost'::text) AND (foo.http_method = 'GET'::text) AND (foo.url ~~ '%\.html'::text))
-  GROUP BY foo.week, foo.url
-  ORDER BY foo.week DESC, (count(*)) DESC;
+   FROM frontend_logging.page_requests_extracted_fields
+  WHERE ((page_requests_extracted_fields.domain_prefix <> 'localhost'::text) AND (page_requests_extracted_fields.http_method = 'GET'::text) AND (page_requests_extracted_fields.url ~~ '%\.html'::text))
+  GROUP BY page_requests_extracted_fields.week, page_requests_extracted_fields.url
+  ORDER BY page_requests_extracted_fields.week DESC, (count(*)) DESC;
 
 
 ALTER TABLE frontend_logging.page_requests_by_week OWNER TO postgres;
@@ -239,6 +250,31 @@ COMMENT ON TABLE public.ordered_master_commits IS 'Warning: the "id" column may 
 
 
 --
+-- Name: master_commit_message_derived_fields; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_commit_message_derived_fields AS
+ SELECT ordered_master_commits.id,
+    (COALESCE("substring"(commit_metadata.message, 'Pull [Rr]equest resolved: https://github\.com/pytorch/pytorch/pull/(\d+)'::text), "substring"(commit_metadata.message, '[Cc]loses https://github\.com/pytorch/pytorch/pull/(\d+)'::text)))::integer AS github_pr_number,
+    ("substring"(commit_metadata.message, 'Differential Revision: D(\d+)'::text))::integer AS fb_differential_revision,
+    "substring"(commit_metadata.message, 'Pulled By: ([^\s]+)'::text) AS fb_pulled_by,
+    "substring"(commit_metadata.message, 'Reviewed By: ([^\s]+)'::text) AS fb_reviewed_by,
+    ("substring"(commit_metadata.message, 'fbshipit-source-id: ([^\s]+)'::text))::character(40) AS fb_shipit_source_id,
+    ("substring"(commit_metadata.message, 'ghstack-source-id: (\d+)'::text))::integer AS fb_ghstack_source_id
+   FROM (public.ordered_master_commits
+     LEFT JOIN public.commit_metadata ON ((commit_metadata.sha1 = ordered_master_commits.sha1)));
+
+
+ALTER TABLE public.master_commit_message_derived_fields OWNER TO postgres;
+
+--
+-- Name: VIEW master_commit_message_derived_fields; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.master_commit_message_derived_fields IS 'TODO: This should be a materialized view so the PR number can be indexed';
+
+
+--
 -- Name: master_commits_contiguously_indexed; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -266,15 +302,16 @@ CREATE VIEW public.master_ordered_commits_with_metadata WITH (security_barrier='
     commit_metadata.committer_name,
     commit_metadata.committer_email,
     commit_metadata.committer_date,
-    (COALESCE("substring"(commit_metadata.message, 'Pull [Rr]equest resolved: https://github\.com/pytorch/pytorch/pull/(\d+)'::text), "substring"(commit_metadata.message, '[Cc]loses https://github\.com/pytorch/pytorch/pull/(\d+)'::text)))::integer AS github_pr_number,
-    ("substring"(commit_metadata.message, 'Differential Revision: D(\d+)'::text))::integer AS fb_differential_revision,
-    "substring"(commit_metadata.message, 'Pulled By: ([^\s]+)'::text) AS fb_pulled_by,
-    "substring"(commit_metadata.message, 'Reviewed By: ([^\s]+)'::text) AS fb_reviewed_by,
-    ("substring"(commit_metadata.message, 'fbshipit-source-id: ([^\s]+)'::text))::character(40) AS fb_shipit_source_id,
-    ("substring"(commit_metadata.message, 'ghstack-source-id: (\d+)'::text))::integer AS fb_ghstack_source_id,
+    master_commit_message_derived_fields.github_pr_number,
+    master_commit_message_derived_fields.fb_differential_revision,
+    master_commit_message_derived_fields.fb_pulled_by,
+    master_commit_message_derived_fields.fb_reviewed_by,
+    master_commit_message_derived_fields.fb_shipit_source_id,
+    master_commit_message_derived_fields.fb_ghstack_source_id,
     master_commits_contiguously_indexed.commit_number
-   FROM (public.master_commits_contiguously_indexed
-     LEFT JOIN public.commit_metadata ON ((commit_metadata.sha1 = master_commits_contiguously_indexed.sha1)));
+   FROM ((public.master_commits_contiguously_indexed
+     LEFT JOIN public.commit_metadata ON ((commit_metadata.sha1 = master_commits_contiguously_indexed.sha1)))
+     LEFT JOIN public.master_commit_message_derived_fields ON ((master_commits_contiguously_indexed.id = master_commit_message_derived_fields.id)));
 
 
 ALTER TABLE public.master_ordered_commits_with_metadata OWNER TO postgres;
@@ -1625,56 +1662,80 @@ ALTER TABLE public.job_runs_3day_bins OWNER TO postgres;
 --
 
 CREATE VIEW public.job_schedule_statistics WITH (security_barrier='false') AS
- SELECT COALESCE((baz.commit_to_build_latency_stddev / date_part('epoch'::text, baz.commit_to_build_latency_average)), (0)::double precision) AS commit_to_build_latency_coefficient_of_variation,
-    COALESCE((baz.build_interval_stddev / date_part('epoch'::text, baz.build_interval_average)), (0)::double precision) AS build_interval_coefficient_of_variation,
-    (baz.latest_build - baz.earliest_build) AS job_extant_timespan,
-    ('00:00:00'::time without time zone + ((((('00:00:01'::interval * atan2(baz.circular_tod_average_complex_part, baz.circular_tod_average_real_part)) * (60)::double precision) * (60)::double precision) * (24)::double precision) / ((2)::double precision * pi()))) AS circular_time_of_day_average,
-    sqrt((('-2'::integer)::double precision * ln(sqrt(((baz.circular_tod_average_real_part * baz.circular_tod_average_real_part) + (baz.circular_tod_average_complex_part * baz.circular_tod_average_complex_part)))))) AS circular_time_of_day_stddev,
-    baz.job_name,
-    baz.build_count,
-    baz.earliest_build,
-    baz.latest_build,
-    COALESCE(baz.build_interval_average, '00:00:00'::interval) AS build_interval_average,
-    COALESCE(baz.build_interval_stddev, (0)::double precision) AS build_interval_stddev,
-    baz.naive_time_of_day_average,
-    baz.circular_tod_average_real_part,
-    baz.circular_tod_average_complex_part,
-    COALESCE(baz.time_of_day_seconds_stddev, (0)::double precision) AS time_of_day_seconds_stddev,
-    baz.commit_to_build_latency_average,
-    COALESCE(baz.commit_to_build_latency_stddev, (0)::double precision) AS commit_to_build_latency_stddev
-   FROM ( SELECT bar.job_name,
-            count(*) AS build_count,
-            min(bar.queued_at) AS earliest_build,
-            max(bar.queued_at) AS latest_build,
-            avg(bar.build_interval) AS build_interval_average,
-            stddev(date_part('epoch'::text, bar.build_interval)) AS build_interval_stddev,
-            avg((bar.time_of_day)::interval) AS naive_time_of_day_average,
-            (sum(cos((((date_part('epoch'::text, bar.time_of_day) * (2)::double precision) * pi()) / (((60 * 60) * 24))::double precision))) / (count(*))::double precision) AS circular_tod_average_real_part,
-            (sum(sin((((date_part('epoch'::text, bar.time_of_day) * (2)::double precision) * pi()) / (((60 * 60) * 24))::double precision))) / (count(*))::double precision) AS circular_tod_average_complex_part,
-            stddev((date_part('epoch'::text, bar.time_of_day) + (((60 * 60) * 24))::double precision)) AS time_of_day_seconds_stddev,
-            avg(bar.commit_to_build_latency) AS commit_to_build_latency_average,
-            stddev(date_part('epoch'::text, bar.commit_to_build_latency)) AS commit_to_build_latency_stddev
-           FROM ( SELECT (foo.queued_at - foo.prev_queued_at) AS build_interval,
-                    (foo.queued_at)::time without time zone AS time_of_day,
-                    foo.global_build,
-                    foo.job_name,
-                    foo.queued_at,
-                    foo.committer_date,
-                    foo.commit_to_build_latency,
-                    foo.sha1,
-                    foo.prev_queued_at
-                   FROM ( SELECT builds_deduped.global_build,
-                            builds_deduped.job_name,
-                            builds_deduped.queued_at,
-                            master_ordered_commits_with_metadata.committer_date,
-                            (builds_deduped.queued_at - master_ordered_commits_with_metadata.committer_date) AS commit_to_build_latency,
-                            master_ordered_commits_with_metadata.sha1,
-                            lag(builds_deduped.queued_at) OVER (PARTITION BY builds_deduped.job_name ORDER BY builds_deduped.queued_at) AS prev_queued_at
-                           FROM (public.builds_deduped
-                             JOIN public.master_ordered_commits_with_metadata ON ((builds_deduped.vcs_revision = master_ordered_commits_with_metadata.sha1)))) foo) bar
-          GROUP BY bar.job_name
-          ORDER BY bar.job_name DESC) baz
-  ORDER BY baz.job_name;
+ SELECT blarg.commit_to_build_latency_coefficient_of_variation,
+    blarg.build_interval_coefficient_of_variation,
+    blarg.job_extant_timespan,
+    blarg.circular_time_of_day_average,
+    blarg.circular_time_of_day_stddev,
+    blarg.job_name,
+    blarg.build_count,
+    blarg.earliest_build,
+    blarg.latest_build,
+    blarg.build_interval_average,
+    blarg.build_interval_stddev,
+    blarg.naive_time_of_day_average,
+    blarg.circular_tod_average_real_part,
+    blarg.circular_tod_average_complex_part,
+    blarg.time_of_day_seconds_stddev,
+    blarg.commit_to_build_latency_average,
+    blarg.commit_to_build_latency_stddev,
+    blarg.job_name_prefix,
+        CASE
+            WHEN (blarg.build_count > 1) THEN (((86400 * blarg.build_count))::double precision / date_part('epoch'::text, blarg.job_extant_timespan))
+            ELSE NULL::double precision
+        END AS avg_builds_per_day,
+    count(*) OVER (PARTITION BY blarg.job_name_prefix) AS prefix_job_count
+   FROM ( SELECT COALESCE((baz.commit_to_build_latency_stddev / date_part('epoch'::text, baz.commit_to_build_latency_average)), (0)::double precision) AS commit_to_build_latency_coefficient_of_variation,
+            COALESCE((baz.build_interval_stddev / date_part('epoch'::text, baz.build_interval_average)), (0)::double precision) AS build_interval_coefficient_of_variation,
+            (baz.latest_build - baz.earliest_build) AS job_extant_timespan,
+            ('00:00:00'::time without time zone + ((((('00:00:01'::interval * atan2(baz.circular_tod_average_complex_part, baz.circular_tod_average_real_part)) * (60)::double precision) * (60)::double precision) * (24)::double precision) / ((2)::double precision * pi()))) AS circular_time_of_day_average,
+            sqrt((('-2'::integer)::double precision * ln(sqrt(((baz.circular_tod_average_real_part * baz.circular_tod_average_real_part) + (baz.circular_tod_average_complex_part * baz.circular_tod_average_complex_part)))))) AS circular_time_of_day_stddev,
+            baz.job_name,
+            baz.build_count,
+            baz.earliest_build,
+            baz.latest_build,
+            COALESCE(baz.build_interval_average, '00:00:00'::interval) AS build_interval_average,
+            COALESCE(baz.build_interval_stddev, (0)::double precision) AS build_interval_stddev,
+            baz.naive_time_of_day_average,
+            baz.circular_tod_average_real_part,
+            baz.circular_tod_average_complex_part,
+            COALESCE(baz.time_of_day_seconds_stddev, (0)::double precision) AS time_of_day_seconds_stddev,
+            baz.commit_to_build_latency_average,
+            COALESCE(baz.commit_to_build_latency_stddev, (0)::double precision) AS commit_to_build_latency_stddev,
+            split_part(baz.job_name, '_'::text, 1) AS job_name_prefix
+           FROM ( SELECT bar.job_name,
+                    count(*) AS build_count,
+                    min(bar.queued_at) AS earliest_build,
+                    max(bar.queued_at) AS latest_build,
+                    avg(bar.build_interval) AS build_interval_average,
+                    stddev(date_part('epoch'::text, bar.build_interval)) AS build_interval_stddev,
+                    avg((bar.time_of_day)::interval) AS naive_time_of_day_average,
+                    (sum(cos((((date_part('epoch'::text, bar.time_of_day) * (2)::double precision) * pi()) / (((60 * 60) * 24))::double precision))) / (count(*))::double precision) AS circular_tod_average_real_part,
+                    (sum(sin((((date_part('epoch'::text, bar.time_of_day) * (2)::double precision) * pi()) / (((60 * 60) * 24))::double precision))) / (count(*))::double precision) AS circular_tod_average_complex_part,
+                    stddev((date_part('epoch'::text, bar.time_of_day) + (((60 * 60) * 24))::double precision)) AS time_of_day_seconds_stddev,
+                    avg(bar.commit_to_build_latency) AS commit_to_build_latency_average,
+                    stddev(date_part('epoch'::text, bar.commit_to_build_latency)) AS commit_to_build_latency_stddev
+                   FROM ( SELECT (foo.queued_at - foo.prev_queued_at) AS build_interval,
+                            (foo.queued_at)::time without time zone AS time_of_day,
+                            foo.global_build,
+                            foo.job_name,
+                            foo.queued_at,
+                            foo.committer_date,
+                            foo.commit_to_build_latency,
+                            foo.sha1,
+                            foo.prev_queued_at
+                           FROM ( SELECT builds_deduped.global_build,
+                                    builds_deduped.job_name,
+                                    builds_deduped.queued_at,
+                                    master_ordered_commits_with_metadata.committer_date,
+                                    (builds_deduped.queued_at - master_ordered_commits_with_metadata.committer_date) AS commit_to_build_latency,
+                                    master_ordered_commits_with_metadata.sha1,
+                                    lag(builds_deduped.queued_at) OVER (PARTITION BY builds_deduped.job_name ORDER BY builds_deduped.queued_at) AS prev_queued_at
+                                   FROM (public.builds_deduped
+                                     JOIN public.master_ordered_commits_with_metadata ON ((builds_deduped.vcs_revision = master_ordered_commits_with_metadata.sha1)))) foo) bar
+                  GROUP BY bar.job_name
+                  ORDER BY bar.job_name DESC) baz) blarg
+  ORDER BY blarg.job_name;
 
 
 ALTER TABLE public.job_schedule_statistics OWNER TO postgres;
@@ -1683,8 +1744,100 @@ ALTER TABLE public.job_schedule_statistics OWNER TO postgres;
 -- Name: VIEW job_schedule_statistics; Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON VIEW public.job_schedule_statistics IS 'Uses circular average and stddev formulas from Wikipedia: https://en.wikipedia.org/wiki/Directional_statistics#Measures_of_location_and_spread';
+COMMENT ON VIEW public.job_schedule_statistics IS 'Uses circular average and stddev formulas from Wikipedia: https://en.wikipedia.org/wiki/Directional_statistics#Measures_of_location_and_spread
 
+TODO: Recreate materialized view for this';
+
+
+--
+-- Name: job_schedule_statistics_by_prefix; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.job_schedule_statistics_by_prefix WITH (security_barrier='false') AS
+ WITH foo AS (
+         SELECT job_schedule_statistics.job_name_prefix,
+            count(*) AS job_count,
+            sum(job_schedule_statistics.build_count) AS build_count,
+            avg(job_schedule_statistics.circular_time_of_day_stddev) AS avg_time_of_day_stddev,
+            (sum(job_schedule_statistics.avg_builds_per_day) / (count(*))::double precision) AS avg_build_count_per_day
+           FROM public.job_schedule_statistics
+          GROUP BY job_schedule_statistics.job_name_prefix
+        )
+ SELECT bar.job_name_prefix,
+    ((bar.avg_time_of_day_stddev - bar.min_avg_time_of_day_stddev) / (bar.max_avg_time_of_day_stddev - bar.min_avg_time_of_day_stddev)) AS avg_tod_stdev_fraction,
+    bar.avg_time_of_day_stddev,
+    bar.job_count,
+    bar.build_count,
+    ((bar.avg_build_count_per_day - bar.min_avg_build_count_per_day) / (bar.max_avg_build_count_per_day - bar.min_avg_build_count_per_day)) AS avg_build_count_per_day_fraction,
+    bar.avg_build_count_per_day
+   FROM ( SELECT ( SELECT foo_1.avg_time_of_day_stddev
+                   FROM foo foo_1
+                  ORDER BY foo_1.avg_time_of_day_stddev
+                 LIMIT 1) AS min_avg_time_of_day_stddev,
+            ( SELECT foo_1.avg_time_of_day_stddev
+                   FROM foo foo_1
+                  ORDER BY foo_1.avg_time_of_day_stddev DESC
+                 LIMIT 1) AS max_avg_time_of_day_stddev,
+            ( SELECT foo_1.avg_build_count_per_day
+                   FROM foo foo_1
+                  ORDER BY foo_1.avg_build_count_per_day
+                 LIMIT 1) AS min_avg_build_count_per_day,
+            ( SELECT foo_1.avg_build_count_per_day
+                   FROM foo foo_1
+                  ORDER BY foo_1.avg_build_count_per_day DESC
+                 LIMIT 1) AS max_avg_build_count_per_day,
+            foo.job_name_prefix,
+            foo.job_count,
+            foo.build_count,
+            foo.avg_time_of_day_stddev,
+            foo.avg_build_count_per_day
+           FROM foo) bar
+  ORDER BY ((bar.avg_build_count_per_day - bar.min_avg_build_count_per_day) / (bar.max_avg_build_count_per_day - bar.min_avg_build_count_per_day));
+
+
+ALTER TABLE public.job_schedule_statistics_by_prefix OWNER TO postgres;
+
+--
+-- Name: VIEW job_schedule_statistics_by_prefix; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.job_schedule_statistics_by_prefix IS 'NOTE: I am not computing a weighted average of circular time of day stddev by build count.
+
+This is because some "binary" jobs with high build counts and high stddev skew the result in the wrong direction.';
+
+
+--
+-- Name: job_schedule_discriminated; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.job_schedule_discriminated AS
+ SELECT job_schedule_statistics.job_name,
+    (job_schedule_statistics_by_prefix.avg_tod_stdev_fraction < (0.5)::double precision) AS inferred_scheduled
+   FROM (public.job_schedule_statistics
+     JOIN public.job_schedule_statistics_by_prefix ON ((job_schedule_statistics.job_name_prefix = job_schedule_statistics_by_prefix.job_name_prefix)));
+
+
+ALTER TABLE public.job_schedule_discriminated OWNER TO postgres;
+
+--
+-- Name: VIEW job_schedule_discriminated; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.job_schedule_discriminated IS 'TODO: Recreate materialized view for this';
+
+
+--
+-- Name: job_schedule_discriminated_mview; Type: MATERIALIZED VIEW; Schema: public; Owner: materialized_view_updater
+--
+
+CREATE MATERIALIZED VIEW public.job_schedule_discriminated_mview AS
+ SELECT job_schedule_discriminated.job_name,
+    job_schedule_discriminated.inferred_scheduled
+   FROM public.job_schedule_discriminated
+  WITH NO DATA;
+
+
+ALTER TABLE public.job_schedule_discriminated_mview OWNER TO materialized_view_updater;
 
 --
 -- Name: job_schedule_statistics_mview; Type: MATERIALIZED VIEW; Schema: public; Owner: materialized_view_updater
@@ -1713,6 +1866,44 @@ CREATE MATERIALIZED VIEW public.job_schedule_statistics_mview AS
 
 
 ALTER TABLE public.job_schedule_statistics_mview OWNER TO materialized_view_updater;
+
+--
+-- Name: job_schedule_statistics_ntiles; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.job_schedule_statistics_ntiles WITH (security_barrier='false') AS
+ SELECT job_schedule_statistics.commit_to_build_latency_coefficient_of_variation,
+    job_schedule_statistics.build_interval_coefficient_of_variation,
+    job_schedule_statistics.job_extant_timespan,
+    job_schedule_statistics.circular_time_of_day_average,
+    job_schedule_statistics.circular_time_of_day_stddev,
+    job_schedule_statistics.job_name,
+    job_schedule_statistics.build_count,
+    job_schedule_statistics.earliest_build,
+    job_schedule_statistics.latest_build,
+    job_schedule_statistics.build_interval_average,
+    job_schedule_statistics.build_interval_stddev,
+    job_schedule_statistics.naive_time_of_day_average,
+    job_schedule_statistics.circular_tod_average_real_part,
+    job_schedule_statistics.circular_tod_average_complex_part,
+    job_schedule_statistics.time_of_day_seconds_stddev,
+    job_schedule_statistics.commit_to_build_latency_average,
+    job_schedule_statistics.commit_to_build_latency_stddev,
+    job_schedule_statistics.job_name_prefix,
+    job_schedule_statistics.avg_builds_per_day,
+    ntile(4) OVER (PARTITION BY job_schedule_statistics.job_name_prefix ORDER BY job_schedule_statistics.avg_builds_per_day) AS avg_builds_per_day_quartile,
+    job_schedule_statistics.prefix_job_count AS prefix_count
+   FROM public.job_schedule_statistics;
+
+
+ALTER TABLE public.job_schedule_statistics_ntiles OWNER TO postgres;
+
+--
+-- Name: VIEW job_schedule_statistics_ntiles; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.job_schedule_statistics_ntiles IS 'TODO: Use this for excluding outliers';
+
 
 --
 -- Name: scanned_patterns; Type: TABLE; Schema: public; Owner: postgres
@@ -1773,6 +1964,37 @@ This view identifies the built commits of a series such that the unbuilt commits
 
 Note that this technique of grouping unbuilt commits with the next built commit should also be applied on a per-job basis for the "master_contiguous_failures" view.';
 
+
+--
+-- Name: master_commit_job_coverage_by_day; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_commit_job_coverage_by_day AS
+ WITH commit_days AS (
+         SELECT date_trunc('day'::text, master_ordered_commits_with_metadata.committer_date) AS day,
+            master_ordered_commits_with_metadata.sha1,
+            master_ordered_commits_with_metadata.id
+           FROM public.master_ordered_commits_with_metadata
+        )
+ SELECT bar.day,
+    bar.job_name,
+    bar.count,
+    blarg.total_built_commits_for_day,
+    ((bar.count)::double precision / (blarg.total_built_commits_for_day)::double precision) AS covered_commit_fraction
+   FROM (( SELECT builds_deduped.job_name,
+            commit_days.day,
+            count(*) AS count
+           FROM (commit_days
+             JOIN public.builds_deduped ON ((builds_deduped.vcs_revision = commit_days.sha1)))
+          GROUP BY builds_deduped.job_name, commit_days.day) bar
+     JOIN ( SELECT commit_days.day,
+            sum((master_built_commit_groups.was_built)::integer) AS total_built_commits_for_day
+           FROM (public.master_built_commit_groups
+             JOIN commit_days ON ((commit_days.id = master_built_commit_groups.commit_id)))
+          GROUP BY commit_days.day) blarg ON ((bar.day = blarg.day)));
+
+
+ALTER TABLE public.master_commit_job_coverage_by_day OWNER TO postgres;
 
 --
 -- Name: master_commit_job_coverage_by_week; Type: VIEW; Schema: public; Owner: postgres
@@ -3755,6 +3977,13 @@ CREATE INDEX idx_is_timeout ON public.build_steps USING btree (is_timeout);
 
 
 --
+-- Name: idx_job_schedule_discriminated_mview_job_name; Type: INDEX; Schema: public; Owner: materialized_view_updater
+--
+
+CREATE UNIQUE INDEX idx_job_schedule_discriminated_mview_job_name ON public.job_schedule_discriminated_mview USING btree (job_name);
+
+
+--
 -- Name: idx_job_schedule_stats_job_name; Type: INDEX; Schema: public; Owner: materialized_view_updater
 --
 
@@ -4036,6 +4265,13 @@ GRANT ALL ON TABLE frontend_logging.logs TO logan;
 
 
 --
+-- Name: TABLE page_requests_extracted_fields; Type: ACL; Schema: frontend_logging; Owner: postgres
+--
+
+GRANT ALL ON TABLE frontend_logging.page_requests_extracted_fields TO logan;
+
+
+--
 -- Name: TABLE page_requests_by_week; Type: ACL; Schema: frontend_logging; Owner: postgres
 --
 
@@ -4097,6 +4333,13 @@ GRANT ALL ON TABLE public.latest_master_failure_mode_attributions TO logan;
 --
 
 GRANT ALL ON TABLE public.ordered_master_commits TO logan;
+
+
+--
+-- Name: TABLE master_commit_message_derived_fields; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_commit_message_derived_fields TO logan;
 
 
 --
@@ -4513,10 +4756,39 @@ GRANT SELECT ON TABLE public.job_schedule_statistics TO materialized_view_update
 
 
 --
+-- Name: TABLE job_schedule_statistics_by_prefix; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.job_schedule_statistics_by_prefix TO logan;
+
+
+--
+-- Name: TABLE job_schedule_discriminated; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.job_schedule_discriminated TO logan;
+GRANT SELECT ON TABLE public.job_schedule_discriminated TO materialized_view_updater;
+
+
+--
+-- Name: TABLE job_schedule_discriminated_mview; Type: ACL; Schema: public; Owner: materialized_view_updater
+--
+
+GRANT SELECT ON TABLE public.job_schedule_discriminated_mview TO logan;
+
+
+--
 -- Name: TABLE job_schedule_statistics_mview; Type: ACL; Schema: public; Owner: materialized_view_updater
 --
 
 GRANT SELECT ON TABLE public.job_schedule_statistics_mview TO logan;
+
+
+--
+-- Name: TABLE job_schedule_statistics_ntiles; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.job_schedule_statistics_ntiles TO logan;
 
 
 --
@@ -4538,6 +4810,13 @@ GRANT ALL ON TABLE public.latest_pattern_scanned_for_build_step TO logan;
 --
 
 GRANT ALL ON TABLE public.master_built_commit_groups TO logan;
+
+
+--
+-- Name: TABLE master_commit_job_coverage_by_day; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_commit_job_coverage_by_day TO logan;
 
 
 --
