@@ -1369,7 +1369,7 @@ getMasterCommits conn parent_offset_mode =
           , "committer_date"
           , "was_built"
           ]
-      , "FROM master_ordered_commits_with_metadata_mview"
+      , "FROM master_ordered_commits_with_metadata"
       ]
 
     sql_commit_id_and_offset = MyUtils.qjoin [
