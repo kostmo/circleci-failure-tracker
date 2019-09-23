@@ -737,11 +737,12 @@ function gen_timeline_table(element_id, fetched_data) {
 		const sha1 = commit_obj.record.commit;
 		const failures_by_job_name = build_failures_by_commit[sha1] || {};
 
+		row_dict["commit"] = sha1;
 		row_dict["commit_index"] = commit_obj.db_id;
 		row_dict["contiguous_commit_number"] = commit_obj.record.contiguous_index;
-		row_dict["commit"] = sha1;
 		row_dict["commit_metadata"] = commit_obj.record.metadata;
 		row_dict["pr_number"] = commit_obj.record.pr_number;
+		row_dict["was_built"] = commit_obj.record.was_built;
 
 		for (var job_name in failures_by_job_name) {
 			row_dict[job_name] = failures_by_job_name[job_name];
@@ -757,6 +758,15 @@ function gen_timeline_table(element_id, fetched_data) {
 		selectable: true,
 		columns: column_list,
 		data: table_data,
+
+		rowFormatter: function(row) {
+
+			var data = row.getData();
+
+			if (!data["was_built"]) {
+				row.getElement().style.backgroundColor = "#9945";
+			}
+		},
 		rowSelectionChanged: function(data, rows) {
 			//rows - array of row components for the selected rows in order of selection
 			//data - array of data objects for the selected rows in order of selection

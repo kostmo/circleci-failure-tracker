@@ -32,6 +32,7 @@ data CommitAndMetadata = CommitAndMetadata {
   , _metadata         :: Maybe Commits.CommitMetadata
   , _contiguous_index :: Int
   , _pr_number        :: Maybe Builds.PullRequestNumber
+  , _was_built        :: Bool
   } deriving Generic
 
 instance ToJSON CommitAndMetadata where

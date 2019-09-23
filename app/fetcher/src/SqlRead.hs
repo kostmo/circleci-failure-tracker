@@ -1329,12 +1329,14 @@ getMasterCommits conn parent_offset_mode =
       , maybe_author_date
       , maybe_committer_name
       , maybe_committer_email
-      , maybe_committer_date) =
+      , maybe_committer_date
+      , was_built) =
       DbHelpers.WithId commit_id $ BuildResults.CommitAndMetadata
         wrapped_sha1
         maybe_metadata
         commit_number
         maybe_pr_number
+        was_built
       where
         wrapped_sha1 = Builds.RawCommit commit_sha1
         maybe_metadata = Commits.CommitMetadata wrapped_sha1 <$>
@@ -1365,8 +1367,9 @@ getMasterCommits conn parent_offset_mode =
           , "committer_name"
           , "committer_email"
           , "committer_date"
+          , "was_built"
           ]
-      , "FROM master_ordered_commits_with_metadata"
+      , "FROM master_ordered_commits_with_metadata_mview"
       ]
 
     sql_commit_id_and_offset = MyUtils.qjoin [
