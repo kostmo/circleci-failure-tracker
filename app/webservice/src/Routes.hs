@@ -35,6 +35,7 @@ import qualified FrontendHelpers
 import qualified GitRev
 import qualified JsonUtils
 import qualified MatchOccurrences
+import qualified Pagination
 import qualified Scanning
 import qualified ScanPatterns
 import qualified SqlRead
@@ -360,6 +361,9 @@ scottyApp
       <$> (Builds.UniversalBuildId <$> S.param "start-id")
       <*> S.param "limit"
 
+  get "/api/master-commits" $
+    fmap WebApi.toJsonEither . (fmap (fmap (fmap snd)) SqlRead.apiGetMasterCommits) <$> FrontendHelpers.getSimpleOffsetMode
+
   get "/api/master-timeline" $
     fmap WebApi.toJsonEither . SqlRead.apiMasterBuilds <$> FrontendHelpers.getOffsetMode
 
@@ -372,6 +376,10 @@ scottyApp
         ExceptT $ runReaderT (SqlUpdate.countRevisionBuilds (AuthConfig.personal_access_token github_config) sha1) conn
 
     S.json $ WebApi.toJsonEither json_result
+
+
+  get "/api/is-master-commit" $
+    SqlRead.isMasterCommit . Builds.RawCommit <$> S.param "sha1"
 
   S.get "/api/commit-builds" $ do
     commit_sha1_text <- S.param "sha1"

@@ -11,6 +11,7 @@ import           Control.Monad                 (guard, when)
 import           Control.Monad.IO.Class        (liftIO)
 import           Control.Monad.Trans.Except    (ExceptT (ExceptT), except,
                                                 runExceptT)
+import           Control.Monad.Trans.Reader    (runReaderT)
 import           Data.Bifunctor                (first)
 import qualified Data.ByteString.Lazy          as LBS
 import           Data.List                     (filter, intercalate)
@@ -275,7 +276,6 @@ handleFailedStatuses
       sha1
 
 
-
   builds_with_flaky_pattern_matches <- liftIO $ do
 
 
@@ -408,6 +408,12 @@ handleStatusWebhook
         owned_repo
         sha1
 
+    -- TODO
+    _is_master_commit <- liftIO $ do
+      conn <- DbHelpers.get_connection db_connection_data
+      runReaderT (SqlRead.isMasterCommit sha1) conn
+
+
     let computation = do
           conn <- DbHelpers.get_connection db_connection_data
           runExceptT $
@@ -435,6 +441,7 @@ handleStatusWebhook
   where
     notified_status_state_string = LT.unpack $ Webhooks.state status_event
     is_failure_notification = notified_status_state_string == "failure"
+--    is_success_notification = notified_status_state_string == "success"
 
     context_text = Webhooks.context status_event
     notified_status_context_string = LT.unpack context_text

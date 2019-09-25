@@ -122,6 +122,15 @@ echoEndpoint :: S.ScottyM ()
 echoEndpoint = S.post "/api/echo" printBodyAndHeaders
 
 
+getSimpleOffsetMode :: ScottyTypes.ActionT LT.Text IO Pagination.ParentOffsetMode
+getSimpleOffsetMode = do
+  offset_count <- S.param "offset"
+  commit_count <- S.param "count"
+  return $ Pagination.FixedAndOffset $ Pagination.OffsetLimit
+    (Pagination.Count offset_count)
+    commit_count
+
+
 getOffsetMode :: ScottyTypes.ActionT LT.Text IO Pagination.TimelineParms
 getOffsetMode = do
   offset_count <- S.param "offset"

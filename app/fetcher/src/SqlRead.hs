@@ -896,6 +896,16 @@ getLatestKnownMasterCommit conn = do
       ]
 
 
+isMasterCommit :: Builds.RawCommit -> DbIO Bool
+isMasterCommit (Builds.RawCommit sha1) = do
+  conn <- ask
+  liftIO $ do
+    [Only exists] <- query conn master_commit_retrieval_sql $ Only sha1
+    return exists
+  where
+    master_commit_retrieval_sql = "SELECT EXISTS (SELECT * FROM ordered_master_commits WHERE sha1 = ?);"
+
+
 getAllMasterCommits :: Connection -> IO (Set Builds.RawCommit)
 getAllMasterCommits conn = do
   master_commit_rows <- query_ conn master_commit_retrieval_sql
@@ -1189,11 +1199,11 @@ getRevisionBuilds ::
 getRevisionBuilds git_revision = do
   conn <- ask
 
-  {-
+
   liftIO $ do
     putStrLn "SQL string:"
     putStrLn $ show sql
-  -}
+
 
   (timing, content) <- MyUtils.timeThisFloat $ liftIO $ query conn sql $ Only $ GitRev.sha1 git_revision
   return $ DbHelpers.BenchmarkedResponse timing content
@@ -1281,6 +1291,14 @@ getRevisionBuilds git_revision = do
       , "ON ci_providers.id = best_pattern_match_augmented_builds.provider"
       , "WHERE vcs_revision = ?;"
       ]
+
+
+apiGetMasterCommits ::
+     Pagination.ParentOffsetMode
+  -> DbIO (Either Text (WeeklyStats.InclusiveNumericBounds Int64, [BuildResults.IndexedRichCommit]))
+apiGetMasterCommits parent_offset_mode = do
+  conn <- ask
+  liftIO $ getMasterCommits conn parent_offset_mode
 
 
 getMasterCommits ::
