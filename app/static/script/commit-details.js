@@ -242,7 +242,7 @@ function handle_submission_response(data) {
 function get_scrubbed_sha1() {
 
 	const urlParams = new URLSearchParams(window.location.search);
-	const commit_sha1 = urlParams.get('sha1');
+	var commit_sha1 = urlParams.get('sha1');
 	const found_slash_index = commit_sha1.indexOf("/");
 	if (found_slash_index >= 0) {
 		commit_sha1 = commit_sha1.substring(0, found_slash_index);
