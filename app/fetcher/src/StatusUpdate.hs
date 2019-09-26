@@ -2,7 +2,7 @@
 
 module StatusUpdate (
     githubEventEndpoint
-  , handleFailedStatuses
+  , readGitHubStatusesAndScanAndPostSummaryForCommit
   , getBuildsFromGithub
   ) where
 
@@ -71,6 +71,18 @@ circleCIContextPrefix = "ci/circleci: "
 -- ordering in the faild builds list.
 myAppStatusContext :: Text
 myAppStatusContext = "_dr.ci"
+
+
+gitHubStatusFailureString = "failure"
+
+
+gitHubStatusSuccessString = "success"
+
+
+conclusiveStatuses = [
+    gitHubStatusFailureString
+  , gitHubStatusSuccessString
+  ]
 
 
 groupStatusesByHostname ::
@@ -166,19 +178,21 @@ extractUniversalBuild commit provider_with_id status_object = case DbHelpers.rec
   _                -> Nothing
 
   where
-    did_succeed = StatusEventQuery._state status_object == "success"
+    did_succeed = StatusEventQuery._state status_object == gitHubStatusSuccessString
 
 
 getBuildsFromGithub ::
      Connection
   -> OAuth2.AccessToken
   -> DbHelpers.OwnerAndRepo
+  -> Bool
   -> Builds.RawCommit
   -> ExceptT LT.Text IO ([Builds.UniversalBuildId], Int, Int)
 getBuildsFromGithub
     conn
     access_token
     owned_repo
+    store_provider_specific_success_records
     sha1  = do
 
   build_statuses_list_any_source <- ExceptT $ GithubApiFetch.getBuildStatuses
@@ -193,7 +207,7 @@ getBuildsFromGithub
 
   let statuses_list_not_mine = filter is_not_my_own_context build_statuses_list_any_source
 
-      succeeded_or_failed_statuses = filter ((`elem` ["failure", "success"]) . StatusEventQuery._state) statuses_list_not_mine
+      succeeded_or_failed_statuses = filter ((`elem` conclusiveStatuses) . StatusEventQuery._state) statuses_list_not_mine
 
       statuses_by_hostname = groupStatusesByHostname succeeded_or_failed_statuses
 
@@ -207,11 +221,22 @@ getBuildsFromGithub
     statuses_by_ci_providers
 
   let circleci_builds_and_statuses = filter ((== circleciDomain) . snd . snd) stored_build_tuples
-      filter_failed = filter $ (== "failure") . StatusEventQuery._state . fst . snd
 
-      circleci_failed_builds_and_statuses = filter_failed circleci_builds_and_statuses
+      filter_by_status stat = filter $ (== stat) . StatusEventQuery._state . fst . snd
 
-      circleci_failed_builds = map fst circleci_failed_builds_and_statuses
+      circleci_failed_builds = map fst $ filter_by_status gitHubStatusFailureString circleci_builds_and_statuses
+
+      -- TODO: May want to use the CircleCI API to retrieve more info
+      -- on these builds.
+      -- Currently, the extra fields available from CircleCI
+      -- are only populated through the "BuildRetrieval.updateCircleCIBuildsList"
+      -- function, which is manually invoked.
+      circleci_successful_builds = map fst $ filter_by_status gitHubStatusSuccessString circleci_builds_and_statuses
+
+      second_level_storable_builds = if store_provider_specific_success_records
+        then circleci_failed_builds ++ circleci_successful_builds
+        else circleci_failed_builds
+
       scannable_build_numbers = map (Builds.UniversalBuildId . DbHelpers.db_id . Builds.universal_build) circleci_failed_builds
 
       circleci_failcount = length circleci_failed_builds
@@ -232,7 +257,7 @@ getBuildsFromGithub
       known_broken_circle_build_count = length known_broken_circle_builds
 
   liftIO $ SqlWrite.storeBuildsList conn $
-    map storable_build_to_universal circleci_failed_builds
+    map storable_build_to_universal second_level_storable_builds
 
   return (scannable_build_numbers, circleci_failcount, known_broken_circle_build_count)
 
@@ -248,19 +273,21 @@ getBuildsFromGithub
 -- * Check if the builds have been scanned yet.
 -- * Scan each CircleCI build that needs to be scanned.
 -- * For each match, check if that match's pattern is tagged as "flaky".
-handleFailedStatuses ::
+readGitHubStatusesAndScanAndPostSummaryForCommit ::
      Connection
   -> OAuth2.AccessToken
   -> Maybe AuthStages.Username -- ^ scan initiator
   -> DbHelpers.OwnerAndRepo
+  -> Bool -- ^ should store second-level build records for "success" status
   -> Builds.RawCommit
   -> Maybe (Text, Text)
   -> ExceptT LT.Text IO ()
-handleFailedStatuses
+readGitHubStatusesAndScanAndPostSummaryForCommit
     conn
     access_token
     maybe_initiator
     owned_repo
+    should_store_second_level_success_records
     sha1
     maybe_previously_posted_status = do
 
@@ -273,6 +300,7 @@ handleFailedStatuses
       conn
       access_token
       owned_repo
+      should_store_second_level_success_records
       sha1
 
 
@@ -408,23 +436,33 @@ handleStatusWebhook
         owned_repo
         sha1
 
-    -- TODO
-    _is_master_commit <- liftIO $ do
+
+    -- On builds from the *master* branch,
+    -- we may store the *succesful* as well as the failed second-level
+    -- build records,
+    -- since the volume on the *master* branch should be relatively low.
+    is_master_commit <- liftIO $ do
       conn <- DbHelpers.get_connection db_connection_data
       runReaderT (SqlRead.isMasterCommit sha1) conn
 
 
-    let computation = do
+    let dr_ci_posting_computation = do
           conn <- DbHelpers.get_connection db_connection_data
           runExceptT $
-            handleFailedStatuses
+            -- When we receive a webhook notification of a "status" event from
+            -- GitHub, and that status was "failure", we take a look at all of
+            -- the statuses for that commit, scan the build logs, and post
+            -- post a summary as a GitHub status notification.
+            readGitHubStatusesAndScanAndPostSummaryForCommit
               conn
               access_token
               maybe_initiator
               owned_repo
+              is_master_commit
               sha1
               maybe_previously_posted_status
           return ()
+
 
     -- Do not act on receipt of statuses from the context I have created, or else
     -- we may get stuck in an infinite notification loop
@@ -432,16 +470,17 @@ handleStatusWebhook
     -- Also, if we haven't posted a summary status before, do not act unless the notification
     -- was for a failed build.
     let will_post = is_not_my_own_context && (is_failure_notification || not (null maybe_previously_posted_status))
+
     when will_post $ do
-      _thread_id <- liftIO $ forkIO computation
+      _thread_id <- liftIO $ forkIO dr_ci_posting_computation
       return ()
+
 
     return will_post
 
   where
     notified_status_state_string = LT.unpack $ Webhooks.state status_event
-    is_failure_notification = notified_status_state_string == "failure"
---    is_success_notification = notified_status_state_string == "success"
+    is_failure_notification = notified_status_state_string == LT.unpack gitHubStatusFailureString
 
     context_text = Webhooks.context status_event
     notified_status_context_string = LT.unpack context_text
@@ -479,8 +518,8 @@ genFlakinessStatus (Builds.RawCommit sha1) flaky_count pre_broken_count total_fa
       ]
 
     status_string = if flaky_count == total_failcount
-      then "success"
-      else "failure"
+      then gitHubStatusSuccessString
+      else gitHubStatusFailureString
 
 
 githubEventEndpoint ::

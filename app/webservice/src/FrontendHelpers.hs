@@ -383,11 +383,12 @@ rescanCommitCallback github_config commit = do
       commit
 
     run_result <- runExceptT $
-      StatusUpdate.handleFailedStatuses
+      StatusUpdate.readGitHubStatusesAndScanAndPostSummaryForCommit
         conn
         (AuthConfig.personal_access_token github_config)
         (Just user_alias)
         owned_repo
+        True  -- ^ store success records too
         commit
         maybe_previously_posted_status
 

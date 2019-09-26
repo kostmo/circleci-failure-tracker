@@ -370,7 +370,10 @@ storeCircleCiBuildsList conn builds_list_with_possible_duplicates = do
 -- | This is idempotent; builds that are already present will not be overwritten
 --
 -- Need to make sure that legit values are not overwritten with NULL
-storeBuildsList :: Connection -> [DbHelpers.WithTypedId Builds.UniversalBuildId Builds.Build] -> IO Int64
+storeBuildsList ::
+     Connection
+  -> [DbHelpers.WithTypedId Builds.UniversalBuildId Builds.Build]
+  -> IO Int64
 storeBuildsList conn builds_list =
   executeMany conn sql $ map f builds_list
   where
