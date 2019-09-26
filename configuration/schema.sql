@@ -250,6 +250,62 @@ COMMENT ON TABLE public.ordered_master_commits IS 'Warning: the "id" column may 
 
 
 --
+-- Name: universal_builds; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.universal_builds (
+    id integer NOT NULL,
+    build_number integer,
+    build_namespace text,
+    provider integer,
+    commit_sha1 character(40) NOT NULL,
+    succeeded boolean NOT NULL,
+    stored_at timestamp with time zone DEFAULT now()
+);
+
+
+ALTER TABLE public.universal_builds OWNER TO postgres;
+
+--
+-- Name: TABLE universal_builds; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.universal_builds IS 'Currently, these records are stored even if the build succeeds.';
+
+
+--
+-- Name: master_built_commit_groups; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_built_commit_groups WITH (security_barrier='false') AS
+ SELECT count(*) OVER (PARTITION BY bar.commit_group) AS group_size,
+    first_value(bar.commit_id) OVER (PARTITION BY bar.commit_group) AS representative_commit_id,
+    bar.was_built,
+    bar.commit_id,
+    bar.sha1
+   FROM ( SELECT (foo.commit_sha1 IS NOT NULL) AS was_built,
+            sum(((foo.commit_sha1 IS NOT NULL))::integer) OVER (ORDER BY ordered_master_commits.id DESC) AS commit_group,
+            ordered_master_commits.id AS commit_id,
+            ordered_master_commits.sha1
+           FROM (public.ordered_master_commits
+             LEFT JOIN ( SELECT DISTINCT universal_builds.commit_sha1
+                   FROM public.universal_builds) foo ON ((foo.commit_sha1 = ordered_master_commits.sha1)))) bar;
+
+
+ALTER TABLE public.master_built_commit_groups OWNER TO postgres;
+
+--
+-- Name: VIEW master_built_commit_groups; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.master_built_commit_groups IS 'Sometimes several commits land to the master branch simultaneously, such that only the last of these triggers any builds.
+
+This view identifies the built commits of a series such that the unbuilt commits can be filtered out from a timeline view.
+
+Note that this technique of grouping unbuilt commits with the next built commit should also be applied on a per-job basis for the "master_contiguous_failures" view.';
+
+
+--
 -- Name: master_commit_message_derived_fields; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -308,10 +364,13 @@ CREATE VIEW public.master_ordered_commits_with_metadata WITH (security_barrier='
     master_commit_message_derived_fields.fb_reviewed_by,
     master_commit_message_derived_fields.fb_shipit_source_id,
     master_commit_message_derived_fields.fb_ghstack_source_id,
-    master_commits_contiguously_indexed.commit_number
-   FROM ((public.master_commits_contiguously_indexed
+    master_commits_contiguously_indexed.commit_number,
+    master_built_commit_groups.representative_commit_id,
+    master_built_commit_groups.was_built
+   FROM (((public.master_commits_contiguously_indexed
      LEFT JOIN public.commit_metadata ON ((commit_metadata.sha1 = master_commits_contiguously_indexed.sha1)))
-     LEFT JOIN public.master_commit_message_derived_fields ON ((master_commits_contiguously_indexed.id = master_commit_message_derived_fields.id)));
+     LEFT JOIN public.master_commit_message_derived_fields ON ((master_commits_contiguously_indexed.id = master_commit_message_derived_fields.id)))
+     JOIN public.master_built_commit_groups ON ((master_commits_contiguously_indexed.id = master_built_commit_groups.commit_id)));
 
 
 ALTER TABLE public.master_ordered_commits_with_metadata OWNER TO postgres;
@@ -488,30 +547,6 @@ ALTER TABLE public.builds OWNER TO postgres;
 --
 
 COMMENT ON TABLE public.builds IS 'In contrast with the "universal_builds" table, this is information that may be fetched using a provider-specific API and may be populated asynchronously from the "universal_builds" info which is available from the GitHub status notification.';
-
-
---
--- Name: universal_builds; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.universal_builds (
-    id integer NOT NULL,
-    build_number integer,
-    build_namespace text,
-    provider integer,
-    commit_sha1 character(40) NOT NULL,
-    succeeded boolean NOT NULL,
-    stored_at timestamp with time zone DEFAULT now()
-);
-
-
-ALTER TABLE public.universal_builds OWNER TO postgres;
-
---
--- Name: TABLE universal_builds; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON TABLE public.universal_builds IS 'Currently, these records are stored even if the build succeeds.';
 
 
 --
@@ -1231,6 +1266,80 @@ ALTER SEQUENCE public.ci_providers_id_seq OWNED BY public.ci_providers.id;
 
 
 --
+-- Name: circleci_job_branch_filters; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.circleci_job_branch_filters (
+    workflow integer NOT NULL,
+    job_name text NOT NULL,
+    branch text NOT NULL,
+    filter_include boolean
+);
+
+
+ALTER TABLE public.circleci_job_branch_filters OWNER TO postgres;
+
+--
+-- Name: circleci_workflow_jobs; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.circleci_workflow_jobs (
+    job_name text NOT NULL,
+    workflow integer NOT NULL
+);
+
+
+ALTER TABLE public.circleci_workflow_jobs OWNER TO postgres;
+
+--
+-- Name: circleci_workflow_schedules; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.circleci_workflow_schedules (
+    workflow integer NOT NULL,
+    cron_schedule text NOT NULL
+);
+
+
+ALTER TABLE public.circleci_workflow_schedules OWNER TO postgres;
+
+--
+-- Name: circleci_workflows_by_commit; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.circleci_workflows_by_commit (
+    sha1 character(40) NOT NULL,
+    name text NOT NULL,
+    id integer NOT NULL,
+    inserted_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+ALTER TABLE public.circleci_workflows_by_commit OWNER TO postgres;
+
+--
+-- Name: circleci_workflows_by_commit_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.circleci_workflows_by_commit_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.circleci_workflows_by_commit_id_seq OWNER TO postgres;
+
+--
+-- Name: circleci_workflows_by_commit_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.circleci_workflows_by_commit_id_seq OWNED BY public.circleci_workflows_by_commit.id;
+
+
+--
 -- Name: code_breakage_cause_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
 --
 
@@ -1810,9 +1919,9 @@ This is because some "binary" jobs with high build counts and high stddev skew t
 -- Name: job_schedule_discriminated; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.job_schedule_discriminated AS
+CREATE VIEW public.job_schedule_discriminated WITH (security_barrier='false') AS
  SELECT job_schedule_statistics.job_name,
-    (job_schedule_statistics_by_prefix.avg_tod_stdev_fraction < (0.5)::double precision) AS inferred_scheduled
+    ((job_schedule_statistics_by_prefix.avg_tod_stdev_fraction < (0.5)::double precision) OR (job_schedule_statistics.job_name ~~ '%\_nightly\_%'::text) OR (job_schedule_statistics.job_name ~~ '%\_nigthly\_%'::text)) AS inferred_scheduled
    FROM (public.job_schedule_statistics
      JOIN public.job_schedule_statistics_by_prefix ON ((job_schedule_statistics.job_name_prefix = job_schedule_statistics_by_prefix.job_name_prefix)));
 
@@ -1906,66 +2015,6 @@ COMMENT ON VIEW public.job_schedule_statistics_ntiles IS 'TODO: Use this for exc
 
 
 --
--- Name: scanned_patterns; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.scanned_patterns (
-    scan integer NOT NULL,
-    newest_pattern integer NOT NULL,
-    step_id integer NOT NULL
-);
-
-
-ALTER TABLE public.scanned_patterns OWNER TO postgres;
-
---
--- Name: latest_pattern_scanned_for_build_step; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.latest_pattern_scanned_for_build_step AS
- SELECT DISTINCT ON (build_steps_deduped_mitigation.id) build_steps_deduped_mitigation.id AS step_id,
-    COALESCE(scanned_patterns.newest_pattern, '-1'::integer) AS latest_pattern
-   FROM (public.build_steps_deduped_mitigation
-     LEFT JOIN public.scanned_patterns ON ((scanned_patterns.step_id = build_steps_deduped_mitigation.id)))
-  WHERE ((build_steps_deduped_mitigation.name IS NOT NULL) AND (NOT build_steps_deduped_mitigation.is_timeout))
-  ORDER BY build_steps_deduped_mitigation.id, COALESCE(scanned_patterns.newest_pattern, '-1'::integer) DESC;
-
-
-ALTER TABLE public.latest_pattern_scanned_for_build_step OWNER TO postgres;
-
---
--- Name: master_built_commit_groups; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.master_built_commit_groups WITH (security_barrier='false') AS
- SELECT count(*) OVER (PARTITION BY bar.commit_group) AS group_size,
-    first_value(bar.commit_id) OVER (PARTITION BY bar.commit_group) AS representative_commit_id,
-    bar.was_built,
-    bar.commit_id,
-    bar.sha1
-   FROM ( SELECT (foo.commit_sha1 IS NOT NULL) AS was_built,
-            sum(((foo.commit_sha1 IS NOT NULL))::integer) OVER (ORDER BY ordered_master_commits.id DESC) AS commit_group,
-            ordered_master_commits.id AS commit_id,
-            ordered_master_commits.sha1
-           FROM (public.ordered_master_commits
-             LEFT JOIN ( SELECT DISTINCT universal_builds.commit_sha1
-                   FROM public.universal_builds) foo ON ((foo.commit_sha1 = ordered_master_commits.sha1)))) bar;
-
-
-ALTER TABLE public.master_built_commit_groups OWNER TO postgres;
-
---
--- Name: VIEW master_built_commit_groups; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON VIEW public.master_built_commit_groups IS 'Sometimes several commits land to the master branch simultaneously, such that only the last of these triggers any builds.
-
-This view identifies the built commits of a series such that the unbuilt commits can be filtered out from a timeline view.
-
-Note that this technique of grouping unbuilt commits with the next built commit should also be applied on a per-job basis for the "master_contiguous_failures" view.';
-
-
---
 -- Name: master_commit_job_coverage_by_day; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -1997,6 +2046,70 @@ CREATE VIEW public.master_commit_job_coverage_by_day AS
 ALTER TABLE public.master_commit_job_coverage_by_day OWNER TO postgres;
 
 --
+-- Name: jobs_non_scheduled_built_yesterday; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.jobs_non_scheduled_built_yesterday AS
+ SELECT foo.job_name
+   FROM (( SELECT master_commit_job_coverage_by_day.job_name
+           FROM public.master_commit_job_coverage_by_day
+          WHERE (master_commit_job_coverage_by_day.day = ( SELECT master_commit_job_coverage_by_day_1.day
+                   FROM public.master_commit_job_coverage_by_day master_commit_job_coverage_by_day_1
+                  ORDER BY master_commit_job_coverage_by_day_1.day DESC
+                 OFFSET 1
+                 LIMIT 1))) foo
+     JOIN public.job_schedule_discriminated ON ((foo.job_name = job_schedule_discriminated.job_name)))
+  WHERE (NOT job_schedule_discriminated.inferred_scheduled)
+  ORDER BY foo.job_name;
+
+
+ALTER TABLE public.jobs_non_scheduled_built_yesterday OWNER TO postgres;
+
+--
+-- Name: scanned_patterns; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.scanned_patterns (
+    scan integer NOT NULL,
+    newest_pattern integer NOT NULL,
+    step_id integer NOT NULL
+);
+
+
+ALTER TABLE public.scanned_patterns OWNER TO postgres;
+
+--
+-- Name: latest_pattern_scanned_for_build_step; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.latest_pattern_scanned_for_build_step AS
+ SELECT DISTINCT ON (build_steps_deduped_mitigation.id) build_steps_deduped_mitigation.id AS step_id,
+    COALESCE(scanned_patterns.newest_pattern, '-1'::integer) AS latest_pattern
+   FROM (public.build_steps_deduped_mitigation
+     LEFT JOIN public.scanned_patterns ON ((scanned_patterns.step_id = build_steps_deduped_mitigation.id)))
+  WHERE ((build_steps_deduped_mitigation.name IS NOT NULL) AND (NOT build_steps_deduped_mitigation.is_timeout))
+  ORDER BY build_steps_deduped_mitigation.id, COALESCE(scanned_patterns.newest_pattern, '-1'::integer) DESC;
+
+
+ALTER TABLE public.latest_pattern_scanned_for_build_step OWNER TO postgres;
+
+--
+-- Name: master_commit_circleci_scheduled_job_discrimination; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_commit_circleci_scheduled_job_discrimination WITH (security_barrier='false') AS
+ SELECT circleci_workflow_jobs.job_name,
+    circleci_workflows_by_commit.sha1,
+    ((circleci_workflow_schedules.cron_schedule IS NOT NULL) OR COALESCE(((circleci_job_branch_filters.branch = 'nightly'::text) AND circleci_job_branch_filters.filter_include), false)) AS is_scheduled
+   FROM (((public.circleci_workflow_jobs
+     JOIN public.circleci_workflows_by_commit ON ((circleci_workflows_by_commit.id = circleci_workflow_jobs.workflow)))
+     LEFT JOIN public.circleci_workflow_schedules ON ((circleci_workflows_by_commit.id = circleci_workflow_schedules.workflow)))
+     LEFT JOIN public.circleci_job_branch_filters ON (((circleci_workflows_by_commit.id = circleci_job_branch_filters.workflow) AND (circleci_workflow_jobs.job_name = circleci_job_branch_filters.job_name))));
+
+
+ALTER TABLE public.master_commit_circleci_scheduled_job_discrimination OWNER TO postgres;
+
+--
 -- Name: master_commit_job_coverage_by_week; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -2026,6 +2139,88 @@ CREATE VIEW public.master_commit_job_coverage_by_week AS
 
 
 ALTER TABLE public.master_commit_job_coverage_by_week OWNER TO postgres;
+
+--
+-- Name: master_commit_job_success_completeness; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_commit_job_success_completeness AS
+ WITH all_yesterday_jobs AS (
+         SELECT jobs_non_scheduled_built_yesterday.job_name
+           FROM public.jobs_non_scheduled_built_yesterday
+        )
+ SELECT foo.commit_id,
+    ordered_master_commits.sha1,
+    array_to_string(ARRAY( SELECT all_yesterday_jobs.job_name
+           FROM all_yesterday_jobs
+        EXCEPT
+         SELECT unnest(foo.matching_jobs_array) AS unnest), ';'::text) AS missing_jobs,
+    (foo.total_required_commit_job_count - foo.matching_required_commit_job_count) AS missing_job_count,
+    foo.total_required_commit_job_count,
+    foo.matching_required_commit_job_count,
+    foo.successful_commit_job_count
+   FROM (( SELECT bar.commit_id,
+            count(bar.required_commit_job) AS matching_required_commit_job_count,
+            count(bar.successful_commit_job) AS successful_commit_job_count,
+            ( SELECT count(*) AS count
+                   FROM all_yesterday_jobs) AS total_required_commit_job_count,
+            array_agg(bar.required_commit_job) AS matching_jobs_array
+           FROM ( SELECT ordered_master_commits_1.id AS commit_id,
+                    builds_deduped.job_name AS successful_commit_job,
+                    all_yesterday_jobs.job_name AS required_commit_job
+                   FROM ((public.ordered_master_commits ordered_master_commits_1
+                     JOIN public.builds_deduped ON ((builds_deduped.vcs_revision = ordered_master_commits_1.sha1)))
+                     LEFT JOIN all_yesterday_jobs ON ((builds_deduped.job_name = all_yesterday_jobs.job_name)))
+                  WHERE builds_deduped.succeeded) bar
+          GROUP BY bar.commit_id) foo
+     JOIN public.ordered_master_commits ON ((foo.commit_id = ordered_master_commits.id)))
+  ORDER BY foo.commit_id DESC;
+
+
+ALTER TABLE public.master_commit_job_success_completeness OWNER TO postgres;
+
+--
+-- Name: master_commit_job_success_completeness_mview; Type: MATERIALIZED VIEW; Schema: public; Owner: materialized_view_updater
+--
+
+CREATE MATERIALIZED VIEW public.master_commit_job_success_completeness_mview AS
+ SELECT master_commit_job_success_completeness.commit_id,
+    master_commit_job_success_completeness.sha1,
+    master_commit_job_success_completeness.missing_jobs,
+    master_commit_job_success_completeness.missing_job_count,
+    master_commit_job_success_completeness.total_required_commit_job_count,
+    master_commit_job_success_completeness.matching_required_commit_job_count,
+    master_commit_job_success_completeness.successful_commit_job_count
+   FROM public.master_commit_job_success_completeness
+  WITH NO DATA;
+
+
+ALTER TABLE public.master_commit_job_success_completeness_mview OWNER TO materialized_view_updater;
+
+--
+-- Name: master_commits_unpopulated_circleci_configs; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_commits_unpopulated_circleci_configs WITH (security_barrier='false') AS
+ SELECT DISTINCT ON (ordered_master_commits.id) ordered_master_commits.sha1,
+    builds_deduped.build_num,
+    commit_metadata.committer_date
+   FROM (((public.builds_deduped
+     JOIN public.ordered_master_commits ON ((ordered_master_commits.sha1 = builds_deduped.vcs_revision)))
+     LEFT JOIN public.circleci_workflows_by_commit ON ((circleci_workflows_by_commit.sha1 = ordered_master_commits.sha1)))
+     LEFT JOIN public.commit_metadata ON ((ordered_master_commits.sha1 = commit_metadata.sha1)))
+  WHERE ((builds_deduped.provider = 3) AND (circleci_workflows_by_commit.id IS NULL))
+  ORDER BY ordered_master_commits.id DESC, builds_deduped.build_num;
+
+
+ALTER TABLE public.master_commits_unpopulated_circleci_configs OWNER TO postgres;
+
+--
+-- Name: VIEW master_commits_unpopulated_circleci_configs; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.master_commits_unpopulated_circleci_configs IS 'Chooses an arbitrary build number with which the config can be fetched';
+
 
 --
 -- Name: master_contiguous_failures; Type: VIEW; Schema: public; Owner: postgres
@@ -2624,6 +2819,36 @@ ALTER TABLE public.master_indiscriminate_failure_spans OWNER TO postgres;
 
 COMMENT ON VIEW public.master_indiscriminate_failure_spans IS 'For rendering date ranges of broken commit sequences';
 
+
+--
+-- Name: master_ordered_commits_with_metadata_mview; Type: MATERIALIZED VIEW; Schema: public; Owner: materialized_view_updater
+--
+
+CREATE MATERIALIZED VIEW public.master_ordered_commits_with_metadata_mview AS
+ SELECT master_ordered_commits_with_metadata.id,
+    master_ordered_commits_with_metadata.sha1,
+    master_ordered_commits_with_metadata.message,
+    master_ordered_commits_with_metadata.tree_sha1,
+    master_ordered_commits_with_metadata.author_name,
+    master_ordered_commits_with_metadata.author_email,
+    master_ordered_commits_with_metadata.author_date,
+    master_ordered_commits_with_metadata.committer_name,
+    master_ordered_commits_with_metadata.committer_email,
+    master_ordered_commits_with_metadata.committer_date,
+    master_ordered_commits_with_metadata.github_pr_number,
+    master_ordered_commits_with_metadata.fb_differential_revision,
+    master_ordered_commits_with_metadata.fb_pulled_by,
+    master_ordered_commits_with_metadata.fb_reviewed_by,
+    master_ordered_commits_with_metadata.fb_shipit_source_id,
+    master_ordered_commits_with_metadata.fb_ghstack_source_id,
+    master_ordered_commits_with_metadata.commit_number,
+    master_ordered_commits_with_metadata.representative_commit_id,
+    master_ordered_commits_with_metadata.was_built
+   FROM public.master_ordered_commits_with_metadata
+  WITH NO DATA;
+
+
+ALTER TABLE public.master_ordered_commits_with_metadata_mview OWNER TO materialized_view_updater;
 
 --
 -- Name: master_unmarked_breakage_regions_by_commit; Type: VIEW; Schema: public; Owner: postgres
@@ -3513,6 +3738,13 @@ ALTER TABLE ONLY public.ci_providers ALTER COLUMN id SET DEFAULT nextval('public
 
 
 --
+-- Name: circleci_workflows_by_commit id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.circleci_workflows_by_commit ALTER COLUMN id SET DEFAULT nextval('public.circleci_workflows_by_commit_id_seq'::regclass);
+
+
+--
 -- Name: code_breakage_cause id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
@@ -3635,6 +3867,38 @@ ALTER TABLE ONLY public.ci_providers
 
 ALTER TABLE ONLY public.ci_providers
     ADD CONSTRAINT ci_providers_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: circleci_job_branch_filters circleci_job_branch_filters_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.circleci_job_branch_filters
+    ADD CONSTRAINT circleci_job_branch_filters_pkey PRIMARY KEY (workflow, job_name, branch);
+
+
+--
+-- Name: circleci_workflow_jobs circleci_job_schedules_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.circleci_workflow_jobs
+    ADD CONSTRAINT circleci_job_schedules_pkey PRIMARY KEY (job_name, workflow);
+
+
+--
+-- Name: circleci_workflows_by_commit circleci_workflows_by_commit_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.circleci_workflows_by_commit
+    ADD CONSTRAINT circleci_workflows_by_commit_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: circleci_workflows_by_commit circleci_workflows_by_commit_sha1_name_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.circleci_workflows_by_commit
+    ADD CONSTRAINT circleci_workflows_by_commit_sha1_name_key UNIQUE (sha1, name);
 
 
 --
@@ -3921,6 +4185,13 @@ CREATE INDEX fki_fk_global_buildnum ON public.builds USING btree (global_build_n
 
 
 --
+-- Name: fki_fk_idx_workflow; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX fki_fk_idx_workflow ON public.circleci_workflow_schedules USING btree (workflow);
+
+
+--
 -- Name: fki_fk_mode_id; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -3953,6 +4224,34 @@ CREATE INDEX fki_fk_step_id_scanned_pattern ON public.scanned_patterns USING btr
 --
 
 CREATE INDEX fki_fk_ubuild ON public.build_steps USING btree (universal_build);
+
+
+--
+-- Name: fki_fk_workflow_id_job_filters; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX fki_fk_workflow_id_job_filters ON public.circleci_job_branch_filters USING btree (workflow);
+
+
+--
+-- Name: fki_fk_workflow_job; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX fki_fk_workflow_job ON public.circleci_workflow_jobs USING btree (workflow);
+
+
+--
+-- Name: fki_fk_workflow_job_filter_job_and_workflow; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX fki_fk_workflow_job_filter_job_and_workflow ON public.circleci_job_branch_filters USING btree (workflow, job_name);
+
+
+--
+-- Name: id_github_pr_number_master_commits; Type: INDEX; Schema: public; Owner: materialized_view_updater
+--
+
+CREATE INDEX id_github_pr_number_master_commits ON public.master_ordered_commits_with_metadata_mview USING btree (github_pr_number);
 
 
 --
@@ -3998,10 +4297,24 @@ CREATE INDEX idx_line_number ON public.matches USING btree (line_number);
 
 
 --
+-- Name: idx_master_commit_job_success_completeness_mview_commit_id; Type: INDEX; Schema: public; Owner: materialized_view_updater
+--
+
+CREATE UNIQUE INDEX idx_master_commit_job_success_completeness_mview_commit_id ON public.master_commit_job_success_completeness_mview USING btree (commit_id);
+
+
+--
 -- Name: idx_master_failures_weekly_aggregation_week; Type: INDEX; Schema: public; Owner: materialized_view_updater
 --
 
 CREATE UNIQUE INDEX idx_master_failures_weekly_aggregation_week ON public.master_failures_weekly_aggregation_mview USING btree (week);
+
+
+--
+-- Name: idx_master_ordered_commits_with_metadata_mview_commit_id; Type: INDEX; Schema: public; Owner: materialized_view_updater
+--
+
+CREATE UNIQUE INDEX idx_master_ordered_commits_with_metadata_mview_commit_id ON public.master_ordered_commits_with_metadata_mview USING btree (id);
 
 
 --
@@ -4116,6 +4429,14 @@ ALTER TABLE ONLY public.builds
 
 
 --
+-- Name: circleci_workflow_schedules fk_idx_workflow; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.circleci_workflow_schedules
+    ADD CONSTRAINT fk_idx_workflow FOREIGN KEY (workflow) REFERENCES public.circleci_workflows_by_commit(id);
+
+
+--
 -- Name: master_failure_mode_attributions fk_mode_id; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -4153,6 +4474,30 @@ ALTER TABLE ONLY public.scanned_patterns
 
 ALTER TABLE ONLY public.build_steps
     ADD CONSTRAINT fk_ubuild FOREIGN KEY (universal_build) REFERENCES public.universal_builds(id) ON DELETE CASCADE;
+
+
+--
+-- Name: circleci_job_branch_filters fk_workflow_id_job_filters; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.circleci_job_branch_filters
+    ADD CONSTRAINT fk_workflow_id_job_filters FOREIGN KEY (workflow) REFERENCES public.circleci_workflows_by_commit(id);
+
+
+--
+-- Name: circleci_workflow_jobs fk_workflow_job; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.circleci_workflow_jobs
+    ADD CONSTRAINT fk_workflow_job FOREIGN KEY (workflow) REFERENCES public.circleci_workflows_by_commit(id);
+
+
+--
+-- Name: circleci_job_branch_filters fk_workflow_job; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.circleci_job_branch_filters
+    ADD CONSTRAINT fk_workflow_job FOREIGN KEY (workflow, job_name) REFERENCES public.circleci_workflow_jobs(workflow, job_name);
 
 
 --
@@ -4336,6 +4681,21 @@ GRANT ALL ON TABLE public.ordered_master_commits TO logan;
 
 
 --
+-- Name: TABLE universal_builds; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.universal_builds TO logan;
+GRANT SELECT ON TABLE public.universal_builds TO readonly_user;
+
+
+--
+-- Name: TABLE master_built_commit_groups; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_built_commit_groups TO logan;
+
+
+--
 -- Name: TABLE master_commit_message_derived_fields; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -4354,6 +4714,7 @@ GRANT ALL ON TABLE public.master_commits_contiguously_indexed TO logan;
 --
 
 GRANT ALL ON TABLE public.master_ordered_commits_with_metadata TO logan;
+GRANT SELECT ON TABLE public.master_ordered_commits_with_metadata TO materialized_view_updater;
 
 
 --
@@ -4397,14 +4758,6 @@ GRANT ALL ON TABLE public.build_steps_deduped_mitigation TO logan;
 
 GRANT ALL ON TABLE public.builds TO logan;
 GRANT SELECT ON TABLE public.builds TO readonly_user;
-
-
---
--- Name: TABLE universal_builds; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.universal_builds TO logan;
-GRANT SELECT ON TABLE public.universal_builds TO readonly_user;
 
 
 --
@@ -4633,6 +4986,41 @@ GRANT ALL ON SEQUENCE public.ci_providers_id_seq TO logan;
 
 
 --
+-- Name: TABLE circleci_job_branch_filters; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.circleci_job_branch_filters TO logan;
+
+
+--
+-- Name: TABLE circleci_workflow_jobs; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.circleci_workflow_jobs TO logan;
+
+
+--
+-- Name: TABLE circleci_workflow_schedules; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.circleci_workflow_schedules TO logan;
+
+
+--
+-- Name: TABLE circleci_workflows_by_commit; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.circleci_workflows_by_commit TO logan;
+
+
+--
+-- Name: SEQUENCE circleci_workflows_by_commit_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE public.circleci_workflows_by_commit_id_seq TO logan;
+
+
+--
 -- Name: SEQUENCE code_breakage_cause_id_seq; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -4792,6 +5180,20 @@ GRANT ALL ON TABLE public.job_schedule_statistics_ntiles TO logan;
 
 
 --
+-- Name: TABLE master_commit_job_coverage_by_day; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_commit_job_coverage_by_day TO logan;
+
+
+--
+-- Name: TABLE jobs_non_scheduled_built_yesterday; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.jobs_non_scheduled_built_yesterday TO logan;
+
+
+--
 -- Name: TABLE scanned_patterns; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -4806,17 +5208,10 @@ GRANT ALL ON TABLE public.latest_pattern_scanned_for_build_step TO logan;
 
 
 --
--- Name: TABLE master_built_commit_groups; Type: ACL; Schema: public; Owner: postgres
+-- Name: TABLE master_commit_circleci_scheduled_job_discrimination; Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON TABLE public.master_built_commit_groups TO logan;
-
-
---
--- Name: TABLE master_commit_job_coverage_by_day; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.master_commit_job_coverage_by_day TO logan;
+GRANT ALL ON TABLE public.master_commit_circleci_scheduled_job_discrimination TO logan;
 
 
 --
@@ -4824,6 +5219,28 @@ GRANT ALL ON TABLE public.master_commit_job_coverage_by_day TO logan;
 --
 
 GRANT ALL ON TABLE public.master_commit_job_coverage_by_week TO logan;
+
+
+--
+-- Name: TABLE master_commit_job_success_completeness; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_commit_job_success_completeness TO logan;
+GRANT SELECT ON TABLE public.master_commit_job_success_completeness TO materialized_view_updater;
+
+
+--
+-- Name: TABLE master_commit_job_success_completeness_mview; Type: ACL; Schema: public; Owner: materialized_view_updater
+--
+
+GRANT SELECT ON TABLE public.master_commit_job_success_completeness_mview TO logan;
+
+
+--
+-- Name: TABLE master_commits_unpopulated_circleci_configs; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_commits_unpopulated_circleci_configs TO logan;
 
 
 --
@@ -4952,6 +5369,13 @@ GRANT ALL ON TABLE public.master_indiscriminate_failure_spans_intermediate TO lo
 --
 
 GRANT ALL ON TABLE public.master_indiscriminate_failure_spans TO logan;
+
+
+--
+-- Name: TABLE master_ordered_commits_with_metadata_mview; Type: ACL; Schema: public; Owner: materialized_view_updater
+--
+
+GRANT SELECT ON TABLE public.master_ordered_commits_with_metadata_mview TO logan;
 
 
 --

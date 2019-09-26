@@ -1659,6 +1659,34 @@ getScheduledJobNames = listFlat sql
       ]
 
 
+
+data MasterJobCoverage = MasterJobCoverage {
+    _commit_id         :: Int64
+  , _sha1              :: Builds.RawCommit
+  , _missing_job_count :: Int
+  , _missing_jobs      :: Text
+  } deriving (FromRow, Generic)
+
+instance ToJSON MasterJobCoverage where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+apiCleanestMasterCommits :: Int -> DbIO [MasterJobCoverage]
+apiCleanestMasterCommits missing_threshold = do
+  conn <- ask
+  liftIO $ query conn sql $ Only missing_threshold
+  where
+    sql = MyUtils.qjoin [
+        "SELECT commit_id, sha1, missing_job_count, missing_jobs"
+      , "FROM master_commit_job_success_completeness_mview"
+      , "WHERE missing_job_count <= ?"
+      , "ORDER BY missing_job_count ASC, commit_id DESC;"
+      ]
+
+
+
+
+
 -- | Gets last N commits in one query,
 -- then gets the list of jobs that apply to those commits,
 -- then gets the associated builds

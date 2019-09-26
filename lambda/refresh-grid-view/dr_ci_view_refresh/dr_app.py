@@ -63,6 +63,7 @@ WHITELISTED_VIEW_NAMES = {
     "pr_merge_time_failing_builds_by_week_mview",
     "job_schedule_discriminated_mview",
     "master_ordered_commits_with_metadata_mview",
+    "master_commit_job_success_completeness_mview",
 }
 
 

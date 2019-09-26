@@ -378,6 +378,10 @@ scottyApp
     S.json $ WebApi.toJsonEither json_result
 
 
+  get "/api/cleanest-master-commits" $
+    SqlRead.apiCleanestMasterCommits <$> S.param "threshold"
+
+
   get "/api/is-master-commit" $
     SqlRead.isMasterCommit . Builds.RawCommit <$> S.param "sha1"
 
