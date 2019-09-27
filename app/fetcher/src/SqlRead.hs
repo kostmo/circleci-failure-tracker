@@ -12,7 +12,7 @@ import           Control.Monad.Trans.Except           (ExceptT (ExceptT),
 import           Control.Monad.Trans.Reader           (ReaderT, ask, runReaderT)
 import           Data.Aeson
 import           Data.Either.Utils                    (maybeToEither)
-import           Data.List                            (sort, sortOn)
+import           Data.List                            (partition, sort, sortOn)
 import           Data.List.Split                      (splitOn)
 import qualified Data.Maybe                           as Maybe
 import           Data.Scientific                      (Scientific)
@@ -1711,17 +1711,31 @@ apiMasterBuilds timeline_parms = do
     (builds_list_time, completed_builds) <- MyUtils.timeThisFloat $
       liftIO $ query conn builds_list_sql query_bounds
 
-    let builds_to_determine_jobs = MyUtils.applyIf
-          (Pagination.should_suppress_fully_successful_columns $ Pagination.column_filtering timeline_parms)
+    let scheduled_job_names_set = Set.fromList scheduled_job_names
 
-          (filter $ not . BuildResults.isSuccess . BuildResults._failure_mode)
+        filtered_completed_builds = MyUtils.applyIf
+          (Pagination.should_suppress_scheduled_builds $ Pagination.column_filtering timeline_parms)
+          (filter $ not . (`Set.member` scheduled_job_names_set) . Builds.job_name . BuildResults._build)
           completed_builds
 
-        raw_job_names = Set.fromList $ map (Builds.job_name . BuildResults._build) builds_to_determine_jobs
-        filtered_job_names = MyUtils.applyIf
-          (Pagination.should_suppress_scheduled_builds $ Pagination.column_filtering timeline_parms)
-          (`Set.difference` Set.fromList scheduled_job_names)
-          raw_job_names
+        (successful_builds, failed_builds) = partition
+          (BuildResults.isSuccess . BuildResults._failure_mode)
+          filtered_completed_builds
+
+        maybe_successful_column_limit = Pagination.should_suppress_fully_successful_columns $
+          Pagination.column_filtering timeline_parms
+
+        successful_job_names = Set.fromList $ map (Builds.job_name . BuildResults._build) successful_builds
+        failed_job_names = Set.fromList $ map (Builds.job_name . BuildResults._build) failed_builds
+
+        strictly_successful_jobs = Set.difference successful_job_names failed_job_names
+
+        filtered_job_names = case maybe_successful_column_limit of
+          Nothing -> Set.union failed_job_names strictly_successful_jobs
+          Just total_column_cap -> let
+            successful_column_cap = max 0 $ total_column_cap - Set.size failed_job_names
+            in Set.union failed_job_names $ Set.fromList $ take successful_column_cap $
+                 Set.toAscList strictly_successful_jobs
 
         timing_data = BuildResults.DbMasterBuildsBenchmarks
           builds_list_time
@@ -1732,7 +1746,7 @@ apiMasterBuilds timeline_parms = do
     return $ DbHelpers.BenchmarkedResponse timing_data $ BuildResults.MasterBuildsResponse
       filtered_job_names
       master_commits
-      completed_builds
+      filtered_completed_builds
       code_breakage_ranges
 
   where

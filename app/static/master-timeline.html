@@ -54,7 +54,6 @@
 	box-shadow: 10px 10px 5px grey;
 	display: none;
 }
-
 </style>
 
 </head>
@@ -103,7 +102,7 @@ commits
 <label>from <input id="commit-index-max" type="number" min="0" size="5"/></label> <label>down to <input id="commit-index-min" type="number" min="0" size="5"/></label>
 <p>
 <label><input id="checkbox-suppress-scheduled-builds" type="checkbox" onchange="update_url_from_form();"/> Suppress scheduled builds</label><br/>
-<label><input id="checkbox-suppress-fully-successful-columns" type="checkbox" onchange="update_url_from_form();"/> Suppress fully-successful columns</label>
+<label><input id="checkbox-suppress-fully-successful-columns" type="checkbox" onchange="update_url_from_form();"/> Suppress fully-successful columns when table width exceeds</label> <label><input id="max-columns-suppress-successful" type="text" size="3" value="50"/> jobs</label>
 </p>
 </form>
 
@@ -112,8 +111,6 @@ commits
 
 
 <div id="myDropdown" class="dropdown-content"></div>
-
-
 
 
 <div id="floating-job-name-container"></div>

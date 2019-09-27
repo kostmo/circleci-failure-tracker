@@ -8,7 +8,7 @@ import qualified WeeklyStats
 
 data ColumnFilteringOptions = ColumnFilteringOptions {
     should_suppress_scheduled_builds         :: Bool
-  , should_suppress_fully_successful_columns :: Bool
+  , should_suppress_fully_successful_columns :: Maybe Int
   }
 
 

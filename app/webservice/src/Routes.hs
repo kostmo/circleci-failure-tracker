@@ -35,7 +35,6 @@ import qualified FrontendHelpers
 import qualified GitRev
 import qualified JsonUtils
 import qualified MatchOccurrences
-import qualified Pagination
 import qualified Scanning
 import qualified ScanPatterns
 import qualified SqlRead

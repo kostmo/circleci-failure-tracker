@@ -757,6 +757,7 @@ function gen_timeline_table(element_id, fetched_data) {
 		placeholder: "No Data Set",
 		selectable: true,
 		columns: column_list,
+//                virtualDom: false, //disable virtual DOM rendering
 		data: table_data,
 
 		rowFormatter: function(row) {
@@ -764,7 +765,7 @@ function gen_timeline_table(element_id, fetched_data) {
 			var data = row.getData();
 
 			if (!data["was_built"]) {
-				row.getElement().style.backgroundColor = "#9945";
+				row.getElement().style.backgroundColor = "#cc8";
 			}
 		},
 		rowSelectionChanged: function(data, rows) {
@@ -812,7 +813,7 @@ function get_form_values() {
 
 	const should_suppress_scheduled_builds = $('#checkbox-suppress-scheduled-builds').is(":checked");
 	const should_suppress_fully_successful_columns = $('#checkbox-suppress-fully-successful-columns').is(":checked");
-
+	const max_columns_suppress_successful = $('#max-columns-suppress-successful').val() || 50;
 
 	const pagination_mode = document.querySelector('input[name="pagination-mode"]:checked').value;
 
@@ -836,6 +837,7 @@ function get_form_values() {
 		"max_commit_index": max_commit_index,
 		"should_suppress_scheduled_builds": should_suppress_scheduled_builds,
 		"should_suppress_fully_successful_columns": should_suppress_fully_successful_columns,
+		"max_columns_suppress_successful": max_columns_suppress_successful,
 	}
 
 	return parms;
@@ -885,6 +887,7 @@ function update_url_from_form() {
 	const should_suppress_fully_successful_columns = $('#checkbox-suppress-fully-successful-columns').is(":checked");
 	if (should_suppress_fully_successful_columns) {
 		url_parms["should_suppress_fully_successful_columns"] = should_suppress_fully_successful_columns;
+		url_parms["max_columns_suppress_successful"] = $('#max-columns-suppress-successful').val();
 	}
 
 	document.location.search = $.param( url_parms );
@@ -931,6 +934,9 @@ function populate_form_from_url() {
 	const should_suppress_fully_successful_columns = urlParams.get('should_suppress_fully_successful_columns');
 	if (should_suppress_fully_successful_columns != null) {
 		$('#checkbox-suppress-fully-successful-columns').prop('checked', true);
+
+		const max_columns_suppress_successful = urlParams.get('max_columns_suppress_successful');
+		$('#max-columns-suppress-successful').val(max_columns_suppress_successful);
 	}
 
 
