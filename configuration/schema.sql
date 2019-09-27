@@ -536,7 +536,8 @@ CREATE TABLE public.builds (
     succeeded boolean,
     started_at timestamp with time zone,
     finished_at timestamp with time zone,
-    global_build_num integer NOT NULL
+    global_build_num integer NOT NULL,
+    ci_provider_scan integer
 );
 
 
@@ -546,7 +547,9 @@ ALTER TABLE public.builds OWNER TO postgres;
 -- Name: TABLE builds; Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON TABLE public.builds IS 'In contrast with the "universal_builds" table, this is information that may be fetched using a provider-specific API and may be populated asynchronously from the "universal_builds" info which is available from the GitHub status notification.';
+COMMENT ON TABLE public.builds IS 'In contrast with the "universal_builds" table, this is information that may be fetched using a provider-specific API and may be populated asynchronously from the "universal_builds" info which is available from the GitHub status notification.
+
+The "ci_provider_scan" field is optional; it can link a build record back to the CI provider-specific scan from which it was obtained.';
 
 
 --
@@ -1220,6 +1223,52 @@ COMMENT ON TABLE public.cached_master_merge_base IS 'Caches the computed "merge 
 In general, it would be possible for the merge base to change over time if the master branch is advanced to a more recent ancestor (up to and including the HEAD) of the PR branch.  In practice, however, this will not happen in the Facebook mirrored repo configuration, as a novel commit is produced for every change to the master branch.
 
 Therefore, this cache of merge bases never needs to be invalidated.';
+
+
+--
+-- Name: ci_provider_build_scans; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.ci_provider_build_scans (
+    id integer NOT NULL,
+    initiated_at timestamp with time zone,
+    provider integer NOT NULL,
+    recorded_at timestamp with time zone DEFAULT now() NOT NULL,
+    branch_filter text
+);
+
+
+ALTER TABLE public.ci_provider_build_scans OWNER TO postgres;
+
+--
+-- Name: TABLE ci_provider_build_scans; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.ci_provider_build_scans IS 'Records the bounds of scans using CI provider-specific APIs, as opposed to GitHub.
+
+These scans are used to fill in data gaps from missed GitHub events and supplement fields that are unavailable through the GitHub API.';
+
+
+--
+-- Name: ci_provider_build_scans_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.ci_provider_build_scans_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.ci_provider_build_scans_id_seq OWNER TO postgres;
+
+--
+-- Name: ci_provider_build_scans_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.ci_provider_build_scans_id_seq OWNED BY public.ci_provider_build_scans.id;
 
 
 --
@@ -3731,6 +3780,13 @@ ALTER TABLE ONLY public.build_steps ALTER COLUMN id SET DEFAULT nextval('public.
 
 
 --
+-- Name: ci_provider_build_scans id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ci_provider_build_scans ALTER COLUMN id SET DEFAULT nextval('public.ci_provider_build_scans_id_seq'::regclass);
+
+
+--
 -- Name: ci_providers id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
@@ -3851,6 +3907,14 @@ ALTER TABLE ONLY public.builds
 
 ALTER TABLE ONLY public.cached_master_merge_base
     ADD CONSTRAINT cached_master_merge_base_pkey PRIMARY KEY (branch_commit);
+
+
+--
+-- Name: ci_provider_build_scans ci_provider_build_scans_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ci_provider_build_scans
+    ADD CONSTRAINT ci_provider_build_scans_pkey PRIMARY KEY (id);
 
 
 --
@@ -4178,6 +4242,13 @@ CREATE INDEX fki_bre ON public.master_failure_mode_attributions USING btree (cau
 
 
 --
+-- Name: fki_fk_ci_provider_scan; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX fki_fk_ci_provider_scan ON public.ci_provider_build_scans USING btree (provider);
+
+
+--
 -- Name: fki_fk_global_buildnum; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -4203,6 +4274,13 @@ CREATE INDEX fki_fk_mode_id ON public.master_failure_mode_attributions USING btr
 --
 
 CREATE INDEX fki_fk_pattern ON public.scanned_patterns USING btree (newest_pattern);
+
+
+--
+-- Name: fki_fk_provider_scan_for_build; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX fki_fk_provider_scan_for_build ON public.builds USING btree (ci_provider_scan);
 
 
 --
@@ -4421,6 +4499,14 @@ ALTER TABLE ONLY public.code_breakage_resolution
 
 
 --
+-- Name: ci_provider_build_scans fk_ci_provider_scan; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ci_provider_build_scans
+    ADD CONSTRAINT fk_ci_provider_scan FOREIGN KEY (provider) REFERENCES public.ci_providers(id) ON DELETE CASCADE;
+
+
+--
 -- Name: builds fk_global_buildnum; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -4450,6 +4536,14 @@ ALTER TABLE ONLY public.master_failure_mode_attributions
 
 ALTER TABLE ONLY public.scanned_patterns
     ADD CONSTRAINT fk_pattern FOREIGN KEY (newest_pattern) REFERENCES public.patterns(id);
+
+
+--
+-- Name: builds fk_provider_scan_for_build; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.builds
+    ADD CONSTRAINT fk_provider_scan_for_build FOREIGN KEY (ci_provider_scan) REFERENCES public.ci_provider_build_scans(id) ON DELETE CASCADE;
 
 
 --
@@ -4968,6 +5062,20 @@ GRANT ALL ON SEQUENCE public.build_steps_id_seq TO logan;
 --
 
 GRANT ALL ON TABLE public.cached_master_merge_base TO logan;
+
+
+--
+-- Name: TABLE ci_provider_build_scans; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.ci_provider_build_scans TO logan;
+
+
+--
+-- Name: SEQUENCE ci_provider_build_scans_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE public.ci_provider_build_scans_id_seq TO logan;
 
 
 --

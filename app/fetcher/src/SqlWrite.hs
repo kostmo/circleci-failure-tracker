@@ -21,6 +21,7 @@ import qualified Data.Set                          as Set
 import           Data.Text                         (Text)
 import qualified Data.Text                         as T
 import qualified Data.Text.Lazy                    as TL
+import           Data.Time                         (UTCTime)
 import           Data.Time.Format                  (defaultTimeLocale,
                                                     formatTime,
                                                     rfc822DateFormat)
@@ -327,13 +328,18 @@ insertSingleUniversalBuild conn uni_build@(Builds.UniversalBuild (Builds.NewBuil
 -- works. Say that 200 builds are to be fetched, with 100 per page. If, while
 -- processing the first page, a new build is completed on CircleCI, then
 -- 100th build from the first page will get bumped to position 101, and fetched
--- again as the 1st build of the second page.
+-- again as the first build of the second page.
 --
 -- See https://pganalyze.com/docs/log-insights/app-errors/U126
 --
 -- TODO for now, this function is only called from the standalone scanner application.
-storeCircleCiBuildsList :: Connection -> [(Builds.Build, Bool)] -> IO Int64
-storeCircleCiBuildsList conn builds_list_with_possible_duplicates = do
+storeCircleCiBuildsList ::
+     Connection
+  -> UTCTime -- ^ fetch initiation time
+  -> Text -- ^ branch name
+  -> [(Builds.Build, Bool)]
+  -> IO Int64
+storeCircleCiBuildsList conn fetch_initiation_timestamp branch_name builds_list_with_possible_duplicates = do
 
   universal_build_insertion_output_rows <- returning
     conn
@@ -350,7 +356,12 @@ storeCircleCiBuildsList conn builds_list_with_possible_duplicates = do
         zipped_output1
         (map fst deduped_builds_list)
 
-  storeBuildsList conn zipped_output2
+  ci_scan_id <- runReaderT (storeScanRecord
+    SqlRead.circleCIProviderIndex
+    branch_name
+    fetch_initiation_timestamp) conn
+
+  storeBuildsList conn (Just ci_scan_id) zipped_output2
 
   where
     deduped_builds_list = nubSort builds_list_with_possible_duplicates
@@ -372,24 +383,38 @@ storeCircleCiBuildsList conn builds_list_with_possible_duplicates = do
 -- Need to make sure that legit values are not overwritten with NULL
 storeBuildsList ::
      Connection
+  -> Maybe Int64
   -> [DbHelpers.WithTypedId Builds.UniversalBuildId Builds.Build]
   -> IO Int64
-storeBuildsList conn builds_list =
+storeBuildsList conn maybe_provider_scan_id builds_list =
   executeMany conn sql $ map f builds_list
   where
     f (DbHelpers.WithTypedId (Builds.UniversalBuildId universal_build_id) rbuild) =
-      (queued_at_string, jobname, branch, universal_build_id, start_time, stop_time)
+      (queued_at_string, jobname, branch, universal_build_id, start_time, stop_time, maybe_provider_scan_id)
       where
         queued_at_string = T.pack $ formatTime defaultTimeLocale rfc822DateFormat queuedat
         (Builds.NewBuild _ _ queuedat jobname branch start_time stop_time) = rbuild
 
     sql = MyUtils.qjoin [
-        "INSERT INTO builds(queued_at, job_name, branch, global_build_num, started_at, finished_at)"
-      , "VALUES(?,?,?,?,?,?)"
+        "INSERT INTO builds(queued_at, job_name, branch, global_build_num, started_at, finished_at, ci_provider_scan)"
+      , "VALUES(?,?,?,?,?,?,?)"
       , "ON CONFLICT (global_build_num)"
       , "DO UPDATE"
       , "SET branch = COALESCE(builds.branch, EXCLUDED.branch), queued_at = COALESCE(builds.queued_at, EXCLUDED.queued_at), started_at = COALESCE(builds.started_at, EXCLUDED.started_at), finished_at = COALESCE(builds.finished_at, EXCLUDED.finished_at);"
       ]
+
+
+storeScanRecord ::
+     Int64 -- ^ provider ID
+  -> Text -- ^ branch filter
+  -> UTCTime -- ^ scan initiation time
+  -> SqlRead.DbIO Int64
+storeScanRecord provider_id branch_filter initiated_at = do
+  conn <- ask
+  [Only new_id] <- liftIO $ query conn sql (provider_id, branch_filter, initiated_at)
+  return new_id
+  where
+    sql = "INSERT INTO ci_provider_build_scans(provider, branch_filter, initiated_at) VALUES(?,?,?) RETURNING id;"
 
 
 storeMatches ::

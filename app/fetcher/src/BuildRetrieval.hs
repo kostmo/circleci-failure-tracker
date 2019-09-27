@@ -69,33 +69,40 @@ updateCircleCIBuildsList
     fetch_count
     age_days = do
 
-  builds_lists <- for branch_names $ \branch_name -> do
+  insertion_counts <- for branch_names $ \branch_name -> do
 
     MyUtils.debugList [
         "Fetching builds list for branch"
       , MyUtils.quote branch_name ++ "..."
       ]
 
-    fetchCircleCIBuilds
+    (fetch_initiation_timestamp, build_list) <- fetchCircleCIBuilds
       status_filter
       branch_name
       starting_offset
       fetch_count
       age_days
 
-  let combined_builds_list = concat builds_lists
-      succeeded_count = length $ filter snd combined_builds_list
-      failed_count = length $ filter (not . snd) combined_builds_list
+    let succeeded_count = length $ filter snd build_list
+        failed_count = length $ filter (not . snd) build_list
 
-  MyUtils.debugList [
-    "Storing builds list with"
-    , show succeeded_count
-    , "succeeded and"
-    , show failed_count
-    , "failed"
-    ]
+    MyUtils.debugList [
+        "Storing builds list from"
+      , branch_name
+      , "branch with"
+      , show succeeded_count
+      , "succeeded and"
+      , show failed_count
+      , "failed"
+      ]
 
-  SqlWrite.storeCircleCiBuildsList conn combined_builds_list
+    SqlWrite.storeCircleCiBuildsList
+      conn
+      fetch_initiation_timestamp
+      (T.pack branch_name)
+      build_list
+
+  return $ sum insertion_counts
 
 
 -- | This is populated from the "bulk" API query which lists multiple builds.
@@ -136,7 +143,7 @@ fetchCircleCIBuilds ::
   -> Int -- ^ starting offset
   -> Int
   -> Int
-  -> IO [(Builds.Build, Bool)]
+  -> IO (UTCTime, [(Builds.Build, Bool)])
 fetchCircleCIBuilds
     status_filter
     branch_name
@@ -152,13 +159,15 @@ fetchCircleCIBuilds
       time_diff = Clock.secondsToNominalDiffTime seconds_offset
       earliest_requested_time = Clock.addUTCTime time_diff current_time
 
-  fetchCircleCIBuildsRecurse
+  val <- fetchCircleCIBuildsRecurse
     sess
     status_filter
     branch_name
     starting_offset
     earliest_requested_time
     max_build_count
+
+  return (current_time, val)
 
 
 fetchCircleCIBuildsRecurse ::

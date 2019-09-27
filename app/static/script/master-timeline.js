@@ -73,7 +73,7 @@ function get_timeline_data(parms) {
 			const min_commit_time = Math.min(...all_commit_times);
 			const max_commit_time = Math.max(...all_commit_times);
 
-			$("#commit-timespan-container").html("Showing commits from " + moment(min_commit_time).fromNow() + " to " + moment(max_commit_time).fromNow());
+			$("#commit-timespan-container").html("Showing commits from <b>" + moment(min_commit_time).fromNow() + "</b> to <b>" + moment(max_commit_time).fromNow() + "</b>");
 
 			gen_timeline_table("master-timeline-table", mydata.payload.content);
 
@@ -813,7 +813,7 @@ function get_form_values() {
 
 	const should_suppress_scheduled_builds = $('#checkbox-suppress-scheduled-builds').is(":checked");
 	const should_suppress_fully_successful_columns = $('#checkbox-suppress-fully-successful-columns').is(":checked");
-	const max_columns_suppress_successful = $('#max-columns-suppress-successful').val() || 50;
+	const max_columns_suppress_successful = $('#max-columns-suppress-successful').val();
 
 	const pagination_mode = document.querySelector('input[name="pagination-mode"]:checked').value;
 

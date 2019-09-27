@@ -121,7 +121,10 @@ rescanSingleBuild conn initiator build_to_scan = do
       --
       -- Perhaps instead we need to *update fields* of the stored record
       -- from information we obtained from an API fetch
-      SqlWrite.storeBuildsList conn [DbHelpers.WithTypedId build_to_scan build_obj]
+      SqlWrite.storeBuildsList
+        conn
+        Nothing
+        [DbHelpers.WithTypedId build_to_scan build_obj]
 
       scan_matches <- scanBuilds
         scan_resources
@@ -407,7 +410,10 @@ getAndStoreLog
               -- Store the build metadata again, because the first time may have been
               -- obtained through the GitHub notification, which lacks build duration
               -- and branch name.
-              SqlWrite.storeBuildsList conn [DbHelpers.WithTypedId universal_build_id build_obj]
+              SqlWrite.storeBuildsList
+                conn
+                Nothing
+                [DbHelpers.WithTypedId universal_build_id build_obj]
 
               return $ case mode of
                 Builds.BuildTimeoutFailure             -> Left "This build didn't have a console log because it was a timeout!"

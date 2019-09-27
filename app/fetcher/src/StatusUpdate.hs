@@ -256,7 +256,7 @@ getBuildsFromGithub
       known_broken_circle_builds = filter ((`Set.member` all_broken_jobs) . Builds.job_name . Builds.build_record) circleci_failed_builds
       known_broken_circle_build_count = length known_broken_circle_builds
 
-  liftIO $ SqlWrite.storeBuildsList conn $
+  liftIO $ SqlWrite.storeBuildsList conn Nothing $
     map storable_build_to_universal second_level_storable_builds
 
   return (scannable_build_numbers, circleci_failcount, known_broken_circle_build_count)
