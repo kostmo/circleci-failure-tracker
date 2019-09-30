@@ -567,7 +567,8 @@ CREATE VIEW public.global_builds WITH (security_barrier='false') AS
     builds.queued_at,
     builds.started_at,
     builds.finished_at,
-    universal_builds.provider
+    universal_builds.provider,
+    builds.ci_provider_scan
    FROM (public.universal_builds
      JOIN public.builds ON ((builds.global_build_num = universal_builds.id)));
 
@@ -590,7 +591,8 @@ CREATE VIEW public.builds_deduped WITH (security_barrier='false') AS
     count(*) OVER (PARTITION BY global_builds.provider, global_builds.job_name, global_builds.vcs_revision) AS rebuild_count,
     global_builds.global_build_num AS global_build,
     global_builds.provider,
-    global_builds.build_namespace
+    global_builds.build_namespace,
+    global_builds.ci_provider_scan
    FROM public.global_builds
   ORDER BY global_builds.provider, global_builds.job_name, global_builds.vcs_revision, global_builds.global_build_num DESC;
 
@@ -1270,6 +1272,31 @@ ALTER TABLE public.ci_provider_build_scans_id_seq OWNER TO postgres;
 
 ALTER SEQUENCE public.ci_provider_build_scans_id_seq OWNED BY public.ci_provider_build_scans.id;
 
+
+--
+-- Name: ci_provider_scan_ranges; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.ci_provider_scan_ranges AS
+ SELECT ci_provider_build_scans.id,
+    ci_provider_build_scans.initiated_at,
+    ci_provider_build_scans.provider,
+    ci_provider_build_scans.recorded_at,
+    ci_provider_build_scans.branch_filter,
+    foo.count,
+    foo.earliest_queued_at,
+    foo.latest_queued_at
+   FROM (( SELECT builds_deduped.ci_provider_scan,
+            count(*) AS count,
+            min(builds_deduped.queued_at) AS earliest_queued_at,
+            max(builds_deduped.queued_at) AS latest_queued_at
+           FROM public.builds_deduped
+          WHERE (builds_deduped.ci_provider_scan IS NOT NULL)
+          GROUP BY builds_deduped.ci_provider_scan) foo
+     JOIN public.ci_provider_build_scans ON ((foo.ci_provider_scan = ci_provider_build_scans.id)));
+
+
+ALTER TABLE public.ci_provider_scan_ranges OWNER TO postgres;
 
 --
 -- Name: ci_providers; Type: TABLE; Schema: public; Owner: postgres
@@ -5076,6 +5103,13 @@ GRANT ALL ON TABLE public.ci_provider_build_scans TO logan;
 --
 
 GRANT ALL ON SEQUENCE public.ci_provider_build_scans_id_seq TO logan;
+
+
+--
+-- Name: TABLE ci_provider_scan_ranges; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.ci_provider_scan_ranges TO logan;
 
 
 --

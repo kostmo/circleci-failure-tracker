@@ -1609,6 +1609,24 @@ getLastCachedMasterGridRefreshTime = do
       , "ORDER BY timestamp DESC LIMIT 1;"
       ]
 
+-- | Get the most recent queued_at time of a build that was
+-- fetched via the provider-specific API.
+getMostRecentProviderApiFetchedBuild ::
+     Int64 -- ^ provider ID
+  -> DbIO (Maybe UTCTime)
+getMostRecentProviderApiFetchedBuild provider_id = do
+  conn <- ask
+  liftIO $ do
+    xs <- query conn sql $ Only provider_id
+    return $ Safe.headMay $ map (\(Only x) -> x) xs
+  where
+    sql = MyUtils.qjoin [
+        "SELECT latest_queued_at"
+      , "FROM ci_provider_scan_ranges"
+      , "WHERE provider = ?"
+      , "ORDER BY latest_queued_at DESC LIMIT 1;"
+      ]
+
 
 data MaterializedViewRefreshInfo = MaterializedViewRefreshInfo {
     _view_name              :: Text
@@ -1639,16 +1657,9 @@ apiMaterializedViewRefreshes = runQuery sql
       ]
 
 
--- | XXX Threshold of 0.8 was empirically determined
---
--- TODO: Not only are we hard-coding the variance threshold,
+-- | TODO: Not only are we hard-coding the variance threshold,
 -- but we also need to hardcode the prefix of "binary_"
 -- since the variance threshold is not completely reliable.
---
--- Furthermore, an underscore in a LIKE expression is a single-character
--- match, so it needs to be escaped by a backslash.
--- The Haskell string literal needs to have THIS backslash escaped,
--- for a total of 2 backslashes.
 getScheduledJobNames :: DbIO [Text]
 getScheduledJobNames = listFlat sql
   where
@@ -1657,6 +1668,7 @@ getScheduledJobNames = listFlat sql
       , "WHERE inferred_scheduled"
       , "ORDER BY job_name;"
       ]
+
 
 
 

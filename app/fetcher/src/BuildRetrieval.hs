@@ -3,9 +3,13 @@
 module BuildRetrieval where
 
 import           Control.Lens               hiding ((<.>))
+import           Control.Monad              (when)
+import           Control.Monad.IO.Class     (liftIO)
+import           Control.Monad.Trans.Except (ExceptT (ExceptT), except,
+                                             runExceptT)
+import           Control.Monad.Trans.Reader (runReaderT)
 import           Data.Aeson                 (Value, decode, encode)
 import           Data.Aeson.Lens            (key, _Array, _Integral, _String)
-
 import           Data.Fixed                 (Fixed (MkFixed))
 import           Data.List                  (intercalate)
 import qualified Data.Maybe                 as Maybe
@@ -25,6 +29,7 @@ import qualified Constants
 import qualified FetchHelpers
 import qualified MyUtils
 import           SillyMonoids               ()
+import qualified SqlRead
 import qualified SqlWrite
 
 
@@ -59,15 +64,17 @@ updateCircleCIBuildsList ::
   -> Int -- ^ starting offset
   -> [String]
   -> Int
-  -> Int
   -> IO Int64
 updateCircleCIBuildsList
     conn
     status_filter
     starting_offset
     branch_names
-    fetch_count
-    age_days = do
+    fetch_count = do
+
+  maybe_most_recent_build_time <- runReaderT
+    (SqlRead.getMostRecentProviderApiFetchedBuild SqlRead.circleCIProviderIndex)
+    conn
 
   insertion_counts <- for branch_names $ \branch_name -> do
 
@@ -81,7 +88,7 @@ updateCircleCIBuildsList
       branch_name
       starting_offset
       fetch_count
-      age_days
+      maybe_most_recent_build_time
 
     let succeeded_count = length $ filter snd build_list
         failed_count = length $ filter (not . snd) build_list
@@ -137,34 +144,39 @@ getBuildListUrl branch_name = intercalate "/"
   ]
 
 
+offsetTimeByDays current_time days_offset =
+  Clock.addUTCTime time_diff current_time
+  where
+    seconds_per_day = Clock.nominalDiffTimeToSeconds Clock.nominalDay
+    seconds_offset = seconds_per_day * (MkFixed $ fromIntegral days_offset)
+    time_diff = Clock.secondsToNominalDiffTime seconds_offset
+
+
 fetchCircleCIBuilds ::
      CircleCIFetchFilter
   -> String
   -> Int -- ^ starting offset
   -> Int
-  -> Int
+  -> Maybe UTCTime -- ^ newest known build time
   -> IO (UTCTime, [(Builds.Build, Bool)])
 fetchCircleCIBuilds
     status_filter
     branch_name
     starting_offset
     max_build_count
-    max_age_days = do
+    maybe_earliest_requested_time = do
 
   sess <- Sess.newSession
   current_time <- Clock.getCurrentTime
 
-  let seconds_per_day = Clock.nominalDiffTimeToSeconds Clock.nominalDay
-      seconds_offset = seconds_per_day * (MkFixed $ fromIntegral max_age_days)
-      time_diff = Clock.secondsToNominalDiffTime seconds_offset
-      earliest_requested_time = Clock.addUTCTime time_diff current_time
+--  let earliest_requested_time = offsetTimeByDays current_time max_age_days
 
   val <- fetchCircleCIBuildsRecurse
     sess
     status_filter
     branch_name
     starting_offset
-    earliest_requested_time
+    maybe_earliest_requested_time
     max_build_count
 
   return (current_time, val)
@@ -175,7 +187,7 @@ fetchCircleCIBuildsRecurse ::
   -> CircleCIFetchFilter
   -> String
   -> Int
-  -> UTCTime
+  -> Maybe UTCTime
   -> Int
   -> IO [(Builds.Build, Bool)]
 fetchCircleCIBuildsRecurse
@@ -183,7 +195,7 @@ fetchCircleCIBuildsRecurse
     status_filter
     branch_name
     offset
-    earliest_requested_time
+    maybe_earliest_requested_time
     max_build_count =
 
   if max_build_count > 0
@@ -207,39 +219,52 @@ fetchCircleCIBuildsRecurse
 
           queued_times = map (Builds.queued_at . fst) builds
 
-      case Safe.minimumMay queued_times of
-        Nothing ->
-          MyUtils.debugStr "No more builds found."
-
-        -- TODO use this time value
-        Just earliest_build_time ->
-          MyUtils.debugList [
-              "Earliest build time found:"
-            , show earliest_build_time
-            ]
-
-
       let next_offset = offset + fetched_build_count
 
-      -- If the server returned fewer builds than we asked for,
-      -- then we know that was the last page of available builds.
-      more_builds <- if fetched_build_count < builds_per_page
-        then do
-          MyUtils.debugList [
-            "The earliest build for branch"
+      either_more_builds <- runExceptT $ do
+
+        -- If the server returned fewer builds than we asked for,
+        -- then we know that was the last page of available builds.
+        except $ when (fetched_build_count < builds_per_page) $
+          Left $ unwords [
+              "The earliest build for branch"
             , MyUtils.quote branch_name
             , "has been retrieved."
             ]
 
-          return []
+        ExceptT $ case Safe.minimumMay queued_times of
+          Nothing -> return $ Left "No more builds found."
+          Just earliest_encountered_build_time -> do
+            MyUtils.debugList [
+                "Earliest build time encountered:"
+              , show earliest_encountered_build_time
+              ]
 
-        else fetchCircleCIBuildsRecurse
-          sess
-          status_filter
-          branch_name
-          next_offset
-          earliest_requested_time
-          builds_left
+            return $ case maybe_earliest_requested_time of
+              Nothing -> Right ()
+              Just earliest_requested_time -> when (earliest_encountered_build_time < earliest_requested_time) $
+                Left $ unwords [
+                    "encountered a build with timestamp"
+                  , show earliest_encountered_build_time
+                  , "which is older than the earliest requested time of"
+                  , show earliest_requested_time
+                  ]
+
+        liftIO $ fetchCircleCIBuildsRecurse
+           sess
+           status_filter
+           branch_name
+           next_offset
+           maybe_earliest_requested_time
+           builds_left
+
+
+      more_builds <- case either_more_builds of
+        Left msg -> do
+          MyUtils.debugStr msg
+          return []
+        Right blds -> return blds
+
 
       return $ builds ++ more_builds
 
