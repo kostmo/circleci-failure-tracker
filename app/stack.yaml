@@ -1,4 +1,4 @@
-resolver: lts-13.17
+resolver: lts-13.25
 
 image:
   containers:
@@ -11,6 +11,7 @@ image:
 
 packages:
 - webservice
+- web-lambda 
 - fetcher
 - oneoff
 - session-demo
@@ -23,5 +24,7 @@ extra-deps:
 - json-stream-0.4.2.4
 - hpqtypes-1.6.1.0
 - wai-log-0.1.0.0
+- aws-lambda-haskell-runtime-2.0.1
+
 
 allow-newer: true

@@ -73,7 +73,7 @@ function get_timeline_data(parms) {
 			const min_commit_time = Math.min(...all_commit_times);
 			const max_commit_time = Math.max(...all_commit_times);
 
-			$("#commit-timespan-container").html("Showing commits from <b>" + moment(min_commit_time).fromNow() + "</b> to <b>" + moment(max_commit_time).fromNow() + "</b>");
+			$("#commit-timespan-container").html("Showing commits from " + render_tag("b", moment(min_commit_time).fromNow()) + " to " + render_tag("b", moment(max_commit_time).fromNow()));
 
 			gen_timeline_table("master-timeline-table", mydata.payload.content);
 
