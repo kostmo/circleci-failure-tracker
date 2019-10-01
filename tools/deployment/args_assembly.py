@@ -1,3 +1,4 @@
+import os
 import json
 
 
@@ -12,14 +13,14 @@ def generate_dockerrun_aws_json(output_path, nondefault_cli_arglist):
     json_object = {
         "AWSEBDockerrunVersion": "1",
         "Image": {
-            "Name": "kostmo/circleci-failure-tracker-img-small-my-webapp"
+            "Name": "kostmo/circleci-failure-tracker-img-small-my-webapp",
         },
         "Ports": [
             {
-                "ContainerPort": str(WEBAPP_INTERNAL_PORT)
+                "ContainerPort": str(WEBAPP_INTERNAL_PORT),
             }
         ],
-        "Entrypoint": "/usr/local/bin/" + WEBAPP_BINARY_NAME,
+        "Entrypoint": os.path.join("/opt/app", WEBAPP_BINARY_NAME),
         "Command": " ".join(nondefault_cli_arglist),
     }
 

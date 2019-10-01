@@ -1,0 +1,42 @@
+# Obtained from:
+# https://medium.com/permutive/optimized-docker-builds-for-haskell-76a9808eb10b
+# Reddit thread:
+# https://www.reddit.com/r/haskell/comments/cl5uod/optimized_docker_builds_for_haskell/
+
+# -------------------------------------------------------------------------------------------
+FROM ubuntu:16.04 as appbase
+
+RUN apt-get update \
+  && apt-get install -y libgmp10 libpq5 libssl1.0.0 libgssapi-krb5-2 libldap-2.4-2
+
+
+# -------------------------------------------------------------------------------------------
+FROM karl-base:latest as build
+
+COPY stack.yaml /opt/build/
+
+COPY webservice /opt/build/webservice
+COPY web-lambda /opt/build/web-lambda
+COPY fetcher /opt/build/fetcher
+COPY log-postgres /opt/build/log-postgres
+COPY oneoff /opt/build/oneoff
+
+WORKDIR /opt/build
+
+RUN stack build --system-ghc
+
+RUN mv "$(stack path --local-install-root --system-ghc)/bin" /opt/build/bin
+
+# -------------------------------------------------------------------------------------------
+# Base image for stack build so compiled artifact from previous
+# stage should run
+FROM appbase as app
+
+WORKDIR /opt/app
+RUN mkdir -p /opt/app/static /data
+
+COPY static /data/static
+COPY --from=build /opt/build/bin .
+
+EXPOSE 3001
+CMD ["/opt/app/my-webapp"]
