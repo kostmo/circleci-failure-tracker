@@ -381,10 +381,9 @@ rescanCommitCallback github_config commit = do
   SqlRead.AuthConnection conn user_alias <- ask
 
   liftIO $ do
-    maybe_previously_posted_status <- SqlRead.getPostedGithubStatus
+    maybe_previously_posted_status <- runReaderT
+      (SqlRead.getPostedGithubStatus owned_repo commit)
       conn
-      owned_repo
-      commit
 
     run_result <- runExceptT $
       StatusUpdate.readGitHubStatusesAndScanAndPostSummaryForCommit

@@ -435,26 +435,27 @@ handleStatusWebhook
       [org, repo] -> Right $ DbHelpers.OwnerAndRepo org repo
       _ -> Left $ "un-parseable owner/repo text: " <> owner_repo_text
 
-    maybe_previously_posted_status <- liftIO $ do
-      conn <- DbHelpers.get_connection db_connection_data
-      SqlRead.getPostedGithubStatus
-        conn
-        owned_repo
-        sha1
+
+    synchronous_conn <- liftIO $ DbHelpers.get_connection db_connection_data
+
+    liftIO $ SqlWrite.insertReceivedGithubStatus synchronous_conn status_event
+
+    maybe_previously_posted_status <- liftIO $
+      runReaderT (SqlRead.getPostedGithubStatus owned_repo sha1) synchronous_conn
 
 
     -- On builds from the *master* branch,
-    -- we may store the *succesful* as well as the failed second-level
+    -- we may store the *successful* as well as the failed second-level
     -- build records,
     -- since the volume on the *master* branch should be relatively low.
-    is_master_commit <- liftIO $ do
-      conn <- DbHelpers.get_connection db_connection_data
-      runReaderT (SqlRead.isMasterCommit sha1) conn
+    is_master_commit <- liftIO $
+      runReaderT (SqlRead.isMasterCommit sha1) synchronous_conn
 
 
 
     let dr_ci_posting_computation = do
           conn <- DbHelpers.get_connection db_connection_data
+
           timeout buildStatusHandlerTimeoutMicroseconds $ runExceptT $
             -- When we receive a webhook notification of a "status" event from
             -- GitHub, and that status was "failure", we take a look at all of

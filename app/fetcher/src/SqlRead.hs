@@ -2396,14 +2396,17 @@ getBestPatternMatchesWhitelistedBranches pat@(ScanPatterns.PatternId pattern_id)
 
 
 getPostedGithubStatus ::
-     Connection
-  -> DbHelpers.OwnerAndRepo
+     DbHelpers.OwnerAndRepo
   -> Builds.RawCommit
-  -> IO (Maybe (Text, Text))
-getPostedGithubStatus conn (DbHelpers.OwnerAndRepo project repo) (Builds.RawCommit sha1) = do
+  -> DbIO (Maybe (Text, Text))
+getPostedGithubStatus
+    (DbHelpers.OwnerAndRepo project repo)
+    (Builds.RawCommit sha1) = do
 
-  xs <- query conn sql (sha1, project, repo)
-  return $ Safe.headMay xs
+  conn <- ask
+  liftIO $ do
+    xs <- query conn sql (sha1, project, repo)
+    return $ Safe.headMay xs
 
   where
     sql = MyUtils.qjoin [

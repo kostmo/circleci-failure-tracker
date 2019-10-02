@@ -46,6 +46,7 @@ import qualified MyUtils
 import qualified ScanPatterns
 import qualified ScanRecords
 import qualified SqlRead
+import qualified Webhooks
 
 
 sqlInsertUniversalBuild :: Query
@@ -488,6 +489,21 @@ getAndStoreCIProviders conn =
   mapM $ traverse (insertSingleCIProvider conn) . swap
 
 
+insertReceivedGithubStatus ::
+     Connection
+  -> Webhooks.GitHubStatusEvent
+  -> IO Int64
+insertReceivedGithubStatus conn (Webhooks.GitHubStatusEvent sha name description state target_url context created_at _) = do
+
+  [Only record_id] <- query conn sql (sha, name, description, state, target_url, context, created_at)
+  return record_id
+  where
+    sql = MyUtils.qjoin [
+        "INSERT INTO github_incoming_status_events(sha1, name, description, state, target_url, context, created_at)"
+      , "VALUES(?,?,?,?,?,?,?) RETURNING id;"
+      ]
+
+
 insertPostedGithubStatus ::
      Connection
   -> Builds.RawCommit
@@ -496,8 +512,8 @@ insertPostedGithubStatus ::
   -> IO Int64
 insertPostedGithubStatus conn (Builds.RawCommit git_sha1) (DbHelpers.OwnerAndRepo owner repo) (ApiPost.StatusPostResult id url state desc target_url context created_at updated_at) = do
 
-  [Only pattern_id] <- query conn sql (id, git_sha1, owner, repo, url, state, desc, target_url, context, created_at, updated_at)
-  return pattern_id
+  [Only record_id] <- query conn sql (id, git_sha1, owner, repo, url, state, desc, target_url, context, created_at, updated_at)
+  return record_id
   where
     sql = MyUtils.qjoin [
         "INSERT INTO created_github_statuses(id, sha1, project, repo, url, state, description, target_url, context, created_at, updated_at)"
