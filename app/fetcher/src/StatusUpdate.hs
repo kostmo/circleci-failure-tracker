@@ -29,6 +29,7 @@ import qualified GitHub.Data.Webhooks.Validate as GHValidate
 import qualified Network.OAuth.OAuth2          as OAuth2
 import qualified Network.URI                   as URI
 import qualified Safe
+import           System.Timeout                (timeout)
 import           Text.Read                     (readMaybe)
 import qualified Web.Scotty                    as S
 import           Web.Scotty.Internal.Types     (ActionT)
@@ -48,6 +49,11 @@ import qualified SqlWrite
 import qualified StatusEvent
 import qualified StatusEventQuery
 import qualified Webhooks
+
+
+-- | 3 minutes
+buildStatusHandlerTimeoutMicroseconds :: Int
+buildStatusHandlerTimeoutMicroseconds = 1000000 * 60 * 3
 
 
 fullMasterRefName :: Text
@@ -446,9 +452,10 @@ handleStatusWebhook
       runReaderT (SqlRead.isMasterCommit sha1) conn
 
 
+
     let dr_ci_posting_computation = do
           conn <- DbHelpers.get_connection db_connection_data
-          runExceptT $
+          timeout buildStatusHandlerTimeoutMicroseconds $ runExceptT $
             -- When we receive a webhook notification of a "status" event from
             -- GitHub, and that status was "failure", we take a look at all of
             -- the statuses for that commit, scan the build logs, and post
@@ -544,11 +551,16 @@ githubEventEndpoint connection_data github_config = do
       case event_type of
         "status" -> do
           body_json <- S.jsonData
-          will_post <- liftIO $ handleStatusWebhook connection_data (AuthConfig.personal_access_token github_config) Nothing body_json
+
+          will_post <- liftIO $ handleStatusWebhook
+            connection_data
+            (AuthConfig.personal_access_token github_config)
+            Nothing
+            body_json
+
           S.json =<< return ["Will post?" :: String, show will_post]
 
         "push" -> do
-
           body_json <- S.jsonData
 
           liftIO $ do

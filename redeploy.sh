@@ -13,14 +13,8 @@ cd $(dirname "$0")
 pushd app
 
 
-# This name is defined in stack.yaml
-DOCKER_IMAGE_NAME=circleci-failure-tracker-img-small-my-webapp
+./regenerate-deployable-docker-image.sh
 
-DOCKER_TAG_NAME=kostmo/$DOCKER_IMAGE_NAME
-
-time docker build -f Dockerfile-deploy --tag="$DOCKER_TAG_NAME" .
-
-docker push $DOCKER_TAG_NAME
 
 # This generates the "Dockerrun.aws.json" file.
 ../run.py --prod-app --dockerrun-json-output-path $AWS_DOCKERRUN_CONFIG_FILENAME

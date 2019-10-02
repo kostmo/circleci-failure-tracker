@@ -215,7 +215,7 @@ diagnoseCommitsBatch maybe_local_repo_path conn access_token owned_repo =
           repo_git_dir
           non_master_uncached_failed_commits
 
-        liftIO $ putStrLn $ unwords [
+        liftIO $ MyUtils.debugList [
             "Computed"
           , show $ length computed_commits
           , "merge bases locally, with"

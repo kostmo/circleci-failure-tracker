@@ -19,7 +19,6 @@ import           GHC.Int                            (Int64)
 import qualified JsonUtils
 
 
-
 data BenchmarkedResponse a b = BenchmarkedResponse {
     _timing  :: a
   , _content :: b

@@ -257,6 +257,8 @@ populateLatestMasterCommits ::
   -> IO (Either Text (Int64, Int64))
 populateLatestMasterCommits conn access_token owned_repo = do
 
+  MyUtils.debugStr "Populating latest master commits..."
+
   maybe_latest_known_commit <- SqlRead.getLatestKnownMasterCommit conn
 
   runExceptT $ do
@@ -273,7 +275,9 @@ populateLatestMasterCommits conn access_token owned_repo = do
 
     let fetched_commits_oldest_first = reverse fetched_commits_newest_first
 
-    commit_insertion_count <- ExceptT $ storeMasterCommits conn $ map GitHubRecords.extractCommitSha fetched_commits_oldest_first
+    commit_insertion_count <- ExceptT $ storeMasterCommits conn $
+      map GitHubRecords.extractCommitSha fetched_commits_oldest_first
+
     liftIO $ MyUtils.debugList [
           "Inserted "
         , show commit_insertion_count
