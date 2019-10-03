@@ -3,6 +3,7 @@ resolver: lts-13.27
 packages:
 - webservice
 - web-lambda 
+- eb-worker
 - fetcher
 - oneoff
   #- session-demo

@@ -489,6 +489,36 @@ getAndStoreCIProviders conn =
   mapM $ traverse (insertSingleCIProvider conn) . swap
 
 
+insertEbWorkerStart ::
+     Connection
+  -> Text -- ^ web request path
+  -> Text -- ^ label
+  -> IO Int64
+insertEbWorkerStart conn web_request_path label = do
+
+  [Only record_id] <- query conn sql (web_request_path, label)
+  return record_id
+  where
+    sql = MyUtils.qjoin [
+        "INSERT INTO lambda_logging.eb_worker_event_start(path, label)"
+      , "VALUES(?,?) RETURNING id;"
+      ]
+
+
+insertEbWorkerFinish ::
+     Connection
+  -> Int64 -- ^ label
+  -> IO ()
+insertEbWorkerFinish conn start_id = do
+  execute conn sql $ Only start_id
+  return ()
+  where
+    sql = MyUtils.qjoin [
+        "INSERT INTO lambda_logging.eb_worker_event_finish(start_id)"
+      , "VALUES(?);"
+      ]
+
+
 insertReceivedGithubStatus ::
      Connection
   -> Webhooks.GitHubStatusEvent

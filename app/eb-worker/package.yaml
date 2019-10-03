@@ -1,4 +1,4 @@
-name: webfront
+name: ebworker
 version: '0.1.0.0'
 author: Karl Ostmo
 maintainer: kostmo@gmail.com
@@ -8,7 +8,7 @@ dependencies:
 - aeson
 
 executables:
-  my-webapp:
+  beanstalk-worker:
     main: Main.hs
     source-dirs: src
     ghc-options:

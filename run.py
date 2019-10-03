@@ -40,6 +40,10 @@ def parse_args():
                         default="Dockerrun.aws.json",
                         help='Path to write Dockerrun.aws.json file')
 
+    parser.add_argument('--no-force-ssl', dest='no_force_ssl', action="store_true", help='Do not force SSL redirection in args placed into Dockerrun.aws.json')
+
+    parser.add_argument('--entrypoint', dest='entrypoint_override', help='Entrypoint binary name (excluding leading path) for Dockerrun.aws.json')
+
 
     parser.add_argument('--notification-ingester', dest='notification_ingester', action="store_true", help='Build for the notification ingester application')
 
@@ -81,10 +85,11 @@ if __name__ == "__main__":
             json.load(fh_db),
             json.load(fh_mview_db),
             personal_access_token,
-            options.notification_ingester)
+            options.notification_ingester,
+            options.no_force_ssl)
 
         if options.prod_app:
-            args_assembly.generate_dockerrun_aws_json(options.dockerrun_json, nondefault_cli_arglist)
+            args_assembly.generate_dockerrun_aws_json(options.dockerrun_json, nondefault_cli_arglist, options.entrypoint_override)
 
         else:
             os.system('find -name "*.tix" -delete')

@@ -8,7 +8,7 @@ WEBAPP_BINARY_NAME = "my-webapp"
 WEBAPP_INTERNAL_PORT = 3001
 
 
-def generate_dockerrun_aws_json(output_path, nondefault_cli_arglist):
+def generate_dockerrun_aws_json(output_path, nondefault_cli_arglist, entrypoint_override=None):
 
     json_object = {
         "AWSEBDockerrunVersion": "1",
@@ -17,10 +17,10 @@ def generate_dockerrun_aws_json(output_path, nondefault_cli_arglist):
         },
         "Ports": [
             {
-                "ContainerPort": str(WEBAPP_INTERNAL_PORT),
+                "ContainerPort": WEBAPP_INTERNAL_PORT,
             }
         ],
-        "Entrypoint": os.path.join("/opt/app", WEBAPP_BINARY_NAME),
+        "Entrypoint": os.path.join("/opt/app", entrypoint_override if entrypoint_override else WEBAPP_BINARY_NAME),
         "Command": " ".join(nondefault_cli_arglist),
     }
 
@@ -33,7 +33,8 @@ def generate_app_nondefault_cli_arglist(
         db_credentials_json,
         db_mview_credentials_json,
         personal_token,
-        is_notification_ingester):
+        is_notification_ingester,
+        no_force_ssl):
 
     arg_list = [
         "--github-client-id",
@@ -58,7 +59,7 @@ def generate_app_nondefault_cli_arglist(
         personal_token,
     ]
 
-#    if is_notification_ingester:
-#        arg_list.append("--no-ssl")
+    if no_force_ssl:
+        arg_list.append("--no-force-ssl")
 
     return arg_list

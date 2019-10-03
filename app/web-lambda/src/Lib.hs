@@ -1,19 +1,24 @@
 module Lib where
 
-import GHC.Generics
-import Data.Aeson
+import           Data.Aeson
+import           GHC.Generics
 
-import Aws.Lambda
+import           Aws.Lambda
 
 data Person = Person
   { name :: String
-  , age :: Int
-  } deriving (Generic)
+  , age  :: Int
+  } deriving (Generic, Show)
 instance FromJSON Person
 instance ToJSON Person
 
 handler :: Person -> Context -> IO (Either String Person)
-handler person context =
+handler person context = do
+  putStrLn $ unwords [
+      "Invoked handler with:"
+    , show person
+    ]
+
   if age person > 0 then
     return (Right person)
   else

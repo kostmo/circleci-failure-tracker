@@ -20,6 +20,7 @@ COPY web-lambda /opt/build/web-lambda
 COPY fetcher /opt/build/fetcher
 COPY log-postgres /opt/build/log-postgres
 COPY oneoff /opt/build/oneoff
+COPY eb-worker /opt/build/eb-worker
 
 WORKDIR /opt/build
 
@@ -39,4 +40,6 @@ COPY static /data/static
 COPY --from=build /opt/build/bin .
 
 EXPOSE 3001
+
+# This is the default entry point, but can be overridden in Dockerrun.aws.json
 CMD ["/opt/app/my-webapp"]

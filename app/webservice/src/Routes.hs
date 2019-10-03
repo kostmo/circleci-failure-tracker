@@ -13,6 +13,7 @@ import           Data.Either.Utils               (maybeToEither)
 import           Data.String                     (fromString)
 import           Data.Text                       (Text)
 import qualified Data.Text.Lazy                  as LT
+import qualified Data.Time.Clock                 as Clock
 import qualified Data.Vault.Lazy                 as Vault
 import           Log                             (LogT, localDomain)
 import           Network.Wai
@@ -79,12 +80,43 @@ scottyApp
 
   S.middleware $ gzip def
 
+
   unless (AuthConfig.no_force_ssl github_config || AuthConfig.is_local github_config) $
     S.middleware forceSSL
 
 
   -- For debugging only
   when (AuthConfig.is_local github_config) FrontendHelpers.echoEndpoint
+
+
+
+  -- XXX No forced SSL redirection on this endpoint!
+  -- (for AWS EB Worker endpoint)
+  S.post "/api/scheduled-work" $ do
+
+    liftIO $ do
+      current_time <- Clock.getCurrentTime
+      putStrLn $ unwords [
+          "Hi there at"
+        , show current_time
+        ]
+
+    S.json [("hello-post" :: Text)]
+
+
+  -- XXX No forced SSL redirection on this endpoint!
+  -- (for AWS EB Worker endpoint)
+  S.get "/api/scheduled-work" $ do
+
+    liftIO $ do
+      current_time <- Clock.getCurrentTime
+      putStrLn $ unwords [
+          "Hi there at"
+        , show current_time
+        ]
+
+    S.json [("hello-get" :: Text)]
+
 
 
   -- XXX IMPORTANT:
@@ -101,6 +133,7 @@ scottyApp
     Auth.callbackH cache github_config $ sessionInsert Auth.githubAuthTokenSessionKey
 
   S.get "/logout" $ Auth.logoutH cache
+
 
 
   S.post "/api/github-event" $ StatusUpdate.githubEventEndpoint connection_data github_config
