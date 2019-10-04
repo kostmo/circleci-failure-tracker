@@ -394,6 +394,7 @@ rescanCommitCallback github_config commit = do
         True  -- ^ store success records too
         commit
         maybe_previously_posted_status
+        True
 
     return $ first LT.toStrict $ run_result $> "Commit rescan complete."
 

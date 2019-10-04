@@ -557,6 +557,20 @@ apiDeterministicFailureModes = WebApi.ApiResponse <$> runQuery q
 
 
 -- | Note that Highcharts expects the dates to be in ascending order
+-- thus, use of reverse
+apiStatusNotificationsByHour :: DbIO (WebApi.ApiResponse (UTCTime, Int))
+apiStatusNotificationsByHour = WebApi.ApiResponse . reverse <$> runQuery q
+  where
+  q = MyUtils.qjoin [
+      "SELECT date_trunc('hour', created_at) AS hour, COUNT(*)"
+    , "FROM github_incoming_status_events"
+    , "GROUP BY hour ORDER BY hour DESC"
+    , "OFFSET 1"
+    , "LIMIT 24"
+    ]
+
+
+-- | Note that Highcharts expects the dates to be in ascending order
 apiFailedCommitsByDay :: DbIO (WebApi.ApiResponse (Day, Int))
 apiFailedCommitsByDay = WebApi.ApiResponse <$> runQuery q
   where

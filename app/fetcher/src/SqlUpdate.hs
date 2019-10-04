@@ -94,7 +94,9 @@ getBuildInfo access_token build@(Builds.UniversalBuildId build_id) = do
   liftIO $ do
     xs <- query conn sql $ Only build_id
 
-    let either_tuple = f (length matches) <$> maybeToEither (T.pack $ unwords ["Build with ID", show build_id, "not found!"]) (Safe.headMay xs)
+    let either_tuple = f (length matches) <$> maybeToEither
+          (T.pack $ unwords ["Build with ID", show build_id, "not found!"])
+          (Safe.headMay xs)
 
     runExceptT $ do
       (multi_match_count, step_container) <- except either_tuple
@@ -102,7 +104,9 @@ getBuildInfo access_token build@(Builds.UniversalBuildId build_id) = do
       let sha1 = Builds.vcs_revision $ BuildSteps.build step_container
           job_name = Builds.job_name $ BuildSteps.build step_container
 
-      (breakages_retrieval_timing, breakages) <- MyUtils.timeThisFloat $ ExceptT $ findKnownBuildBreakages conn access_token pytorchRepoOwner sha1
+      (breakages_retrieval_timing, breakages) <- MyUtils.timeThisFloat $ ExceptT $
+        findKnownBuildBreakages conn access_token pytorchRepoOwner sha1
+
       let applicable_breakages = filter (Set.member job_name . SqlRead._jobs . DbHelpers.record) breakages
 
           timing_info = BuildInfoRetrievalBenchmarks

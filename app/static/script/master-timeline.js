@@ -542,12 +542,16 @@ function top_page() {
 
 function next_page() {
 
-	const count = parseInt($('#count-input').val());
-	const old_offset = parseInt($('#offset-input').val());
+	if (document.querySelector('input[name="pagination-mode"]:checked').value == "start-by-offset") {
+		const count = parseInt($('#count-input').val());
+		const old_offset = parseInt($('#offset-input').val());
 
-	$('#offset-input').val(old_offset + count);
+		$('#offset-input').val(old_offset + count);
 
-	update_url_from_form();
+		update_url_from_form();
+	} else {
+		alert("TODO: Only implemented in offset mode")
+	}
 }
 
 

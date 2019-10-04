@@ -280,40 +280,27 @@ getBuildsFromGithub
     is_not_my_own_context = (/= myAppStatusContext) . LT.toStrict . StatusEventQuery._context
 
 
--- | Operations:
--- * Filter out the CircleCI builds
--- * Check if the builds have been scanned yet.
--- * Scan each CircleCI build that needs to be scanned.
--- * For each match, check if that match's pattern is tagged as "flaky".
-readGitHubStatusesAndScanAndPostSummaryForCommit ::
+scanAndPost ::
      Connection
   -> OAuth2.AccessToken
   -> Maybe AuthStages.Username -- ^ scan initiator
-  -> DbHelpers.OwnerAndRepo
-  -> Bool -- ^ should store second-level build records for "success" status
-  -> Builds.RawCommit
   -> Maybe (Text, Text)
+  -> [Builds.UniversalBuildId]
+  -> DbHelpers.OwnerAndRepo
+  -> Builds.RawCommit
+  -> Int
+  -> Int
   -> ExceptT LT.Text IO ()
-readGitHubStatusesAndScanAndPostSummaryForCommit
+scanAndPost
     conn
     access_token
     maybe_initiator
+    maybe_previously_posted_status
+    scannable_build_numbers
     owned_repo
-    should_store_second_level_success_records
     sha1
-    maybe_previously_posted_status = do
-
-  liftIO $ do
-    current_time <- Clock.getCurrentTime
-    MyUtils.debugList ["Processing at", show current_time]
-
-  (scannable_build_numbers, circleci_failcount, known_broken_circle_build_count) <-
-    getBuildsFromGithub
-      conn
-      access_token
-      owned_repo
-      should_store_second_level_success_records
-      sha1
+    known_broken_circle_build_count
+    circleci_failcount = do
 
 
   builds_with_flaky_pattern_matches <- liftIO $ do
@@ -364,6 +351,56 @@ readGitHubStatusesAndScanAndPostSummaryForCommit
     Just previous_state_description_tuple ->
       when (previous_state_description_tuple /= new_state_description_tuple)
         post_and_store
+
+
+-- | Operations:
+-- * Filter out the CircleCI builds
+-- * Check if the builds have been scanned yet.
+-- * Scan each CircleCI build that needs to be scanned.
+-- * For each match, check if that match's pattern is tagged as "flaky".
+readGitHubStatusesAndScanAndPostSummaryForCommit ::
+     Connection
+  -> OAuth2.AccessToken
+  -> Maybe AuthStages.Username -- ^ scan initiator
+  -> DbHelpers.OwnerAndRepo
+  -> Bool -- ^ should store second-level build records for "success" status
+  -> Builds.RawCommit
+  -> Maybe (Text, Text)
+  -> Bool
+  -> ExceptT LT.Text IO ()
+readGitHubStatusesAndScanAndPostSummaryForCommit
+    conn
+    access_token
+    maybe_initiator
+    owned_repo
+    should_store_second_level_success_records
+    sha1
+    maybe_previously_posted_status
+    should_scan = do
+
+  liftIO $ do
+    current_time <- Clock.getCurrentTime
+    MyUtils.debugList ["Processing at", show current_time]
+
+  (scannable_build_numbers, circleci_failcount, known_broken_circle_build_count) <-
+    getBuildsFromGithub
+      conn
+      access_token
+      owned_repo
+      should_store_second_level_success_records
+      sha1
+
+  when should_scan $
+   scanAndPost
+    conn
+    access_token
+    maybe_initiator
+    maybe_previously_posted_status
+    scannable_build_numbers
+    owned_repo
+    sha1
+    known_broken_circle_build_count
+    circleci_failcount
 
 
 handlePushWebhook ::
@@ -475,6 +512,9 @@ handleStatusWebhook
               is_master_commit
               sha1
               maybe_previously_posted_status
+              -- FIXME Disabled for now for load issues
+              False
+
           return ()
 
 

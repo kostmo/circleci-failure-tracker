@@ -12,7 +12,6 @@ import           Data.Time.Format          (defaultTimeLocale,
 import           GHC.Int                   (Int64)
 import           Log                       (LogT)
 import           Network.Wai
-import           Text.Read                 (readMaybe)
 import qualified Web.Scotty                as S
 import qualified Web.Scotty.Internal.Types as ScottyTypes
 

@@ -176,6 +176,9 @@ scottyApp
   get "/api/latest-master-commit-with-metadata" $
     pure $ WebApi.toJsonEither <$> SqlRead.getLatestMasterCommitWithMetadata
 
+  get "/api/status-notifications-by-hour" $
+    pure SqlRead.apiStatusNotificationsByHour
+
   get "/api/status-posted-commits-by-day" $
     pure SqlRead.apiStatusPostedCommitsByDay
 
