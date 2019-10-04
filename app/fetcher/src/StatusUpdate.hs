@@ -56,9 +56,10 @@ buildStatusHandlerTimeoutMicroseconds :: Int
 buildStatusHandlerTimeoutMicroseconds = 1000000 * 60 * 3
 
 
--- | 1 minute
+-- | This is short so we don't
+-- clog up the database with backed up requests
 scanningStatementTimeoutSeconds :: Integer
-scanningStatementTimeoutSeconds = 60
+scanningStatementTimeoutSeconds = 20
 
 
 fullMasterRefName :: Text

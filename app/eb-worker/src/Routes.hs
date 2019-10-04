@@ -75,7 +75,6 @@ wrapWithDbDurationRecords connection_data func = do
 
   func start_id
 
-
   liftIO $ do
     conn <- DbHelpers.getConnectionWithStatementTimeout connection_data statementTimeoutSeconds
     SqlWrite.insertEbWorkerFinish conn start_id
