@@ -7,7 +7,8 @@ import           Data.Text                 (Text)
 import qualified Data.Text                 as T
 import qualified Data.Text.Lazy            as LT
 import           Data.Time                 (parseTimeM)
-import           Data.Time.Format          (defaultTimeLocale, rfc822DateFormat)
+import           Data.Time.Format          (defaultTimeLocale,
+                                            iso8601DateFormat)
 import           GHC.Int                   (Int64)
 import           Log                       (LogT)
 import           Network.Wai
@@ -57,10 +58,11 @@ wrapWithDbDurationRecords connection_data func = do
     ]
 
 
-  let maybe_cron_headers = SqlWrite.BeanstalkCronHeaders
+  let maybe_parsed_time = parseTimeM False defaultTimeLocale (iso8601DateFormat (Just "%H:%M:%S")) . init . LT.unpack =<< maybe_scheduled_at
+      maybe_cron_headers = SqlWrite.BeanstalkCronHeaders
        <$> maybe_task_name
-       <*> (parseTimeM False defaultTimeLocale rfc822DateFormat . LT.unpack =<< maybe_scheduled_at)
-       <*> (readMaybe . LT.unpack =<< maybe_sender_id)
+       <*> maybe_parsed_time
+       <*> maybe_sender_id
 
   start_id <- liftIO $ do
     putStrLn "Starting timed database operation..."

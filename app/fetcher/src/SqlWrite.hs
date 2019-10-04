@@ -500,7 +500,7 @@ getAndStoreCIProviders conn =
 data BeanstalkCronHeaders = BeanstalkCronHeaders {
     task_name    :: TL.Text
   , scheduled_at :: UTCTime
-  , sender_id    :: Integer
+  , sender_id    :: TL.Text
   } deriving Show
 
 
