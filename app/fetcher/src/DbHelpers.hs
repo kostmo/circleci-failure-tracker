@@ -1,4 +1,5 @@
-{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveGeneric     #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module DbHelpers where
 
@@ -107,6 +108,29 @@ as_tuple = db_id &&& record
 
 to_dict :: [WithId a] -> HashMap Int64 a
 to_dict = HashMap.fromList . map as_tuple
+
+
+
+setSessionStatementTimeout ::
+     Connection
+  -> Integer -- ^ seconds
+  -> IO ()
+setSessionStatementTimeout conn seconds = do
+  execute conn sql $ Only milliseconds
+  return ()
+  where
+    milliseconds = seconds * 1000
+    sql = "SET SESSION statement_timeout = ?;"
+
+
+getConnectionWithStatementTimeout ::
+     DbConnectionData
+  -> Integer
+  -> IO Connection
+getConnectionWithStatementTimeout conn_data timeout_seconds = do
+  conn <- get_connection conn_data
+  setSessionStatementTimeout conn timeout_seconds
+  return conn
 
 
 get_connection :: DbConnectionData -> IO Connection

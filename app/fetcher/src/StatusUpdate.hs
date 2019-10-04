@@ -56,6 +56,11 @@ buildStatusHandlerTimeoutMicroseconds :: Int
 buildStatusHandlerTimeoutMicroseconds = 1000000 * 60 * 3
 
 
+-- | 1 minute
+scanningStatementTimeoutSeconds :: Integer
+scanningStatementTimeoutSeconds = 60
+
+
 fullMasterRefName :: Text
 fullMasterRefName = "refs/heads/" <> Builds.masterName
 
@@ -312,8 +317,8 @@ readGitHubStatusesAndScanAndPostSummaryForCommit
 
   builds_with_flaky_pattern_matches <- liftIO $ do
 
-
     scan_resources <- Scanning.prepareScanResources conn maybe_initiator
+    DbHelpers.setSessionStatementTimeout conn scanningStatementTimeoutSeconds
 
     scan_matches <- Scanning.scanBuilds
       scan_resources

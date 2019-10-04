@@ -13,6 +13,9 @@ import qualified Network.OAuth.OAuth2                            as OAuth2
 import           Network.Wai.Session.ClientSession               (clientsessionStore)
 import           Options.Applicative
 import           System.Environment                              (lookupEnv)
+import           System.IO                                       (BufferMode (LineBuffering),
+                                                                  hSetBuffering,
+                                                                  stdout)
 import           Text.Read                                       (readMaybe)
 import qualified Text.URI                                        as URI
 import           Web.ClientSession                               (getDefaultKey)
@@ -69,6 +72,8 @@ getPostgresLoggingUri info = do
 
 mainAppCode :: CommandLineArgs -> IO ()
 mainAppCode args = do
+
+  hSetBuffering stdout LineBuffering
 
   maybe_envar_port <- lookupEnv "PORT"
   let prt = Maybe.fromMaybe (serverPort args) $ readMaybe =<< maybe_envar_port

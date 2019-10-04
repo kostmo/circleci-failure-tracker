@@ -59,6 +59,7 @@ mainAppCode args = do
 
   BuildRetrieval.updateCircleCIBuildsList
     conn
+    Nothing
     BuildRetrieval.Completed
     0
     (branchName args)

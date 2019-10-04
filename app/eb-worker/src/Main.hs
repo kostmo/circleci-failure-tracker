@@ -3,25 +3,24 @@
 import qualified Data.Maybe                                      as Maybe
 import           Data.Text                                       (Text)
 import qualified Data.Text                                       as T
-import qualified Data.Vault.Lazy                                 as Vault
 import           Database.PostgreSQL.PQTypes.Internal.Connection (ConnectionSettings (ConnectionSettings),
                                                                   simpleSource,
                                                                   unConnectionSource)
 import           Log.Backend.PostgreSQL                          (withPgLogger)
 import           Log.Monad                                       (runLogT)
 import qualified Network.OAuth.OAuth2                            as OAuth2
-import           Network.Wai.Session.ClientSession               (clientsessionStore)
 import           Options.Applicative
 import           System.Environment                              (lookupEnv)
+import           System.IO                                       (BufferMode (LineBuffering),
+                                                                  hSetBuffering,
+                                                                  stdout)
 import           Text.Read                                       (readMaybe)
 import qualified Text.URI                                        as URI
-import           Web.ClientSession                               (getDefaultKey)
 import qualified Web.Scotty                                      as S
 
 import qualified AuthConfig
 import qualified DbHelpers
 import qualified Routes
-import qualified Session
 
 
 data CommandLineArgs = NewCommandLineArgs {
@@ -69,6 +68,8 @@ getPostgresLoggingUri info = do
 
 mainAppCode :: CommandLineArgs -> IO ()
 mainAppCode args = do
+
+  hSetBuffering stdout LineBuffering
 
   maybe_envar_port <- lookupEnv "PORT"
   let prt = Maybe.fromMaybe (serverPort args) $ readMaybe =<< maybe_envar_port

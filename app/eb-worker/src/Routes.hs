@@ -2,47 +2,29 @@
 
 module Routes where
 
-import           Control.Monad                   (unless, when)
-import           Control.Monad.IO.Class          (liftIO)
-import           Control.Monad.Trans.Except      (ExceptT (ExceptT), except,
-                                                  runExceptT)
-import           Control.Monad.Trans.Reader      (runReaderT)
-import           Data.Aeson                      (ToJSON)
-import           Data.Default                    (def)
-import           Data.Either.Utils               (maybeToEither)
-import           Data.String                     (fromString)
-import           Data.Text                       (Text)
-import qualified Data.Text                       as T
-import qualified Data.Text.Lazy                  as LT
-import qualified Data.Time.Clock                 as Clock
-import qualified Data.Vault.Lazy                 as Vault
-import           Log                             (LogT, localDomain)
+import           Control.Monad.IO.Class    (liftIO)
+import           Data.Text                 (Text)
+import qualified Data.Text                 as T
+import qualified Data.Text.Lazy            as LT
+import           Data.Time                 (parseTimeM)
+import           Data.Time.Format          (defaultTimeLocale, rfc822DateFormat)
+import           GHC.Int                   (Int64)
+import           Log                       (LogT)
 import           Network.Wai
-import           Network.Wai.Log                 (logRequestsWith)
-import           Network.Wai.Middleware.ForceSSL (forceSSL)
-import           Network.Wai.Middleware.Gzip     (gzip)
-import           Network.Wai.Middleware.Static   hiding ((<|>))
-import           Network.Wai.Session             (Session, SessionStore,
-                                                  withSession)
-import           System.FilePath
-import qualified Web.Scotty                      as S
-import qualified Web.Scotty.Internal.Types       as ScottyTypes
+import           Text.Read                 (readMaybe)
+import qualified Web.Scotty                as S
+import qualified Web.Scotty.Internal.Types as ScottyTypes
 
 import qualified AuthConfig
-import qualified AuthStages
-import qualified Builds
+import qualified BuildRetrieval
 import qualified DbHelpers
-import qualified GitRev
-import qualified JsonUtils
-import qualified MatchOccurrences
-import qualified Scanning
-import qualified ScanPatterns
-import qualified SqlRead
-import qualified SqlUpdate
+import qualified MyUtils
 import qualified SqlWrite
-import qualified StatusUpdate
-import qualified Types
-import qualified WebApi
+
+
+-- | 2 minutes
+statementTimeoutSeconds :: Integer
+statementTimeoutSeconds = 120
 
 
 data SetupData = SetupData {
@@ -53,11 +35,49 @@ data SetupData = SetupData {
   }
 
 
-data PersistenceData = PersistenceData {
-    _setup_cache   :: Types.CacheStore
-  , _setup_session :: Vault.Key (Session IO String String)
-  , _setup_store   :: SessionStore IO String String
-  }
+wrapWithDbDurationRecords ::
+     DbHelpers.DbConnectionData
+  -> (Int64 -> ScottyTypes.ActionT LT.Text IO ())
+  -> ScottyTypes.ActionT LT.Text IO ()
+wrapWithDbDurationRecords connection_data func = do
+  rq <- S.request
+  let path_string = T.intercalate "/" $ pathInfo rq
+
+  maybe_task_name <- S.header "X-Aws-Sqsd-Taskname"
+  maybe_scheduled_at <- S.header "X-Aws-Sqsd-Scheduled-At"
+  maybe_sender_id <- S.header "X-Aws-Sqsd-Sender-Id"
+
+  liftIO $ MyUtils.debugList [
+      "KARL -- maybe_task_name:"
+    , show maybe_task_name
+    , "maybe_scheduled_at:"
+    , show maybe_scheduled_at
+    , "maybe_sender_id:"
+    , show maybe_sender_id
+    ]
+
+
+  let maybe_cron_headers = SqlWrite.BeanstalkCronHeaders
+       <$> maybe_task_name
+       <*> (parseTimeM False defaultTimeLocale rfc822DateFormat . LT.unpack =<< maybe_scheduled_at)
+       <*> (readMaybe . LT.unpack =<< maybe_sender_id)
+
+  start_id <- liftIO $ do
+    putStrLn "Starting timed database operation..."
+    conn <- DbHelpers.getConnectionWithStatementTimeout connection_data statementTimeoutSeconds
+    SqlWrite.insertEbWorkerStart
+      conn
+      path_string
+      "scanning builds"
+      maybe_cron_headers
+
+  func start_id
+
+
+  liftIO $ do
+    conn <- DbHelpers.getConnectionWithStatementTimeout connection_data statementTimeoutSeconds
+    SqlWrite.insertEbWorkerFinish conn start_id
+    putStrLn "Finished timed database operation..."
 
 
 scottyApp ::
@@ -71,17 +91,42 @@ scottyApp
 
   S.post "/worker/scheduled-work" $ do
 
-    rq <- S.request
-    let path_string = T.intercalate "/" $ pathInfo rq
+    wrapWithDbDurationRecords connection_data $ \eb_worker_event_id -> do
+
+      liftIO $ do
+
+        putStrLn "Starting CircleCI build retrieval..."
+
+        conn <- DbHelpers.getConnectionWithStatementTimeout connection_data statementTimeoutSeconds
+
+        BuildRetrieval.updateCircleCIBuildsList
+          conn
+          (Just eb_worker_event_id)
+          BuildRetrieval.Completed
+          0
+          ["master"]
+          100000
+
+        putStrLn "Finished CircleCI build retrieval."
 
 
-    start_id <- liftIO $ do
-      conn <- DbHelpers.get_connection connection_data
-      SqlWrite.insertEbWorkerStart conn path_string "scanning builds"
+      S.json [("hello-post" :: Text)]
 
 
-    S.json [("hello-post" :: Text)]
 
-    liftIO $ do
-      conn <- DbHelpers.get_connection connection_data
-      SqlWrite.insertEbWorkerFinish conn start_id
+  S.post "/worker/update-pr-associations" $ do
+
+    wrapWithDbDurationRecords connection_data $ \eb_worker_event_id -> do
+
+      liftIO $ do
+
+        putStrLn "Starting PR association retrieval..."
+
+        conn <- DbHelpers.getConnectionWithStatementTimeout connection_data statementTimeoutSeconds
+        putStrLn "TODO: Doing nothing because we don't have a Git repo!"
+
+        putStrLn "Finished association retrieval."
+
+
+      S.json [("hello-post" :: Text)]
+

@@ -342,9 +342,15 @@ storeCircleCiBuildsList ::
      Connection
   -> UTCTime -- ^ fetch initiation time
   -> Text -- ^ branch name
+  -> Maybe Int64 -- ^ EB worker event ID
   -> [(Builds.Build, Bool)]
   -> IO Int64
-storeCircleCiBuildsList conn fetch_initiation_timestamp branch_name builds_list_with_possible_duplicates = do
+storeCircleCiBuildsList
+    conn
+    fetch_initiation_timestamp
+    branch_name
+    maybe_eb_worker_event_id
+    builds_list_with_possible_duplicates = do
 
   universal_build_insertion_output_rows <- returning
     conn
@@ -364,7 +370,8 @@ storeCircleCiBuildsList conn fetch_initiation_timestamp branch_name builds_list_
   ci_scan_id <- runReaderT (storeScanRecord
     SqlRead.circleCIProviderIndex
     branch_name
-    fetch_initiation_timestamp) conn
+    fetch_initiation_timestamp
+    maybe_eb_worker_event_id) conn
 
   storeBuildsList conn (Just ci_scan_id) zipped_output2
 
@@ -413,13 +420,14 @@ storeScanRecord ::
      Int64 -- ^ provider ID
   -> Text -- ^ branch filter
   -> UTCTime -- ^ scan initiation time
+  -> Maybe Int64 -- ^ EB worker event ID
   -> SqlRead.DbIO Int64
-storeScanRecord provider_id branch_filter initiated_at = do
+storeScanRecord provider_id branch_filter initiated_at maybe_eb_worker_event_id = do
   conn <- ask
-  [Only new_id] <- liftIO $ query conn sql (provider_id, branch_filter, initiated_at)
+  [Only new_id] <- liftIO $ query conn sql (provider_id, branch_filter, initiated_at, maybe_eb_worker_event_id)
   return new_id
   where
-    sql = "INSERT INTO ci_provider_build_scans(provider, branch_filter, initiated_at) VALUES(?,?,?) RETURNING id;"
+    sql = "INSERT INTO ci_provider_build_scans(provider, branch_filter, initiated_at, eb_worker_event) VALUES(?,?,?,?) RETURNING id;"
 
 
 storeMatches ::
@@ -489,19 +497,34 @@ getAndStoreCIProviders conn =
   mapM $ traverse (insertSingleCIProvider conn) . swap
 
 
+data BeanstalkCronHeaders = BeanstalkCronHeaders {
+    task_name    :: TL.Text
+  , scheduled_at :: UTCTime
+  , sender_id    :: Integer
+  } deriving Show
+
+
 insertEbWorkerStart ::
      Connection
   -> Text -- ^ web request path
   -> Text -- ^ label
+  -> Maybe BeanstalkCronHeaders
   -> IO Int64
-insertEbWorkerStart conn web_request_path label = do
+insertEbWorkerStart conn web_request_path label maybe_beanstalk_headers = do
 
-  [Only record_id] <- query conn sql (web_request_path, label)
+  [Only record_id] <- query conn sql (
+      web_request_path
+    , label
+    , task_name <$> maybe_beanstalk_headers
+    , scheduled_at <$> maybe_beanstalk_headers
+    , sender_id <$> maybe_beanstalk_headers
+    )
+
   return record_id
   where
     sql = MyUtils.qjoin [
-        "INSERT INTO lambda_logging.eb_worker_event_start(path, label)"
-      , "VALUES(?,?) RETURNING id;"
+        "INSERT INTO lambda_logging.eb_worker_event_start(path, label, task_name, scheduled_at, sender_id)"
+      , "VALUES(?,?,?,?,?) RETURNING id;"
       ]
 
 

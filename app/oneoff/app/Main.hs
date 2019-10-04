@@ -1,23 +1,16 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-import           Control.Monad.Trans.Except (runExceptT)
-import           Control.Monad.Trans.Reader (runReaderT)
-import           Data.Text                  (Text)
-import           Data.Traversable           (for)
-import qualified Network.OAuth.OAuth2       as OAuth2
+import           Data.Text            (Text)
+import qualified Network.OAuth.OAuth2 as OAuth2
 import           Options.Applicative
-
 import           System.IO
 
 import qualified Constants
 import qualified DbHelpers
 import qualified DbPreparation
-import qualified MyUtils
 import qualified Scanning
-import qualified SqlRead
 import qualified SqlUpdate
 import qualified SqlWrite
-import qualified StatusUpdate
 
 
 data CommandLineArgs = NewCommandLineArgs {
@@ -72,12 +65,6 @@ mainAppCode args = do
   -}
 
 
-
-
-  {-
-  build_failure_result <- Scanning.getCircleCIFailedBuildInfo scan_resources $ Builds.NewBuildNumber 2340371
-  putStrLn $ "Build failure retrieval result: " ++ show build_failure_result
-  -}
 
 
   {-

@@ -1,5 +1,10 @@
 version: 1
 cron:
- - name: "EB worker master polling every 3 minutes"
+ - name: "EB worker master polling every 5 minutes"
    url: "/worker/scheduled-work"
-   schedule: "*/3 * * * *"
+   schedule: "*/5 * * * *"
+ - name: "EB worker master polling every 2 hours"
+   url: "/worker/update-pr-associations"
+   schedule: "17 */2 * * *"
+
+

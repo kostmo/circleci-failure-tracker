@@ -60,6 +60,7 @@ toOutcomeString x = case x of
 -- and assumes all the builds are failed builds
 updateCircleCIBuildsList ::
      Connection
+  -> Maybe Int64 -- ^ EB worker event ID
   -> CircleCIFetchFilter
   -> Int -- ^ starting offset
   -> [String]
@@ -67,6 +68,7 @@ updateCircleCIBuildsList ::
   -> IO Int64
 updateCircleCIBuildsList
     conn
+    maybe_eb_worker_event_id
     status_filter
     starting_offset
     branch_names
@@ -107,6 +109,7 @@ updateCircleCIBuildsList
       conn
       fetch_initiation_timestamp
       (T.pack branch_name)
+      maybe_eb_worker_event_id
       build_list
 
   return $ sum insertion_counts
