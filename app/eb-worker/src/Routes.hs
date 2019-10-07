@@ -200,7 +200,6 @@ doStuff connection_data body_json = do
     ]
 
 
-
   either_deletion_count <- runReaderT (SqlWrite.deleteSha1QueuePlaceholder commit_sha1) conn
 
   MyUtils.debugList [

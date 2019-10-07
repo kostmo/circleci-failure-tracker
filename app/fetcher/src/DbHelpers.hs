@@ -110,7 +110,6 @@ to_dict :: [WithId a] -> HashMap Int64 a
 to_dict = HashMap.fromList . map as_tuple
 
 
-
 setSessionStatementTimeout ::
      Connection
   -> Integer -- ^ seconds

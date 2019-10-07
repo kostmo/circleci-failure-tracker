@@ -41,6 +41,10 @@ checkboxIsTrue :: Text -> Bool
 checkboxIsTrue = (== ("true" :: Text))
 
 
+apiGetSqlTimeoutSeconds :: Integer
+apiGetSqlTimeoutSeconds = 3 * 60
+
+
 data MutablePatternParms = MutablePatternParms {
     pat_is_nondeterminisitc :: Bool
   , pat_description         :: Text
@@ -180,7 +184,7 @@ jsonDbGet connection_data endpoint_path f =
 
   S.get endpoint_path $ S.json =<< run_with_connection =<< f
   where
-    wrapped_connection = liftIO $ DbHelpers.get_connection connection_data
+    wrapped_connection = liftIO $ DbHelpers.getConnectionWithStatementTimeout connection_data apiGetSqlTimeoutSeconds
     run_with_connection = liftIO . (=<< wrapped_connection) . runReaderT
 
 
