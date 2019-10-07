@@ -648,7 +648,7 @@ ALTER TABLE public.global_builds OWNER TO postgres;
 --
 
 CREATE VIEW public.builds_deduped WITH (security_barrier='false') AS
- SELECT global_builds.build_number AS build_num,
+ SELECT DISTINCT ON (global_builds.provider, global_builds.job_name, global_builds.vcs_revision) global_builds.build_number AS build_num,
     global_builds.vcs_revision,
     global_builds.queued_at,
     global_builds.job_name,
@@ -656,19 +656,13 @@ CREATE VIEW public.builds_deduped WITH (security_barrier='false') AS
     global_builds.succeeded,
     global_builds.started_at,
     global_builds.finished_at,
-    foo.rebuild_count,
+    count(*) OVER (PARTITION BY global_builds.provider, global_builds.job_name, global_builds.vcs_revision) AS rebuild_count,
     global_builds.global_build_num AS global_build,
     global_builds.provider,
     global_builds.build_namespace,
     global_builds.ci_provider_scan
-   FROM (( SELECT global_builds_1.provider,
-            global_builds_1.job_name,
-            global_builds_1.vcs_revision,
-            max(global_builds_1.global_build_num) AS global_build_num,
-            count(*) AS rebuild_count
-           FROM public.global_builds global_builds_1
-          GROUP BY global_builds_1.provider, global_builds_1.job_name, global_builds_1.vcs_revision) foo
-     JOIN public.global_builds ON ((foo.global_build_num = global_builds.global_build_num)));
+   FROM public.global_builds
+  ORDER BY global_builds.provider, global_builds.job_name, global_builds.vcs_revision, global_builds.global_build_num DESC;
 
 
 ALTER TABLE public.builds_deduped OWNER TO postgres;
@@ -677,7 +671,9 @@ ALTER TABLE public.builds_deduped OWNER TO postgres;
 -- Name: VIEW builds_deduped; Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON VIEW public.builds_deduped IS 'NOTE: Using "GROUP BY" on the unique columns plus a JOIN on the original table is *much* more efficient than DISTINCT ON the unique columns.';
+COMMENT ON VIEW public.builds_deduped IS 'NOTE: Using "GROUP BY" on the unique columns plus a JOIN on the original table is more efficient than DISTINCT ON the unique columns for computing the *complete* list of builds.
+
+However, for downstream queries (which do not use the complete list of builds, e.g. "matches_for_build" and ""best_pattern_match_for_builds for a specific revision), DISTINCT ON seems to have an advantage.';
 
 
 --
