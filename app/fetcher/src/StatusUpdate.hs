@@ -580,6 +580,7 @@ genFlakinessStatus ::
   -> Int -- ^ total failure count
   -> StatusEvent.GitHubStatusEventSetter
 genFlakinessStatus (Builds.RawCommit sha1) flaky_count pre_broken_count total_failcount =
+
   StatusEvent.GitHubStatusEventSetter
     description
     status_string

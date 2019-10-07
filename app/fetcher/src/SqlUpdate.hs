@@ -162,7 +162,15 @@ countRevisionBuilds access_token git_revision = do
 
   (row_retrieval_time, rows) <- MyUtils.timeThisFloat $ liftIO $ query conn aggregate_causes_sql only_commit
 
-  liftIO $ runExceptT $ do
+  liftIO $ do
+
+   MyUtils.debugList [
+        "SQL to execute:"
+      , show aggregate_causes_sql
+      ]
+
+   runExceptT $ do
+
 
     let err = T.pack $ unwords [
             "No entries in"
@@ -171,26 +179,50 @@ countRevisionBuilds access_token git_revision = do
           , T.unpack $ GitRev.sha1 git_revision
           ]
 
-    (total, idiopathic, timeout, known_broken, pattern_matched, pattern_matched_other, flaky, pattern_unmatched, succeeded) <- except $ maybeToEither err $ Safe.headMay rows
+    (
+        total
+      , idiopathic
+      , timeout
+      , known_broken
+      , pattern_matched
+      , pattern_matched_other
+      , flaky
+      , pattern_unmatched
+      , succeeded
+      ) <- except $ maybeToEither err $ Safe.headMay rows
 
-    (known_broken_determination_time, breakages) <- MyUtils.timeThisFloat $ ExceptT $ findKnownBuildBreakages conn access_token pytorchRepoOwner $ Builds.RawCommit sha1
+    (known_broken_determination_time, breakages) <- MyUtils.timeThisFloat $ ExceptT $
+      findKnownBuildBreakages conn access_token pytorchRepoOwner $ Builds.RawCommit sha1
 
-    return $ DbHelpers.BenchmarkedResponse (RevisionBuildCountBenchmarks row_retrieval_time known_broken_determination_time) $ NewCommitInfo breakages $ NewCommitInfoCounts
-      (total - succeeded)
-      timeout
-      pattern_matched
-      flaky
-      pattern_matched_other
-      idiopathic
-      pattern_unmatched
-      known_broken
+    return $ DbHelpers.BenchmarkedResponse
+      (RevisionBuildCountBenchmarks row_retrieval_time known_broken_determination_time) $
+        NewCommitInfo breakages $ NewCommitInfoCounts
+          (total - succeeded)
+          timeout
+          pattern_matched
+          flaky
+          pattern_matched_other
+          idiopathic
+          pattern_unmatched
+          known_broken
 
   where
     sha1 = GitRev.sha1 git_revision
     only_commit = Only sha1
 
     aggregate_causes_sql = MyUtils.qjoin [
-        "SELECT total, idiopathic, timeout, known_broken, pattern_matched, pattern_matched_other, flaky, pattern_unmatched, succeeded"
+        "SELECT"
+      , MyUtils.qlist [
+          "total"
+        , "idiopathic"
+        , "timeout"
+        , "known_broken"
+        , "pattern_matched"
+        , "pattern_matched_other"
+        , "flaky"
+        , "pattern_unmatched"
+        , "succeeded"
+        ]
       , "FROM build_failure_disjoint_causes_by_commit"
       , "WHERE sha1 = ? LIMIT 1;"
       ]

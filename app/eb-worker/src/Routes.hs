@@ -165,7 +165,10 @@ scottyApp
     S.json ["hello-post" :: Text]
 
 
-doStuff :: DbHelpers.DbConnectionData -> SqsBuildScanMessage -> IO ()
+doStuff ::
+     DbHelpers.DbConnectionData
+  -> SqsBuildScanMessage
+  -> IO ()
 doStuff connection_data body_json = do
 
   MyUtils.debugList [
@@ -189,15 +192,28 @@ doStuff connection_data body_json = do
     ]
 
 
-  -- TODO Replace with scanAndPost
-  first_scan_matches <- Scanning.processUnvisitedBuilds
+  -- TODO Replace with scanAndPost?
+  scan_matches <- Scanning.processUnvisitedBuilds
     scan_resources
     universal_builds
+
+  -- TODO FIXME
+  {-
+  postCommitSummaryStatus
+    conn
+    access_token
+    owned_repo
+    maybe_previously_posted_status
+    circleci_failcount
+    known_broken_circle_build_count
+    sha1
+    scan_matches
+  --}
 
 
   MyUtils.debugList [
       "Scan match count:"
-    , show $ length first_scan_matches
+    , show $ length scan_matches
     ]
 
 

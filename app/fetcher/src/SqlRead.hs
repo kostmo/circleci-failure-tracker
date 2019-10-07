@@ -1242,12 +1242,6 @@ getRevisionBuilds ::
 getRevisionBuilds git_revision = do
   conn <- ask
 
-
-  liftIO $ do
-    putStrLn "SQL string:"
-    putStrLn $ show sql
-
-
   (timing, content) <- MyUtils.timeThisFloat $ liftIO $ query conn sql $ Only $ GitRev.sha1 git_revision
   return $ DbHelpers.BenchmarkedResponse timing content
   where

@@ -79,7 +79,6 @@ scottyApp
 
   S.middleware $ gzip def
 
-
   unless (AuthConfig.no_force_ssl github_config || AuthConfig.is_local github_config) $
     S.middleware forceSSL
 
@@ -377,7 +376,9 @@ scottyApp
       conn <- DbHelpers.get_connection connection_data
       runExceptT $ do
         sha1 <- except $ GitRev.validateSha1 commit_sha1_text
-        ExceptT $ runReaderT (SqlUpdate.countRevisionBuilds (AuthConfig.personal_access_token github_config) sha1) conn
+        ExceptT $ runReaderT
+          (SqlUpdate.countRevisionBuilds (AuthConfig.personal_access_token github_config) sha1)
+          conn
 
     S.json $ WebApi.toJsonEither json_result
 
@@ -408,7 +409,6 @@ scottyApp
       runReaderT (SqlRead.apiNewPatternTest (Builds.UniversalBuildId buildnum) new_pattern) conn
     S.json $ WebApi.toJsonEither x
 
-  -- Access-controlled GET endpoint
   S.get "/api/view-log-context" $
     FrontendHelpers.jsonAuthorizedDbInteract connection_data session github_config $
       SqlRead.logContextFunc

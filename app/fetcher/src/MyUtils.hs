@@ -16,9 +16,11 @@ import           System.Clock
 
 import qualified Constants
 
+
 -- | Join SQL queries with interspersed spaces
 qjoin :: [Query] -> Query
 qjoin = mconcat . intersperse " "
+
 
 -- | Comma-separated entities
 qlist :: [Query] -> Query
