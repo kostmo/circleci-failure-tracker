@@ -302,62 +302,84 @@ scanAndPost
     known_broken_circle_build_count
     circleci_failcount = do
 
-
-  builds_with_flaky_pattern_matches <- liftIO $ do
+  scan_matches <- liftIO $ do
 
     scan_resources <- Scanning.prepareScanResources conn maybe_initiator
     DbHelpers.setSessionStatementTimeout conn scanningStatementTimeoutSeconds
 
-    scan_matches <- Scanning.scanBuilds
+    Scanning.scanBuilds
       scan_resources
       False -- do not attempt to revisit previously scanned builds for new patterns
       False -- do not re-download log
       (Left $ Set.fromList scannable_build_numbers)
 
-    -- TODO - we should instead see if the "best matching pattern" is
-    -- flaky, rather than checking if *any* matching pattern is a
-    -- "flaky" pattern.
-    let flaky_predicate = any (ScanPatterns.is_flaky . DbHelpers.record . ScanPatterns.scanned_pattern) . snd
-        builds_with_flaky_pattern_matches = filter flaky_predicate scan_matches
-    return builds_with_flaky_pattern_matches
+  postCommitSummaryStatus
+    conn
+    access_token
+    owned_repo
+    maybe_previously_posted_status
+    circleci_failcount
+    known_broken_circle_build_count
+    sha1
+    scan_matches
 
-  let flaky_count = length builds_with_flaky_pattern_matches
-      status_setter_data = genFlakinessStatus
-        sha1
-        flaky_count
-        known_broken_circle_build_count
-        circleci_failcount
 
-      new_state_description_tuple = (
-          LT.toStrict $ StatusEvent._state status_setter_data
-        , LT.toStrict $ StatusEvent._description status_setter_data
-        )
-
-  -- We're examining statuses on both failed and successful build notifications, which can add
-  -- up to a lot of activity.
-  -- We only should re-post our summary status if it will change what was already posted,
-  -- since we don't want GitHub to throttle our requests.
-
-  let post_and_store = do
-        post_result <- ExceptT $ ApiPost.postCommitStatus
-          access_token
-          owned_repo
-          sha1
-          status_setter_data
-
-        liftIO $ SqlWrite.insertPostedGithubStatus
-          conn
-          sha1
-          owned_repo
-          post_result
-
-        return ()
+postCommitSummaryStatus
+    conn
+    access_token
+    owned_repo
+    maybe_previously_posted_status
+    circleci_failcount
+    known_broken_circle_build_count
+    sha1
+    scan_matches =
 
   case maybe_previously_posted_status of
     Nothing -> when (circleci_failcount > 0) post_and_store
     Just previous_state_description_tuple ->
       when (previous_state_description_tuple /= new_state_description_tuple)
         post_and_store
+
+  where
+
+  -- TODO - we should instead see if the "best matching pattern" is
+  -- flaky, rather than checking if *any* matching pattern is a
+  -- "flaky" pattern.
+  -- See Issue #63
+  flaky_predicate = any (ScanPatterns.is_flaky . DbHelpers.record . ScanPatterns.scanned_pattern) . snd
+  builds_with_flaky_pattern_matches = filter flaky_predicate scan_matches
+
+  flaky_count = length builds_with_flaky_pattern_matches
+  status_setter_data = genFlakinessStatus
+    sha1
+    flaky_count
+    known_broken_circle_build_count
+    circleci_failcount
+
+  new_state_description_tuple = (
+      LT.toStrict $ StatusEvent._state status_setter_data
+    , LT.toStrict $ StatusEvent._description status_setter_data
+    )
+
+  -- We're examining statuses on both failed and successful build notifications, which can add
+  -- up to a lot of activity.
+  -- We only should re-post our summary status if it will change what was already posted,
+  -- since we don't want GitHub to throttle our requests.
+
+  post_and_store = do
+    post_result <- ExceptT $ ApiPost.postCommitStatus
+      access_token
+      owned_repo
+      sha1
+      status_setter_data
+
+    liftIO $ SqlWrite.insertPostedGithubStatus
+      conn
+      sha1
+      owned_repo
+      post_result
+
+    return ()
 
 
 -- | Operations:

@@ -189,6 +189,7 @@ doStuff connection_data body_json = do
     ]
 
 
+  -- TODO Replace with scanAndPost
   first_scan_matches <- Scanning.processUnvisitedBuilds
     scan_resources
     universal_builds
