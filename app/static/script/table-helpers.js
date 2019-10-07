@@ -28,7 +28,7 @@ function renderLogLineTableWithOffset(table_items, matched_line_number, context_
 		const one_based_line_number = zero_based_line_number + 1;
 
 		const repackaged_row = [
-			render_tag("div", one_based_line_number, {"class": "line-number"}),
+			one_based_line_number,
 			row[1],
 		];
 		
@@ -44,7 +44,7 @@ function renderLogLineTableWithOffset(table_items, matched_line_number, context_
 		content += render_tag("tr", row_content, attrs);
 	}
 
-	return render_tag("table", render_tag("tbody", content));
+	return render_tag("table", render_tag("tbody", content), {"class": "console-lines"});
 }
 
 

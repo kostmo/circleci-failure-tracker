@@ -32,9 +32,29 @@ body {
 table {border-collapse: collapse;}
 td, th {padding: 0.3em;}
 
-table.codelines th, td {padding: 0.1em; vertical-align: top;}
-.line-number {background-color: #eef}
+
+table.console-lines th, td {
+	padding: 0.15em;
+        padding-left: 0.3em;
+        padding-right: 0.3em;
+	vertical-align: top;
+	color: #445870;
+}
+
+
 .hidden-preloaded-log-line {display: none;}
+
+
+table.console-lines td:first-child {
+    color: #aaa;
+    font-family: monospace;
+    border-right-width: 2px !important;
+    border-right-color: #86e159 !important;
+    border-right-style: solid !important;
+}
+
+
+
 
 .noborder {border: none;}
 
