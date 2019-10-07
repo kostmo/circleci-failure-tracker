@@ -385,9 +385,6 @@ rescanCommitCallback github_config commit = do
   SqlRead.AuthConnection conn user_alias <- ask
 
   liftIO $ do
-    maybe_previously_posted_status <- runReaderT
-      (SqlRead.getPostedGithubStatus owned_repo commit)
-      conn
 
     run_result <- runExceptT $
       StatusUpdate.readGitHubStatusesAndScanAndPostSummaryForCommit
@@ -397,7 +394,6 @@ rescanCommitCallback github_config commit = do
         owned_repo
         True  -- ^ store success records too
         commit
-        maybe_previously_posted_status
         True
 
     return $ first LT.toStrict $ run_result $> "Commit rescan complete."

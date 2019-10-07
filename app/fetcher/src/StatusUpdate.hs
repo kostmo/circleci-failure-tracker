@@ -4,6 +4,7 @@ module StatusUpdate (
     githubEventEndpoint
   , readGitHubStatusesAndScanAndPostSummaryForCommit
   , getBuildsFromGithub
+  , postCommitSummaryStatus
   ) where
 
 import           Control.Concurrent            (forkIO)
@@ -284,23 +285,17 @@ scanAndPost ::
      Connection
   -> OAuth2.AccessToken
   -> Maybe AuthStages.Username -- ^ scan initiator
-  -> Maybe (Text, Text)
   -> [Builds.UniversalBuildId]
   -> DbHelpers.OwnerAndRepo
   -> Builds.RawCommit
-  -> Int
-  -> Int
   -> ExceptT LT.Text IO ()
 scanAndPost
     conn
     access_token
     maybe_initiator
-    maybe_previously_posted_status
     scannable_build_numbers
     owned_repo
-    sha1
-    known_broken_circle_build_count
-    circleci_failcount = do
+    sha1 = do
 
   scan_matches <- liftIO $ do
 
@@ -317,22 +312,50 @@ scanAndPost
     conn
     access_token
     owned_repo
-    maybe_previously_posted_status
-    circleci_failcount
-    known_broken_circle_build_count
     sha1
     scan_matches
 
 
+postCommitSummaryStatus ::
+     Connection
+  -> OAuth2.AccessToken
+  -> DbHelpers.OwnerAndRepo
+  -> Builds.RawCommit
+  -> [(a, [ScanPatterns.ScanMatch])]
+  -> ExceptT LT.Text IO ()
 postCommitSummaryStatus
     conn
     access_token
     owned_repo
-    maybe_previously_posted_status
+    sha1
+    scan_matches = do
+
+  basic_revision_stats <- ExceptT $ runReaderT (SqlRead.getNonPatternMatchRevisionStats sha1) conn
+
+  let (SqlRead.BasicRevisionBuildStats _ _ _ known_broken_circle_build_count _ circleci_failcount) = basic_revision_stats
+
+  postCommitSummaryStatusInner
     circleci_failcount
     known_broken_circle_build_count
+    conn
+    access_token
+    owned_repo
     sha1
-    scan_matches =
+    scan_matches
+
+
+postCommitSummaryStatusInner
+    circleci_failcount
+    known_broken_circle_build_count
+    conn
+    access_token
+    owned_repo
+    sha1
+    scan_matches = do
+
+  maybe_previously_posted_status <- liftIO $
+    runReaderT (SqlRead.getPostedGithubStatus owned_repo sha1) conn
+
 
   case maybe_previously_posted_status of
     Nothing -> when (circleci_failcount > 0) post_and_store
@@ -394,7 +417,6 @@ readGitHubStatusesAndScanAndPostSummaryForCommit ::
   -> DbHelpers.OwnerAndRepo
   -> Bool -- ^ should store second-level build records for "success" status
   -> Builds.RawCommit
-  -> Maybe (Text, Text)
   -> Bool
   -> ExceptT LT.Text IO ()
 readGitHubStatusesAndScanAndPostSummaryForCommit
@@ -404,14 +426,13 @@ readGitHubStatusesAndScanAndPostSummaryForCommit
     owned_repo
     should_store_second_level_success_records
     sha1
-    maybe_previously_posted_status
     should_scan = do
 
   liftIO $ do
     current_time <- Clock.getCurrentTime
     MyUtils.debugList ["Processing at", show current_time]
 
-  (scannable_build_numbers, circleci_failcount, known_broken_circle_build_count) <-
+  (scannable_build_numbers, _circleci_failcount, _known_broken_circle_build_count) <-
     getBuildsFromGithub
       conn
       access_token
@@ -424,12 +445,9 @@ readGitHubStatusesAndScanAndPostSummaryForCommit
     conn
     access_token
     maybe_initiator
-    maybe_previously_posted_status
     scannable_build_numbers
     owned_repo
     sha1
-    known_broken_circle_build_count
-    circleci_failcount
 
 
 handlePushWebhook ::
@@ -540,8 +558,7 @@ handleStatusWebhook
               owned_repo
               is_master_commit
               sha1
-              maybe_previously_posted_status
-              -- FIXME Disabled for now for load issues
+              -- FIXME Disabled for now due to load issues
               False
 
           return ()

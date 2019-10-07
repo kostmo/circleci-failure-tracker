@@ -4,6 +4,7 @@
 module Routes where
 
 import           Control.Monad.IO.Class     (liftIO)
+import           Control.Monad.Trans.Except (runExceptT)
 import           Control.Monad.Trans.Reader (runReaderT)
 import           Data.Aeson                 (FromJSON, ToJSON)
 import           Data.Text                  (Text)
@@ -15,6 +16,7 @@ import           Data.Time.Format           (defaultTimeLocale,
 import           GHC.Generics               (Generic)
 import           GHC.Int                    (Int64)
 import           Log                        (LogT)
+import qualified Network.OAuth.OAuth2       as OAuth2
 import           Network.Wai
 import qualified Web.Scotty                 as S
 import qualified Web.Scotty.Internal.Types  as ScottyTypes
@@ -22,17 +24,18 @@ import qualified Web.Scotty.Internal.Types  as ScottyTypes
 import qualified AuthConfig
 import qualified BuildRetrieval
 import qualified Builds
+import qualified Constants
 import qualified DbHelpers
 import qualified MyUtils
 import qualified Scanning
 import qualified SqlRead
 import qualified SqlWrite
+import qualified StatusUpdate
 
 
 -- | 2 minutes
 statementTimeoutSeconds :: Integer
 statementTimeoutSeconds = 120
-
 
 
 data SqsBuildScanMessage = SqsBuildScanMessage {
@@ -127,9 +130,7 @@ scottyApp
 
         putStrLn "Finished CircleCI build retrieval."
 
-
       S.json ["hello-post" :: Text]
-
 
 
   S.post "/worker/update-pr-associations" $ do
@@ -160,16 +161,26 @@ scottyApp
 
     wrapWithDbDurationRecords connection_data $ \_ -> do
 
-      liftIO $ doStuff connection_data body_json
+      liftIO $ doStuff
+        connection_data
+        (AuthConfig.personal_access_token github_config)
+        (DbHelpers.OwnerAndRepo Constants.project_name Constants.repo_name)
+        body_json
 
     S.json ["hello-post" :: Text]
 
 
 doStuff ::
      DbHelpers.DbConnectionData
+  -> OAuth2.AccessToken
+  -> DbHelpers.OwnerAndRepo
   -> SqsBuildScanMessage
   -> IO ()
-doStuff connection_data body_json = do
+doStuff
+    connection_data
+    access_token
+    owned_repo
+    body_json = do
 
   MyUtils.debugList [
       "Starting sha1 scan of"
@@ -192,23 +203,17 @@ doStuff connection_data body_json = do
     ]
 
 
-  -- TODO Replace with scanAndPost?
+  -- TODO Replace this pair of functions with scanAndPost?
   scan_matches <- Scanning.processUnvisitedBuilds
     scan_resources
     universal_builds
 
-  -- TODO FIXME
-  {-
-  postCommitSummaryStatus
+  runExceptT $ StatusUpdate.postCommitSummaryStatus
     conn
     access_token
     owned_repo
-    maybe_previously_posted_status
-    circleci_failcount
-    known_broken_circle_build_count
-    sha1
+    commit_sha1
     scan_matches
-  --}
 
 
   MyUtils.debugList [

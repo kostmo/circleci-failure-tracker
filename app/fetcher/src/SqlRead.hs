@@ -1235,6 +1235,50 @@ instance FromRow CommitBuilds.CommitBuild where
       provider_with_id
 
 
+-- | Excludes pattern match aggregate counts since they (for now)
+-- are more expensive to compute
+data BasicRevisionBuildStats = BasicRevisionBuildStats {
+    _total        :: Int
+  , _idiopathic   :: Int
+  , _timeout      :: Int
+  , _known_broken :: Int
+  , _succeeded    :: Int
+  , _failed       :: Int
+  } deriving (Generic, FromRow)
+
+
+-- | This is almost redundant with the existing "build_failure_disjoint_causes_by_commit"
+-- view but is re-implemented here to allow filtering by provider
+getNonPatternMatchRevisionStats ::
+     Builds.RawCommit
+  -> DbIO (Either LT.Text BasicRevisionBuildStats)
+getNonPatternMatchRevisionStats (Builds.RawCommit sha1) = do
+  conn <- ask
+  liftIO $ maybeToEither err . Safe.headMay <$> query conn sql (sha1, SqlRead.circleCIProviderIndex)
+  where
+    err = LT.unwords [
+        "No match for commit"
+      , LT.fromStrict sha1
+      ]
+
+    sql = MyUtils.qjoin [
+        "SELECT"
+      , MyUtils.qlist [
+          "count(build_failure_causes_disjoint.vcs_revision) AS total"
+        , "COALESCE(sum(build_failure_causes_disjoint.is_idiopathic::integer), 0::bigint) AS idiopathic"
+        , "COALESCE(sum(build_failure_causes_disjoint.is_timeout::integer), 0::bigint) AS timeout"
+        , "COALESCE(sum(build_failure_causes_disjoint.is_known_broken::integer), 0::bigint) AS known_broken"
+        , "COALESCE(sum(build_failure_causes_disjoint.succeeded::integer), 0::bigint) AS succeeded"
+        , "count(build_failure_causes_disjoint.vcs_revision) - COALESCE(sum(build_failure_causes_disjoint.succeeded::integer), 0::bigint) AS failed"
+        ]
+      , "FROM build_failure_causes_disjoint"
+      , "WHERE build_failure_causes_disjoint.vcs_revision = ?"
+      , "AND provider = ?"
+      , "GROUP BY build_failure_causes_disjoint.vcs_revision"
+      , "LIMIT 1"
+      ]
+
+
 -- | For commit-details page
 getRevisionBuilds ::
      GitRev.GitSha1

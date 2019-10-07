@@ -94,10 +94,12 @@ if __name__ == "__main__":
         else:
             os.system('find -name "*.tix" -delete')
 
+            binary_name = options.entrypoint_override if options.entrypoint_override else args_assembly.WEBAPP_BINARY_NAME
+ 
             cli_args = [
                    "stack",
                    "run",
-                   args_assembly.WEBAPP_BINARY_NAME,
+                   binary_name,
                    "--",
                    "--local",
                    "--data-path",
