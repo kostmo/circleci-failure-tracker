@@ -30,7 +30,6 @@ def view_refresh_lambda_handler(event, context):
         Return doc: https://docs.aws.amazon.com/apigateway/latest/developerguide/set-up-lambda-proxy-integrations.html
     """
 
-
     view_names = event["view-names"]
     payload = update_multiple_views(view_names, "lambda")
 
@@ -81,12 +80,10 @@ def run(view_name, trigger_source):
 
     with conn.cursor() as cur:
 
-        cur.execute('SET SESSION lock_timeout = 3000;')
-        cur.execute('SET SESSION statement_timeout = %d;' % (1000*60*30)) # 30 minutes
-
+        cur.execute('SET SESSION lock_timeout = 3000;')  # 3 seconds
+        cur.execute('SET SESSION statement_timeout = %d;' % (1000*60*30))  # 30 minutes
 
         print("Refresh begins now...")
-
 
         start = timer()
 
@@ -98,7 +95,6 @@ def run(view_name, trigger_source):
         execution_seconds = end - start
 
         print("Refresh completed in ", execution_seconds, "seconds")
-
 
         cur.execute('INSERT INTO lambda_logging.materialized_view_refresh_events (view_name, execution_duration_seconds, event_source) VALUES (%s, %s, %s);', (view_name, execution_seconds, trigger_source))
         conn.commit()

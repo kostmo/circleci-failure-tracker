@@ -606,6 +606,16 @@ deleteCodeBreakage cause_id = do
     sql = "DELETE FROM code_breakage_cause WHERE id = ?;"
 
 
+deleteSha1QueuePlaceholder ::
+     Builds.RawCommit
+  -> SqlRead.DbIO (Either Text Int64)
+deleteSha1QueuePlaceholder (Builds.RawCommit sha1) = do
+  conn <- ask
+  liftIO $ Right <$> execute conn sql (Only sha1)
+  where
+    sql = "DELETE FROM work_queues.queued_sha1_scans WHERE sha1 = ?;"
+
+
 deleteCodeBreakageJob ::
      Int64
   -> Text

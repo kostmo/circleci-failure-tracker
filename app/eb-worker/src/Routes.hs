@@ -1,30 +1,48 @@
+{-# LANGUAGE DeriveGeneric     #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Routes where
 
-import           Control.Monad.IO.Class    (liftIO)
-import           Data.Text                 (Text)
-import qualified Data.Text                 as T
-import qualified Data.Text.Lazy            as LT
-import           Data.Time                 (parseTimeM)
-import           Data.Time.Format          (defaultTimeLocale,
-                                            iso8601DateFormat)
-import           GHC.Int                   (Int64)
-import           Log                       (LogT)
+import           Control.Monad.IO.Class     (liftIO)
+import           Control.Monad.Trans.Reader (runReaderT)
+import           Data.Aeson                 (FromJSON, ToJSON)
+import           Data.Text                  (Text)
+import qualified Data.Text                  as T
+import qualified Data.Text.Lazy             as LT
+import           Data.Time                  (parseTimeM)
+import           Data.Time.Format           (defaultTimeLocale,
+                                             iso8601DateFormat)
+import           GHC.Generics               (Generic)
+import           GHC.Int                    (Int64)
+import           Log                        (LogT)
 import           Network.Wai
-import qualified Web.Scotty                as S
-import qualified Web.Scotty.Internal.Types as ScottyTypes
+import qualified Web.Scotty                 as S
+import qualified Web.Scotty.Internal.Types  as ScottyTypes
 
 import qualified AuthConfig
 import qualified BuildRetrieval
+import qualified Builds
 import qualified DbHelpers
 import qualified MyUtils
+import qualified Scanning
+import qualified SqlRead
 import qualified SqlWrite
 
 
 -- | 2 minutes
 statementTimeoutSeconds :: Integer
 statementTimeoutSeconds = 120
+
+
+
+data SqsBuildScanMessage = SqsBuildScanMessage {
+    sha1 :: Text
+  , msg  :: Text
+  } deriving (Show, Generic)
+
+instance ToJSON SqsBuildScanMessage
+instance FromJSON SqsBuildScanMessage
+
 
 
 data SetupData = SetupData {
@@ -110,13 +128,13 @@ scottyApp
         putStrLn "Finished CircleCI build retrieval."
 
 
-      S.json [("hello-post" :: Text)]
+      S.json ["hello-post" :: Text]
 
 
 
   S.post "/worker/update-pr-associations" $ do
 
-    wrapWithDbDurationRecords connection_data $ \eb_worker_event_id -> do
+    wrapWithDbDurationRecords connection_data $ \_eb_worker_event_id -> do
 
       liftIO $ do
 
@@ -128,5 +146,74 @@ scottyApp
         putStrLn "Finished association retrieval."
 
 
-      S.json [("hello-post" :: Text)]
+      S.json ["hello-post" :: Text]
+
+
+  S.post "/worker/scan-sha1" $ do
+
+    liftIO $ MyUtils.debugList [
+        "Posted to:"
+      , "/worker/scan-sha1"
+      ]
+
+    body_json <- S.jsonData
+
+    wrapWithDbDurationRecords connection_data $ \_ -> do
+
+      liftIO $ doStuff connection_data body_json
+
+    S.json ["hello-post" :: Text]
+
+
+doStuff :: DbHelpers.DbConnectionData -> SqsBuildScanMessage -> IO ()
+doStuff connection_data body_json = do
+
+  MyUtils.debugList [
+      "Starting sha1 scan of"
+    , show commit_sha1
+    ]
+
+  conn <- DbHelpers.getConnectionWithStatementTimeout
+    connection_data
+    statementTimeoutSeconds
+
+  scan_resources <- Scanning.prepareScanResources conn Nothing
+
+  universal_builds <- runReaderT
+    (SqlRead.getUnvisitedBuildsForSha1 commit_sha1)
+    conn
+
+  MyUtils.debugList [
+      "Unvisited build IDs:"
+    , show $ map DbHelpers.db_id universal_builds
+    ]
+
+
+  first_scan_matches <- Scanning.processUnvisitedBuilds
+    scan_resources
+    universal_builds
+
+
+  MyUtils.debugList [
+      "Scan match count:"
+    , show $ length first_scan_matches
+    ]
+
+
+
+  either_deletion_count <- runReaderT (SqlWrite.deleteSha1QueuePlaceholder commit_sha1) conn
+
+  MyUtils.debugList [
+      "Removed"
+    , show either_deletion_count
+    , "sha1's from queue"
+    ]
+
+  putStrLn "Finished sha1 scan."
+
+  where
+    commit_sha1 = Builds.RawCommit $ sha1 body_json
+
+
+
 

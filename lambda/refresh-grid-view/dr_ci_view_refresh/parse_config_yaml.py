@@ -35,9 +35,7 @@ def view_refresh_lambda_handler(event, context):
         Return doc: https://docs.aws.amazon.com/apigateway/latest/developerguide/set-up-lambda-proxy-integrations.html
     """
 
-
-    view_names = event["view-names"]
-    payload = update_multiple_views(view_names, "lambda")
+    payload = run()
 
     return {
         "statusCode": 200,
@@ -92,7 +90,7 @@ def populate_config_info(cur, commit_sha1, build_number):
                 jobs_insertion_values.append((workflow_id, job_name))
 
             insert_query = 'INSERT INTO circleci_workflow_jobs (workflow, job_name) VALUES %s'
-            psycopg2.extras.execute_values (
+            psycopg2.extras.execute_values(
                 cur, insert_query, jobs_insertion_values, template=None, page_size=100
             )
 
@@ -116,6 +114,7 @@ def run():
         rows = cur1.fetchall()
 
         enumerated_rows = list(enumerate(rows))
+
         def single_commit_populator(args_tuple):
             (i, (commit_sha1, build_number)) = args_tuple
             print("%d/%d: Populating CircleCI config for commit %s..." % (i + 1, len(enumerated_rows), commit_sha1))
@@ -125,7 +124,6 @@ def run():
 
         p = ThreadPool(2)
         p.map(single_commit_populator, enumerated_rows)
-
 
     conn.commit()
 

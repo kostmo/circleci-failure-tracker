@@ -310,7 +310,7 @@ scanAndPost
 
     scan_matches <- Scanning.scanBuilds
       scan_resources
-      True
+      False -- do not attempt to revisit previously scanned builds for new patterns
       False -- do not re-download log
       (Left $ Set.fromList scannable_build_numbers)
 
@@ -322,9 +322,16 @@ scanAndPost
     return builds_with_flaky_pattern_matches
 
   let flaky_count = length builds_with_flaky_pattern_matches
-      status_setter_data = genFlakinessStatus sha1 flaky_count known_broken_circle_build_count circleci_failcount
+      status_setter_data = genFlakinessStatus
+        sha1
+        flaky_count
+        known_broken_circle_build_count
+        circleci_failcount
 
-      new_state_description_tuple = (LT.toStrict $ StatusEvent._state status_setter_data, LT.toStrict $ StatusEvent._description status_setter_data)
+      new_state_description_tuple = (
+          LT.toStrict $ StatusEvent._state status_setter_data
+        , LT.toStrict $ StatusEvent._description status_setter_data
+        )
 
   -- We're examining statuses on both failed and successful build notifications, which can add
   -- up to a lot of activity.

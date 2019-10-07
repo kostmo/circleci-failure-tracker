@@ -24,6 +24,20 @@ Resources:
             Path: /hello
             Method: get
 
+  EnqueSQSBuildScansFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: dr_ci_view_refresh/
+      Handler: build_scan_enqueing.enqueue_sha1_scans_lambda_handler
+      Runtime: python3.7
+      Events:
+        HelloWorld:
+          Type: Api
+          Properties:
+            Path: /enqueue-sha1-scans
+            Method: get
+
+
 Outputs:
   # ServerlessRestApi is an implicit API created out of Events key under Serverless::Function
   # Find out more about other implicit resources you can reference within SAM

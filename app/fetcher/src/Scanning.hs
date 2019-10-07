@@ -44,16 +44,25 @@ import qualified SqlWrite
 -- | Stores scan results to database and returns them.
 scanBuilds ::
      ScanRecords.ScanCatchupResources
-  -> Bool -- ^ revisit
-  -> Bool -- ^ refetch logs
+  -> Bool
+     -- ^ revisit builds that may have been
+     -- scanned before new patterns were introduced
+  -> Bool
+     -- ^ refetch logs
   -> Either (Set Builds.UniversalBuildId) Int
   -> IO [(DbHelpers.WithId Builds.UniversalBuild, [ScanPatterns.ScanMatch])]
-scanBuilds scan_resources revisit refetch_logs whitelisted_builds_or_fetch_count = do
+scanBuilds
+    scan_resources
+    revisit
+    refetch_logs
+    whitelisted_builds_or_fetch_count = do
 
   rescan_matches <- if revisit
     then do
       visited_builds_list <- case whitelisted_builds_or_fetch_count of
-        Left whitelisted_build_ids -> SqlRead.getRevisitableWhitelistedBuilds conn $ Set.toAscList whitelisted_build_ids
+        Left whitelisted_build_ids -> SqlRead.getRevisitableWhitelistedBuilds
+          conn
+          (Set.toAscList whitelisted_build_ids)
         Right _ -> SqlRead.getRevisitableBuilds conn
       let whitelisted_visited = visited_filter visited_builds_list
       rescanVisitedBuilds

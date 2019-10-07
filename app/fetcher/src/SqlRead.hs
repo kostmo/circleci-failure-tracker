@@ -152,6 +152,34 @@ getUnvisitedBuildIds conn maybe_limit = do
     sql = unlimited_sql <> " LIMIT ?;"
 
 
+-- | Only searches for CircleCI builds
+getUnvisitedBuildsForSha1 ::
+     Builds.RawCommit
+  -> DbIO [DbHelpers.WithId Builds.UniversalBuild]
+getUnvisitedBuildsForSha1 (Builds.RawCommit sha1) = do
+  conn <- ask
+  liftIO $ do
+    rows <- query conn sql (circleCIProviderIndex, sha1)
+    return $ map f rows
+  where
+    f (universal_build_id, provider_buildnum, provider_id, build_namespace, succeeded, sha1) = DbHelpers.WithId universal_build_id $ Builds.UniversalBuild
+      (Builds.NewBuildNumber provider_buildnum)
+      provider_id
+      build_namespace
+      succeeded
+      (Builds.RawCommit sha1)
+
+
+    sql = MyUtils.qjoin [
+        "SELECT universal_build_id, build_num, provider, build_namespace, succeeded, commit_sha1"
+      , "FROM unvisited_builds"
+      , "WHERE provider = ?"
+      , "AND commit_sha1 = ?"
+      , "AND NOT succeeded"
+      , "ORDER BY universal_build_id DESC"
+      ]
+
+
 -- | TODO Use this
 lookupUniversalBuildFromProviderBuild ::
      Connection
@@ -231,7 +259,8 @@ getRevisitableWhitelistedBuilds ::
   -> IO [(Builds.BuildStepId, Text, DbHelpers.WithId Builds.UniversalBuild, [Int64])]
 getRevisitableWhitelistedBuilds conn universal_build_ids = do
   putStrLn $ unwords ["Inside", "getRevisitableWhitelistedBuilds"]
-  map common_xform <$> query conn sql (Only $ In $ map (\(Builds.UniversalBuildId x) -> x) universal_build_ids)
+  map common_xform <$> query conn sql
+    (Only $ In $ map (\(Builds.UniversalBuildId x) -> x) universal_build_ids)
   where
     sql = MyUtils.qjoin [
         "SELECT unscanned_patterns_delimited, step_id, step_name, universal_build, build_num, provider, build_namespace, succeeded, vcs_revision"
