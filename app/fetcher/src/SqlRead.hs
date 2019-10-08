@@ -1757,11 +1757,15 @@ getScheduledJobNames = listFlat sql
 
 
 data MasterJobCoverage = MasterJobCoverage {
-    _commit_id         :: Int64
-  , _sha1              :: Builds.RawCommit
-  , _missing_job_count :: Int
-  , _missing_jobs      :: Text
-  , _commit_timestamp  :: UTCTime
+    _commit_id                        :: Int64
+  , _sha1                             :: Builds.RawCommit
+  , _total_required_commit_job_count  :: Int
+  , _not_succeeded_required_job_count :: Int
+  , _unbuilt_required_job_count       :: Int
+  , _failed_required_build_count      :: Int
+  , _disqualifying_jobs               :: Text
+  , _commit_timestamp                 :: UTCTime
+  , _age_hours                        :: Double
   } deriving (FromRow, Generic)
 
 instance ToJSON MasterJobCoverage where
@@ -1777,17 +1781,19 @@ apiCleanestMasterCommits missing_threshold = do
         "SELECT"
       , MyUtils.qlist [
           "commit_id"
-        , "commit_metadata.sha1"
-        , "missing_job_count"
-        , "missing_jobs"
+        , "sha1"
+        , "total_required_commit_job_count"
+        , "not_succeeded_required_job_count"
+        , "unbuilt_required_job_count"
+        , "not_succeeded_required_job_count - unbuilt_required_job_count AS failed_required_build_count"
+        , "disqualifying_jobs"
         , "committer_date"
+        , "age_hours"
         ]
       , "FROM master_commit_job_success_completeness_mview"
-      , "JOIN commit_metadata ON commit_metadata.sha1 = master_commit_job_success_completeness_mview.sha1"
-      , "WHERE missing_job_count <= ?"
+      , "WHERE not_succeeded_required_job_count <= ? AND not_succeeded_required_job_count = unbuilt_required_job_count"
       , "ORDER BY"
       , MyUtils.qlist [
---          "missing_job_count ASC"
           "commit_id DESC"
         ]
       ]
