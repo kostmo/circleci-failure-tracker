@@ -621,6 +621,104 @@ The "ci_provider_scan" field is optional; it can link a build record back to the
 
 
 --
+-- Name: circleci_expanded_config_yaml_hashes_by_commit; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.circleci_expanded_config_yaml_hashes_by_commit (
+    commit_sha1 character(40) NOT NULL,
+    repo_yaml_sha1 character(40),
+    inserted_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+ALTER TABLE public.circleci_expanded_config_yaml_hashes_by_commit OWNER TO postgres;
+
+--
+-- Name: TABLE circleci_expanded_config_yaml_hashes_by_commit; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.circleci_expanded_config_yaml_hashes_by_commit IS 'This is for performance and space efficiency; the config.yml file doesn''t change every commit, so we only store every unique version.
+
+Allowed only for commits on the master branch.';
+
+
+--
+-- Name: circleci_job_branch_filters; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.circleci_job_branch_filters (
+    workflow integer NOT NULL,
+    job_name text NOT NULL,
+    branch text NOT NULL,
+    filter_include boolean
+);
+
+
+ALTER TABLE public.circleci_job_branch_filters OWNER TO postgres;
+
+--
+-- Name: circleci_workflow_jobs; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.circleci_workflow_jobs (
+    job_name text NOT NULL,
+    workflow integer NOT NULL
+);
+
+
+ALTER TABLE public.circleci_workflow_jobs OWNER TO postgres;
+
+--
+-- Name: circleci_workflow_schedules; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.circleci_workflow_schedules (
+    workflow integer NOT NULL,
+    cron_schedule text NOT NULL
+);
+
+
+ALTER TABLE public.circleci_workflow_schedules OWNER TO postgres;
+
+--
+-- Name: circleci_workflows_by_yaml_file; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.circleci_workflows_by_yaml_file (
+    yaml_content_sha1 character(40) NOT NULL,
+    name text NOT NULL,
+    id integer NOT NULL,
+    inserted_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+ALTER TABLE public.circleci_workflows_by_yaml_file OWNER TO postgres;
+
+--
+-- Name: TABLE circleci_workflows_by_yaml_file; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.circleci_workflows_by_yaml_file IS 'CircleCI config.yml files are identified uniquely by the SHA1 of their contents in the Git repo.';
+
+
+--
+-- Name: master_commit_circleci_scheduled_job_discrimination; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_commit_circleci_scheduled_job_discrimination AS
+ SELECT circleci_workflow_jobs.job_name,
+    circleci_expanded_config_yaml_hashes_by_commit.commit_sha1,
+    ((circleci_workflow_schedules.cron_schedule IS NOT NULL) OR COALESCE(((circleci_job_branch_filters.branch = 'nightly'::text) AND circleci_job_branch_filters.filter_include), false)) AS is_scheduled
+   FROM ((((public.circleci_workflow_jobs
+     JOIN public.circleci_workflows_by_yaml_file ON ((circleci_workflows_by_yaml_file.id = circleci_workflow_jobs.workflow)))
+     JOIN public.circleci_expanded_config_yaml_hashes_by_commit ON ((circleci_expanded_config_yaml_hashes_by_commit.repo_yaml_sha1 = circleci_workflows_by_yaml_file.yaml_content_sha1)))
+     LEFT JOIN public.circleci_workflow_schedules ON ((circleci_workflows_by_yaml_file.id = circleci_workflow_schedules.workflow)))
+     LEFT JOIN public.circleci_job_branch_filters ON (((circleci_workflows_by_yaml_file.id = circleci_job_branch_filters.workflow) AND (circleci_workflow_jobs.job_name = circleci_job_branch_filters.job_name))));
+
+
+ALTER TABLE public.master_commit_circleci_scheduled_job_discrimination OWNER TO postgres;
+
+--
 -- Name: global_builds; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -636,9 +734,11 @@ CREATE VIEW public.global_builds WITH (security_barrier='false') AS
     builds.started_at,
     builds.finished_at,
     universal_builds.provider,
-    builds.ci_provider_scan
-   FROM (public.universal_builds
-     JOIN public.builds ON ((builds.global_build_num = universal_builds.id)));
+    builds.ci_provider_scan,
+    master_commit_circleci_scheduled_job_discrimination.is_scheduled AS maybe_is_scheduled
+   FROM ((public.universal_builds
+     JOIN public.builds ON ((builds.global_build_num = universal_builds.id)))
+     LEFT JOIN public.master_commit_circleci_scheduled_job_discrimination ON (((builds.job_name = master_commit_circleci_scheduled_job_discrimination.job_name) AND (universal_builds.commit_sha1 = master_commit_circleci_scheduled_job_discrimination.commit_sha1))));
 
 
 ALTER TABLE public.global_builds OWNER TO postgres;
@@ -1220,7 +1320,8 @@ CREATE VIEW public.build_failure_causes_disjoint WITH (security_barrier='false')
     (build_failure_causes.is_matched AND (NOT build_failure_causes.is_known_broken)) AS is_matched,
     build_failure_causes.rebuild_count,
     build_failure_causes.global_build,
-    (build_failure_causes.is_matched AND (NOT build_failure_causes.is_known_broken) AND (NOT build_failure_causes.is_flaky)) AS is_matched_other
+    (build_failure_causes.is_matched AND (NOT build_failure_causes.is_known_broken) AND (NOT build_failure_causes.is_flaky)) AS is_matched_other,
+    build_failure_causes.provider
    FROM public.build_failure_causes;
 
 
@@ -1420,56 +1521,18 @@ ALTER SEQUENCE public.ci_providers_id_seq OWNED BY public.ci_providers.id;
 
 
 --
--- Name: circleci_job_branch_filters; Type: TABLE; Schema: public; Owner: postgres
+-- Name: circleci_config_yaml_hashes; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE TABLE public.circleci_job_branch_filters (
-    workflow integer NOT NULL,
-    job_name text NOT NULL,
-    branch text NOT NULL,
-    filter_include boolean
-);
-
-
-ALTER TABLE public.circleci_job_branch_filters OWNER TO postgres;
-
---
--- Name: circleci_workflow_jobs; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.circleci_workflow_jobs (
-    job_name text NOT NULL,
-    workflow integer NOT NULL
-);
-
-
-ALTER TABLE public.circleci_workflow_jobs OWNER TO postgres;
-
---
--- Name: circleci_workflow_schedules; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.circleci_workflow_schedules (
-    workflow integer NOT NULL,
-    cron_schedule text NOT NULL
-);
-
-
-ALTER TABLE public.circleci_workflow_schedules OWNER TO postgres;
-
---
--- Name: circleci_workflows_by_commit; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.circleci_workflows_by_commit (
-    sha1 character(40) NOT NULL,
-    name text NOT NULL,
-    id integer NOT NULL,
+CREATE TABLE public.circleci_config_yaml_hashes (
+    expanded_yaml_md5 character(32),
+    repo_yaml_sha1 character(40) NOT NULL,
+    expanded_yaml_content text,
     inserted_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
 
-ALTER TABLE public.circleci_workflows_by_commit OWNER TO postgres;
+ALTER TABLE public.circleci_config_yaml_hashes OWNER TO postgres;
 
 --
 -- Name: circleci_workflows_by_commit_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
@@ -1490,7 +1553,7 @@ ALTER TABLE public.circleci_workflows_by_commit_id_seq OWNER TO postgres;
 -- Name: circleci_workflows_by_commit_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
 --
 
-ALTER SEQUENCE public.circleci_workflows_by_commit_id_seq OWNED BY public.circleci_workflows_by_commit.id;
+ALTER SEQUENCE public.circleci_workflows_by_commit_id_seq OWNED BY public.circleci_workflows_by_yaml_file.id;
 
 
 --
@@ -2195,7 +2258,9 @@ ALTER TABLE public.job_schedule_discriminated OWNER TO postgres;
 -- Name: VIEW job_schedule_discriminated; Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON VIEW public.job_schedule_discriminated IS 'TODO: Recreate materialized view for this';
+COMMENT ON VIEW public.job_schedule_discriminated IS 'TODO: This table is unreliable as a source of truth; job schedules evolve over time.  "master_commit_circleci_scheduled_job_discrimination" is a good source of truth based on the per-commit parsed config.yml file.
+
+TODO: Recreate materialized view for this with recently added column';
 
 
 --
@@ -2357,22 +2422,6 @@ CREATE VIEW public.latest_pattern_scanned_for_build_step AS
 ALTER TABLE public.latest_pattern_scanned_for_build_step OWNER TO postgres;
 
 --
--- Name: master_commit_circleci_scheduled_job_discrimination; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.master_commit_circleci_scheduled_job_discrimination WITH (security_barrier='false') AS
- SELECT circleci_workflow_jobs.job_name,
-    circleci_workflows_by_commit.sha1,
-    ((circleci_workflow_schedules.cron_schedule IS NOT NULL) OR COALESCE(((circleci_job_branch_filters.branch = 'nightly'::text) AND circleci_job_branch_filters.filter_include), false)) AS is_scheduled
-   FROM (((public.circleci_workflow_jobs
-     JOIN public.circleci_workflows_by_commit ON ((circleci_workflows_by_commit.id = circleci_workflow_jobs.workflow)))
-     LEFT JOIN public.circleci_workflow_schedules ON ((circleci_workflows_by_commit.id = circleci_workflow_schedules.workflow)))
-     LEFT JOIN public.circleci_job_branch_filters ON (((circleci_workflows_by_commit.id = circleci_job_branch_filters.workflow) AND (circleci_workflow_jobs.job_name = circleci_job_branch_filters.job_name))));
-
-
-ALTER TABLE public.master_commit_circleci_scheduled_job_discrimination OWNER TO postgres;
-
---
 -- Name: master_commit_job_coverage_by_week; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -2443,6 +2492,13 @@ CREATE VIEW public.master_commit_job_success_completeness AS
 ALTER TABLE public.master_commit_job_success_completeness OWNER TO postgres;
 
 --
+-- Name: VIEW master_commit_job_success_completeness; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.master_commit_job_success_completeness IS 'TODO: Use parsed config.yml as a per-commit determinator of "scheduledness"';
+
+
+--
 -- Name: master_commit_job_success_completeness_mview; Type: MATERIALIZED VIEW; Schema: public; Owner: materialized_view_updater
 --
 
@@ -2470,9 +2526,9 @@ CREATE VIEW public.master_commits_unpopulated_circleci_configs WITH (security_ba
     commit_metadata.committer_date
    FROM (((public.builds_deduped
      JOIN public.ordered_master_commits ON ((ordered_master_commits.sha1 = builds_deduped.vcs_revision)))
-     LEFT JOIN public.circleci_workflows_by_commit ON ((circleci_workflows_by_commit.sha1 = ordered_master_commits.sha1)))
+     LEFT JOIN public.circleci_expanded_config_yaml_hashes_by_commit ON ((circleci_expanded_config_yaml_hashes_by_commit.commit_sha1 = ordered_master_commits.sha1)))
      LEFT JOIN public.commit_metadata ON ((ordered_master_commits.sha1 = commit_metadata.sha1)))
-  WHERE ((builds_deduped.provider = 3) AND (circleci_workflows_by_commit.id IS NULL))
+  WHERE ((builds_deduped.provider = 3) AND (circleci_expanded_config_yaml_hashes_by_commit.commit_sha1 IS NULL))
   ORDER BY ordered_master_commits.id DESC, builds_deduped.build_num;
 
 
@@ -4095,10 +4151,10 @@ ALTER TABLE ONLY public.ci_providers ALTER COLUMN id SET DEFAULT nextval('public
 
 
 --
--- Name: circleci_workflows_by_commit id; Type: DEFAULT; Schema: public; Owner: postgres
+-- Name: circleci_workflows_by_yaml_file id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY public.circleci_workflows_by_commit ALTER COLUMN id SET DEFAULT nextval('public.circleci_workflows_by_commit_id_seq'::regclass);
+ALTER TABLE ONLY public.circleci_workflows_by_yaml_file ALTER COLUMN id SET DEFAULT nextval('public.circleci_workflows_by_commit_id_seq'::regclass);
 
 
 --
@@ -4258,6 +4314,22 @@ ALTER TABLE ONLY public.ci_providers
 
 
 --
+-- Name: circleci_config_yaml_hashes circleci_config_yaml_hashes_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.circleci_config_yaml_hashes
+    ADD CONSTRAINT circleci_config_yaml_hashes_pkey PRIMARY KEY (repo_yaml_sha1);
+
+
+--
+-- Name: circleci_expanded_config_yaml_hashes_by_commit circleci_expanded_config_yaml_md5s_by_commit_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.circleci_expanded_config_yaml_hashes_by_commit
+    ADD CONSTRAINT circleci_expanded_config_yaml_md5s_by_commit_pkey PRIMARY KEY (commit_sha1);
+
+
+--
 -- Name: circleci_job_branch_filters circleci_job_branch_filters_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -4274,19 +4346,19 @@ ALTER TABLE ONLY public.circleci_workflow_jobs
 
 
 --
--- Name: circleci_workflows_by_commit circleci_workflows_by_commit_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: circleci_workflows_by_yaml_file circleci_workflows_by_commit_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY public.circleci_workflows_by_commit
+ALTER TABLE ONLY public.circleci_workflows_by_yaml_file
     ADD CONSTRAINT circleci_workflows_by_commit_pkey PRIMARY KEY (id);
 
 
 --
--- Name: circleci_workflows_by_commit circleci_workflows_by_commit_sha1_name_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: circleci_workflows_by_yaml_file circleci_workflows_by_yaml_file_yaml_content_sha1_name_key; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY public.circleci_workflows_by_commit
-    ADD CONSTRAINT circleci_workflows_by_commit_sha1_name_key UNIQUE (sha1, name);
+ALTER TABLE ONLY public.circleci_workflows_by_yaml_file
+    ADD CONSTRAINT circleci_workflows_by_yaml_file_yaml_content_sha1_name_key UNIQUE (yaml_content_sha1, name);
 
 
 --
@@ -4673,6 +4745,20 @@ CREATE INDEX fki_fk_workflow_job_filter_job_and_workflow ON public.circleci_job_
 
 
 --
+-- Name: fki_fk_yaml_sha1; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX fki_fk_yaml_sha1 ON public.circleci_expanded_config_yaml_hashes_by_commit USING btree (repo_yaml_sha1);
+
+
+--
+-- Name: fki_fk_yaml_sha1_from_workflow; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX fki_fk_yaml_sha1_from_workflow ON public.circleci_workflows_by_yaml_file USING btree (yaml_content_sha1);
+
+
+--
 -- Name: id_github_pr_number_master_commits; Type: INDEX; Schema: public; Owner: materialized_view_updater
 --
 
@@ -4829,6 +4915,14 @@ ALTER TABLE ONLY public.cached_master_merge_base
 
 
 --
+-- Name: circleci_expanded_config_yaml_hashes_by_commit circleci_expanded_config_yaml_hashes_by_commit_commit_sha1_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.circleci_expanded_config_yaml_hashes_by_commit
+    ADD CONSTRAINT circleci_expanded_config_yaml_hashes_by_commit_commit_sha1_fkey FOREIGN KEY (commit_sha1) REFERENCES public.ordered_master_commits(sha1) ON DELETE CASCADE NOT VALID;
+
+
+--
 -- Name: code_breakage_affected_jobs code_breakage_affected_jobs_cause_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -4881,7 +4975,7 @@ ALTER TABLE ONLY public.builds
 --
 
 ALTER TABLE ONLY public.circleci_workflow_schedules
-    ADD CONSTRAINT fk_idx_workflow FOREIGN KEY (workflow) REFERENCES public.circleci_workflows_by_commit(id);
+    ADD CONSTRAINT fk_idx_workflow FOREIGN KEY (workflow) REFERENCES public.circleci_workflows_by_yaml_file(id);
 
 
 --
@@ -4937,7 +5031,7 @@ ALTER TABLE ONLY public.build_steps
 --
 
 ALTER TABLE ONLY public.circleci_job_branch_filters
-    ADD CONSTRAINT fk_workflow_id_job_filters FOREIGN KEY (workflow) REFERENCES public.circleci_workflows_by_commit(id);
+    ADD CONSTRAINT fk_workflow_id_job_filters FOREIGN KEY (workflow) REFERENCES public.circleci_workflows_by_yaml_file(id);
 
 
 --
@@ -4945,7 +5039,7 @@ ALTER TABLE ONLY public.circleci_job_branch_filters
 --
 
 ALTER TABLE ONLY public.circleci_workflow_jobs
-    ADD CONSTRAINT fk_workflow_job FOREIGN KEY (workflow) REFERENCES public.circleci_workflows_by_commit(id);
+    ADD CONSTRAINT fk_workflow_job FOREIGN KEY (workflow) REFERENCES public.circleci_workflows_by_yaml_file(id);
 
 
 --
@@ -4954,6 +5048,22 @@ ALTER TABLE ONLY public.circleci_workflow_jobs
 
 ALTER TABLE ONLY public.circleci_job_branch_filters
     ADD CONSTRAINT fk_workflow_job FOREIGN KEY (workflow, job_name) REFERENCES public.circleci_workflow_jobs(workflow, job_name);
+
+
+--
+-- Name: circleci_expanded_config_yaml_hashes_by_commit fk_yaml_sha1; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.circleci_expanded_config_yaml_hashes_by_commit
+    ADD CONSTRAINT fk_yaml_sha1 FOREIGN KEY (repo_yaml_sha1) REFERENCES public.circleci_config_yaml_hashes(repo_yaml_sha1) ON DELETE CASCADE NOT VALID;
+
+
+--
+-- Name: circleci_workflows_by_yaml_file fk_yaml_sha1_from_workflow; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.circleci_workflows_by_yaml_file
+    ADD CONSTRAINT fk_yaml_sha1_from_workflow FOREIGN KEY (yaml_content_sha1) REFERENCES public.circleci_config_yaml_hashes(repo_yaml_sha1) ON DELETE CASCADE NOT VALID;
 
 
 --
@@ -5245,6 +5355,48 @@ GRANT SELECT ON TABLE public.builds TO readonly_user;
 
 
 --
+-- Name: TABLE circleci_expanded_config_yaml_hashes_by_commit; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.circleci_expanded_config_yaml_hashes_by_commit TO logan;
+
+
+--
+-- Name: TABLE circleci_job_branch_filters; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.circleci_job_branch_filters TO logan;
+
+
+--
+-- Name: TABLE circleci_workflow_jobs; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.circleci_workflow_jobs TO logan;
+
+
+--
+-- Name: TABLE circleci_workflow_schedules; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.circleci_workflow_schedules TO logan;
+
+
+--
+-- Name: TABLE circleci_workflows_by_yaml_file; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.circleci_workflows_by_yaml_file TO logan;
+
+
+--
+-- Name: TABLE master_commit_circleci_scheduled_job_discrimination; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_commit_circleci_scheduled_job_discrimination TO logan;
+
+
+--
 -- Name: TABLE global_builds; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -5491,31 +5643,10 @@ GRANT ALL ON SEQUENCE public.ci_providers_id_seq TO logan;
 
 
 --
--- Name: TABLE circleci_job_branch_filters; Type: ACL; Schema: public; Owner: postgres
+-- Name: TABLE circleci_config_yaml_hashes; Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON TABLE public.circleci_job_branch_filters TO logan;
-
-
---
--- Name: TABLE circleci_workflow_jobs; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.circleci_workflow_jobs TO logan;
-
-
---
--- Name: TABLE circleci_workflow_schedules; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.circleci_workflow_schedules TO logan;
-
-
---
--- Name: TABLE circleci_workflows_by_commit; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.circleci_workflows_by_commit TO logan;
+GRANT ALL ON TABLE public.circleci_config_yaml_hashes TO logan;
 
 
 --
@@ -5745,13 +5876,6 @@ GRANT ALL ON TABLE public.scanned_patterns TO logan;
 --
 
 GRANT ALL ON TABLE public.latest_pattern_scanned_for_build_step TO logan;
-
-
---
--- Name: TABLE master_commit_circleci_scheduled_job_discrimination; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.master_commit_circleci_scheduled_job_discrimination TO logan;
 
 
 --

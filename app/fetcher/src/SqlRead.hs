@@ -1751,13 +1751,12 @@ getScheduledJobNames = listFlat sql
       ]
 
 
-
-
 data MasterJobCoverage = MasterJobCoverage {
     _commit_id         :: Int64
   , _sha1              :: Builds.RawCommit
   , _missing_job_count :: Int
   , _missing_jobs      :: Text
+  , _commit_timestamp  :: UTCTime
   } deriving (FromRow, Generic)
 
 instance ToJSON MasterJobCoverage where
@@ -1770,14 +1769,23 @@ apiCleanestMasterCommits missing_threshold = do
   liftIO $ query conn sql $ Only missing_threshold
   where
     sql = MyUtils.qjoin [
-        "SELECT commit_id, sha1, missing_job_count, missing_jobs"
+        "SELECT"
+      , MyUtils.qlist [
+          "commit_id"
+        , "commit_metadata.sha1"
+        , "missing_job_count"
+        , "missing_jobs"
+        , "committer_date"
+        ]
       , "FROM master_commit_job_success_completeness_mview"
+      , "JOIN commit_metadata ON commit_metadata.sha1 = master_commit_job_success_completeness_mview.sha1"
       , "WHERE missing_job_count <= ?"
-      , "ORDER BY missing_job_count ASC, commit_id DESC;"
+      , "ORDER BY"
+      , MyUtils.qlist [
+--          "missing_job_count ASC"
+          "commit_id DESC"
+        ]
       ]
-
-
-
 
 
 -- | Gets last N commits in one query,
