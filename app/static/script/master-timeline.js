@@ -584,6 +584,15 @@ function get_column_definitions(raw_column_list) {
 		formatter: function(cell, formatterParams, onRendered) {
 
 			const row_data = cell.getRow().getData();
+
+
+			if (!row_data["populated_config_yaml"]) {
+				cell.getElement().style.backgroundImage = "url('/images/corner-triangle-red.svg')";
+				cell.getElement().style.backgroundRepeat = "no-repeat";
+				cell.getElement().style.backgroundSize = "10px";
+			}
+
+
 			const commit_metadata = row_data["commit_metadata"];
 
 			var commit_info_prefix = "";
@@ -747,6 +756,7 @@ function gen_timeline_table(element_id, fetched_data) {
 		row_dict["commit_metadata"] = commit_obj.record.metadata;
 		row_dict["pr_number"] = commit_obj.record.pr_number;
 		row_dict["was_built"] = commit_obj.record.was_built;
+		row_dict["populated_config_yaml"] = commit_obj.record.populated_config_yaml;
 
 		for (var job_name in failures_by_job_name) {
 			row_dict[job_name] = failures_by_job_name[job_name];

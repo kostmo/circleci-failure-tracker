@@ -4,10 +4,12 @@ import psycopg2
 import psycopg2.extras
 import yaml
 import json
-from timeit import default_timer as timer
+import os
 from multiprocessing.pool import ThreadPool
 import requests
+import subprocess
 import hashlib
+import argparse
 
 import logan_db_config
 
@@ -47,15 +49,35 @@ def view_refresh_lambda_handler(event, context):
 
 # TODO Use API key to avoid rate limiting
 #  or use a local repo clone
-def get_config_yaml_content_sha1(commit_sha1):
-    print("Fetching content SHA1 from GitHub...")
+def get_config_yaml_content_sha1(local_repo_path, commit_sha1):
 
-    repo_sha1_retrieval_url = "https://api.github.com/repos/pytorch/pytorch/contents/.circleci/config.yml?ref=%s" % commit_sha1
+    try:
+        file_hash = subprocess.check_output([
+            "git",
+            "--git-dir",
+            local_repo_path,
+            "rev-parse",
+            "%s:.circleci/config.yml" % commit_sha1,
+        ]).decode('utf-8').strip()
 
-    repo_request = requests.get(repo_sha1_retrieval_url)
-    github_api_response_json = repo_request.json()
+        return file_hash
 
-    return github_api_response_json.get("sha")
+    except Exception as e:
+        print("Couldn't obtain file SHA1 from local repo:", str(e))
+
+        print("Fetching content SHA1 from GitHub...")
+
+        repo_sha1_retrieval_url = "https://api.github.com/repos/pytorch/pytorch/contents/.circleci/config.yml?ref=%s" % commit_sha1
+
+        repo_request = requests.get(repo_sha1_retrieval_url)
+        github_api_response_json = repo_request.json()
+
+        sha1 = github_api_response_json.get("sha")
+
+        if not sha1:
+            print("PROBLEM:", github_api_response_json)
+
+        return sha1
 
 
 def populate_db_yaml_records(cur, build_number, repo_yaml_content_sha1):
@@ -125,9 +147,9 @@ def populate_db_yaml_records(cur, build_number, repo_yaml_content_sha1):
                 )
 
 
-def populate_config_info(cur, commit_sha1, build_number):
+def populate_config_info(local_repo_path, cur, commit_sha1, build_number):
 
-    repo_yaml_content_sha1 = get_config_yaml_content_sha1(commit_sha1)
+    repo_yaml_content_sha1 = get_config_yaml_content_sha1(local_repo_path, commit_sha1)
     if repo_yaml_content_sha1:
 
         cur.execute("SELECT repo_yaml_sha1 FROM circleci_config_yaml_hashes WHERE repo_yaml_sha1=%s LIMIT 1;", (repo_yaml_content_sha1,))
@@ -142,8 +164,22 @@ def populate_config_info(cur, commit_sha1, build_number):
         cur.execute('INSERT INTO circleci_expanded_config_yaml_hashes_by_commit (commit_sha1, repo_yaml_sha1) VALUES (%s, %s);',
                     (commit_sha1, repo_yaml_content_sha1))
 
+    else:
+        print("Couldn't retrieve file content sha1 for commit %s!" % commit_sha1)
 
-def run(commit_count):
+
+def run(commit_count, local_repo_path):
+
+    return_code = subprocess.call([
+        "git",
+        "--git-dir",
+        local_repo_path,
+        "fetch",
+        "origin",
+        "master",
+    ])
+
+    print("Fetched local git repo with return code: %d" % return_code)
 
     conn = psycopg2.connect(
         host=logan_db_config.db_hostname,
@@ -163,7 +199,7 @@ def run(commit_count):
             print("%d/%d: Populating CircleCI config for commit %s..." % (i + 1, len(enumerated_rows), commit_sha1))
 
             with conn.cursor() as cur2:
-                populate_config_info(cur2, commit_sha1, build_number)
+                populate_config_info(local_repo_path, cur2, commit_sha1, build_number)
 
         # We don't allow concurrent actions here, since we don't want two Git commits
         # with the same config.yml hash to race in database insertion.
@@ -177,9 +213,25 @@ def run(commit_count):
     }
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description='Parse config.yml files for revisions of the pytorch repo')
+    parser.add_argument('--repo-path', dest='local_repo_path',
+                        default=os.path.expanduser("~/github/pytorch-repos/pytorch/.git"),
+                        help='Local filesystem path to pytorch repo .git directory')
+
+    parser.add_argument('--commit-count', dest='commit_count',
+                        type=int,
+                        default=100,
+                        help='How many commits to retrieve')
+
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
 
-    payload = run(2)
+    options = parse_args()
+
+    payload = run(options.commit_count, options.local_repo_path)
 
     print(payload)
 

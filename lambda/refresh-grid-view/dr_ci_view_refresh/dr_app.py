@@ -109,8 +109,9 @@ def run(view_name, trigger_source):
 if __name__ == "__main__":
 
     view_names = [
-        "job_schedule_discriminated_mview",
-        "master_ordered_commits_with_metadata_mview",
+#        "job_schedule_discriminated_mview",
+#        "master_ordered_commits_with_metadata_mview",
+       "master_failures_raw_causes_mview",
     ]
 
     payload = update_multiple_views(view_names, "test")

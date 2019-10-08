@@ -232,6 +232,7 @@ scottyApp
   get "/api/patterns" $
     pure SqlRead.apiPatterns
 
+  -- FIXME This is legacy. Don't use this!
   get "/api/inferred-scheduled-builds" $
     pure SqlRead.getScheduledJobNames
 

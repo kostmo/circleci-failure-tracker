@@ -1429,13 +1429,15 @@ getMasterCommits conn parent_offset_mode =
       , maybe_committer_name
       , maybe_committer_email
       , maybe_committer_date
-      , was_built) =
+      , was_built
+      , populated_config_yaml) =
       DbHelpers.WithId commit_id $ BuildResults.CommitAndMetadata
         wrapped_sha1
         maybe_metadata
         commit_number
         maybe_pr_number
         was_built
+        populated_config_yaml
       where
         wrapped_sha1 = Builds.RawCommit commit_sha1
         maybe_metadata = Commits.CommitMetadata wrapped_sha1 <$>
@@ -1467,6 +1469,7 @@ getMasterCommits conn parent_offset_mode =
           , "committer_email"
           , "committer_date"
           , "was_built"
+          , "populated_config_yaml"
           ]
       , "FROM master_ordered_commits_with_metadata"
       ]
@@ -1741,6 +1744,8 @@ apiMaterializedViewRefreshes = runQuery sql
 -- | TODO: Not only are we hard-coding the variance threshold,
 -- but we also need to hardcode the prefix of "binary_"
 -- since the variance threshold is not completely reliable.
+--
+-- FIXME This is legacy. Don't use this!
 getScheduledJobNames :: DbIO [Text]
 getScheduledJobNames = listFlat sql
   where
@@ -1798,7 +1803,6 @@ apiMasterBuilds timeline_parms = do
 
   (code_breakages_time, code_breakage_ranges) <- MyUtils.timeThisFloat apiAnnotatedCodeBreakages
 
-  scheduled_job_names <- getScheduledJobNames
   last_update_time <- getLastCachedMasterGridRefreshTime
 
   conn <- ask
@@ -1812,16 +1816,9 @@ apiMasterBuilds timeline_parms = do
     (builds_list_time, completed_builds) <- MyUtils.timeThisFloat $
       liftIO $ query conn builds_list_sql query_bounds
 
-    let scheduled_job_names_set = Set.fromList scheduled_job_names
-
-        filtered_completed_builds = MyUtils.applyIf
-          (Pagination.should_suppress_scheduled_builds $ Pagination.column_filtering timeline_parms)
-          (filter $ not . (`Set.member` scheduled_job_names_set) . Builds.job_name . BuildResults._build)
-          completed_builds
-
-        (successful_builds, failed_builds) = partition
+    let (successful_builds, failed_builds) = partition
           (BuildResults.isSuccess . BuildResults._failure_mode)
-          filtered_completed_builds
+          completed_builds
 
         maybe_successful_column_limit = Pagination.should_suppress_fully_successful_columns $
           Pagination.column_filtering timeline_parms
@@ -1847,11 +1844,21 @@ apiMasterBuilds timeline_parms = do
     return $ DbHelpers.BenchmarkedResponse timing_data $ BuildResults.MasterBuildsResponse
       filtered_job_names
       master_commits
-      filtered_completed_builds
+      completed_builds
       code_breakage_ranges
 
   where
-    builds_list_sql = MyUtils.qjoin [
+    suppress_scheduled_builds = Pagination.should_suppress_scheduled_builds $
+      Pagination.column_filtering timeline_parms
+
+    filtered_statement_parts = MyUtils.applyIf
+      suppress_scheduled_builds
+      (++ ["AND NOT COALESCE(maybe_is_scheduled, FALSE)"])
+      statement_parts
+
+    builds_list_sql = MyUtils.qjoin filtered_statement_parts
+
+    statement_parts = [
         "SELECT"
       , MyUtils.qlist [
           "sha1"
@@ -1889,7 +1896,8 @@ apiMasterBuilds timeline_parms = do
         , "cluster_member_count"
         ]
       , "FROM master_failures_raw_causes_mview"
-      , "WHERE commit_index >= ? AND commit_index <= ?;"
+      , "WHERE commit_index >= ?"
+      , "AND commit_index <= ?"
       ]
 
 

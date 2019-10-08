@@ -28,11 +28,12 @@ type IndexedRichCommit = DbHelpers.WithId CommitAndMetadata
 
 
 data CommitAndMetadata = CommitAndMetadata {
-    _commit           :: Builds.RawCommit
-  , _metadata         :: Maybe Commits.CommitMetadata
-  , _contiguous_index :: Int
-  , _pr_number        :: Maybe Builds.PullRequestNumber
-  , _was_built        :: Bool
+    _commit                :: Builds.RawCommit
+  , _metadata              :: Maybe Commits.CommitMetadata
+  , _contiguous_index      :: Int
+  , _pr_number             :: Maybe Builds.PullRequestNumber
+  , _was_built             :: Bool
+  , _populated_config_yaml :: Bool
   } deriving Generic
 
 instance ToJSON CommitAndMetadata where
