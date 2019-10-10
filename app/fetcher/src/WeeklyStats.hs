@@ -2,10 +2,11 @@
 
 module WeeklyStats where
 
+import           Control.Arrow ((&&&))
 import           Data.Aeson
-import           Data.Time    (UTCTime)
+import           Data.Time     (UTCTime)
 import           GHC.Generics
-import           GHC.Int      (Int64)
+import           GHC.Int       (Int64)
 
 import qualified JsonUtils
 
@@ -13,9 +14,12 @@ import qualified JsonUtils
 data InclusiveNumericBounds a = InclusiveNumericBounds {
     min_bound :: a
   , max_bound :: a
-  } deriving Generic
+  } deriving (Show, Generic)
 
 instance (ToJSON a) => ToJSON (InclusiveNumericBounds a)
+
+
+boundsAsTuple = min_bound &&& max_bound
 
 
 -- | This holds two types of aggregations:

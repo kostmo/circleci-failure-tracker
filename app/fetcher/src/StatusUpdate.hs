@@ -26,6 +26,7 @@ import qualified Data.Time.Clock               as Clock
 import           Data.Traversable              (for)
 import           Data.Tuple                    (swap)
 import           Database.PostgreSQL.Simple    (Connection)
+import           GHC.Int                       (Int64)
 import qualified GitHub.Data.Webhooks.Validate as GHValidate
 import qualified Network.OAuth.OAuth2          as OAuth2
 import qualified Network.URI                   as URI
@@ -454,7 +455,7 @@ handlePushWebhook ::
      DbHelpers.DbConnectionData
   -> OAuth2.AccessToken
   -> PushWebhooks.GitHubPushEvent
-  -> IO (Either LT.Text ())
+  -> IO (Either LT.Text (Int64, Int64))
 handlePushWebhook
     db_connection_data
     access_token
@@ -472,15 +473,12 @@ handlePushWebhook
       putStrLn "This was the master branch!"
       conn <- DbHelpers.get_connection db_connection_data
 
-      -- FIXME the Either is just being absorbed here
       first LT.fromStrict <$> SqlWrite.populateLatestMasterCommits
         conn
         access_token
         owned_repo
-
-      return $ Right ()
   else
-    return $ Right ()
+    return $ Right mempty
 
   where
     refname = LT.toStrict $ PushWebhooks.ref push_event

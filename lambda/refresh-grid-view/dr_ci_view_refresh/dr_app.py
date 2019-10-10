@@ -81,7 +81,7 @@ def run(view_name, trigger_source):
     with conn.cursor() as cur:
 
         cur.execute('SET SESSION lock_timeout = 3000;')  # 3 seconds
-        cur.execute('SET SESSION statement_timeout = %d;' % (1000*60*30))  # 30 minutes
+        cur.execute('SET SESSION statement_timeout = %d;' % (1000*60*10))  # 10 minutes
 
         print("Refresh begins now...")
 
@@ -111,7 +111,7 @@ if __name__ == "__main__":
     view_names = [
 #        "job_schedule_discriminated_mview",
 #        "master_ordered_commits_with_metadata_mview",
-       "master_failures_raw_causes_mview",
+       "upstream_breakages_weekly_aggregation_mview",
     ]
 
     payload = update_multiple_views(view_names, "test")

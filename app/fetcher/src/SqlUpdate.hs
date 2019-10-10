@@ -87,6 +87,7 @@ getBuildInfo access_token build@(Builds.UniversalBuildId build_id) = do
   -- TODO Replace this with SQL COUNT()
   DbHelpers.BenchmarkedResponse best_match_retrieval_timing matches <- SqlRead.getBuildPatternMatches build
 
+  -- TODO This should be an Either
   storable_build <- SqlRead.getGlobalBuild build
 
   conn <- ask
@@ -314,6 +315,7 @@ findKnownBuildBreakages conn access_token owned_repo sha1 =
       conn
       access_token
       owned_repo
+      False
       sha1
 
     -- Third, find whether that commit is within the

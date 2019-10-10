@@ -1764,8 +1764,8 @@ data MasterJobCoverage = MasterJobCoverage {
   , _unbuilt_required_job_count       :: Int
   , _failed_required_build_count      :: Int
   , _disqualifying_jobs               :: Text
-  , _commit_timestamp                 :: UTCTime
-  , _age_hours                        :: Double
+  , _commit_timestamp                 :: Maybe UTCTime
+  , _age_hours                        :: Maybe Double
   } deriving (FromRow, Generic)
 
 instance ToJSON MasterJobCoverage where
@@ -1796,6 +1796,7 @@ apiCleanestMasterCommits missing_threshold = do
       , MyUtils.qlist [
           "commit_id DESC"
         ]
+      , "LIMIT 100"
       ]
 
 
@@ -1807,7 +1808,6 @@ apiMasterBuilds ::
   -> DbIO (Either Text (DbHelpers.BenchmarkedResponse BuildResults.DbMasterBuildsBenchmarks BuildResults.MasterBuildsResponse))
 apiMasterBuilds timeline_parms = do
 
-  (code_breakages_time, code_breakage_ranges) <- MyUtils.timeThisFloat apiAnnotatedCodeBreakages
 
   last_update_time <- getLastCachedMasterGridRefreshTime
 
@@ -1816,6 +1816,9 @@ apiMasterBuilds timeline_parms = do
 
     (commits_list_time, (commit_id_bounds, master_commits)) <- MyUtils.timeThisFloat $
       ExceptT $ getMasterCommits conn $ Pagination.offset_mode timeline_parms
+
+    (code_breakages_time, code_breakage_ranges) <- MyUtils.timeThisFloat $ liftIO $
+      runReaderT (apiAnnotatedCodeBreakages commit_id_bounds) conn
 
     let query_bounds = (WeeklyStats.min_bound commit_id_bounds, WeeklyStats.max_bound commit_id_bounds)
 
@@ -2032,8 +2035,15 @@ apiListFailureModes = runQuery $ MyUtils.qjoin [
   ]
 
 
-apiAnnotatedCodeBreakages :: DbIO [BuildResults.BreakageSpan Text ()]
-apiAnnotatedCodeBreakages = runQuery $ MyUtils.qjoin [
+-- | Filters by commit id range
+apiAnnotatedCodeBreakages ::
+     WeeklyStats.InclusiveNumericBounds Int64
+  -> DbIO [BuildResults.BreakageSpan Text ()]
+apiAnnotatedCodeBreakages commit_id_bounds = do
+ conn <- ask
+ liftIO $ query conn sql $ WeeklyStats.boundsAsTuple commit_id_bounds
+ where
+ sql = MyUtils.qjoin [
     "SELECT"
   , MyUtils.qlist [
       "cause_id"
@@ -2061,6 +2071,7 @@ apiAnnotatedCodeBreakages = runQuery $ MyUtils.qjoin [
     , "commit_timespan_seconds"
     ]
   , "FROM known_breakage_summaries_sans_impact"
+  , "WHERE int8range(?, ?, '[]') && int8range(cause_commit_index, resolved_commit_index)"
   , "ORDER BY cause_commit_index DESC;"
   ]
 

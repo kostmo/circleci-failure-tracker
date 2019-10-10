@@ -94,13 +94,23 @@ storeCommitMetadata conn commit_list =
 --
 -- Therefore, this cache of merge bases never needs to be invalidated.
 findMasterAncestorWithPrecomputation ::
-     Maybe (Set Builds.RawCommit) -- ^ all master commits; passing this in can save time in a loop
+     Maybe (Set Builds.RawCommit)
+     -- ^ all master commits; passing this in can save time in a loop
   -> Connection
   -> OAuth2.AccessToken
   -> DbHelpers.OwnerAndRepo
+  -> Bool
+     -- ^ do not store to cache, in case we want to use this
+     -- function without side effects.
   -> Builds.RawCommit
   -> IO (Either Text Builds.RawCommit)
-findMasterAncestorWithPrecomputation maybe_all_master_commits conn access_token owner_and_repo sha1@(Builds.RawCommit unwrapped_sha1) =
+findMasterAncestorWithPrecomputation
+  maybe_all_master_commits
+  conn
+  access_token
+  owner_and_repo
+  do_not_store_to_cache
+  sha1@(Builds.RawCommit unwrapped_sha1) =
 
   -- This is another optimization:
   -- if we have pre-computed the master commit list, we
@@ -117,8 +127,11 @@ findMasterAncestorWithPrecomputation maybe_all_master_commits conn access_token 
     return $ Right sha1
   else do
 
-    known_merge_base_rows <- query conn cached_merge_bases_sql $ Only unwrapped_sha1
-    let maybe_cached_merge_base = Safe.headMay $ map (\(Only x) -> x) known_merge_base_rows
+    known_merge_base_rows <- query conn cached_merge_bases_sql $
+      Only unwrapped_sha1
+
+    let maybe_cached_merge_base = Safe.headMay $
+          map (\(Only x) -> x) known_merge_base_rows
 
     case maybe_cached_merge_base of
       Just cached_merge_base -> do
@@ -149,7 +162,7 @@ findMasterAncestorWithPrecomputation maybe_all_master_commits conn access_token 
             known_commit_set
 
           -- Distance 0 means it was a member of the master branch.
-          unless (distance == 0) $ liftIO $ do
+          unless (distance == 0 || do_not_store_to_cache) $ liftIO $ do
             execute conn merge_base_insertion_sql (unwrapped_sha1, unwrapped_merge_base, distance)
             MyUtils.debugList [
                 "Stored merge base of"
@@ -179,6 +192,9 @@ findMasterAncestor ::
      Connection
   -> OAuth2.AccessToken
   -> DbHelpers.OwnerAndRepo
+  -> Bool
+     -- ^ do not store to cache, in case we want to use this
+     -- function without side effects.
   -> Builds.RawCommit
   -> IO (Either Text Builds.RawCommit)
 findMasterAncestor = findMasterAncestorWithPrecomputation Nothing
@@ -251,6 +267,45 @@ storeCachedMergeBases conn merge_base_records =
     catcher e _                            = throwIO e
 
 
+-- | If we went through too many remote commits trying to find the
+-- locally-stored "tip" of the master branch, it may be that the
+-- local tip is incorrect; the remote branch may have been rebased
+-- (this actually has happened before).
+-- In that case, we can verify by finding the merge base of the
+-- remote "master" branch with our local master branch.
+diagnoseCommitsFetchFailure
+    conn
+    access_token
+    owned_repo
+    either_result =
+
+  case either_result of
+    Left (x, y) -> case x of
+      GithubApiFetch.TooManyCommits retrieved_commits -> do
+        either_ancestor <- findMasterAncestor
+          conn
+          access_token
+          owned_repo
+          True
+          (Builds.RawCommit $ GitHubRecords.extractCommitSha $ head retrieved_commits)
+
+        return $ Left $ TL.pack $ unwords $ case either_ancestor of
+          Left x -> [
+              "Error while diagnosing master commits update:"
+            , T.unpack x
+            ]
+
+          Right x -> [
+              "Last accurate local master commit was:"
+            , show x
+            , "The administrator should purge all later commits"
+            , "from the cache!"
+            ]
+
+      _ -> return $ Left y
+    Right x -> return $ Right x
+
+
 populateLatestMasterCommits ::
      Connection
   -> OAuth2.AccessToken
@@ -262,17 +317,31 @@ populateLatestMasterCommits conn access_token owned_repo = do
 
   maybe_latest_known_commit <- SqlRead.getLatestKnownMasterCommit conn
 
+  MyUtils.debugList [
+      "Latest known master commit:"
+    , show maybe_latest_known_commit
+    ]
+
   runExceptT $ do
 
     -- The admin must manually populate the first several thousand commits,
     -- as these would be inefficient to fetch from the GitHub API.
     latest_known_commit <- except $ maybeToEither "Database has no commits" maybe_latest_known_commit
 
-    fetched_commits_newest_first <- ExceptT $ first TL.toStrict <$> GithubApiFetch.getCommits
-      access_token
-      owned_repo
-      Builds.masterName
-      latest_known_commit
+    fetched_commits_newest_first <- ExceptT $ fmap (first TL.toStrict) $ do
+      either_result <- GithubApiFetch.getCommitsNewestFirst
+        access_token
+        owned_repo
+        Builds.masterName
+        latest_known_commit
+
+      diagnoseCommitsFetchFailure
+        conn
+        access_token
+        owned_repo
+        either_result
+
+
 
     let fetched_commits_oldest_first = reverse fetched_commits_newest_first
 
@@ -802,6 +871,7 @@ cacheAllMergeBases conn all_master_commits access_token owned_repo commits =
         conn
         access_token
         owned_repo
+        False
         x
 
       MyUtils.debugList [

@@ -7,12 +7,12 @@
 
 module GithubApiFetch (
     getBuildStatuses
-  , getCommits
+  , getCommitsNewestFirst
   , findAncestor
   , GitHubApiSupport (..)
+  , CommitsFetchError (..)
   , fetchUser
   ) where
-
 
 import           Control.Lens               hiding ((<.>))
 import           Control.Monad
@@ -41,6 +41,7 @@ import qualified Builds
 import qualified DbHelpers
 import qualified Github
 import qualified GitHubRecords
+import qualified MyUtils
 import           SillyMonoids               ()
 import qualified StatusEventQuery
 import           Types
@@ -88,7 +89,10 @@ recursePaginated
     page_offset
     old_retrieved_items = do
 
-  putStrLn $ "Querying URL for build statuses: " ++ uri_string
+  MyUtils.debugList [
+      "Querying URL for build statuses:"
+    , uri_string
+    ]
 
   runExceptT $ do
 
@@ -119,6 +123,12 @@ recursePaginated
       <> "&page=" <> show page_offset
 
 
+data CommitsFetchError =
+    TooManyCommits [GitHubRecords.GitHubCommit]
+  | NonlinearAncestry
+  | OtherFetchError
+
+
 -- | Returns an error if the commit chain is not linear,
 -- otherwise returns a tuple ()
 getCommitsRecurse ::
@@ -129,7 +139,7 @@ getCommitsRecurse ::
   -> T.Text  -- ^ starting commit
   -> (T.Text -> Bool)  -- ^ Stopping condition. May compare against last known commit (stopping commit)
   -> [GitHubRecords.GitHubCommit] -- ^ previously found commits
-  -> IO (Either TL.Text ([GitHubRecords.GitHubCommit], Maybe GitHubRecords.GitHubCommit))
+  -> IO (Either (CommitsFetchError, TL.Text) ([GitHubRecords.GitHubCommit], Maybe GitHubRecords.GitHubCommit))
 getCommitsRecurse
     ghsupport@(GitHubApiSupport mgr token)
     limit
@@ -139,17 +149,20 @@ getCommitsRecurse
     stopping_condition
     old_retrieved_items = do
 
-  putStrLn $ "Querying URL for commits: " ++ uri_string
+  MyUtils.debugList [
+      "Querying URL for commits:"
+    , uri_string
+    ]
 
   runExceptT $ do
 
     unless (length old_retrieved_items < limit) $
-      except $ Left "Too many commits to fetch!"
+      except $ Left (TooManyCommits old_retrieved_items, "Too many commits to fetch!")
 
-    uri <- except $ first (const $ "Bad URL: " <> TL.pack uri_string) either_uri
+    uri <- except $ first (const (OtherFetchError, "Bad URL: " <> TL.pack uri_string)) either_uri
 
     newly_retrieved_items <- ExceptT $
-      first displayOAuth2Error <$> OAuth2.authGetJSON mgr token uri
+      first (\x -> (OtherFetchError, displayOAuth2Error x)) <$> OAuth2.authGetJSON mgr token uri
 
     let (novel_commits, known_commits) = break (stopping_condition . GitHubRecords.extractCommitSha) newly_retrieved_items
         is_merge_commit = (> 1) . length . GitHubRecords._parents
@@ -157,7 +170,7 @@ getCommitsRecurse
         combined_list = old_retrieved_items <> novel_commits
 
     unless (null merge_commits) $
-      except $ Left "Commit ancestry is nonlinear!"
+      except $ Left (NonlinearAncestry, "Commit ancestry is nonlinear!")
 
     let retval = (combined_list, Safe.headMay known_commits)
 
@@ -198,19 +211,24 @@ getCommitsRecurse
 
 
 -- | This only works if the commit history is linear!
-getCommits ::
+getCommitsNewestFirst ::
      OAuth2.AccessToken -- ^ token
   -> DbHelpers.OwnerAndRepo
   -> T.Text  -- ^ starting commit
   -> T.Text  -- ^ last known commit (stopping commit)
-  -> IO (Either TL.Text [GitHubRecords.GitHubCommit])
-getCommits
+  -> IO (Either (CommitsFetchError, TL.Text) [GitHubRecords.GitHubCommit])
+getCommitsNewestFirst
     token
     owner_and_repo
     target_sha1
     stopping_sha1 = do
 
   mgr <- newManager tlsManagerSettings
+
+  MyUtils.debugList [
+      "Stopping condition (sha1 to match) when fetching master commits:"
+    , show stopping_sha1
+    ]
 
   runExceptT $ do
 
@@ -229,8 +247,6 @@ getCommits
 -- | NOTE: This method assumes that the commit history is linear!
 -- Returns the merge base commit and the distance between
 -- the merge base and the starting commit.
---
--- WARNING: Accuracy of the "distance" result has not been verified.
 findAncestor ::
      OAuth2.AccessToken -- ^ token
   -> DbHelpers.OwnerAndRepo
@@ -249,7 +265,7 @@ findAncestor
       mgr <- newManager tlsManagerSettings
 
       runExceptT $ do
-        (combined_list, maybe_first_known_commit) <- ExceptT $ getCommitsRecurse
+        (combined_list, maybe_first_known_commit) <- ExceptT $ first snd <$> getCommitsRecurse
           (GitHubApiSupport mgr token)
           maxGitHubCommitFetchCount
           (githubCommitsApiPrefix owner_and_repo)
