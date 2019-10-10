@@ -737,10 +737,10 @@ function gen_timeline_table(element_id, fetched_data) {
 	}
 
 
-	const build_failures_by_commit = {};
-	for (var failure_obj of fetched_data.failures) {
-		const failures_by_job_name = setDefault(build_failures_by_commit, failure_obj.build.vcs_revision, {});
-		failures_by_job_name[failure_obj.build.job_name] = failure_obj;
+	const builds_by_commit = {};
+	for (var build_obj of fetched_data.builds) {
+		const builds_by_job_name = setDefault(builds_by_commit, build_obj.build.vcs_revision, {});
+		builds_by_job_name[build_obj.build.job_name] = build_obj;
 	}
 
 	const table_data = [];
@@ -748,7 +748,7 @@ function gen_timeline_table(element_id, fetched_data) {
 		const row_dict = {};
 
 		const sha1 = commit_obj.record.commit;
-		const failures_by_job_name = build_failures_by_commit[sha1] || {};
+		const builds_by_job_name = builds_by_commit[sha1] || {};
 
 		row_dict["commit"] = sha1;
 		row_dict["commit_index"] = commit_obj.db_id;
@@ -758,8 +758,8 @@ function gen_timeline_table(element_id, fetched_data) {
 		row_dict["was_built"] = commit_obj.record.was_built;
 		row_dict["populated_config_yaml"] = commit_obj.record.populated_config_yaml;
 
-		for (var job_name in failures_by_job_name) {
-			row_dict[job_name] = failures_by_job_name[job_name];
+		for (var job_name in builds_by_job_name) {
+			row_dict[job_name] = builds_by_job_name[job_name];
 		}
 
 		table_data.push(row_dict);

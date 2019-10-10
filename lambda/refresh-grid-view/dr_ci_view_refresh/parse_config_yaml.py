@@ -11,7 +11,6 @@ import psycopg2.extras
 import yaml
 import json
 import os
-from multiprocessing.pool import ThreadPool
 import requests
 import subprocess
 import hashlib
@@ -56,7 +55,7 @@ def get_config_yaml_content_sha1(local_repo_path, commit_sha1):
         except Exception as e:
             print("Couldn't obtain file SHA1 from local repo:", str(e))
 
-    print("Fetching content SHA1 from GitHub...")
+    print("\tFetching content SHA1 from GitHub...")
 
     repo_sha1_retrieval_url = CONFIG_YAML_SHA1_API_URL_TEMPLATE % commit_sha1
 
@@ -177,15 +176,17 @@ def populate_config_info(local_repo_path, cur, commit_sha1, build_number):
         row = cur.fetchone()
 
         if not row:
-            print("Inserting workflow into database...")
+            print("\tInserting workflow into database...")
             populate_db_yaml_records(cur, build_number, repo_yaml_content_sha1)
         else:
-            print("Workflow is already in database.")
+            print("\tWorkflow is already in database.")
 
+        print("\tInserting git-commit/config.yaml association into database...")
         cur.execute(
             'INSERT INTO circleci_expanded_config_yaml_hashes_by_commit (commit_sha1, repo_yaml_sha1) VALUES (%s, %s);',
             (commit_sha1, repo_yaml_content_sha1)
         )
+        print("\tInserted git-commit/config.yaml association into database.")
 
     else:
         print("Couldn't retrieve file content sha1 for commit %s!" % commit_sha1)
@@ -211,10 +212,13 @@ def run(commit_count, local_repo_path=None):
         user=logan_db_config.db_username,
         password=logan_db_config.db_password)
 
-    with conn.cursor() as cur1:
+    with conn.cursor() as cur:
 
-        cur1.execute("SELECT sha1, build_num FROM master_commits_unpopulated_circleci_configs LIMIT %s;", (commit_count,))
-        rows = cur1.fetchall()
+        cur.execute('SET SESSION lock_timeout = 3000;')  # 3 seconds
+        cur.execute('SET SESSION statement_timeout = %d;' % (1000*60*3))  # 3 minutes
+
+        cur.execute("SELECT sha1, build_num FROM master_commits_unpopulated_circleci_configs LIMIT %s;", (commit_count,))
+        rows = cur.fetchall()
 
         enumerated_rows = list(enumerate(rows))
 
@@ -222,15 +226,16 @@ def run(commit_count, local_repo_path=None):
             (i, (commit_sha1, build_number)) = args_tuple
             print("%d/%d: Populating CircleCI config for commit %s..." % (i + 1, len(enumerated_rows), commit_sha1))
 
-            with conn.cursor() as cur2:
-                populate_config_info(local_repo_path, cur2, commit_sha1, build_number)
+            populate_config_info(local_repo_path, cur, commit_sha1, build_number)
 
         # We don't allow concurrent actions here, since we don't want two Git commits
         # with the same config.yml hash to race in database insertion.
-        p = ThreadPool(1)
-        p.map(single_commit_populator, enumerated_rows)
-
-    conn.commit()
+        #
+        # We commit the transaction after every row, so that we can make incremental progress
+        # even if the overall task fails.
+        for x in enumerated_rows:
+            single_commit_populator(x)
+            conn.commit()
 
     return {
         "foo": "bar",
@@ -245,7 +250,7 @@ def parse_args():
 
     parser.add_argument('--commit-count', dest='commit_count',
                         type=int,
-                        default=10,
+                        default=2,
                         help='How many commits to retrieve')
 
     return parser.parse_args()
@@ -254,7 +259,8 @@ def parse_args():
 if __name__ == "__main__":
 
     options = parse_args()
-    payload = run(options.commit_count, options.local_repo_path)
+#    payload = run(options.commit_count, options.local_repo_path)
+    payload = run(options.commit_count)
 
     print(payload)
 

@@ -329,7 +329,7 @@ instance ToJSON DbMasterBuildsBenchmarks where
 data MasterBuildsResponse = MasterBuildsResponse {
     _columns        :: Set Text
   , _commits        :: [IndexedRichCommit]
-  , _failures       :: [SimpleBuildStatus] -- ^ also includes successes
+  , _builds         :: [SimpleBuildStatus] -- ^ also includes successes
   , _breakage_spans :: [BreakageSpan Text ()]
   } deriving Generic
 

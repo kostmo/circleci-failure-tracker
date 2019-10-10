@@ -19,6 +19,7 @@ data InclusiveNumericBounds a = InclusiveNumericBounds {
 instance (ToJSON a) => ToJSON (InclusiveNumericBounds a)
 
 
+boundsAsTuple :: InclusiveNumericBounds a -> (a, a)
 boundsAsTuple = min_bound &&& max_bound
 
 
