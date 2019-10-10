@@ -1820,10 +1820,8 @@ apiMasterBuilds timeline_parms = do
     (code_breakages_time, code_breakage_ranges) <- MyUtils.timeThisFloat $ liftIO $
       runReaderT (apiAnnotatedCodeBreakages commit_id_bounds) conn
 
-    let query_bounds = (WeeklyStats.min_bound commit_id_bounds, WeeklyStats.max_bound commit_id_bounds)
-
     (builds_list_time, completed_builds) <- MyUtils.timeThisFloat $
-      liftIO $ query conn builds_list_sql query_bounds
+      liftIO $ query conn builds_list_sql $ WeeklyStats.boundsAsTuple commit_id_bounds
 
     let (successful_builds, failed_builds) = partition
           (BuildResults.isSuccess . BuildResults._failure_mode)

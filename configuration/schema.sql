@@ -526,11 +526,11 @@ COMMENT ON VIEW public.code_breakage_spans IS 'TODO: rename cause_commit_index t
 -- Name: master_commit_known_breakage_causes; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.master_commit_known_breakage_causes AS
+CREATE VIEW public.master_commit_known_breakage_causes WITH (security_barrier='false') AS
  SELECT ordered_master_commits.sha1,
     code_breakage_spans.cause_id
    FROM (public.ordered_master_commits
-     JOIN public.code_breakage_spans ON (((code_breakage_spans.cause_commit_index <= ordered_master_commits.id) AND ((code_breakage_spans.resolved_commit_index IS NULL) OR (ordered_master_commits.id < code_breakage_spans.resolved_commit_index)))))
+     JOIN public.code_breakage_spans ON ((int8range((code_breakage_spans.cause_commit_index)::bigint, (code_breakage_spans.resolved_commit_index)::bigint) @> (ordered_master_commits.id)::bigint)))
   ORDER BY ordered_master_commits.id DESC;
 
 
@@ -1548,6 +1548,19 @@ ALTER SEQUENCE public.ci_providers_id_seq OWNED BY public.ci_providers.id;
 
 
 --
+-- Name: circleci_config_job_dependencies; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.circleci_config_job_dependencies (
+    workflow integer NOT NULL,
+    dependent_job text NOT NULL,
+    required_job text NOT NULL
+);
+
+
+ALTER TABLE public.circleci_config_job_dependencies OWNER TO postgres;
+
+--
 -- Name: circleci_config_yaml_hashes; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -1560,6 +1573,13 @@ CREATE TABLE public.circleci_config_yaml_hashes (
 
 
 ALTER TABLE public.circleci_config_yaml_hashes OWNER TO postgres;
+
+--
+-- Name: TABLE circleci_config_yaml_hashes; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.circleci_config_yaml_hashes IS 'NOTE: This is the root of the tree of foreign key relations among circleci config values.';
+
 
 --
 -- Name: circleci_workflows_by_commit_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
@@ -2001,16 +2021,39 @@ ALTER SEQUENCE public.github_incoming_status_events_id_seq OWNED BY public.githu
 
 
 --
--- Name: github_status_events_circleci_failures; Type: VIEW; Schema: public; Owner: postgres
+-- Name: github_status_events_circleci; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.github_status_events_circleci_failures AS
+CREATE VIEW public.github_status_events_circleci AS
  SELECT github_incoming_status_events.sha1,
     github_incoming_status_events.created_at,
     "substring"(github_incoming_status_events.context, 13) AS job_name_extracted,
-    (split_part("substring"(github_incoming_status_events.target_url, 41), '?'::text, 1))::integer AS build_number_extracted
+    (split_part("substring"(github_incoming_status_events.target_url, 41), '?'::text, 1))::integer AS build_number_extracted,
+    github_incoming_status_events.state
    FROM public.github_incoming_status_events
-  WHERE ((github_incoming_status_events.context <> '_dr.ci'::text) AND (github_incoming_status_events.context ~~ 'ci/circleci: %'::text) AND (github_incoming_status_events.state = 'failure'::text) AND (github_incoming_status_events.name = 'pytorch/pytorch'::text) AND (github_incoming_status_events.target_url ~~ 'https://circleci.com/gh/pytorch/pytorch/%'::text));
+  WHERE ((github_incoming_status_events.context <> '_dr.ci'::text) AND (github_incoming_status_events.context ~~ 'ci/circleci: %'::text) AND (github_incoming_status_events.name = 'pytorch/pytorch'::text) AND (github_incoming_status_events.target_url ~~ 'https://circleci.com/gh/pytorch/pytorch/%'::text));
+
+
+ALTER TABLE public.github_status_events_circleci OWNER TO postgres;
+
+--
+-- Name: VIEW github_status_events_circleci; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.github_status_events_circleci IS 'TODO: Convert build_number_extracted and job_name_extracted to "derived columns" in Postgres 12';
+
+
+--
+-- Name: github_status_events_circleci_failures; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.github_status_events_circleci_failures WITH (security_barrier='false') AS
+ SELECT github_status_events_circleci.sha1,
+    github_status_events_circleci.created_at,
+    github_status_events_circleci.job_name_extracted,
+    github_status_events_circleci.build_number_extracted
+   FROM public.github_status_events_circleci
+  WHERE (github_status_events_circleci.state = 'failure'::text);
 
 
 ALTER TABLE public.github_status_events_circleci_failures OWNER TO postgres;
@@ -4362,6 +4405,14 @@ ALTER TABLE ONLY public.ci_providers
 
 
 --
+-- Name: circleci_config_job_dependencies circleci_config_job_dependencies_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.circleci_config_job_dependencies
+    ADD CONSTRAINT circleci_config_job_dependencies_pkey PRIMARY KEY (workflow, dependent_job, required_job);
+
+
+--
 -- Name: circleci_config_yaml_hashes circleci_config_yaml_hashes_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -4716,6 +4767,13 @@ CREATE INDEX fki_fk_ci_provider_scan ON public.ci_provider_build_scans USING btr
 
 
 --
+-- Name: fki_fk_dependent_job; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX fki_fk_dependent_job ON public.circleci_config_job_dependencies USING btree (workflow, dependent_job);
+
+
+--
 -- Name: fki_fk_global_buildnum; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -4748,6 +4806,13 @@ CREATE INDEX fki_fk_pattern ON public.scanned_patterns USING btree (newest_patte
 --
 
 CREATE INDEX fki_fk_provider_scan_for_build ON public.builds USING btree (ci_provider_scan);
+
+
+--
+-- Name: fki_fk_required_job; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX fki_fk_required_job ON public.circleci_config_job_dependencies USING btree (workflow, required_job);
 
 
 --
@@ -4817,7 +4882,7 @@ CREATE INDEX id_github_pr_number_master_commits ON public.master_ordered_commits
 -- Name: idx_completeness_view_commit_id; Type: INDEX; Schema: public; Owner: materialized_view_updater
 --
 
-CREATE INDEX idx_completeness_view_commit_id ON public.master_commit_job_success_completeness_mview USING btree (commit_id DESC NULLS LAST);
+CREATE UNIQUE INDEX idx_completeness_view_commit_id ON public.master_commit_job_success_completeness_mview USING btree (commit_id);
 
 
 --
@@ -4825,6 +4890,13 @@ CREATE INDEX idx_completeness_view_commit_id ON public.master_commit_job_success
 --
 
 CREATE INDEX idx_distinct_match_ranking ON public.matches USING btree (build_step, pattern, line_number, id DESC NULLS LAST);
+
+
+--
+-- Name: idx_github_status_events_sha1_state; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_github_status_events_sha1_state ON public.github_incoming_status_events USING btree (sha1, state);
 
 
 --
@@ -5011,6 +5083,14 @@ ALTER TABLE ONLY public.ci_provider_build_scans
 
 
 --
+-- Name: circleci_config_job_dependencies fk_dependent_job; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.circleci_config_job_dependencies
+    ADD CONSTRAINT fk_dependent_job FOREIGN KEY (workflow, dependent_job) REFERENCES public.circleci_workflow_jobs(workflow, job_name) ON DELETE CASCADE NOT VALID;
+
+
+--
 -- Name: builds fk_global_buildnum; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5048,6 +5128,14 @@ ALTER TABLE ONLY public.scanned_patterns
 
 ALTER TABLE ONLY public.builds
     ADD CONSTRAINT fk_provider_scan_for_build FOREIGN KEY (ci_provider_scan) REFERENCES public.ci_provider_build_scans(id) ON DELETE CASCADE;
+
+
+--
+-- Name: circleci_config_job_dependencies fk_required_job; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.circleci_config_job_dependencies
+    ADD CONSTRAINT fk_required_job FOREIGN KEY (workflow, required_job) REFERENCES public.circleci_workflow_jobs(workflow, job_name) ON DELETE CASCADE NOT VALID;
 
 
 --
@@ -5691,6 +5779,14 @@ GRANT ALL ON SEQUENCE public.ci_providers_id_seq TO logan;
 
 
 --
+-- Name: TABLE circleci_config_job_dependencies; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.circleci_config_job_dependencies TO logan;
+GRANT SELECT ON TABLE public.circleci_config_job_dependencies TO materialized_view_updater;
+
+
+--
 -- Name: TABLE circleci_config_yaml_hashes; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -5810,6 +5906,14 @@ GRANT ALL ON TABLE public.github_incoming_status_events TO logan;
 --
 
 GRANT ALL ON SEQUENCE public.github_incoming_status_events_id_seq TO logan;
+
+
+--
+-- Name: TABLE github_status_events_circleci; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.github_status_events_circleci TO logan;
+GRANT SELECT ON TABLE public.github_status_events_circleci TO materialized_view_updater;
 
 
 --
@@ -5945,7 +6049,7 @@ GRANT SELECT ON TABLE public.master_commit_job_success_completeness TO materiali
 -- Name: TABLE master_commit_job_success_completeness_mview; Type: ACL; Schema: public; Owner: materialized_view_updater
 --
 
-REVOKE ALL ON TABLE public.master_commit_job_success_completeness_mview FROM materialized_view_updater;
+GRANT SELECT ON TABLE public.master_commit_job_success_completeness_mview TO logan;
 
 
 --
@@ -6372,6 +6476,15 @@ ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA frontend_logging GRANT ALL 
 
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE ALL ON TABLES  FROM postgres;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON TABLES  TO logan;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT SELECT ON TABLES  TO materialized_view_updater;
+
+
+--
+-- Name: DEFAULT PRIVILEGES FOR TABLES; Type: DEFAULT ACL; Schema: public; Owner: materialized_view_updater
+--
+
+ALTER DEFAULT PRIVILEGES FOR ROLE materialized_view_updater IN SCHEMA public REVOKE ALL ON TABLES  FROM materialized_view_updater;
+ALTER DEFAULT PRIVILEGES FOR ROLE materialized_view_updater IN SCHEMA public GRANT SELECT ON TABLES  TO logan;
 
 
 --
