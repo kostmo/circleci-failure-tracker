@@ -316,21 +316,38 @@ instance FromRow (BreakageSpan Text ()) where
 
 
 data DbMasterBuildsBenchmarks = DbMasterBuildsBenchmarks {
-    _builds_list_time    :: Float
-  , _commits_list_time   :: Float
-  , _code_breakages_time :: Float
-  , _last_mview_update   :: (UTCTime, T.Text)
+    _builds_list_time       :: Float
+  , _commits_list_time      :: Float
+  , _code_breakages_time    :: Float
+  , _disjoint_statuses_time :: Float
+  , _last_mview_update      :: (UTCTime, T.Text)
   } deriving Generic
 
 instance ToJSON DbMasterBuildsBenchmarks where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
+-- | for statuses like "pending" that don't get
+-- their own dedicated Build record
+data DisjointCircleCIStatus = DisjointCircleCIStatus {
+    _commit_id              :: Int64
+  , _sha1                   :: Builds.RawCommit
+  , _created_at             :: UTCTime
+  , _job_name_extracted     :: Text
+  , _build_number_extracted :: Int64
+  , _state                  :: Text
+  } deriving (FromRow, Generic)
+
+instance ToJSON DisjointCircleCIStatus where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
 data MasterBuildsResponse = MasterBuildsResponse {
-    _columns        :: Set Text
-  , _commits        :: [IndexedRichCommit]
-  , _builds         :: [SimpleBuildStatus] -- ^ also includes successes
-  , _breakage_spans :: [BreakageSpan Text ()]
+    _columns           :: Set Text
+  , _commits           :: [IndexedRichCommit]
+  , _builds            :: [SimpleBuildStatus] -- ^ also includes successes
+  , _breakage_spans    :: [BreakageSpan Text ()]
+  , _disjoint_statuses :: [DisjointCircleCIStatus]
   } deriving Generic
 
 instance ToJSON MasterBuildsResponse where

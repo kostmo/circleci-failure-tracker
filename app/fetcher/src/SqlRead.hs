@@ -1823,6 +1823,10 @@ apiMasterBuilds timeline_parms = do
     (builds_list_time, completed_builds) <- MyUtils.timeThisFloat $
       liftIO $ query conn builds_list_sql $ WeeklyStats.boundsAsTuple commit_id_bounds
 
+    (disjoint_statuses_time, disjoint_statuses) <- MyUtils.timeThisFloat $
+      liftIO $ query conn disjoint_statuses_sql $ WeeklyStats.boundsAsTuple commit_id_bounds
+
+
     let (successful_builds, failed_builds) = partition
           (BuildResults.isSuccess . BuildResults._failure_mode)
           completed_builds
@@ -1846,17 +1850,36 @@ apiMasterBuilds timeline_parms = do
           builds_list_time
           commits_list_time
           code_breakages_time
+          disjoint_statuses_time
           last_update_time
+
 
     return $ DbHelpers.BenchmarkedResponse timing_data $ BuildResults.MasterBuildsResponse
       filtered_job_names
       master_commits
       completed_builds
       code_breakage_ranges
+      disjoint_statuses
 
   where
     suppress_scheduled_builds = Pagination.should_suppress_scheduled_builds $
       Pagination.column_filtering timeline_parms
+
+
+    disjoint_statuses_sql = MyUtils.qjoin [
+        "SELECT"
+      , MyUtils.qlist [
+          "commit_id"
+        , "sha1"
+        , "created_at"
+        , "job_name_extracted"
+        , "build_number_extracted"
+        , "state"
+        ]
+      , "FROM disjoint_circleci_build_statuses"
+      , "WHERE int8range(?, ?, '[]') @> commit_id::int8"
+      ]
+
 
     filtered_statement_parts = MyUtils.applyIf
       suppress_scheduled_builds
@@ -1903,9 +1926,12 @@ apiMasterBuilds timeline_parms = do
         , "cluster_member_count"
         ]
       , "FROM master_failures_raw_causes_mview"
-      , "WHERE commit_index >= ?"
-      , "AND commit_index <= ?"
+      , "WHERE int8range(?, ?, '[]') @> commit_index::int8"
       ]
+
+
+
+
 
 
 data StartEndDate = StartEndDate {

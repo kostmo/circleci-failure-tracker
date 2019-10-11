@@ -1,5 +1,6 @@
 // global
 var breakage_starts_by_job_name = {};
+var disjoint_statuses_by_commit_id = {};
 var grid_table = null;
 
 
@@ -451,6 +452,23 @@ function define_job_column(col) {
 				const stripes_opacity_fraction = 0.7; // between 0 and 1
 				cell.getElement().style.backgroundImage = "url(\"data:image/svg+xml,%3Csvg width='1' height='40' viewBox='0 0 1 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 20h1v20H0z' fill='%23" + stripes_color_hex + "' fill-opacity='" + stripes_opacity_fraction + "' fill-rule='evenodd'/%3E%3C/svg%3E\")";
 
+			} else {
+
+				const commit_id = cell.getRow().getData()["commit_index"];
+				const job_name = cell.getColumn().getField();
+
+				const state = disjoint_statuses_by_commit_id[commit_id] && disjoint_statuses_by_commit_id[commit_id][job_name];
+
+				if (state) {
+					cell.getElement().style.backgroundRepeat = "no-repeat";
+					cell.getElement().style.backgroundSize = "20px";
+
+					if (state == "pending") {
+						cell.getElement().style.backgroundImage = "url('/images/corner-triangle-yellow.svg')";
+					} else if (state == "error") {
+						cell.getElement().style.backgroundImage = "url('/images/corner-triangle-red.svg')";
+					}
+				}
 			}
 
 			const context_menu_items = get_context_menu_items_for_cell(cell);
@@ -735,6 +753,15 @@ function gen_timeline_table(element_id, fetched_data) {
 			setDefault(breakage_starts_by_job_name, affected_job_obj, []).push(breakage_span_obj);
 		}
 	}
+
+
+	// global
+	disjoint_statuses_by_commit_id = {};
+	for (var disjoint_status_obj of fetched_data.disjoint_statuses) {
+
+		setDefault(disjoint_statuses_by_commit_id, disjoint_status_obj["commit_id"], {})[disjoint_status_obj["job_name_extracted"]] = disjoint_status_obj["state"];
+	}
+
 
 
 	const builds_by_commit = {};

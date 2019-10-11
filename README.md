@@ -56,5 +56,5 @@ Optimizations
 
 ## Features
 
-* Optionally caches downloaded logs to disk
+* Periodically fetches builds directly from CircleCI API to catch up on GitHub notifications that may have been dropped
 

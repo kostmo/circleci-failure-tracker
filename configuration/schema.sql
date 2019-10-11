@@ -65,6 +65,22 @@ CREATE SCHEMA work_queues;
 
 ALTER SCHEMA work_queues OWNER TO postgres;
 
+--
+-- Name: insert_derived_github_status_event_columns(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.insert_derived_github_status_event_columns() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$BEGIN
+  INSERT INTO github_incoming_status_events_derived_circleci_columns(event_id, job_name_extracted, build_number_extracted)
+  VALUES(NEW.id,"substring"(NEW.context, 14), split_part("substring"(NEW.target_url, 41), '?'::text, 1)::integer);
+  
+  RETURN NULL;
+END;$$;
+
+
+ALTER FUNCTION public.insert_derived_github_status_event_columns() OWNER TO postgres;
+
 SET default_tablespace = '';
 
 SET default_with_oids = false;
@@ -1999,6 +2015,78 @@ CREATE TABLE public.github_incoming_status_events (
 ALTER TABLE public.github_incoming_status_events OWNER TO postgres;
 
 --
+-- Name: github_incoming_status_events_derived_circleci_columns; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.github_incoming_status_events_derived_circleci_columns (
+    event_id integer NOT NULL,
+    job_name_extracted text NOT NULL,
+    build_number_extracted integer
+);
+
+
+ALTER TABLE public.github_incoming_status_events_derived_circleci_columns OWNER TO postgres;
+
+--
+-- Name: TABLE github_incoming_status_events_derived_circleci_columns; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.github_incoming_status_events_derived_circleci_columns IS 'TODO: Convert build_number_extracted and job_name_extracted to "derived columns" in Postgres 12';
+
+
+--
+-- Name: github_status_events_circleci; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.github_status_events_circleci WITH (security_barrier='false') AS
+ SELECT github_incoming_status_events.sha1,
+    github_incoming_status_events.created_at,
+    github_incoming_status_events_derived_circleci_columns.job_name_extracted,
+    github_incoming_status_events_derived_circleci_columns.build_number_extracted,
+    github_incoming_status_events.state
+   FROM (public.github_incoming_status_events
+     JOIN public.github_incoming_status_events_derived_circleci_columns ON ((github_incoming_status_events_derived_circleci_columns.event_id = github_incoming_status_events.id)));
+
+
+ALTER TABLE public.github_status_events_circleci OWNER TO postgres;
+
+--
+-- Name: github_circleci_latest_statuses_by_build; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.github_circleci_latest_statuses_by_build WITH (security_barrier='false') AS
+ SELECT DISTINCT ON (github_status_events_circleci.build_number_extracted) github_status_events_circleci.sha1,
+    github_status_events_circleci.created_at,
+    github_status_events_circleci.job_name_extracted,
+    github_status_events_circleci.build_number_extracted,
+    github_status_events_circleci.state
+   FROM public.github_status_events_circleci
+  ORDER BY github_status_events_circleci.build_number_extracted, github_status_events_circleci.created_at DESC;
+
+
+ALTER TABLE public.github_circleci_latest_statuses_by_build OWNER TO postgres;
+
+--
+-- Name: disjoint_circleci_build_statuses; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.disjoint_circleci_build_statuses WITH (security_barrier='false') AS
+ SELECT ordered_master_commits.id AS commit_id,
+    github_circleci_latest_statuses_by_build.sha1,
+    github_circleci_latest_statuses_by_build.created_at,
+    github_circleci_latest_statuses_by_build.job_name_extracted,
+    github_circleci_latest_statuses_by_build.build_number_extracted,
+    github_circleci_latest_statuses_by_build.state
+   FROM ((public.github_circleci_latest_statuses_by_build
+     JOIN public.ordered_master_commits ON ((github_circleci_latest_statuses_by_build.sha1 = ordered_master_commits.sha1)))
+     LEFT JOIN public.universal_builds ON (((github_circleci_latest_statuses_by_build.build_number_extracted = universal_builds.build_number) AND (universal_builds.provider = 3))))
+  WHERE (universal_builds.build_number IS NULL)
+  ORDER BY ordered_master_commits.id DESC;
+
+
+ALTER TABLE public.disjoint_circleci_build_statuses OWNER TO postgres;
+
+--
 -- Name: github_incoming_status_events_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
 --
 
@@ -2018,29 +2106,6 @@ ALTER TABLE public.github_incoming_status_events_id_seq OWNER TO postgres;
 --
 
 ALTER SEQUENCE public.github_incoming_status_events_id_seq OWNED BY public.github_incoming_status_events.id;
-
-
---
--- Name: github_status_events_circleci; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.github_status_events_circleci AS
- SELECT github_incoming_status_events.sha1,
-    github_incoming_status_events.created_at,
-    "substring"(github_incoming_status_events.context, 13) AS job_name_extracted,
-    (split_part("substring"(github_incoming_status_events.target_url, 41), '?'::text, 1))::integer AS build_number_extracted,
-    github_incoming_status_events.state
-   FROM public.github_incoming_status_events
-  WHERE ((github_incoming_status_events.context <> '_dr.ci'::text) AND (github_incoming_status_events.context ~~ 'ci/circleci: %'::text) AND (github_incoming_status_events.name = 'pytorch/pytorch'::text) AND (github_incoming_status_events.target_url ~~ 'https://circleci.com/gh/pytorch/pytorch/%'::text));
-
-
-ALTER TABLE public.github_status_events_circleci OWNER TO postgres;
-
---
--- Name: VIEW github_status_events_circleci; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON VIEW public.github_status_events_circleci IS 'TODO: Convert build_number_extracted and job_name_extracted to "derived columns" in Postgres 12';
 
 
 --
@@ -4501,6 +4566,14 @@ ALTER TABLE ONLY public.created_github_statuses
 
 
 --
+-- Name: github_incoming_status_events_derived_circleci_columns github_incoming_status_events_derived_circleci_columns_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.github_incoming_status_events_derived_circleci_columns
+    ADD CONSTRAINT github_incoming_status_events_derived_circleci_columns_pkey PRIMARY KEY (event_id);
+
+
+--
 -- Name: github_incoming_status_events github_incoming_status_events_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -4879,6 +4952,20 @@ CREATE INDEX id_github_pr_number_master_commits ON public.master_ordered_commits
 
 
 --
+-- Name: idx_circleci_derived_build_number; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_circleci_derived_build_number ON public.github_incoming_status_events_derived_circleci_columns USING btree (build_number_extracted DESC NULLS LAST);
+
+
+--
+-- Name: idx_circleci_derived_job_name; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_circleci_derived_job_name ON public.github_incoming_status_events_derived_circleci_columns USING btree (job_name_extracted);
+
+
+--
 -- Name: idx_completeness_view_commit_id; Type: INDEX; Schema: public; Owner: materialized_view_updater
 --
 
@@ -5016,6 +5103,13 @@ CREATE UNIQUE INDEX idx_upsteream_breakages_weekly_week ON public.upstream_break
 --
 
 CREATE INDEX mview_commit_index ON public.master_failures_raw_causes_mview USING btree (commit_index);
+
+
+--
+-- Name: github_incoming_status_events triggered_insert_derived_github_status_event_columns; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER triggered_insert_derived_github_status_event_columns AFTER INSERT ON public.github_incoming_status_events FOR EACH ROW WHEN (((new.context <> '_dr.ci'::text) AND (new.context ~~ 'ci/circleci: %'::text) AND (new.name = 'pytorch/pytorch'::text) AND (new.target_url ~~ 'https://circleci.com/gh/pytorch/pytorch/%'::text))) EXECUTE PROCEDURE public.insert_derived_github_status_event_columns();
 
 
 --
@@ -5200,6 +5294,14 @@ ALTER TABLE ONLY public.circleci_expanded_config_yaml_hashes_by_commit
 
 ALTER TABLE ONLY public.circleci_workflows_by_yaml_file
     ADD CONSTRAINT fk_yaml_sha1_from_workflow FOREIGN KEY (yaml_content_sha1) REFERENCES public.circleci_config_yaml_hashes(repo_yaml_sha1) ON DELETE CASCADE NOT VALID;
+
+
+--
+-- Name: github_incoming_status_events_derived_circleci_columns github_incoming_status_events_derived_circleci_co_event_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.github_incoming_status_events_derived_circleci_columns
+    ADD CONSTRAINT github_incoming_status_events_derived_circleci_co_event_id_fkey FOREIGN KEY (event_id) REFERENCES public.github_incoming_status_events(id) NOT VALID;
 
 
 --
@@ -5902,10 +6004,11 @@ GRANT ALL ON TABLE public.github_incoming_status_events TO logan;
 
 
 --
--- Name: SEQUENCE github_incoming_status_events_id_seq; Type: ACL; Schema: public; Owner: postgres
+-- Name: TABLE github_incoming_status_events_derived_circleci_columns; Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON SEQUENCE public.github_incoming_status_events_id_seq TO logan;
+GRANT ALL ON TABLE public.github_incoming_status_events_derived_circleci_columns TO logan;
+GRANT SELECT ON TABLE public.github_incoming_status_events_derived_circleci_columns TO materialized_view_updater;
 
 
 --
@@ -5914,6 +6017,29 @@ GRANT ALL ON SEQUENCE public.github_incoming_status_events_id_seq TO logan;
 
 GRANT ALL ON TABLE public.github_status_events_circleci TO logan;
 GRANT SELECT ON TABLE public.github_status_events_circleci TO materialized_view_updater;
+
+
+--
+-- Name: TABLE github_circleci_latest_statuses_by_build; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.github_circleci_latest_statuses_by_build TO logan;
+GRANT SELECT ON TABLE public.github_circleci_latest_statuses_by_build TO materialized_view_updater;
+
+
+--
+-- Name: TABLE disjoint_circleci_build_statuses; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.disjoint_circleci_build_statuses TO logan;
+GRANT SELECT ON TABLE public.disjoint_circleci_build_statuses TO materialized_view_updater;
+
+
+--
+-- Name: SEQUENCE github_incoming_status_events_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE public.github_incoming_status_events_id_seq TO logan;
 
 
 --
