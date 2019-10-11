@@ -452,23 +452,6 @@ function define_job_column(col) {
 				const stripes_opacity_fraction = 0.7; // between 0 and 1
 				cell.getElement().style.backgroundImage = "url(\"data:image/svg+xml,%3Csvg width='1' height='40' viewBox='0 0 1 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 20h1v20H0z' fill='%23" + stripes_color_hex + "' fill-opacity='" + stripes_opacity_fraction + "' fill-rule='evenodd'/%3E%3C/svg%3E\")";
 
-			} else {
-
-				const commit_id = cell.getRow().getData()["commit_index"];
-				const job_name = cell.getColumn().getField();
-
-				const state = disjoint_statuses_by_commit_id[commit_id] && disjoint_statuses_by_commit_id[commit_id][job_name];
-
-				if (state) {
-					cell.getElement().style.backgroundRepeat = "no-repeat";
-					cell.getElement().style.backgroundSize = "20px";
-
-					if (state == "pending") {
-						cell.getElement().style.backgroundImage = "url('/images/corner-triangle-yellow.svg')";
-					} else if (state == "error") {
-						cell.getElement().style.backgroundImage = "url('/images/corner-triangle-red.svg')";
-					}
-				}
 			}
 
 			const context_menu_items = get_context_menu_items_for_cell(cell);
@@ -493,7 +476,28 @@ function define_job_column(col) {
 				return is_success ? indicator : link(indicator, "/build-details.html?build_id=" + build_id);
 
 			} else {
-				return "";
+
+				const commit_id = cell.getRow().getData()["commit_index"];
+				const job_name = cell.getColumn().getField();
+
+				const state = disjoint_statuses_by_commit_id[commit_id] && disjoint_statuses_by_commit_id[commit_id][job_name];
+
+				if (state) {
+					cell.getElement().style.backgroundRepeat = "no-repeat";
+					cell.getElement().style.backgroundSize = "20px";
+
+					if (state == "pending") {
+//						cell.getElement().style.backgroundImage = "url('/images/corner-triangle-yellow.svg')";
+						return "<span class='flashit'>&#8987;</span>";
+					} else if (state == "error") {
+						cell.getElement().style.backgroundImage = "url('/images/corner-triangle-red.svg')";
+						return "";
+					} else {
+						return "";
+					}
+				} else {
+					return "";
+				}
 			}
 		},
 		headerClick: function(e, column) {

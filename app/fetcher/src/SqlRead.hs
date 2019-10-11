@@ -1756,6 +1756,7 @@ getScheduledJobNames = listFlat sql
       ]
 
 
+
 data MasterJobCoverage = MasterJobCoverage {
     _commit_id                        :: Int64
   , _sha1                             :: Builds.RawCommit
@@ -1763,7 +1764,7 @@ data MasterJobCoverage = MasterJobCoverage {
   , _not_succeeded_required_job_count :: Int
   , _unbuilt_required_job_count       :: Int
   , _failed_required_build_count      :: Int
-  , _disqualifying_jobs               :: Text
+  , _disqualifying_jobs               :: DbHelpers.SemicolonDelimitedDbText
   , _commit_timestamp                 :: Maybe UTCTime
   , _age_hours                        :: Maybe Double
   } deriving (FromRow, Generic)

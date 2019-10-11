@@ -26,7 +26,8 @@ newtype PullRequestNumber = PullRequestNumber Int
 instance ToJSON PullRequestNumber
 instance FromJSON PullRequestNumber
 
--- TODO do error handling: http://hackage.haskell.org/package/postgresql-simple-0.6.2/docs/Database-PostgreSQL-Simple-FromField.html
+-- TODO do error handling:
+-- http://hackage.haskell.org/package/postgresql-simple-0.6.2/docs/Database-PostgreSQL-Simple-FromField.html
 instance FromField PullRequestNumber where
   fromField f mdata = PullRequestNumber <$> fromField f mdata
 
@@ -34,7 +35,8 @@ instance FromField PullRequestNumber where
 newtype RawCommit = RawCommit Text
  deriving (Generic, Eq, Ord, Show, FromRow)
 
--- TODO do error handling: http://hackage.haskell.org/package/postgresql-simple-0.6.2/docs/Database-PostgreSQL-Simple-FromField.html
+-- TODO do error handling:
+-- http://hackage.haskell.org/package/postgresql-simple-0.6.2/docs/Database-PostgreSQL-Simple-FromField.html
 instance FromField RawCommit where
   fromField f mdata = RawCommit <$> fromField f mdata
 
@@ -48,7 +50,8 @@ newtype BuildNumber = NewBuildNumber Int64
 instance ToJSON BuildNumber
 instance FromJSON BuildNumber
 
--- TODO do error handling: http://hackage.haskell.org/package/postgresql-simple-0.6.2/docs/Database-PostgreSQL-Simple-FromField.html
+-- TODO do error handling:
+-- http://hackage.haskell.org/package/postgresql-simple-0.6.2/docs/Database-PostgreSQL-Simple-FromField.html
 instance FromField BuildNumber where
   fromField f mdata = NewBuildNumber <$> fromField f mdata
 

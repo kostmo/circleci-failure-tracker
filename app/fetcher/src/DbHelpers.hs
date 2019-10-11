@@ -3,19 +3,20 @@
 
 module DbHelpers where
 
-import           Control.Arrow                      ((&&&))
+import           Control.Arrow                        ((&&&))
 import           Data.Aeson
-import           Data.HashMap.Strict                (HashMap)
-import qualified Data.HashMap.Strict                as HashMap
-import           Data.List                          (intercalate)
-import           Data.List.Split                    (splitOn)
-import           Data.Text                          (Text)
-import qualified Data.Text                          as T
-import           Data.Time                          (UTCTime)
+import           Data.HashMap.Strict                  (HashMap)
+import qualified Data.HashMap.Strict                  as HashMap
+import           Data.List                            (intercalate)
+import           Data.List.Split                      (splitOn)
+import           Data.Text                            (Text)
+import qualified Data.Text                            as T
+import           Data.Time                            (UTCTime)
 import           Database.PostgreSQL.Simple
-import           Database.PostgreSQL.Simple.FromRow (field, fromRow)
+import           Database.PostgreSQL.Simple.FromField (FromField, fromField)
+import           Database.PostgreSQL.Simple.FromRow   (field, fromRow)
 import           GHC.Generics
-import           GHC.Int                            (Int64)
+import           GHC.Int                              (Int64)
 
 import qualified JsonUtils
 
@@ -42,14 +43,25 @@ instance (FromRow a) => FromRow (TimestampedDatum a) where
   fromRow = TimestampedDatum <$> field <*> fromRow
 
 
-
 data OwnerAndRepo = OwnerAndRepo {
     owner :: String
   , repo  :: String
   }
 
 
+cleanSemicolonDelimitedList :: String -> [Text]
 cleanSemicolonDelimitedList = filter (not . T.null) . map (T.strip . T.pack) . splitOn ";"
+
+
+-- | Returned by database queries as semicolon-delimited string.
+-- Parsed into individual values in the FromRow function.
+newtype SemicolonDelimitedDbText = SemicolonDelimitedDbText [Text]
+  deriving Generic
+
+instance FromField SemicolonDelimitedDbText where
+  fromField f mdata = SemicolonDelimitedDbText . DbHelpers.cleanSemicolonDelimitedList <$> fromField f mdata
+
+instance ToJSON SemicolonDelimitedDbText
 
 
 splitAggText :: String -> [String]
