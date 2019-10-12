@@ -11,17 +11,16 @@ function gen_good_commits_table(element_id, data_url, height_string) {
 			},
 		},
 		{title: "Unbuilt", field: "unbuilt_required_job_count", width: 125,},
-		{title: "Disqualifying jobs", field: "disqualifying_jobs", width: 400, formatter: function(cell, formatterParams, onRendered) {
+		{title: "Failed", field: "failed_required_build_count", width: 125,
+		},
+		{title: "Disqualifying jobs", field: "disqualifying_jobs", formatter: function(cell, formatterParams, onRendered) {
 			    return cell.getValue().join(", ");
 			},
 			tooltip: function(cell) {
 				return cell.getValue().join("\n");
 			},
 		},
-
-		{title: "Failed", field: "failed_required_build_count", width: 125,
-		},
-		{title: "Incomplete or Failed", field: "not_succeeded_required_job_count", width: 200,
+		{title: "Unbuilt or Failed", field: "not_succeeded_required_job_count", width: 200,
 		},
 /*
 		{title: "commit_id", field: "commit_id", width: 75,

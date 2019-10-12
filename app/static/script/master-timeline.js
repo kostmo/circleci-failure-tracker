@@ -410,6 +410,8 @@ function define_job_column(col) {
 		},
 		formatter: function(cell, formatterParams, onRendered) {
 
+			$(cell.getElement()).addClass("build-cell");
+
 			const cell_value = get_cell_value_indirect(cell);
 
 			const open_breakages = get_open_breakages(cell);
@@ -496,6 +498,8 @@ function define_job_column(col) {
 						return "";
 					}
 				} else {
+
+					cell.getElement().style.backgroundColor = "#0003";
 					return "";
 				}
 			}
