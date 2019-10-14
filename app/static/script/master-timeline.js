@@ -500,13 +500,16 @@ function define_job_column(col) {
 				const state = disjoint_statuses_by_commit_id[commit_id] && disjoint_statuses_by_commit_id[commit_id][job_name];
 
 				if (state) {
-					cell.getElement().style.backgroundRepeat = "no-repeat";
-					cell.getElement().style.backgroundSize = "20px";
 
 					if (state == "pending") {
+//						cell.getElement().style.backgroundRepeat = "no-repeat";
+//						cell.getElement().style.backgroundSize = "20px";
 //						cell.getElement().style.backgroundImage = "url('/images/corner-triangle-yellow.svg')";
+
 						return "<span class='flashit'>&#8987;</span>";
 					} else if (state == "error") {
+						cell.getElement().style.backgroundRepeat = "no-repeat";
+						cell.getElement().style.backgroundSize = "20px";
 						cell.getElement().style.backgroundImage = "url('/images/corner-triangle-red.svg')";
 						return "";
 					} else {
@@ -608,8 +611,7 @@ function next_page() {
 }
 
 
-function define_commits_column() {
-
+function generate_legend_html() {
 
 	var legend_rows = [
 		["Symbol", "Meaning"],
@@ -629,9 +631,15 @@ function define_commits_column() {
 		legend_rows.push([render_tag("div", '<img src="/images/build-status-indicators/' + x[0] + '" style="width: 20px;"/>', div_style), x[1]]);
 	}
 
-	const legend = render_table(legend_rows, {"style": "vertical-align: bottom;"}, "Legend", true);
+	return render_table(legend_rows, {"style": "vertical-align: bottom;"}, "Legend", true);
+}
 
-	const commits_column_title_parts = ["Commit"].concat(Array(4).fill("<br/>"), [legend]);
+
+function define_commit_message_column() {
+
+	const legend_html = generate_legend_html();
+
+	const commits_column_title_parts = ["Commit"].concat(Array(4).fill("<br/>"), [legend_html]);
 	const commit_column_definition = {
 		title: commits_column_title_parts.join(""),
 		field: "commit",
@@ -646,36 +654,15 @@ function define_commits_column() {
 				cell.getElement().style.backgroundSize = "10px";
 			}
 
-
 			const commit_metadata = row_data["commit_metadata"];
 
-			var commit_info_prefix = "";
-			var message_suffix = "";
 			if (commit_metadata) {
-
-				const commit_date = new Date(commit_metadata["committer_date"]);
-				const day_index = commit_date.getDay();
-				const day_ratio = day_index / 7.0;
-				const color = tinycolor.fromRatio({h: day_ratio, s: 0.8, l: 0.8});
-				const hex_string = color.toHexString();
-
-				cell.getElement().style.borderLeft = "4px solid " + hex_string;
-
-				var pr_link = "";
-				const pr_number = row_data["pr_number"];
-				if (pr_number !== null) {
-					pr_link = render_tag("sup", render_tag("small", link("#" + pr_number, PULL_REQUEST_URL_PREFIX + pr_number)));
-				}
-
 				const message_subject = get_commit_subject(commit_metadata["message"]);
 
-				message_suffix = pr_link + ": " + message_subject;
-				commit_info_prefix = moment(commit_date).fromNow(true) + ": ";
+				return message_subject;
 			}
 
-			const clipboard_image = '<svg onclick="navigator.clipboard.writeText(\'' + cell.getValue() + '\');" class="octicon octicon-clippy" viewBox="0 0 14 16" version="1.1" width="14" height="16" aria-hidden="true"><path fill-rule="evenodd" d="M2 13h4v1H2v-1zm5-6H2v1h5V7zm2 3V8l-3 3 3 3v-2h5v-2H9zM4.5 9H2v1h2.5V9zM2 12h2.5v-1H2v1zm9 1h1v2c-.02.28-.11.52-.3.7-.19.18-.42.28-.7.3H1c-.55 0-1-.45-1-1V4c0-.55.45-1 1-1h3c0-1.11.89-2 2-2 1.11 0 2 .89 2 2h3c.55 0 1 .45 1 1v5h-1V6H1v9h10v-2zM2 5h8c0-.55-.45-1-1-1H8c-.55 0-1-.45-1-1s-.45-1-1-1-1 .45-1 1-.45 1-1 1H3c-.55 0-1 .45-1 1z"></path></svg>';
-
-			return commit_info_prefix + clipboard_image + sha1_link(cell.getValue()) + message_suffix;
+			return "";
 		},
 		tooltip: function(cell) {
 
@@ -687,7 +674,7 @@ function define_commits_column() {
 				return false;
 			}
 		},
-		minWidth: 90,
+		minWidth: 200,
 		resizable: true,
 		headerSort: false,
 //		frozen: true,  // XXX When this is true, horizontal scrolling behavior is super weird
@@ -697,9 +684,84 @@ function define_commits_column() {
 }
 
 
+
+function define_commit_sha1_column() {
+
+	return {
+		title: "SHA1",
+		field: "commit",
+		headerVertical: false,
+		width: 100,
+		formatter: function(cell, formatterParams, onRendered) {
+
+			const clipboard_image = '<svg onclick="navigator.clipboard.writeText(\'' + cell.getValue() + '\');" class="octicon octicon-clippy" viewBox="0 0 14 16" version="1.1" width="14" height="16" aria-hidden="true"><path fill-rule="evenodd" d="M2 13h4v1H2v-1zm5-6H2v1h5V7zm2 3V8l-3 3 3 3v-2h5v-2H9zM4.5 9H2v1h2.5V9zM2 12h2.5v-1H2v1zm9 1h1v2c-.02.28-.11.52-.3.7-.19.18-.42.28-.7.3H1c-.55 0-1-.45-1-1V4c0-.55.45-1 1-1h3c0-1.11.89-2 2-2 1.11 0 2 .89 2 2h3c.55 0 1 .45 1 1v5h-1V6H1v9h10v-2zM2 5h8c0-.55-.45-1-1-1H8c-.55 0-1-.45-1-1s-.45-1-1-1-1 .45-1 1-.45 1-1 1H3c-.55 0-1 .45-1 1z"></path></svg>';
+
+			return clipboard_image + " " + sha1_link(cell.getValue())
+		},
+		resizable: false,
+		headerSort: false,
+	};
+}
+
+
+function define_pr_column() {
+
+	return {
+		title: "PR",
+		field: "commit_metadata",
+		headerVertical: false,
+		width: 65,
+		formatter: function(cell, formatterParams, onRendered) {
+
+			const row_data = cell.getRow().getData();
+			const pr_number = row_data["pr_number"];
+			if (pr_number !== null) {
+				return link("#" + pr_number, PULL_REQUEST_URL_PREFIX + pr_number);
+			}
+
+			return "N/A";
+
+		},
+		resizable: false,
+		headerSort: false,
+	};
+}
+
+
+function define_commit_age_column() {
+
+	return {
+		title: "Age",
+		field: "commit_metadata",
+		headerVertical: false,
+		width: 75,
+		formatter: function(cell, formatterParams, onRendered) {
+
+			const row_data = cell.getRow().getData();
+			const commit_metadata = row_data["commit_metadata"];
+			if (commit_metadata) {
+
+				const commit_date = new Date(commit_metadata["committer_date"]);
+				const day_index = commit_date.getDay();
+				const day_ratio = day_index / 7.0;
+				const color = tinycolor.fromRatio({h: day_ratio, s: 0.8, l: 0.8});
+				const hex_string = color.toHexString();
+
+				cell.getElement().style.borderLeft = "4px solid " + hex_string;
+				return moment(commit_date).fromNow(true);
+			}
+
+			return "?";
+		},
+		resizable: false,
+		headerSort: false,
+	};
+}
+
+
 function define_downstream_stats_column() {
 
-	const column_definition = {
+	return {
 		title: "Downstream commit count",
 		field: "downstream_commit_count",
 		headerVertical: true,
@@ -708,7 +770,7 @@ function define_downstream_stats_column() {
 
 			const downstream_count = cell.getValue();
 			if (downstream_count) {
-				return link(cell.getValue(), "/api/master-downstream-commits?sha1=" + cell.getRow().getData()["commit"])
+				return link(cell.getValue(), "/downstream-commits.html?sha1=" + cell.getRow().getData()["commit"])
 			} else {
 				return downstream_count;
 			}
@@ -716,20 +778,22 @@ function define_downstream_stats_column() {
 		resizable: false,
 		headerSort: false,
 	};
-
-	return column_definition;
 }
 
 
 function get_column_definitions(raw_column_list) {
 
-
-	const downstream_stats_column = define_downstream_stats_column();
-	const commit_column_definition = define_commits_column();
+	const prefix_columns = [
+		define_downstream_stats_column(),
+		define_commit_age_column(),
+		define_commit_sha1_column(),
+		define_pr_column(),
+		define_commit_message_column(),
+	];
 
 	raw_column_list.sort();
 
-	const column_list = [downstream_stats_column, commit_column_definition].concat(generate_column_tree_base(raw_column_list));
+	const column_list = prefix_columns.concat(generate_column_tree_base(raw_column_list));
 	return column_list;
 }
 

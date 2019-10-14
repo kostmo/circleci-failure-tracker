@@ -585,13 +585,22 @@ apiDeterministicFailureModes = WebApi.ApiResponse <$> runQuery q
     ]
 
 
-apiMasterDownstreamCommits :: Builds.RawCommit -> DbIO [Builds.RawCommit]
+data DownstreamCommitInfo = DownstreamCommitInfo {
+    _sha1     :: Builds.RawCommit
+  , _distance :: Int
+  } deriving (Generic, FromRow)
+
+instance ToJSON DownstreamCommitInfo where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+apiMasterDownstreamCommits :: Builds.RawCommit -> DbIO [DownstreamCommitInfo]
 apiMasterDownstreamCommits (Builds.RawCommit sha1) = do
   conn <- ask
   liftIO $ query conn sql $ Only sha1
   where
   sql = MyUtils.qjoin [
-      "SELECT branch_commit"
+      "SELECT branch_commit, distance"
     , "FROM pr_merge_bases"
     , "WHERE master_commit = ?"
     ]
@@ -1008,9 +1017,50 @@ knownBreakageAffectedJobs cause_id = do
       ]
 
 
+-- | Compare to: getSpanningBreakages
+getInferredSpanningBrokenJobs ::
+     Connection
+  -> Builds.RawCommit -- ^ merge base with master
+  -> Builds.RawCommit -- ^ branch commit
+  -> IO [Text]
+getInferredSpanningBrokenJobs conn (Builds.RawCommit master_sha1) (Builds.RawCommit branch_sha1) = do
+
+  -- Beware of the order of these parameters, since we're
+  -- including a snippet of SQL defined below the main query
+  rows <- query conn sql (master_sha1, branch_sha1, master_sha1)
+  return $ map (\(Only x) -> x) rows
+
+  where
+    sql = MyUtils.qjoin [
+        "SELECT"
+      , MyUtils.qlist [
+          "master_job_failure_spans_mview.job_name"
+--        , "master_job_failure_spans_mview.span_length"
+        ]
+      , "FROM master_job_failure_spans_mview"
+      , "JOIN"
+      , MyUtils.qparens inner_q
+      , "foo"
+      , "ON foo.job_name = master_job_failure_spans_mview.job_name"
+      , "JOIN build_failure_standalone_causes"
+      , "ON build_failure_standalone_causes.vcs_revision = ?"
+      , "AND build_failure_standalone_causes.job_name = foo.job_name"
+      , "WHERE"
+      , "failure_commit_id_range @> (SELECT id FROM ordered_master_commits WHERE sha1 = ?)::int8"
+      ]
+
+    inner_q = MyUtils.qjoin [
+        "SELECT job_name FROM master_commit_circleci_scheduled_job_discrimination"
+      , "WHERE master_commit_circleci_scheduled_job_discrimination.commit_sha1 = ?"
+      , "AND NOT is_scheduled"
+      ]
+
+
 -- | This only works for commits from the master branch.
 -- Commits from other branches must use
 -- StatusUpdate.findKnownBuildBreakages
+--
+-- | Compare to: getInferredSpanningBrokenJobs
 getSpanningBreakages ::
      Connection
   -> Builds.RawCommit

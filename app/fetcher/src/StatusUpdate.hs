@@ -47,6 +47,7 @@ import qualified PushWebhooks
 import qualified Scanning
 import qualified ScanPatterns
 import qualified SqlRead
+import qualified SqlUpdate
 import qualified SqlWrite
 import qualified StatusEvent
 import qualified StatusEventQuery
@@ -201,7 +202,7 @@ getBuildsFromGithub ::
   -> DbHelpers.OwnerAndRepo
   -> Bool
   -> Builds.RawCommit
-  -> ExceptT LT.Text IO ([Builds.UniversalBuildId], Int, Int)
+  -> ExceptT LT.Text IO ([Builds.UniversalBuildId], Int)
 getBuildsFromGithub
     conn
     access_token
@@ -260,20 +261,11 @@ getBuildsFromGithub
     , show circleci_failcount
     ]
 
-  -- XXX TEMPORARILY DISABLED FOR PERFORMANCE REASONS
-  let known_breakages = []
---  known_breakages <- ExceptT $ do
---    conn <- liftIO $ DbHelpers.get_connection db_connection_data
---    first LT.fromStrict <$> SqlUpdate.findKnownBuildBreakages conn access_token owned_repo (Builds.RawCommit sha1)
-
-  let all_broken_jobs = Set.unions $ map (SqlRead._jobs . DbHelpers.record) known_breakages
-      known_broken_circle_builds = filter ((`Set.member` all_broken_jobs) . Builds.job_name . Builds.build_record) circleci_failed_builds
-      known_broken_circle_build_count = length known_broken_circle_builds
 
   liftIO $ SqlWrite.storeBuildsList conn Nothing $
     map storable_build_to_universal second_level_storable_builds
 
-  return (scannable_build_numbers, circleci_failcount, known_broken_circle_build_count)
+  return (scannable_build_numbers, circleci_failcount)
 
   where
     storable_build_to_universal (Builds.StorableBuild (DbHelpers.WithId ubuild_id _ubuild) rbuild) =
@@ -333,7 +325,25 @@ postCommitSummaryStatus
 
   basic_revision_stats <- ExceptT $ runReaderT (SqlRead.getNonPatternMatchRevisionStats sha1) conn
 
-  let (SqlRead.BasicRevisionBuildStats _ _ _ known_broken_circle_build_count _ circleci_failcount) = basic_revision_stats
+  let (SqlRead.BasicRevisionBuildStats _ _ _ _ _ circleci_failcount) = basic_revision_stats
+
+
+
+
+  -- TODO WIP!!!
+  (_manually_annotated_breakages, inferred_upstream_caused_broken_jobs) <- ExceptT $
+    first LT.fromStrict <$> SqlUpdate.findKnownBuildBreakages
+      conn
+      access_token
+      owned_repo
+      sha1
+
+  let known_broken_circle_builds = inferred_upstream_caused_broken_jobs
+--      circleci_failed_builds = []  -- FIXME TODO!!!
+--    all_broken_jobs = Set.unions $ map (SqlRead._jobs . DbHelpers.record) manually_annotated_breakages
+--    known_broken_circle_builds = filter ((`Set.member` all_broken_jobs) . Builds.job_name . Builds.build_record) circleci_failed_builds
+      known_broken_circle_build_count = length known_broken_circle_builds
+
 
   postCommitSummaryStatusInner
     circleci_failcount
@@ -356,7 +366,6 @@ postCommitSummaryStatusInner
 
   maybe_previously_posted_status <- liftIO $
     runReaderT (SqlRead.getPostedGithubStatus owned_repo sha1) conn
-
 
   case maybe_previously_posted_status of
     Nothing -> when (circleci_failcount > 0) post_and_store
@@ -433,8 +442,7 @@ readGitHubStatusesAndScanAndPostSummaryForCommit
     current_time <- Clock.getCurrentTime
     MyUtils.debugList ["Processing at", show current_time]
 
-  (scannable_build_numbers, _circleci_failcount, _known_broken_circle_build_count) <-
-    getBuildsFromGithub
+  (scannable_build_numbers, _circleci_failcount) <- getBuildsFromGithub
       conn
       access_token
       owned_repo

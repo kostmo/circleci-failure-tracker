@@ -63,6 +63,11 @@
 	border: none !important;
 }
 
+
+ul.commit-range-selector > li {
+	margin: 0.2em;
+}
+
 </style>
 
 </head>
@@ -93,23 +98,29 @@ count:
 <p>Start position:</p>
 <div id="scan-throbber" style="display: none; float:right; clear: all;"><img src="/images/duck.gif"/></div>
 
-<label><input type="radio" name="pagination-mode" value="start-by-offset" checked="true"/> by offset:</label>
-<label>
-<input id="offset-input" type="number" value="0" min="0" size="3"/>
-commits
-</label>
-<button onclick="next_page()">Next page</button> <button onclick="top_page()">Top</button>
 
-<br/>
+<ul style="list-style-type:none" class="commit-range-selector">
+<li>
+	<label><input type="radio" name="pagination-mode" value="start-by-offset" checked="true"/> by offset:</label>
+	<label>
+	<input id="offset-input" type="number" value="0" min="0" size="3"/>
+	commits
+	</label>
+	<button onclick="next_page()">Next page</button> <button onclick="top_page()">Top</button>
 
-<label><input type="radio" name="pagination-mode" value="start-by-sha1"/> by SHA1:</label>
-<input id="sha1-input" type="text" size="40"/>
+</li><li>
 
-<br/>
+	<label><input type="radio" name="pagination-mode" value="start-by-sha1"/> by SHA1:</label>
+	<input id="sha1-input" type="text" size="40"/>
 
-<label><input type="radio" name="pagination-mode" value="start-by-commit-index"/> by index:</label>
-<label>from <input id="commit-index-max" type="number" min="0" size="5"/></label> <label>down to <input id="commit-index-min" type="number" min="0" size="5"/></label>
-<button id="button-get-current-indices" disabled="disabled">Get current indices</button>
+</li><li>
+
+	<label><input type="radio" name="pagination-mode" value="start-by-commit-index"/> by index:</label>
+	<label>from <input id="commit-index-max" type="number" min="0" size="5"/></label> <label>down to <input id="commit-index-min" type="number" min="0" size="5"/></label>
+	<button id="button-get-current-indices" disabled="disabled">Get current indices</button>
+</li>
+</ul>
+
 <p>
 <label><input id="checkbox-suppress-scheduled-builds" type="checkbox" onchange="update_url_from_form();"/> Suppress scheduled builds</label><br/>
 <label><input id="checkbox-suppress-fully-successful-columns" type="checkbox" onchange="update_url_from_form();"/> Suppress fully-successful columns when table width exceeds</label> <label><input id="max-columns-suppress-successful" type="number" min="0" size="3" value="50"/> jobs</label>
@@ -129,6 +140,8 @@ commits
 
 <div id="floating-selection-helper-header"></div>
 <button id="floating-selection-helper-go-button">Annotate failure</button>
+
+<button id="floating-selection-helper-dismiss-button" onclick="$('#floating-selection-helper').hide();">Dismiss</button>
 
 </div>
 

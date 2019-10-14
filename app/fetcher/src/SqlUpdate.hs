@@ -95,8 +95,14 @@ getBuildInfo access_token build@(Builds.UniversalBuildId build_id) = do
   liftIO $ do
     xs <- query conn sql $ Only build_id
 
-    let either_tuple = f (length matches) <$> maybeToEither
-          (T.pack $ unwords ["Build with ID", show build_id, "not found!"])
+    let err_msg = unwords [
+            "Build with ID"
+          , show build_id
+          , "not found!"
+          ]
+
+        either_tuple = f (length matches) <$> maybeToEither
+          (T.pack err_msg)
           (Safe.headMay xs)
 
     runExceptT $ do
@@ -105,7 +111,8 @@ getBuildInfo access_token build@(Builds.UniversalBuildId build_id) = do
       let sha1 = Builds.vcs_revision $ BuildSteps.build step_container
           job_name = Builds.job_name $ BuildSteps.build step_container
 
-      (breakages_retrieval_timing, breakages) <- MyUtils.timeThisFloat $ ExceptT $
+      -- TODO Replace this!
+      (breakages_retrieval_timing, (breakages, _)) <- MyUtils.timeThisFloat $ ExceptT $
         findKnownBuildBreakages conn access_token pytorchRepoOwner sha1
 
       let applicable_breakages = filter (Set.member job_name . SqlRead._jobs . DbHelpers.record) breakages
@@ -192,7 +199,8 @@ countRevisionBuilds access_token git_revision = do
       , succeeded
       ) <- except $ maybeToEither err $ Safe.headMay rows
 
-    (known_broken_determination_time, breakages) <- MyUtils.timeThisFloat $ ExceptT $
+    -- TODO Replace this
+    (known_broken_determination_time, (breakages, _)) <- MyUtils.timeThisFloat $ ExceptT $
       findKnownBuildBreakages conn access_token pytorchRepoOwner $ Builds.RawCommit sha1
 
     return $ DbHelpers.BenchmarkedResponse
@@ -304,7 +312,7 @@ findKnownBuildBreakages ::
   -> OAuth2.AccessToken
   -> DbHelpers.OwnerAndRepo
   -> Builds.RawCommit
-  -> IO (Either Text [DbHelpers.WithId SqlRead.CodeBreakage])
+  -> IO (Either Text ([DbHelpers.WithId SqlRead.CodeBreakage], [Text]))
 findKnownBuildBreakages conn access_token owned_repo sha1 =
 
   runExceptT $ do
@@ -318,6 +326,17 @@ findKnownBuildBreakages conn access_token owned_repo sha1 =
       False
       sha1
 
+
     -- Third, find whether that commit is within the
     -- [start, end) span of any known breakages
-    ExceptT $ SqlRead.getSpanningBreakages conn nearest_ancestor
+    manually_annotated_breakages <- ExceptT $ SqlRead.getSpanningBreakages conn nearest_ancestor
+
+    -- TODO Use both manually annotated and inferred methods for
+    -- associating breakages!
+
+    inferred_upstream_caused_broken_jobs <- liftIO $ SqlRead.getInferredSpanningBrokenJobs
+      conn
+      nearest_ancestor
+      sha1
+
+    return (manually_annotated_breakages, inferred_upstream_caused_broken_jobs)

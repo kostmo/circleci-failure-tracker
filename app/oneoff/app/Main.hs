@@ -1,14 +1,17 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 import           Data.Text            (Text)
+import qualified Data.Text            as T
 import qualified Network.OAuth.OAuth2 as OAuth2
 import           Options.Applicative
 import           System.IO
 
+import qualified Builds
 import qualified Constants
 import qualified DbHelpers
 import qualified DbPreparation
 import qualified Scanning
+import qualified SqlRead
 import qualified SqlUpdate
 import qualified SqlWrite
 
@@ -47,41 +50,14 @@ mainAppCode args = do
 
   conn <- DbPreparation.prepareDatabase connection_data False
 
-
-
-
-  -- Experimental
-  scan_resources <- Scanning.prepareScanResources conn $ Just Constants.defaultPatternAuthor
-
-
-
   {-
-  -- This is a HUGE log
-  universal_build <- Scanning.reInsertCircleCiBuild
-    conn
-    (Builds.NewBuildNumber 2120936)
-    (Builds.RawCommit "b5ebb30cd93db81763c9a2f5f659a9b25841f035")
-    False
+  thing <- SqlRead.getInferredSpanningBrokenJobs conn
+     (Builds.RawCommit "3d2c90131abb04dbd9ad039f96de7f43437c77f6")
+     (Builds.RawCommit "3144fc608a818e9a846543037ef86b4359859bc8")
+
+  putStrLn $ show $ map T.unpack thing
   -}
 
-
-
-
-  {-
-  all_master_commits <- SqlRead.getAllMasterCommits conn
-
-  result <- SqlRead.findMasterAncestorWithPrecomputation
-    (Just all_master_commits)
-    conn
-    oauth_access_token
-    owned_repo
-    (Builds.RawCommit "9588cd921efd051a982188220b8215914bd5790e")
-
-  putStrLn $ unwords [
-      "Ancestor finding result:"
-    , show result
-    ]
-  -}
 
 
   batch_diagnosis_result <- SqlUpdate.diagnoseCommitsBatch
