@@ -176,7 +176,10 @@ scottyApp
     pure $ WebApi.toJsonEither <$> SqlRead.getLatestMasterCommitWithMetadata
 
   get "/api/status-notifications-by-hour" $
-    pure SqlRead.apiStatusNotificationsByHour
+    SqlRead.apiStatusNotificationsByHour <$> S.param "hours"
+
+  get "/api/master-downstream-commits" $
+    SqlRead.apiMasterDownstreamCommits . Builds.RawCommit <$> S.param "sha1"
 
   get "/api/status-posted-commits-by-day" $
     pure SqlRead.apiStatusPostedCommitsByDay

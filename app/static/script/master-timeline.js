@@ -86,7 +86,7 @@ function get_timeline_data(parms) {
 			$("#commit-timespan-container").html([
 				"Showing commits from",
 				render_tag("b", moment(min_commit_time).fromNow()),
-				"to",
+				"up to",
 				render_tag("b", moment(max_commit_time).fromNow()),
 			].join(" "));
 
@@ -608,7 +608,8 @@ function next_page() {
 }
 
 
-function get_column_definitions(raw_column_list) {
+function define_commits_column() {
+
 
 	var legend_rows = [
 		["Symbol", "Meaning"],
@@ -630,14 +631,14 @@ function get_column_definitions(raw_column_list) {
 
 	const legend = render_table(legend_rows, {"style": "vertical-align: bottom;"}, "Legend", true);
 
+	const commits_column_title_parts = ["Commit"].concat(Array(4).fill("<br/>"), [legend]);
 	const commit_column_definition = {
-		title: 'Commit<br/><br/><br/><br/>' + legend,
+		title: commits_column_title_parts.join(""),
 		field: "commit",
 		headerVertical: false,
 		formatter: function(cell, formatterParams, onRendered) {
 
 			const row_data = cell.getRow().getData();
-
 
 			if (!row_data["populated_config_yaml"] && row_data["was_built"]) {
 				cell.getElement().style.backgroundImage = "url('/images/corner-triangle-red.svg')";
@@ -687,15 +688,48 @@ function get_column_definitions(raw_column_list) {
 			}
 		},
 		minWidth: 90,
-		width: 300,
 		resizable: true,
 		headerSort: false,
-		frozen: true,
+//		frozen: true,  // XXX When this is true, horizontal scrolling behavior is super weird
 	};
+
+	return commit_column_definition;
+}
+
+
+function define_downstream_stats_column() {
+
+	const column_definition = {
+		title: "Downstream commit count",
+		field: "downstream_commit_count",
+		headerVertical: true,
+		width: 30,
+		formatter: function(cell, formatterParams, onRendered) {
+
+			const downstream_count = cell.getValue();
+			if (downstream_count) {
+				return link(cell.getValue(), "/api/master-downstream-commits?sha1=" + cell.getRow().getData()["commit"])
+			} else {
+				return downstream_count;
+			}
+		},
+		resizable: false,
+		headerSort: false,
+	};
+
+	return column_definition;
+}
+
+
+function get_column_definitions(raw_column_list) {
+
+
+	const downstream_stats_column = define_downstream_stats_column();
+	const commit_column_definition = define_commits_column();
 
 	raw_column_list.sort();
 
-	const column_list = [commit_column_definition].concat(generate_column_tree_base(raw_column_list));
+	const column_list = [downstream_stats_column, commit_column_definition].concat(generate_column_tree_base(raw_column_list));
 	return column_list;
 }
 
@@ -832,9 +866,6 @@ function gen_timeline_table(element_id, fetched_data) {
 	// global
 	breakage_span_membership_by_commit_id_by_job_name = precompute_breakage_span_memberships(fetched_data);
 
-	console.log("SPANS:", breakage_span_membership_by_commit_id_by_job_name);
-
-
 	// global
 	breakage_starts_by_job_name = {};
 	for (var breakage_span_obj of fetched_data.breakage_spans) {
@@ -843,14 +874,12 @@ function gen_timeline_table(element_id, fetched_data) {
 		}
 	}
 
-
 	// global
 	disjoint_statuses_by_commit_id = {};
 	for (var disjoint_status_obj of fetched_data.disjoint_statuses) {
 
 		setDefault(disjoint_statuses_by_commit_id, disjoint_status_obj["commit_id"], {})[disjoint_status_obj["job_name_extracted"]] = disjoint_status_obj["state"];
 	}
-
 
 
 	const builds_by_commit = {};
@@ -873,6 +902,8 @@ function gen_timeline_table(element_id, fetched_data) {
 		row_dict["pr_number"] = commit_obj.record.pr_number;
 		row_dict["was_built"] = commit_obj.record.was_built;
 		row_dict["populated_config_yaml"] = commit_obj.record.populated_config_yaml;
+		row_dict["downstream_commit_count"] = commit_obj.record.downstream_commit_count;
+
 
 		for (var job_name in builds_by_job_name) {
 			row_dict[job_name] = builds_by_job_name[job_name];

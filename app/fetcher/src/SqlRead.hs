@@ -585,17 +585,31 @@ apiDeterministicFailureModes = WebApi.ApiResponse <$> runQuery q
     ]
 
 
+apiMasterDownstreamCommits :: Builds.RawCommit -> DbIO [Builds.RawCommit]
+apiMasterDownstreamCommits (Builds.RawCommit sha1) = do
+  conn <- ask
+  liftIO $ query conn sql $ Only sha1
+  where
+  sql = MyUtils.qjoin [
+      "SELECT branch_commit"
+    , "FROM pr_merge_bases"
+    , "WHERE master_commit = ?"
+    ]
+
+
 -- | Note that Highcharts expects the dates to be in ascending order
 -- thus, use of reverse
-apiStatusNotificationsByHour :: DbIO (WebApi.ApiResponse (UTCTime, Int))
-apiStatusNotificationsByHour = WebApi.ApiResponse . reverse <$> runQuery q
+apiStatusNotificationsByHour :: Int -> DbIO (WebApi.ApiResponse (UTCTime, Int))
+apiStatusNotificationsByHour hours = do
+  conn <- ask
+  liftIO $ WebApi.ApiResponse . reverse <$> query conn sql (Only hours)
   where
-  q = MyUtils.qjoin [
+  sql = MyUtils.qjoin [
       "SELECT date_trunc('hour', created_at) AS hour, COUNT(*)"
     , "FROM github_incoming_status_events"
     , "GROUP BY hour ORDER BY hour DESC"
     , "OFFSET 1"
-    , "LIMIT 24"
+    , "LIMIT ?"
     ]
 
 
@@ -1430,7 +1444,8 @@ getMasterCommits conn parent_offset_mode =
       , maybe_committer_email
       , maybe_committer_date
       , was_built
-      , populated_config_yaml) =
+      , populated_config_yaml
+      , downstream_commit_count) =
       DbHelpers.WithId commit_id $ BuildResults.CommitAndMetadata
         wrapped_sha1
         maybe_metadata
@@ -1438,6 +1453,7 @@ getMasterCommits conn parent_offset_mode =
         maybe_pr_number
         was_built
         populated_config_yaml
+        downstream_commit_count
       where
         wrapped_sha1 = Builds.RawCommit commit_sha1
         maybe_metadata = Commits.CommitMetadata wrapped_sha1 <$>
@@ -1470,6 +1486,7 @@ getMasterCommits conn parent_offset_mode =
           , "committer_date"
           , "was_built"
           , "populated_config_yaml"
+          , "downstream_commit_count"
           ]
       , "FROM master_ordered_commits_with_metadata"
       ]
@@ -1850,10 +1867,8 @@ apiMasterBuilds timeline_parms = do
     (job_failure_spans_time, job_failure_spans) <- MyUtils.timeThisFloat $
       liftIO $ getBreakageSpans conn commit_id_bounds
 
-
     (disjoint_statuses_time, disjoint_statuses) <- MyUtils.timeThisFloat $
       liftIO $ query conn disjoint_statuses_sql $ WeeklyStats.boundsAsTuple commit_id_bounds
-
 
     let (successful_builds, failed_builds) = partition
           (BuildResults.isSuccess . BuildResults._failure_mode)

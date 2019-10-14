@@ -111,7 +111,7 @@ function main() {
 	gen_time_plot('container-status-commits-by-day', '/api/status-posted-commits-by-day', "Unique commits annotated", "day");
 	gen_time_plot('container-status-postings-by-day', '/api/status-postings-by-day', "Status postings", "day");
 
-
-	gen_time_plot('container-status-notifications-by-hour', '/api/status-notifications-by-hour', "Status notifications", "hour");
+	const hours_count = 48;
+	gen_time_plot('container-status-notifications-by-hour', '/api/status-notifications-by-hour?hours=' + hours_count, "Status notifications", "hour");
 }
 
