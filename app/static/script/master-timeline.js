@@ -1,6 +1,7 @@
 // global
 var breakage_starts_by_job_name = {};
 var disjoint_statuses_by_commit_id = {};
+var breakage_span_membership_by_commit_id_by_job_name = {};
 var grid_table = null;
 
 
@@ -61,7 +62,7 @@ function get_timeline_data(parms) {
 
 			const last_cache_update_utctime_tuple = mydata["payload"]["timing"]["last_mview_update"];
 			const last_cache_update_utctime = last_cache_update_utctime_tuple[0]
-			console.log("Last update UTCTime: " + last_cache_update_utctime + " by " + last_cache_update_utctime_tuple[1]);
+//			console.log("Last update UTCTime: " + last_cache_update_utctime + " by " + last_cache_update_utctime_tuple[1]);
 
 			$("#last-cache-update-time-container").html(moment(last_cache_update_utctime).fromNow());
 
@@ -74,7 +75,20 @@ function get_timeline_data(parms) {
 			const min_commit_time = Math.min(...all_commit_times);
 			const max_commit_time = Math.max(...all_commit_times);
 
-			$("#commit-timespan-container").html("Showing commits from " + render_tag("b", moment(min_commit_time).fromNow()) + " to " + render_tag("b", moment(max_commit_time).fromNow()));
+
+			$("#button-get-current-indices").prop("disabled", false);
+			$("#button-get-current-indices").click(function() {
+				get_commit_indices(mydata.payload.content.commits);
+			});
+
+
+
+			$("#commit-timespan-container").html([
+				"Showing commits from",
+				render_tag("b", moment(min_commit_time).fromNow()),
+				"to",
+				render_tag("b", moment(max_commit_time).fromNow()),
+			].join(" "));
 
 			gen_timeline_table("master-timeline-table", mydata.payload.content);
 
@@ -412,12 +426,19 @@ function define_job_column(col) {
 
 			$(cell.getElement()).addClass("build-cell");
 
+			const row_data = cell.getRow().getData();
+
+			const commit_id = row_data["commit_index"];
+			const job_name = cell.getColumn().getField();
+
 			const cell_value = get_cell_value_indirect(cell);
 
 			const open_breakages = get_open_breakages(cell);
 			const has_open_breakage = open_breakages.length > 0;
 
-			const detected_contiguous_breakage = cell_value && cell_value.detected_breakages.longitudinal_breakage != null;
+			const detected_contiguous_breakage = breakage_span_membership_by_commit_id_by_job_name[job_name] && breakage_span_membership_by_commit_id_by_job_name[job_name][commit_id];
+
+
 			const detected_lateral_breakage = cell_value && cell_value.detected_breakages.lateral_breakage != null;
 
 			if (has_open_breakage) {
@@ -436,13 +457,9 @@ function define_job_column(col) {
 				cell.getElement().style.backgroundImage = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 8 8'%3E%3Cg fill='%239C92AC' fill-opacity='0.4'%3E%3Cpath fill-rule='evenodd' d='M0 0h4v4H0V0zm4 4h4v4H4V4z'/%3E%3C/g%3E%3C/svg%3E\")";
 
 			} else if (detected_contiguous_breakage) {
-				// Repeat 3 times wthin a cell
-				cell.getElement().style.backgroundSize = "33.3%";
 
-				// vertical stripes
-				const stripes_color_hex = "00c";
-				const stripes_opacity_fraction = 0.7; // between 0 and 1
-				cell.getElement().style.backgroundImage = "url(\"data:image/svg+xml,%3Csvg width='40' height='1' viewBox='0 0 40 1' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0h20v1H0z' fill='%23" + stripes_color_hex + "' fill-opacity='" + stripes_opacity_fraction + "' fill-rule='evenodd'/%3E%3C/svg%3E\")";
+				cell.getElement().style.backgroundSize = "100% 100%";
+				cell.getElement().style.backgroundImage = "url(/images/zigzag-vertical.svg)";
 
 			} else if (detected_lateral_breakage) {
 
@@ -479,8 +496,6 @@ function define_job_column(col) {
 
 			} else {
 
-				const commit_id = cell.getRow().getData()["commit_index"];
-				const job_name = cell.getColumn().getField();
 
 				const state = disjoint_statuses_by_commit_id[commit_id] && disjoint_statuses_by_commit_id[commit_id][job_name];
 
@@ -499,7 +514,9 @@ function define_job_column(col) {
 					}
 				} else {
 
-					cell.getElement().style.backgroundColor = "#0003";
+					if (row_data["was_built"]) {
+						cell.getElement().style.backgroundColor = "#0002";
+					}
 					return "";
 				}
 			}
@@ -554,6 +571,16 @@ function define_job_column(col) {
 	};
 
 	return col_dict;
+}
+
+
+function get_commit_indices(commits) {
+
+	const commit_ids = commits.map(x => x["db_id"])
+
+	$('#commit-index-min').val( Math.min(...commit_ids)  );
+	$('#commit-index-max').val( Math.max(...commit_ids) );
+
 }
 
 
@@ -612,7 +639,7 @@ function get_column_definitions(raw_column_list) {
 			const row_data = cell.getRow().getData();
 
 
-			if (!row_data["populated_config_yaml"]) {
+			if (!row_data["populated_config_yaml"] && row_data["was_built"]) {
 				cell.getElement().style.backgroundImage = "url('/images/corner-triangle-red.svg')";
 				cell.getElement().style.backgroundRepeat = "no-repeat";
 				cell.getElement().style.backgroundSize = "10px";
@@ -749,9 +776,63 @@ function truncate_overlong_horizontal_heading(heading, truncation_threshold) {
 }
 
 
+// precomputes breakage-span membership for *every* cell
+function precompute_breakage_span_memberships(fetched_data) {
+
+	const spans_by_job_name = {};
+	for (var span_obj of fetched_data.job_failure_spans) {
+		setDefault(spans_by_job_name, span_obj.job_name, []).push(span_obj.commit_id_span);
+	}
+
+	const reversed_displayed_commit_ids = [];
+	for (var commit_obj of fetched_data.commits) {
+		reversed_displayed_commit_ids.push(commit_obj.db_id);
+	}
+
+	reversed_displayed_commit_ids.reverse();
+
+
+	const breakage_span_membership_by_commit_id_by_job_name = {};
+	for (var job_name of fetched_data.columns) {
+
+		const spans_for_column = spans_by_job_name[job_name] || [];
+
+		var displayed_commit_id_index = 0;
+
+		span_loop: for (var span of spans_for_column) {
+
+			while (displayed_commit_id_index < reversed_displayed_commit_ids.length) {
+
+				var commit_id = reversed_displayed_commit_ids[displayed_commit_id_index];
+
+				if (span[1] <= commit_id) {
+					continue span_loop;
+				}
+
+				if (span[0] <= commit_id) {
+					setDefault(breakage_span_membership_by_commit_id_by_job_name, job_name, {})[commit_id] = true;
+				} 
+
+				displayed_commit_id_index++;
+			}
+
+			break;
+		}
+	}
+
+	return breakage_span_membership_by_commit_id_by_job_name;
+}
+
+
 function gen_timeline_table(element_id, fetched_data) {
 
 	const column_list = get_column_definitions(fetched_data.columns);
+
+
+	// global
+	breakage_span_membership_by_commit_id_by_job_name = precompute_breakage_span_memberships(fetched_data);
+
+	console.log("SPANS:", breakage_span_membership_by_commit_id_by_job_name);
 
 
 	// global
@@ -1002,6 +1083,7 @@ function populate_form_from_url() {
 
 
 function main() {
+
 
 	$('#is-ongoing-checkbox').change(function() {
 		update_subform_visibility(this.checked);

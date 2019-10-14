@@ -109,6 +109,7 @@ commits
 
 <label><input type="radio" name="pagination-mode" value="start-by-commit-index"/> by index:</label>
 <label>from <input id="commit-index-max" type="number" min="0" size="5"/></label> <label>down to <input id="commit-index-min" type="number" min="0" size="5"/></label>
+<button id="button-get-current-indices" disabled="disabled">Get current indices</button>
 <p>
 <label><input id="checkbox-suppress-scheduled-builds" type="checkbox" onchange="update_url_from_form();"/> Suppress scheduled builds</label><br/>
 <label><input id="checkbox-suppress-fully-successful-columns" type="checkbox" onchange="update_url_from_form();"/> Suppress fully-successful columns when table width exceeds</label> <label><input id="max-columns-suppress-successful" type="number" min="0" size="3" value="50"/> jobs</label>

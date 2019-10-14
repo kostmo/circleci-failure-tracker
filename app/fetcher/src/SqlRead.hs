@@ -1801,6 +1801,29 @@ apiCleanestMasterCommits missing_threshold = do
       ]
 
 
+getBreakageSpans ::
+     Connection
+  -> WeeklyStats.InclusiveNumericBounds Int64
+  -> IO [BuildResults.JobFailureSpan]
+getBreakageSpans conn commit_id_bounds =
+  query conn job_failure_spans_sql parms_tuple
+  where
+    bounds_tuple = WeeklyStats.boundsAsTuple commit_id_bounds
+    parms_tuple = (fst bounds_tuple, snd bounds_tuple, fst bounds_tuple, snd bounds_tuple)
+
+    job_failure_spans_sql = MyUtils.qjoin [
+        "SELECT"
+      , MyUtils.qlist [
+          "job_name"
+        , "int8range(?, ?, '[]') * failure_commit_id_range"
+        , "span_length"
+        ]
+      , "FROM master_job_failure_spans_mview"
+      , "WHERE int8range(?, ?, '[]') && failure_commit_id_range"
+      , "AND COALESCE(span_length > 1, TRUE)"
+      ]
+
+
 -- | Gets last N commits in one query,
 -- then gets the list of jobs that apply to those commits,
 -- then gets the associated builds
@@ -1823,6 +1846,10 @@ apiMasterBuilds timeline_parms = do
 
     (builds_list_time, completed_builds) <- MyUtils.timeThisFloat $
       liftIO $ query conn builds_list_sql $ WeeklyStats.boundsAsTuple commit_id_bounds
+
+    (job_failure_spans_time, job_failure_spans) <- MyUtils.timeThisFloat $
+      liftIO $ getBreakageSpans conn commit_id_bounds
+
 
     (disjoint_statuses_time, disjoint_statuses) <- MyUtils.timeThisFloat $
       liftIO $ query conn disjoint_statuses_sql $ WeeklyStats.boundsAsTuple commit_id_bounds
@@ -1852,6 +1879,7 @@ apiMasterBuilds timeline_parms = do
           commits_list_time
           code_breakages_time
           disjoint_statuses_time
+          job_failure_spans_time
           last_update_time
 
 
@@ -1861,11 +1889,11 @@ apiMasterBuilds timeline_parms = do
       completed_builds
       code_breakage_ranges
       disjoint_statuses
+      job_failure_spans
 
   where
     suppress_scheduled_builds = Pagination.should_suppress_scheduled_builds $
       Pagination.column_filtering timeline_parms
-
 
     disjoint_statuses_sql = MyUtils.qjoin [
         "SELECT"

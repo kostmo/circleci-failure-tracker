@@ -12,6 +12,8 @@ import qualified Data.Text                          as T
 import           Data.Time                          (UTCTime)
 import           Database.PostgreSQL.Simple         (FromRow)
 import           Database.PostgreSQL.Simple.FromRow (field, fromRow)
+import           Database.PostgreSQL.Simple.Range   (PGRange (PGRange),
+                                                     RangeBound (..))
 import           GHC.Generics
 import           GHC.Int                            (Int64)
 
@@ -320,6 +322,7 @@ data DbMasterBuildsBenchmarks = DbMasterBuildsBenchmarks {
   , _commits_list_time      :: Float
   , _code_breakages_time    :: Float
   , _disjoint_statuses_time :: Float
+  , _job_failure_spans_time :: Float
   , _last_mview_update      :: (UTCTime, T.Text)
   } deriving Generic
 
@@ -342,12 +345,35 @@ instance ToJSON DisjointCircleCIStatus where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
+data JobFailureSpan = JobFailureSpan {
+    _job_name       :: Text
+  , _commit_id_span :: PGRange Int64
+  , _span_length    :: Maybe Int
+  } deriving (FromRow, Generic)
+
+instance ToJSON JobFailureSpan where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+instance (ToJSON a) => ToJSON (RangeBound a) where
+  toJSON x = case x of
+    NegInfinity -> toJSON (Nothing :: Maybe Int64)
+    PosInfinity -> toJSON (Nothing :: Maybe Int64)
+    Inclusive x -> toJSON $ Just x
+    Exclusive x -> toJSON $ Just x
+
+
+instance (ToJSON a) => ToJSON (PGRange a) where
+  toJSON (PGRange x y) = toJSON [x, y]
+
+
 data MasterBuildsResponse = MasterBuildsResponse {
     _columns           :: Set Text
   , _commits           :: [IndexedRichCommit]
   , _builds            :: [SimpleBuildStatus] -- ^ also includes successes
   , _breakage_spans    :: [BreakageSpan Text ()]
   , _disjoint_statuses :: [DisjointCircleCIStatus]
+  , _job_failure_spans :: [JobFailureSpan]
   } deriving Generic
 
 instance ToJSON MasterBuildsResponse where

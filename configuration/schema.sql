@@ -2671,6 +2671,55 @@ CREATE MATERIALIZED VIEW public.master_commit_job_success_completeness_mview AS
 ALTER TABLE public.master_commit_job_success_completeness_mview OWNER TO materialized_view_updater;
 
 --
+-- Name: master_commits_basic_metadata; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_commits_basic_metadata AS
+ SELECT ordered_master_commits.id,
+    ordered_master_commits.sha1,
+    commit_metadata.message,
+    commit_metadata.tree_sha1,
+    commit_metadata.author_name,
+    commit_metadata.author_email,
+    commit_metadata.author_date,
+    commit_metadata.committer_name,
+    commit_metadata.committer_email,
+    commit_metadata.committer_date
+   FROM (public.ordered_master_commits
+     LEFT JOIN public.commit_metadata ON ((commit_metadata.sha1 = ordered_master_commits.sha1)));
+
+
+ALTER TABLE public.master_commits_basic_metadata OWNER TO postgres;
+
+--
+-- Name: VIEW master_commits_basic_metadata; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.master_commits_basic_metadata IS 'NOTE: Overlaps functionally with "master_ordered_commits_with_metadata" view';
+
+
+--
+-- Name: master_commits_contiguously_indexed_mview; Type: MATERIALIZED VIEW; Schema: public; Owner: postgres
+--
+
+CREATE MATERIALIZED VIEW public.master_commits_contiguously_indexed_mview AS
+ SELECT master_commits_contiguously_indexed.id,
+    master_commits_contiguously_indexed.sha1,
+    master_commits_contiguously_indexed.commit_number
+   FROM public.master_commits_contiguously_indexed
+  WITH NO DATA;
+
+
+ALTER TABLE public.master_commits_contiguously_indexed_mview OWNER TO postgres;
+
+--
+-- Name: MATERIALIZED VIEW master_commits_contiguously_indexed_mview; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON MATERIALIZED VIEW public.master_commits_contiguously_indexed_mview IS 'TODO: Trigger this upon ordered_master_commits INSERT';
+
+
+--
 -- Name: master_commits_unpopulated_circleci_configs; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -3294,6 +3343,60 @@ ALTER TABLE public.master_indiscriminate_failure_spans OWNER TO postgres;
 
 COMMENT ON VIEW public.master_indiscriminate_failure_spans IS 'For rendering date ranges of broken commit sequences';
 
+
+--
+-- Name: master_job_failure_spans; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_job_failure_spans WITH (security_barrier='false') AS
+ SELECT bar.job_name,
+    bar.sha1 AS failure_start_commit_sha1,
+    bar.failure_end_commit_sha1,
+    int8range((bar.id)::bigint, (bar.failure_end_commit_id)::bigint) AS failure_commit_id_range,
+    (bar.failure_end_commit_number - bar.commit_number) AS span_length
+   FROM ( SELECT foo.job_name,
+            foo.succeeded,
+            foo.id,
+            foo.sha1,
+            foo.commit_number,
+            lead(foo.id) OVER (PARTITION BY foo.job_name ORDER BY foo.id) AS failure_end_commit_id,
+            lead(foo.sha1) OVER (PARTITION BY foo.job_name ORDER BY foo.id) AS failure_end_commit_sha1,
+            lead(foo.commit_number) OVER (PARTITION BY foo.job_name ORDER BY foo.id) AS failure_end_commit_number
+           FROM ( SELECT master_commits_contiguously_indexed.id,
+                    master_commits_contiguously_indexed.sha1,
+                    master_commits_contiguously_indexed.commit_number,
+                    builds_deduped.job_name,
+                    builds_deduped.succeeded,
+                    (builds_deduped.succeeded <> lag(builds_deduped.succeeded) OVER (PARTITION BY builds_deduped.job_name ORDER BY master_commits_contiguously_indexed.id)) AS edge_transition
+                   FROM (public.builds_deduped
+                     JOIN public.master_commits_contiguously_indexed ON ((builds_deduped.vcs_revision = master_commits_contiguously_indexed.sha1)))
+                  ORDER BY master_commits_contiguously_indexed.id, builds_deduped.job_name) foo
+          WHERE foo.edge_transition) bar
+  WHERE (NOT bar.succeeded);
+
+
+ALTER TABLE public.master_job_failure_spans OWNER TO postgres;
+
+--
+-- Name: VIEW master_job_failure_spans; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.master_job_failure_spans IS 'In contrast with the "master_contiguous_failures" view, this view treats any "absent" builds as a continuation of the last state.';
+
+
+--
+-- Name: master_job_failure_spans_mview; Type: MATERIALIZED VIEW; Schema: public; Owner: materialized_view_updater
+--
+
+CREATE MATERIALIZED VIEW public.master_job_failure_spans_mview AS
+ SELECT master_job_failure_spans.job_name,
+    master_job_failure_spans.failure_commit_id_range,
+    master_job_failure_spans.span_length
+   FROM public.master_job_failure_spans
+  WITH NO DATA;
+
+
+ALTER TABLE public.master_job_failure_spans_mview OWNER TO materialized_view_updater;
 
 --
 -- Name: master_ordered_commits_with_metadata_mview; Type: MATERIALIZED VIEW; Schema: public; Owner: materialized_view_updater
@@ -4966,6 +5069,13 @@ CREATE INDEX idx_circleci_derived_job_name ON public.github_incoming_status_even
 
 
 --
+-- Name: idx_committer_date; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_committer_date ON public.commit_metadata USING btree (committer_date);
+
+
+--
 -- Name: idx_completeness_view_commit_id; Type: INDEX; Schema: public; Owner: materialized_view_updater
 --
 
@@ -5022,10 +5132,31 @@ CREATE INDEX idx_line_number ON public.matches USING btree (line_number);
 
 
 --
+-- Name: idx_master_commits_contiguously_indexed_mview_commit_id; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE UNIQUE INDEX idx_master_commits_contiguously_indexed_mview_commit_id ON public.master_commits_contiguously_indexed_mview USING btree (id);
+
+
+--
+-- Name: idx_master_commits_contiguously_indexed_mview_sha1; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE UNIQUE INDEX idx_master_commits_contiguously_indexed_mview_sha1 ON public.master_commits_contiguously_indexed_mview USING btree (sha1);
+
+
+--
 -- Name: idx_master_failures_weekly_aggregation_week; Type: INDEX; Schema: public; Owner: materialized_view_updater
 --
 
 CREATE UNIQUE INDEX idx_master_failures_weekly_aggregation_week ON public.master_failures_weekly_aggregation_mview USING btree (week);
+
+
+--
+-- Name: idx_master_job_failure_spans; Type: INDEX; Schema: public; Owner: materialized_view_updater
+--
+
+CREATE UNIQUE INDEX idx_master_job_failure_spans ON public.master_job_failure_spans_mview USING btree (failure_commit_id_range DESC NULLS LAST, job_name);
 
 
 --
@@ -6179,6 +6310,22 @@ GRANT SELECT ON TABLE public.master_commit_job_success_completeness_mview TO log
 
 
 --
+-- Name: TABLE master_commits_basic_metadata; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_commits_basic_metadata TO logan;
+GRANT SELECT ON TABLE public.master_commits_basic_metadata TO materialized_view_updater;
+
+
+--
+-- Name: TABLE master_commits_contiguously_indexed_mview; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_commits_contiguously_indexed_mview TO logan;
+GRANT SELECT ON TABLE public.master_commits_contiguously_indexed_mview TO materialized_view_updater;
+
+
+--
 -- Name: TABLE master_commits_unpopulated_circleci_configs; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -6311,6 +6458,21 @@ GRANT ALL ON TABLE public.master_indiscriminate_failure_spans_intermediate TO lo
 --
 
 GRANT ALL ON TABLE public.master_indiscriminate_failure_spans TO logan;
+
+
+--
+-- Name: TABLE master_job_failure_spans; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_job_failure_spans TO logan;
+GRANT SELECT ON TABLE public.master_job_failure_spans TO materialized_view_updater;
+
+
+--
+-- Name: TABLE master_job_failure_spans_mview; Type: ACL; Schema: public; Owner: materialized_view_updater
+--
+
+GRANT SELECT ON TABLE public.master_job_failure_spans_mview TO logan;
 
 
 --

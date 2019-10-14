@@ -63,6 +63,7 @@ WHITELISTED_VIEW_NAMES = {
     "job_schedule_discriminated_mview",
     "master_ordered_commits_with_metadata_mview",
     "master_commit_job_success_completeness_mview",
+    "master_job_failure_spans_mview",
 }
 
 
@@ -111,7 +112,7 @@ if __name__ == "__main__":
     view_names = [
 #        "job_schedule_discriminated_mview",
 #        "master_ordered_commits_with_metadata_mview",
-       "upstream_breakages_weekly_aggregation_mview",
+       "master_job_failure_spans_mview",
     ]
 
     payload = update_multiple_views(view_names, "test")
