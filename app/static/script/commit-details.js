@@ -1,5 +1,3 @@
-
-
 function populate_commit_info(commit_sha1, data) {
 
 	const github_link = link("View on GitHub", "https://github.com/pytorch/pytorch/commits/" + commit_sha1);
@@ -62,12 +60,51 @@ function fetch_commit_info(commit_sha1) {
 }
 
 
+function gen_upstream_breakages_table(element_id, data_url) {
+
+	const table = new Tabulator("#" + element_id, {
+		layout: "fitColumns",
+		placeholder: "No Data Set",
+		columns:[
+			{title: "Job", field: "job_name", width: 300,
+			},
+			{title:"Breakage start", field:"breakage_start_time", width: 200,
+				formatter: function(cell, formatterParams, onRendered) {
+					const val = cell.getValue();
+					return sha1_link(cell.getRow().getData()["breakage_start_sha1"]) + " from " + render_tag("b", moment(val).fromNow());
+				},
+			},
+			{title:"Breakage fixed", field:"breakage_end_time", width: 200,
+				formatter: function(cell, formatterParams, onRendered) {
+					const val = cell.getValue();
+					const breakage_end_sha1 = cell.getRow().getData()["breakage_end_sha1"];
+					if (val) {
+						return sha1_link(breakage_end_sha1 + " from " + render_tag("b", moment(val).fromNow()));
+					} else {
+						return "N/A";
+					}
+				},
+			},
+
+		],
+		ajaxURL: data_url,
+/*
+		ajaxResponse: function(url, params, response) {
+
+			console.log("Loaded build records in " + response.payload.timing.toFixed(1) + " seconds.");
+			return response.payload.content;
+		},
+*/
+	});
+}
+
+
+
 function gen_builds_table(element_id, data_url) {
 
 	const table = new Tabulator("#" + element_id, {
-		height:"300px",
-		layout:"fitColumns",
-		placeholder:"No Data Set",
+		layout: "fitColumns",
+		placeholder: "No Data Set",
 		columns:[
 			{title: "Line", field: "match.line_number", width: 100,
 				formatter: function(cell, formatterParams, onRendered) {
@@ -262,4 +299,11 @@ function main() {
 	gen_unmatched_build_list("/api/unmatched-builds-for-commit?sha1=" + commit_sha1, "container-unattributed-failures");
 	gen_unmatched_build_list("/api/idiopathic-failed-builds-for-commit?sha1=" + commit_sha1, "container-idiopathic-failures");
 	gen_unmatched_build_list("/api/timed-out-builds-for-commit?sha1=" + commit_sha1, "container-timeout-failures");
+
+	gen_postings_table("status-postings-table", "/api/posted-statuses-for-commit?sha1=" + commit_sha1, null);
+
+
+	gen_upstream_breakages_table("container-inferred-upstream-broken-jobs", "/api/upstream-broken-jobs-for-commit?sha1=" + commit_sha1);
 }
+
+

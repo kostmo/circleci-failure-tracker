@@ -107,13 +107,13 @@ function gen_builds_table(element_id, data_url, height_string) {
 	const column_list = [
 		{title: "View name", field: "view_name", width: 400,},
 
-		{title: "Latest refresh", field: "latest", width: 100, formatter: function(cell, formatterParams, onRendered) {
+		{title: "Latest refresh", field: "latest", width: 150, formatter: function(cell, formatterParams, onRendered) {
 				return moment(cell.getValue()).fromNow();
 			}
 		},
-		{title: "Refresh count", field: "event_count", width: 75,
+		{title: "Refresh count", field: "event_count", width: 150,
 		},
-		{title: "Average execution time (s)", field: "average_execution_time", width: 75, formatter: function(cell, formatterParams, onRendered) {
+		{title: "Avg. exec. time (s)", field: "average_execution_time", width: 200, formatter: function(cell, formatterParams, onRendered) {
 				return cell.getValue().toFixed(1);
 			},
 		},

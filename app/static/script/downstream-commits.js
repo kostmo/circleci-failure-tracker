@@ -1,5 +1,5 @@
 
-function gen_good_commits_table(element_id, data_url, height_string) {
+function gen_good_commits_table(element_id, data_url) {
 
 	const column_list = [
 		{title: "Commit", field: "sha1", width: 100, formatter: function(cell, formatterParams, onRendered) {
@@ -11,7 +11,6 @@ function gen_good_commits_table(element_id, data_url, height_string) {
 	];
 
 	const table = new Tabulator("#" + element_id, {
-		height: height_string,
 		layout: "fitColumns",
 		placeholder: "No Data Set",
 		columns: column_list,
@@ -31,14 +30,13 @@ function populate_form_from_url() {
 function requery_table() {
 	const commit_sha1 = $("#master-commit-sha1").val();
 
-	gen_good_commits_table("downstream-commits-table", "/api/master-downstream-commits?sha1=" + commit_sha1, 300);
+	gen_good_commits_table("downstream-commits-table", "/api/master-downstream-commits?sha1=" + commit_sha1);
 }
+
 
 function main() {
 
 	populate_form_from_url();
 	requery_table();
-
-
 }
 

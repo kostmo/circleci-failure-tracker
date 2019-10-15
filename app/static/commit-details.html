@@ -15,6 +15,7 @@
 
 <script src="/script/html-utils.js"></script>
 <script src="/script/table-helpers.js"></script>
+<script src="/admin/script/status-postings-shared.js"></script>
 <script src="/script/commit-details.js"></script>
 
 
@@ -24,6 +25,7 @@
    border-collapse: collapse;
    border: none;
 }
+
 
 #unattributed-failures-layout-table > tr, td, th {
    border: none;
@@ -46,19 +48,27 @@
 
 <h2>Pattern matches</h2>
 <p>This shows only the best-match pattern for each build.</p>
-<div id="builds-table"></div>
+<div id="builds-table" class="limited-table-height-300"></div>
 
 
-<div id="breakage-reports-box-parent" style="display: none;">
-<h2>Breakage reports</h2>
-
-<div id="breakage-reports-box"></div>
-</div>
 
 <div id="container-timeout-failures-parent" style="display: none;">
 <h2>Timed out builds</h2>
 <div id="container-timeout-failures" style="min-width: 500px; height: 400px; margin: 0 auto"></div>
 </div>
+
+
+
+<h2>Upstream breakages</h2>
+<p>
+The <code>master</code> commit upon which this commit is based is checked for build failures that coincide with this commit's failures:
+</p>
+<h3>Inferred breakages</h3>
+<div id="container-inferred-upstream-broken-jobs" style="min-width: 500px; margin: 0 auto"></div>
+
+<h3>Confirmed breakages</h3>
+TODO
+
 
 <h2>Unattributed failures</h2>
 
@@ -72,6 +82,11 @@
 <h3>No log</h3>
 <div id="container-idiopathic-failures" style="min-width: 500px; height: 400px; margin: 0 auto"></div>
 </div>
+
+
+<h2>GitHub status postings</h2>
+<p>Status may be re-posted to the PR as more build results come in.  The most recent status is listed first.
+<div id="status-postings-table" class="limited-table-height-300"></div>
 
 
 <dialog id="myDialog">This is a dialog window</dialog>

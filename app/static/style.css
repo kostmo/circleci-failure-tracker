@@ -29,6 +29,12 @@ body {
 }
 
 
+/* Height workaround: https://stackoverflow.com/a/54185276/105137 */
+.limited-table-height-300 .tabulator-tableHolder {
+    max-height: 300px !important;
+}
+
+
 table {border-collapse: collapse;}
 td, th {padding: 0.3em;}
 

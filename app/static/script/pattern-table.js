@@ -34,6 +34,7 @@ function update_description(pattern_id, new_value) {
 	post_modification("/api/pattern-description-update", data_dict);
 }
 
+
 function update_specificity(pattern_id, new_value) {
 	const data_dict = {
 		"pattern_id": pattern_id,

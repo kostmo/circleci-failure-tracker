@@ -287,6 +287,12 @@ scottyApp
   get "/api/posted-statuses" $
     SqlRead.apiPostedStatuses <$> S.param "count"
 
+  get "/api/posted-statuses-for-commit" $
+    SqlRead.apiPostedStatusesByCommit . Builds.RawCommit <$> S.param "sha1"
+
+  get "/api/upstream-broken-jobs-for-commit" $
+    SqlRead.getInferredSpanningBrokenJobsBetter . Builds.RawCommit <$> S.param "sha1"
+
   get "/api/aggregate-posted-statuses" $
     SqlRead.apiAggregatePostedStatuses <$> S.param "count"
 
@@ -319,13 +325,13 @@ scottyApp
       <$> S.param "weeks"
 
   get "/api/unmatched-builds-for-commit" $
-    SqlRead.apiUnmatchedCommitBuilds <$> S.param "sha1"
+    SqlRead.apiUnmatchedCommitBuilds . Builds.RawCommit <$> S.param "sha1"
 
   get "/api/idiopathic-failed-builds-for-commit" $
-    SqlRead.apiIdiopathicCommitBuilds <$> S.param "sha1"
+    SqlRead.apiIdiopathicCommitBuilds . Builds.RawCommit <$> S.param "sha1"
 
   get "/api/timed-out-builds-for-commit" $
-    SqlRead.apiTimeoutCommitBuilds <$> S.param "sha1"
+    SqlRead.apiTimeoutCommitBuilds . Builds.RawCommit <$> S.param "sha1"
 
   get "/api/pattern-step-occurrences" $
     SqlRead.patternBuildStepOccurrences . ScanPatterns.PatternId <$> S.param "pattern_id"

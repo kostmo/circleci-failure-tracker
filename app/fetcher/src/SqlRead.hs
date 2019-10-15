@@ -292,7 +292,24 @@ apiPostedStatuses count = do
   where
     sql = MyUtils.qjoin [
         "SELECT sha1, description, state, created_at"
-      , "FROM created_github_statuses ORDER BY created_at DESC LIMIT ?;"
+      , "FROM created_github_statuses"
+      , "ORDER BY created_at DESC"
+      , "LIMIT ?;"
+      ]
+
+
+apiPostedStatusesByCommit ::
+     Builds.RawCommit
+  -> DbIO [PostedStatuses.PostedStatus]
+apiPostedStatusesByCommit (Builds.RawCommit sha1) = do
+  conn <- ask
+  liftIO $ query conn sql $ Only sha1
+  where
+    sql = MyUtils.qjoin [
+        "SELECT sha1, description, state, created_at"
+      , "FROM created_github_statuses"
+      , "WHERE sha1 = ?"
+      , "ORDER BY created_at DESC"
       ]
 
 
@@ -677,8 +694,8 @@ apiIdiopathicBuilds = listBuilds $ MyUtils.qjoin [
   ]
 
 
-apiUnmatchedCommitBuilds :: Text -> DbIO [WebApi.UnmatchedBuild]
-apiUnmatchedCommitBuilds sha1 = do
+apiUnmatchedCommitBuilds :: Builds.RawCommit -> DbIO [WebApi.UnmatchedBuild]
+apiUnmatchedCommitBuilds (Builds.RawCommit sha1) = do
   conn <- ask
   liftIO $ query conn sql $ Only sha1
   where
@@ -703,8 +720,8 @@ apiUnmatchedCommitBuilds sha1 = do
       ]
 
 
-apiIdiopathicCommitBuilds :: Text -> DbIO [WebApi.UnmatchedBuild]
-apiIdiopathicCommitBuilds sha1 = do
+apiIdiopathicCommitBuilds :: Builds.RawCommit -> DbIO [WebApi.UnmatchedBuild]
+apiIdiopathicCommitBuilds (Builds.RawCommit sha1) = do
   conn <- ask
   liftIO $ map f <$> query conn sql (Only sha1)
   where
@@ -740,8 +757,10 @@ apiIdiopathicCommitBuilds sha1 = do
       ]
 
 
-apiTimeoutCommitBuilds :: Text -> DbIO [WebApi.UnmatchedBuild]
-apiTimeoutCommitBuilds sha1 = do
+apiTimeoutCommitBuilds ::
+     Builds.RawCommit
+  -> DbIO [WebApi.UnmatchedBuild]
+apiTimeoutCommitBuilds (Builds.RawCommit sha1) = do
   conn <- ask
   liftIO $ query conn sql $ Only sha1
   where
@@ -1017,7 +1036,51 @@ knownBreakageAffectedJobs cause_id = do
       ]
 
 
+data UpstreamBrokenJob = UpstreamBrokenJob {
+    _job_name            :: Text
+  , _breakage_start_time :: UTCTime
+  , _breakage_end_time   :: Maybe UTCTime
+  , _breakage_start_sha1 :: Builds.RawCommit
+  , _breakage_end_sha1   :: Maybe Builds.RawCommit
+  } deriving (Generic, FromRow)
+
+instance ToJSON UpstreamBrokenJob where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+-- | Compare to: getInferredSpanningBrokenJobs
+--
+-- This query is only valid after the PR commit ancestor in the master branch
+-- is cached in the database.
+--
+-- It does not need to know the master commit (merge base).
+getInferredSpanningBrokenJobsBetter ::
+     Builds.RawCommit -- ^ branch commit
+  -> DbIO [UpstreamBrokenJob]
+getInferredSpanningBrokenJobsBetter (Builds.RawCommit branch_sha1) = do
+  conn <- ask
+  liftIO $ query conn sql $ Only branch_sha1
+  where
+    sql = MyUtils.qjoin [
+        "SELECT"
+      , MyUtils.qlist [
+          "job_name"
+        , "open_date"
+        , "closed_date"
+        , "open_sha1"
+        , "closed_sha1"
+        ]
+      , "FROM downstream_build_failures_from_upstream_inferred_breakages"
+      , "WHERE branch_commit = ?"
+      ]
+
+
 -- | Compare to: getSpanningBreakages
+--
+-- NOTE: This query is used when the PR commit ancestor in the master branch
+-- is not necessarily cached in the database.
+-- When the ancestor *is* known to be cached, use a more
+-- direct query!
 getInferredSpanningBrokenJobs ::
      Connection
   -> Builds.RawCommit -- ^ merge base with master
@@ -1049,6 +1112,10 @@ getInferredSpanningBrokenJobs conn (Builds.RawCommit master_sha1) (Builds.RawCom
       , "failure_commit_id_range @> (SELECT id FROM ordered_master_commits WHERE sha1 = ?)::int8"
       ]
 
+    -- NOTE: Ideally we don't even need this filter, since we only care about the *overlap*
+    -- of failing jobs between the branch commit and master commit.
+    -- Scheduled jobs should never be run on the branch commit.
+    -- HOWEVER, there a a large number of "scheduled" jobs that have had been failing indefinitely.
     inner_q = MyUtils.qjoin [
         "SELECT job_name FROM master_commit_circleci_scheduled_job_discrimination"
       , "WHERE master_commit_circleci_scheduled_job_discrimination.commit_sha1 = ?"
