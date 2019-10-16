@@ -87,7 +87,7 @@ ul.commit-range-selector > li {
 <i>last refresh: <span id="last-cache-update-time-container">...</span></i>
 </div>
 
-<form onsubmit="return false;">
+<form onsubmit="return false;" style="float: left;">
 
 <label>
 count:
@@ -96,8 +96,6 @@ count:
 <button onclick="update_url_from_form();">Go</button>
 
 <p>Start position:</p>
-<div id="scan-throbber" style="display: none; float:right; clear: all;"><img src="/images/duck.gif"/></div>
-
 
 <ul style="list-style-type:none" class="commit-range-selector">
 <li>
@@ -127,7 +125,15 @@ count:
 </p>
 </form>
 
-<span id="commit-timespan-container" style="font-style: italic;"></span>
+
+<div id="legend-container" style="float: left; margin-left: 8em;">
+stuff goes here
+</div>
+
+
+<span id="commit-timespan-container" style="font-style: italic; display: block; clear: left"></span>
+
+<div id="scan-throbber" style="display: none;"><img src="/images/duck.gif"/></div>
 <div id="master-timeline-table"></div>
 
 

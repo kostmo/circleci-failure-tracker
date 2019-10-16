@@ -394,8 +394,9 @@ scottyApp
 
 
   get "/api/cleanest-master-commits" $
-    SqlRead.apiCleanestMasterCommits <$> S.param "threshold"
-
+    SqlRead.apiCleanestMasterCommits
+      <$> S.param "missing-threshold"
+      <*> S.param "failing-threshold"
 
   get "/api/is-master-commit" $
     SqlRead.isMasterCommit . Builds.RawCommit <$> S.param "sha1"

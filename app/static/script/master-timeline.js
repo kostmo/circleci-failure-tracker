@@ -637,11 +637,8 @@ function generate_legend_html() {
 
 function define_commit_message_column() {
 
-	const legend_html = generate_legend_html();
-
-	const commits_column_title_parts = ["Commit"].concat(Array(4).fill("<br/>"), [legend_html]);
 	const commit_column_definition = {
-		title: commits_column_title_parts.join(""),
+		title: "Commit",
 		field: "commit",
 		headerVertical: false,
 		formatter: function(cell, formatterParams, onRendered) {
@@ -990,7 +987,8 @@ function gen_timeline_table(element_id, fetched_data) {
 			var data = row.getData();
 
 			if (!data["was_built"]) {
-				row.getElement().style.backgroundColor = "#cc8";
+				row.getElement().style.backgroundColor = "#dda";
+				row.getElement().style.color = "#777";
 			}
 		},
 		rowSelectionChanged: function(data, rows) {
@@ -1179,6 +1177,7 @@ function populate_form_from_url() {
 
 function main() {
 
+	$("#legend-container").html(generate_legend_html());
 
 	$('#is-ongoing-checkbox').change(function() {
 		update_subform_visibility(this.checked);

@@ -45,8 +45,9 @@ function gen_good_commits_table(element_id, data_url, height_string) {
 
 function requery_table() {
 	const missing_success_threshold = $("#max-absent-successes-input").val();
+	const failing_builds_threshold = $("#max-failing-builds-input").val();
 
-	gen_good_commits_table("good-commits-table", "/api/cleanest-master-commits?threshold=" + missing_success_threshold, 300);
+	gen_good_commits_table("good-commits-table", "/api/cleanest-master-commits?missing-threshold=" + missing_success_threshold + "&failing-threshold=" + failing_builds_threshold, 300);
 	return false;
 }
 

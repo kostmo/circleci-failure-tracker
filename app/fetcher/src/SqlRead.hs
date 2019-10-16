@@ -1907,10 +1907,13 @@ instance ToJSON MasterJobCoverage where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
-apiCleanestMasterCommits :: Int -> DbIO [MasterJobCoverage]
-apiCleanestMasterCommits missing_threshold = do
+apiCleanestMasterCommits ::
+     Int
+  -> Int
+  -> DbIO [MasterJobCoverage]
+apiCleanestMasterCommits missing_threshold failing_threshold = do
   conn <- ask
-  liftIO $ query conn sql $ Only missing_threshold
+  liftIO $ query conn sql (missing_threshold, failing_threshold)
   where
     sql = MyUtils.qjoin [
         "SELECT"
@@ -1926,7 +1929,8 @@ apiCleanestMasterCommits missing_threshold = do
         , "age_hours"
         ]
       , "FROM master_commit_job_success_completeness_mview"
-      , "WHERE not_succeeded_required_job_count <= ? AND not_succeeded_required_job_count = unbuilt_required_job_count"
+      , "WHERE not_succeeded_required_job_count <= ?"
+      , "AND not_succeeded_required_job_count - unbuilt_required_job_count <= ?"
       , "ORDER BY"
       , MyUtils.qlist [
           "commit_id DESC"

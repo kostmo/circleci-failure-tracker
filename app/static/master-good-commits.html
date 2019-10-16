@@ -1,6 +1,6 @@
 <html>
 <head>
-<title>Good master commits</title>
+<title>Viable master commits</title>
 
 <link href="/style.css" rel="stylesheet" type="text/css"></link>
 
@@ -20,16 +20,37 @@
 
 <script src="/script/html-utils.js"></script>
 <script src="/script/master-good-commits.js"></script>
+
+<style>
+
+ul > li {
+	margin: 0.2em;
+}
+
+</style>
 </head>
 
 <body onload="main();">
 
 
 <span style="float: right">[<a href="/">home</a>]</span>
-<h2>Good master commits</h2>
+<h2>Viable master commits</h2>
+
+<p>
+This lists the best candidate commits on the <code>master</code> branch for developers to base their work upon.
+</p>
 
 <form onsubmit="return requery_table();">
+
+<ul style="list-style-type:none">
+<li>
 <label>Max missing builds: <input id="max-absent-successes-input" type="number" value="3" min="0" size="2"/></label>
+</li>
+<li>
+<label>Max failing builds: <input id="max-failing-builds-input" type="number" value="0" min="0" size="2"/></label>
+</li>
+</ul>
+
 <input type="submit"/>
 </form>
 
