@@ -43,15 +43,83 @@ function gen_good_commits_table(element_id, data_url, height_string) {
 }
 
 
+function latest_viable_age_timeline_highchart(chart_id, data, stacking_type) {
+
+	const all_points = {};
+
+	for (var datum of data) {
+
+		const inserted_at = Date.parse(datum["inserted_at"]);
+
+		const by_failed_threshold = setDefault(all_points, datum["failed_required_job_count_threshold"], {});
+		const by_unbuilt_threshold = setDefault(by_failed_threshold, datum["unbuilt_or_failed_required_job_count_threshold"], []);
+		by_unbuilt_threshold.push([inserted_at, datum["age_hours"]]);
+	}
+
+	const series_list = [];
+	for (const [failed_threshold, by_failed_threshold] of Object.entries(all_points)) {
+		for (const [unbuilt_threshold, by_unbuilt_threshold] of Object.entries(by_failed_threshold)) {
+			series_list.push({"name": failed_threshold + " failed, " + unbuilt_threshold + " unbuilt", data: by_unbuilt_threshold});
+		}
+	}
+
+
+	Highcharts.chart(chart_id, {
+		chart: {
+			type: 'line',
+		},
+		title: {
+			text: 'Age of latest viable commit',
+		},
+		subtitle: {
+			text: 'TODO'
+		},
+		xAxis: {
+			type: 'datetime',
+			title: {
+				text: 'Date'
+			}
+		},
+		yAxis: {
+			title: {
+				text: 'Age (hours)'
+			},
+			min: 0,
+		},
+		plotOptions: {
+			line: {
+				marker: {
+					enabled: true
+				}
+			},
+		},
+		credits: {
+			enabled: false
+		},
+		series: series_list,
+	});
+}
+
+
 function requery_table() {
 	const missing_success_threshold = $("#max-absent-successes-input").val();
 	const failing_builds_threshold = $("#max-failing-builds-input").val();
 
-	gen_good_commits_table("good-commits-table", "/api/cleanest-master-commits?missing-threshold=" + missing_success_threshold + "&failing-threshold=" + failing_builds_threshold, 300);
+	const api_url = "/api/latest-viable-master-commits?missing-threshold=" + missing_success_threshold + "&failing-threshold=" + failing_builds_threshold;
+	gen_good_commits_table("good-commits-table", api_url, 300);
+
 	return false;
 }
 
+
 function main() {
+
 	requery_table();
+
+	// TODO not using weeks threshold yet
+	getJsonWithThrobber("#scan-throbber2", "/api/viable-commit-age-history", {"weeks": 26}, function (data) {
+		latest_viable_age_timeline_highchart("age-history-plot", data);
+	});
+
 }
 

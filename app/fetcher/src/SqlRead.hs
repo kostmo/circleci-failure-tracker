@@ -1939,6 +1939,40 @@ apiCleanestMasterCommits missing_threshold failing_threshold = do
       ]
 
 
+data ViableCommitAgeRecord = ViableCommitAgeRecord {
+    _inserted_at                                    :: UTCTime
+  , _failed_required_job_count_threshold            :: Int
+  , _unbuilt_or_failed_required_job_count_threshold :: Int
+  , _commit_id                                      :: Int64
+  , _age_hours                                      :: Double
+  } deriving (Generic, FromRow)
+
+instance ToJSON ViableCommitAgeRecord where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+apiLatestViableMasterCommitAgeHistory ::
+   DbIO [ViableCommitAgeRecord]
+apiLatestViableMasterCommitAgeHistory = do
+  conn <- ask
+  liftIO $ query_ conn sql
+  where
+    sql = MyUtils.qjoin [
+        "SELECT"
+      , MyUtils.qlist [
+          "inserted_at"
+        , "failed_required_job_count_threshold"
+        , "unbuilt_or_failed_required_job_count_threshold"
+        , "commit_id"
+        , "age_hours"
+        ]
+      , "FROM viable_master_commit_age_history"
+--      , "WHERE inserted_at > ?"
+      , "ORDER BY inserted_at ASC"
+      , "LIMIT 1000"
+      ]
+
+
 getBreakageSpans ::
      Connection
   -> WeeklyStats.InclusiveNumericBounds Int64
