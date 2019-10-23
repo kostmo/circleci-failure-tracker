@@ -81,6 +81,26 @@ END;$$;
 
 ALTER FUNCTION public.insert_derived_github_status_event_columns() OWNER TO postgres;
 
+--
+-- Name: snapshot_master_viable_commit_age(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.snapshot_master_viable_commit_age() RETURNS void
+    LANGUAGE sql
+    AS $$INSERT INTO viable_master_commit_age_history 
+SELECT CURRENT_TIMESTAMP AS inserted_at, failed_required_job_count_threshold, unbuilt_or_failed_required_job_count, commit_id, age_hours, disqualifying_jobs_array
+FROM (SELECT * FROM generate_series(0, 1) as failed_required_job_count_threshold
+CROSS JOIN generate_series(0, 2) as unbuilt_or_failed_required_job_count) bar,
+     LATERAL (SELECT * FROM master_commit_job_success_completeness_mview
+
+WHERE not_succeeded_required_job_count <= unbuilt_or_failed_required_job_count
+AND failed_required_job_count <= failed_required_job_count_threshold
+ORDER BY commit_id DESC
+LIMIT 1) foo;$$;
+
+
+ALTER FUNCTION public.snapshot_master_viable_commit_age() OWNER TO postgres;
+
 SET default_tablespace = '';
 
 SET default_with_oids = false;
@@ -2729,62 +2749,72 @@ ALTER TABLE public.master_commit_job_coverage_by_week OWNER TO postgres;
 -- Name: master_commit_job_success_completeness; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.master_commit_job_success_completeness AS
- SELECT master_ordered_commits_with_metadata.id AS commit_id,
-    master_ordered_commits_with_metadata.sha1,
-    bar.total_required_commit_job_count,
-    (bar.total_required_commit_job_count - bar.succeeded_built_required_job_count) AS not_succeeded_required_job_count,
-    (bar.total_required_commit_job_count - bar.all_built_required_job_count) AS unbuilt_required_job_count,
-    bar.disqualifying_jobs,
-    master_ordered_commits_with_metadata.committer_date,
-    (date_part('epoch'::text, (now() - master_ordered_commits_with_metadata.committer_date)) / (3600)::double precision) AS age_hours
-   FROM (public.master_ordered_commits_with_metadata
-     JOIN ( SELECT foo.joblist_commit_sha1,
-            count(foo.required_job_name) AS total_required_commit_job_count,
-            count(foo.succeeded_build_job_name) AS succeeded_built_required_job_count,
-            count(foo.any_build_job_name) AS all_built_required_job_count,
-            array_to_string(ARRAY( SELECT unnest(array_agg(foo.required_job_name)) AS unnest
-                EXCEPT
-                 SELECT unnest(array_agg(foo.succeeded_build_job_name)) AS unnest), ';'::text) AS disqualifying_jobs
-           FROM ( SELECT master_commit_circleci_scheduled_job_discrimination.commit_sha1 AS joblist_commit_sha1,
-                    master_commit_circleci_scheduled_job_discrimination.job_name AS required_job_name,
-                    succeeded_jobs_table.job_name AS succeeded_build_job_name,
-                    built_jobs_table.job_name AS any_build_job_name
-                   FROM ((public.master_commit_circleci_scheduled_job_discrimination
-                     LEFT JOIN ( SELECT builds_deduped.build_num,
-                            builds_deduped.vcs_revision,
-                            builds_deduped.queued_at,
-                            builds_deduped.job_name,
-                            builds_deduped.branch,
-                            builds_deduped.succeeded,
-                            builds_deduped.started_at,
-                            builds_deduped.finished_at,
-                            builds_deduped.rebuild_count,
-                            builds_deduped.global_build,
-                            builds_deduped.provider,
-                            builds_deduped.build_namespace,
-                            builds_deduped.ci_provider_scan,
-                            builds_deduped.maybe_is_scheduled
-                           FROM public.builds_deduped
-                          WHERE builds_deduped.succeeded) succeeded_jobs_table ON (((succeeded_jobs_table.job_name = master_commit_circleci_scheduled_job_discrimination.job_name) AND (succeeded_jobs_table.vcs_revision = master_commit_circleci_scheduled_job_discrimination.commit_sha1))))
-                     LEFT JOIN ( SELECT builds_deduped.build_num,
-                            builds_deduped.vcs_revision,
-                            builds_deduped.queued_at,
-                            builds_deduped.job_name,
-                            builds_deduped.branch,
-                            builds_deduped.succeeded,
-                            builds_deduped.started_at,
-                            builds_deduped.finished_at,
-                            builds_deduped.rebuild_count,
-                            builds_deduped.global_build,
-                            builds_deduped.provider,
-                            builds_deduped.build_namespace,
-                            builds_deduped.ci_provider_scan,
-                            builds_deduped.maybe_is_scheduled
-                           FROM public.builds_deduped) built_jobs_table ON (((built_jobs_table.job_name = master_commit_circleci_scheduled_job_discrimination.job_name) AND (built_jobs_table.vcs_revision = master_commit_circleci_scheduled_job_discrimination.commit_sha1))))
-                  WHERE (NOT master_commit_circleci_scheduled_job_discrimination.is_scheduled)) foo
-          GROUP BY foo.joblist_commit_sha1) bar ON ((master_ordered_commits_with_metadata.sha1 = bar.joblist_commit_sha1)))
-  ORDER BY master_ordered_commits_with_metadata.id DESC;
+CREATE VIEW public.master_commit_job_success_completeness WITH (security_barrier='false') AS
+ SELECT foobar.commit_id,
+    foobar.sha1,
+    foobar.total_required_commit_job_count,
+    foobar.not_succeeded_required_job_count,
+    foobar.unbuilt_required_job_count,
+    array_to_string(foobar.disqualifying_jobs_array, ';'::text) AS disqualifying_jobs,
+    foobar.committer_date,
+    foobar.age_hours,
+    foobar.disqualifying_jobs_array,
+    (foobar.not_succeeded_required_job_count - foobar.unbuilt_required_job_count) AS failed_required_job_count
+   FROM ( SELECT master_ordered_commits_with_metadata.id AS commit_id,
+            master_ordered_commits_with_metadata.sha1,
+            bar.total_required_commit_job_count,
+            (bar.total_required_commit_job_count - bar.succeeded_built_required_job_count) AS not_succeeded_required_job_count,
+            (bar.total_required_commit_job_count - bar.all_built_required_job_count) AS unbuilt_required_job_count,
+            bar.disqualifying_jobs_array,
+            master_ordered_commits_with_metadata.committer_date,
+            (date_part('epoch'::text, (now() - master_ordered_commits_with_metadata.committer_date)) / (3600)::double precision) AS age_hours
+           FROM (public.master_ordered_commits_with_metadata
+             JOIN ( SELECT foo.joblist_commit_sha1,
+                    count(foo.required_job_name) AS total_required_commit_job_count,
+                    count(foo.succeeded_build_job_name) AS succeeded_built_required_job_count,
+                    count(foo.any_build_job_name) AS all_built_required_job_count,
+                    ARRAY( SELECT unnest(array_agg(foo.required_job_name)) AS unnest
+                        EXCEPT
+                         SELECT unnest(array_agg(foo.succeeded_build_job_name)) AS unnest) AS disqualifying_jobs_array
+                   FROM ( SELECT master_commit_circleci_scheduled_job_discrimination.commit_sha1 AS joblist_commit_sha1,
+                            master_commit_circleci_scheduled_job_discrimination.job_name AS required_job_name,
+                            succeeded_jobs_table.job_name AS succeeded_build_job_name,
+                            built_jobs_table.job_name AS any_build_job_name
+                           FROM ((public.master_commit_circleci_scheduled_job_discrimination
+                             LEFT JOIN ( SELECT builds_deduped.build_num,
+                                    builds_deduped.vcs_revision,
+                                    builds_deduped.queued_at,
+                                    builds_deduped.job_name,
+                                    builds_deduped.branch,
+                                    builds_deduped.succeeded,
+                                    builds_deduped.started_at,
+                                    builds_deduped.finished_at,
+                                    builds_deduped.rebuild_count,
+                                    builds_deduped.global_build,
+                                    builds_deduped.provider,
+                                    builds_deduped.build_namespace,
+                                    builds_deduped.ci_provider_scan,
+                                    builds_deduped.maybe_is_scheduled
+                                   FROM public.builds_deduped
+                                  WHERE builds_deduped.succeeded) succeeded_jobs_table ON (((succeeded_jobs_table.job_name = master_commit_circleci_scheduled_job_discrimination.job_name) AND (succeeded_jobs_table.vcs_revision = master_commit_circleci_scheduled_job_discrimination.commit_sha1))))
+                             LEFT JOIN ( SELECT builds_deduped.build_num,
+                                    builds_deduped.vcs_revision,
+                                    builds_deduped.queued_at,
+                                    builds_deduped.job_name,
+                                    builds_deduped.branch,
+                                    builds_deduped.succeeded,
+                                    builds_deduped.started_at,
+                                    builds_deduped.finished_at,
+                                    builds_deduped.rebuild_count,
+                                    builds_deduped.global_build,
+                                    builds_deduped.provider,
+                                    builds_deduped.build_namespace,
+                                    builds_deduped.ci_provider_scan,
+                                    builds_deduped.maybe_is_scheduled
+                                   FROM public.builds_deduped) built_jobs_table ON (((built_jobs_table.job_name = master_commit_circleci_scheduled_job_discrimination.job_name) AND (built_jobs_table.vcs_revision = master_commit_circleci_scheduled_job_discrimination.commit_sha1))))
+                          WHERE (NOT master_commit_circleci_scheduled_job_discrimination.is_scheduled)) foo
+                  GROUP BY foo.joblist_commit_sha1) bar ON ((master_ordered_commits_with_metadata.sha1 = bar.joblist_commit_sha1)))
+          ORDER BY master_ordered_commits_with_metadata.id DESC) foobar;
 
 
 ALTER TABLE public.master_commit_job_success_completeness OWNER TO postgres;
@@ -2801,7 +2831,9 @@ CREATE MATERIALIZED VIEW public.master_commit_job_success_completeness_mview AS
     master_commit_job_success_completeness.unbuilt_required_job_count,
     master_commit_job_success_completeness.disqualifying_jobs,
     master_commit_job_success_completeness.committer_date,
-    master_commit_job_success_completeness.age_hours
+    master_commit_job_success_completeness.age_hours,
+    master_commit_job_success_completeness.disqualifying_jobs_array,
+    master_commit_job_success_completeness.failed_required_job_count
    FROM public.master_commit_job_success_completeness
   WITH NO DATA;
 
@@ -4400,6 +4432,22 @@ CREATE MATERIALIZED VIEW public.upstream_breakages_weekly_aggregation_mview AS
 ALTER TABLE public.upstream_breakages_weekly_aggregation_mview OWNER TO materialized_view_updater;
 
 --
+-- Name: viable_master_commit_age_history; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.viable_master_commit_age_history (
+    inserted_at timestamp with time zone NOT NULL,
+    failed_required_job_count_threshold integer NOT NULL,
+    unbuilt_or_failed_required_job_count_threshold integer NOT NULL,
+    commit_id integer NOT NULL,
+    age_hours double precision NOT NULL,
+    disqualifying_jobs_array text[] NOT NULL
+);
+
+
+ALTER TABLE public.viable_master_commit_age_history OWNER TO postgres;
+
+--
 -- Name: queued_sha1_scans; Type: TABLE; Schema: work_queues; Owner: postgres
 --
 
@@ -4893,6 +4941,14 @@ ALTER TABLE ONLY public.universal_builds
 
 
 --
+-- Name: viable_master_commit_age_history viable_master_commit_age_history_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.viable_master_commit_age_history
+    ADD CONSTRAINT viable_master_commit_age_history_pkey PRIMARY KEY (inserted_at, failed_required_job_count_threshold, unbuilt_or_failed_required_job_count_threshold);
+
+
+--
 -- Name: queued_sha1_scans queued_sha1_scans_pkey; Type: CONSTRAINT; Schema: work_queues; Owner: postgres
 --
 
@@ -5132,13 +5188,6 @@ CREATE INDEX idx_committer_date ON public.commit_metadata USING btree (committer
 
 
 --
--- Name: idx_completeness_view_commit_id; Type: INDEX; Schema: public; Owner: materialized_view_updater
---
-
-CREATE UNIQUE INDEX idx_completeness_view_commit_id ON public.master_commit_job_success_completeness_mview USING btree (commit_id);
-
-
---
 -- Name: idx_distinct_match_ranking; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -5185,6 +5234,13 @@ CREATE UNIQUE INDEX idx_job_schedule_stats_job_name ON public.job_schedule_stati
 --
 
 CREATE INDEX idx_line_number ON public.matches USING btree (line_number);
+
+
+--
+-- Name: idx_master_commit_job_success_completeness_mview; Type: INDEX; Schema: public; Owner: materialized_view_updater
+--
+
+CREATE UNIQUE INDEX idx_master_commit_job_success_completeness_mview ON public.master_commit_job_success_completeness_mview USING btree (commit_id DESC NULLS LAST);
 
 
 --
@@ -6403,6 +6459,7 @@ GRANT SELECT ON TABLE public.master_commit_job_success_completeness TO materiali
 --
 
 GRANT SELECT ON TABLE public.master_commit_job_success_completeness_mview TO logan;
+GRANT SELECT ON TABLE public.master_commit_job_success_completeness_mview TO postgres;
 
 
 --
@@ -6808,6 +6865,14 @@ GRANT SELECT ON TABLE public.upstream_breakages_weekly_aggregation TO materializ
 --
 
 GRANT SELECT ON TABLE public.upstream_breakages_weekly_aggregation_mview TO logan;
+
+
+--
+-- Name: TABLE viable_master_commit_age_history; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.viable_master_commit_age_history TO logan;
+GRANT SELECT ON TABLE public.viable_master_commit_age_history TO materialized_view_updater;
 
 
 --

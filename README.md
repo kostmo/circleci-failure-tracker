@@ -85,6 +85,10 @@ All of the Lambda functions in use are written in Python 3.7.  An experimental L
 A. We want a cool-off period during which multiple builds for a given commit can be aggregated into one task for that commit.
 This extra layer could be obviated if duplicate SQS messages (i.e. multiple instances of the same commit) could be consolidated while in the queue.
 
+TODO: Enable "Content-Based Deduplication":
+* https://stackoverflow.com/q/23260024/105137
+* https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/using-messagededuplicationid-property.html
+
 
 Optimizations
 -------------
