@@ -707,13 +707,30 @@ function define_pr_column() {
 		title: "PR",
 		field: "commit_metadata",
 		headerVertical: false,
-		width: 65,
+		width: 80,
 		formatter: function(cell, formatterParams, onRendered) {
 
 			const row_data = cell.getRow().getData();
+
+
+
+			if (row_data["reversion_spans"]) {
+
+/*
+				const color = tinycolor.fromRatio({h: day_ratio, s: 0.8, l: 0.8});
+				const hex_string = color.toHexString();
+*/
+				cell.getElement().style.borderLeft = (row_data["reversion_spans"].length*2) + "px solid " + "orange";
+			}
+
+
+
 			const pr_number = row_data["pr_number"];
 			if (pr_number !== null) {
 				return link("#" + pr_number, PULL_REQUEST_URL_PREFIX + pr_number);
+
+			} else if (row_data["reverted_sha1"] !== null) {
+				return "<img src='/images/revert.svg' style='width: 12px; text-align: middle'/> " + sha1_link(row_data["reverted_sha1"]);
 			}
 
 			return "N/A";
@@ -938,7 +955,6 @@ function gen_timeline_table(element_id, fetched_data) {
 	// global
 	disjoint_statuses_by_commit_id = {};
 	for (var disjoint_status_obj of fetched_data.disjoint_statuses) {
-
 		setDefault(disjoint_statuses_by_commit_id, disjoint_status_obj["commit_id"], {})[disjoint_status_obj["job_name_extracted"]] = disjoint_status_obj["state"];
 	}
 
@@ -964,11 +980,22 @@ function gen_timeline_table(element_id, fetched_data) {
 		row_dict["was_built"] = commit_obj.record.was_built;
 		row_dict["populated_config_yaml"] = commit_obj.record.populated_config_yaml;
 		row_dict["downstream_commit_count"] = commit_obj.record.downstream_commit_count;
+		row_dict["reverted_sha1"] = commit_obj.record.reverted_sha1;
 
 
 		for (var job_name in builds_by_job_name) {
 			row_dict[job_name] = builds_by_job_name[job_name];
 		}
+
+		// XXX This is an N^2 algroithm, but we expect the number of reversion spans on screen
+		// to be small.
+		const reversion_span_list = [];
+		for (var reversion_span of fetched_data.reversion_spans) {
+			if (commit_obj.db_id >= reversion_span["reverted_commit_id"] && commit_obj.db_id < reversion_span["reversion_commit_id"]) {
+				reversion_span_list.push(reversion_span["reversion_commit_id"])
+			}
+		}
+		row_dict["reversion_spans"] = reversion_span_list;
 
 		table_data.push(row_dict);
 	}
@@ -1068,7 +1095,6 @@ function get_form_values() {
 
 
 function render_timeline_table() {
-
 	const parms = get_form_values();
 	get_timeline_data(parms);
 }
@@ -1183,9 +1209,7 @@ function main() {
 		update_subform_visibility(this.checked);
 	});
 
-
 	populate_form_from_url();
-
 
 	// Close the dropdown menu if the user clicks outside of it
 	window.onclick = function(event) {

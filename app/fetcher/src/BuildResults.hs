@@ -37,6 +37,7 @@ data CommitAndMetadata = CommitAndMetadata {
   , _was_built               :: Bool
   , _populated_config_yaml   :: Bool
   , _downstream_commit_count :: Int
+  , _reverted_sha1           :: Maybe Builds.RawCommit
   } deriving Generic
 
 instance ToJSON CommitAndMetadata where
@@ -324,6 +325,7 @@ data DbMasterBuildsBenchmarks = DbMasterBuildsBenchmarks {
   , _code_breakages_time    :: Float
   , _disjoint_statuses_time :: Float
   , _job_failure_spans_time :: Float
+  , _reversion_spans_time   :: Float
   , _last_mview_update      :: (UTCTime, T.Text)
   } deriving Generic
 
@@ -368,6 +370,16 @@ instance (ToJSON a) => ToJSON (PGRange a) where
   toJSON (PGRange x y) = toJSON [x, y]
 
 
+data MasterReversionSpan = MasterReversionSpan {
+    _reverted_commit_id  :: Int64
+  , _reversion_commit_id :: Int64
+  } deriving (Generic, FromRow)
+
+
+instance ToJSON MasterReversionSpan where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
 data MasterBuildsResponse = MasterBuildsResponse {
     _columns           :: Set Text
   , _commits           :: [IndexedRichCommit]
@@ -375,10 +387,12 @@ data MasterBuildsResponse = MasterBuildsResponse {
   , _breakage_spans    :: [BreakageSpan Text ()]
   , _disjoint_statuses :: [DisjointCircleCIStatus]
   , _job_failure_spans :: [JobFailureSpan]
+  , _reversion_spans   :: [MasterReversionSpan]
   } deriving Generic
 
 instance ToJSON MasterBuildsResponse where
   toJSON = genericToJSON JsonUtils.dropUnderscore
+
 
 
 data ContiguousBreakageMember = ContiguousBreakageMember {

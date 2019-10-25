@@ -1561,7 +1561,8 @@ getMasterCommits conn parent_offset_mode =
       , maybe_committer_date
       , was_built
       , populated_config_yaml
-      , downstream_commit_count) =
+      , downstream_commit_count
+      , reverted_sha1) =
       DbHelpers.WithId commit_id $ BuildResults.CommitAndMetadata
         wrapped_sha1
         maybe_metadata
@@ -1570,6 +1571,7 @@ getMasterCommits conn parent_offset_mode =
         was_built
         populated_config_yaml
         downstream_commit_count
+        reverted_sha1
       where
         wrapped_sha1 = Builds.RawCommit commit_sha1
         maybe_metadata = Commits.CommitMetadata wrapped_sha1 <$>
@@ -1603,6 +1605,7 @@ getMasterCommits conn parent_offset_mode =
           , "was_built"
           , "populated_config_yaml"
           , "downstream_commit_count"
+          , "reverted_sha1"
           ]
       , "FROM master_ordered_commits_with_metadata"
       ]
@@ -2018,6 +2021,9 @@ apiMasterBuilds timeline_parms = do
     (builds_list_time, completed_builds) <- MyUtils.timeThisFloat $
       liftIO $ query conn builds_list_sql $ WeeklyStats.boundsAsTuple commit_id_bounds
 
+    (reversion_spans_time, reversion_spans) <- MyUtils.timeThisFloat $
+      liftIO $ query conn reversion_spans_sql $ WeeklyStats.boundsAsTuple commit_id_bounds
+
     (job_failure_spans_time, job_failure_spans) <- MyUtils.timeThisFloat $
       liftIO $ getBreakageSpans conn commit_id_bounds
 
@@ -2049,6 +2055,7 @@ apiMasterBuilds timeline_parms = do
           code_breakages_time
           disjoint_statuses_time
           job_failure_spans_time
+          reversion_spans_time
           last_update_time
 
 
@@ -2059,10 +2066,24 @@ apiMasterBuilds timeline_parms = do
       code_breakage_ranges
       disjoint_statuses
       job_failure_spans
+      reversion_spans
 
   where
     suppress_scheduled_builds = Pagination.should_suppress_scheduled_builds $
       Pagination.column_filtering timeline_parms
+
+
+    reversion_spans_sql = MyUtils.qjoin [
+        "SELECT"
+      , MyUtils.qlist [
+            "reverted_commit_id"
+          , "reversion_commit_id"
+          ]
+      , "FROM master_commit_reversion_spans_mview"
+      , "WHERE int8range(?, ?, '[]') && reversion_span"
+      , "ORDER BY reversion_commit_id DESC"
+      ]
+
 
     disjoint_statuses_sql = MyUtils.qjoin [
         "SELECT"

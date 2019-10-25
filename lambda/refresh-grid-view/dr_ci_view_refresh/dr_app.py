@@ -65,6 +65,7 @@ WHITELISTED_VIEW_NAMES = {
     "master_commit_job_success_completeness_mview",
     "master_job_failure_spans_mview",
     "master_job_failure_spans_conservative_mview",
+    "master_commit_reversion_spans_mview",
 }
 
 
@@ -89,9 +90,11 @@ def run(view_name, trigger_source):
 
         start = timer()
 
-        # CONCURRENTLY requires a unique index to exist on the view
-#        cur.execute('REFRESH MATERIALIZED VIEW CONCURRENTLY %s;' % view_name)
-        cur.execute('REFRESH MATERIALIZED VIEW %s;' % view_name)
+        # CONCURRENTLY is very important; it allows queries to be performed at the same time
+        # as the view is being refreshed (which happens very often).
+        # However, it does require a unique index to exist on the view.
+        cur.execute('REFRESH MATERIALIZED VIEW CONCURRENTLY %s;' % view_name)
+#        cur.execute('REFRESH MATERIALIZED VIEW %s;' % view_name)
         end = timer()
 
         execution_seconds = end - start
@@ -113,7 +116,7 @@ if __name__ == "__main__":
     view_names = [
 #        "job_schedule_discriminated_mview",
 #        "master_ordered_commits_with_metadata_mview",
-       "master_job_failure_spans_conservative_mview",
+       "master_commit_reversion_spans_mview",
     ]
 
     payload = update_multiple_views(view_names, "test")
