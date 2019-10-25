@@ -1097,14 +1097,13 @@ getInferredSpanningBrokenJobs conn (Builds.RawCommit master_sha1) (Builds.RawCom
     sql = MyUtils.qjoin [
         "SELECT"
       , MyUtils.qlist [
-          "master_job_failure_spans_mview.job_name"
---        , "master_job_failure_spans_mview.span_length"
+          "master_job_failure_spans_conservative_mview.job_name"
         ]
-      , "FROM master_job_failure_spans_mview"
+      , "FROM master_job_failure_spans_conservative_mview"
       , "JOIN"
       , MyUtils.qparens inner_q
       , "foo"
-      , "ON foo.job_name = master_job_failure_spans_mview.job_name"
+      , "ON foo.job_name = master_job_failure_spans_conservative_mview.job_name"
       , "JOIN build_failure_standalone_causes"
       , "ON build_failure_standalone_causes.vcs_revision = ?"
       , "AND build_failure_standalone_causes.job_name = foo.job_name"
@@ -1990,7 +1989,7 @@ getBreakageSpans conn commit_id_bounds =
         , "int8range(?, ?, '[]') * failure_commit_id_range"
         , "span_length"
         ]
-      , "FROM master_job_failure_spans_mview"
+      , "FROM master_job_failure_spans_conservative_mview"
       , "WHERE int8range(?, ?, '[]') && failure_commit_id_range"
       , "AND COALESCE(span_length > 1, TRUE)"
       ]

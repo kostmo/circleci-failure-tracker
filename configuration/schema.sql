@@ -461,15 +461,27 @@ Note that this technique of grouping unbuilt commits with the next built commit 
 --
 
 CREATE VIEW public.master_commit_message_derived_fields AS
- SELECT ordered_master_commits.id,
-    (COALESCE("substring"(commit_metadata.message, 'Pull [Rr]equest resolved: https://github\.com/pytorch/pytorch/pull/(\d+)'::text), "substring"(commit_metadata.message, '[Cc]loses https://github\.com/pytorch/pytorch/pull/(\d+)'::text)))::integer AS github_pr_number,
-    ("substring"(commit_metadata.message, 'Differential Revision: D(\d+)'::text))::integer AS fb_differential_revision,
-    "substring"(commit_metadata.message, 'Pulled By: ([^\s]+)'::text) AS fb_pulled_by,
-    "substring"(commit_metadata.message, 'Reviewed By: ([^\s]+)'::text) AS fb_reviewed_by,
-    ("substring"(commit_metadata.message, 'fbshipit-source-id: ([^\s]+)'::text))::character(40) AS fb_shipit_source_id,
-    ("substring"(commit_metadata.message, 'ghstack-source-id: (\d+)'::text))::integer AS fb_ghstack_source_id
-   FROM (public.ordered_master_commits
-     LEFT JOIN public.commit_metadata ON ((commit_metadata.sha1 = ordered_master_commits.sha1)));
+ SELECT foo.id,
+    foo.github_pr_number,
+    foo.fb_differential_revision,
+    foo.fb_pulled_by,
+    foo.fb_reviewed_by,
+    foo.fb_shipit_source_id,
+    foo.fb_ghstack_source_id,
+    foo.fb_reversion_shipit_source_id,
+    foo.reversion_target_diff,
+    (foo.fb_shipit_source_id)::character(12) AS fb_shipit_source_id_truncated
+   FROM ( SELECT ordered_master_commits.id,
+            (COALESCE("substring"(commit_metadata.message, 'Pull [Rr]equest resolved: https://github\.com/pytorch/pytorch/pull/(\d+)'::text), "substring"(commit_metadata.message, '[Cc]loses https://github\.com/pytorch/pytorch/pull/(\d+)'::text)))::integer AS github_pr_number,
+            ("substring"(commit_metadata.message, 'Differential Revision: D(\d+)'::text))::integer AS fb_differential_revision,
+            "substring"(commit_metadata.message, 'Pulled By: ([^\s]+)'::text) AS fb_pulled_by,
+            "substring"(commit_metadata.message, 'Reviewed By: ([^\s]+)'::text) AS fb_reviewed_by,
+            ("substring"(commit_metadata.message, 'fbshipit-source-id: ([^\s]+)'::text))::character(40) AS fb_shipit_source_id,
+            ("substring"(commit_metadata.message, 'ghstack-source-id: (\d+)'::text))::integer AS fb_ghstack_source_id,
+            ("substring"(commit_metadata.message, 'Original commit changeset: ([^\s]+)'::text))::character(12) AS fb_reversion_shipit_source_id,
+            ("substring"(commit_metadata.message, 'Revert D(\d+)'::text))::integer AS reversion_target_diff
+           FROM (public.ordered_master_commits
+             LEFT JOIN public.commit_metadata ON ((commit_metadata.sha1 = ordered_master_commits.sha1)))) foo;
 
 
 ALTER TABLE public.master_commit_message_derived_fields OWNER TO postgres;
@@ -478,7 +490,7 @@ ALTER TABLE public.master_commit_message_derived_fields OWNER TO postgres;
 -- Name: VIEW master_commit_message_derived_fields; Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON VIEW public.master_commit_message_derived_fields IS 'TODO: This should be a materialized view so the PR number can be indexed';
+COMMENT ON VIEW public.master_commit_message_derived_fields IS 'TODO: Derive these fields upon insertion into the master commits metadata table';
 
 
 --
@@ -2841,6 +2853,22 @@ CREATE MATERIALIZED VIEW public.master_commit_job_success_completeness_mview AS
 ALTER TABLE public.master_commit_job_success_completeness_mview OWNER TO materialized_view_updater;
 
 --
+-- Name: master_commit_reversion_spans; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_commit_reversion_spans AS
+ SELECT foo.reverted_commit_id,
+    foo.reversion_commit_id,
+    int8range((foo.reverted_commit_id)::bigint, (foo.reversion_commit_id)::bigint) AS reversion_span
+   FROM ( SELECT a2.id AS reverted_commit_id,
+            a1.id AS reversion_commit_id
+           FROM (public.master_commit_message_derived_fields a1
+             JOIN public.master_commit_message_derived_fields a2 ON ((a1.fb_reversion_shipit_source_id = a2.fb_shipit_source_id_truncated)))) foo;
+
+
+ALTER TABLE public.master_commit_reversion_spans OWNER TO postgres;
+
+--
 -- Name: master_commits_contiguously_indexed_mview; Type: MATERIALIZED VIEW; Schema: public; Owner: postgres
 --
 
@@ -3484,6 +3512,79 @@ ALTER TABLE public.master_indiscriminate_failure_spans OWNER TO postgres;
 --
 
 COMMENT ON VIEW public.master_indiscriminate_failure_spans IS 'For rendering date ranges of broken commit sequences';
+
+
+--
+-- Name: master_job_failure_spans_conservative; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_job_failure_spans_conservative WITH (security_barrier='false') AS
+ SELECT blah.job_name,
+    blah.failure_start_commit_sha1_exclusive AS failure_start_commit_sha1,
+    blah.real_failure_end_commit_sha1_exclusive AS failure_end_commit_sha1,
+    int8range((blah.failure_start_commit_id_exclusive)::bigint, (blah.real_failure_end_commit_id_exclusive)::bigint, '()'::text) AS failure_commit_id_range,
+    ((blah.real_failure_end_commit_number_exclusive - blah.failure_start_commit_number_exclusive) - 1) AS span_length
+   FROM ( SELECT
+                CASE
+                    WHEN bar.backward_edge_transition THEN bar.failure_end_commit_id_exclusive
+                    ELSE lead(bar.failure_end_commit_id_exclusive) OVER (PARTITION BY bar.job_name ORDER BY bar.id)
+                END AS real_failure_end_commit_id_exclusive,
+                CASE
+                    WHEN bar.backward_edge_transition THEN bar.failure_end_commit_sha1_exclusive
+                    ELSE lead(bar.failure_end_commit_sha1_exclusive) OVER (PARTITION BY bar.job_name ORDER BY bar.id)
+                END AS real_failure_end_commit_sha1_exclusive,
+                CASE
+                    WHEN bar.backward_edge_transition THEN bar.failure_end_commit_number_exclusive
+                    ELSE lead(bar.failure_end_commit_number_exclusive) OVER (PARTITION BY bar.job_name ORDER BY bar.id)
+                END AS real_failure_end_commit_number_exclusive,
+            bar.forward_edge_transition,
+            bar.backward_edge_transition,
+            bar.job_name,
+            bar.succeeded,
+            bar.id,
+            bar.sha1,
+            bar.commit_number,
+            bar.failure_start_commit_id_exclusive,
+            bar.failure_start_commit_sha1_exclusive,
+            bar.failure_start_commit_number_exclusive,
+            bar.failure_end_commit_id_exclusive,
+            bar.failure_end_commit_sha1_exclusive,
+            bar.failure_end_commit_number_exclusive
+           FROM ( SELECT foo.forward_edge_transition,
+                    foo.backward_edge_transition,
+                    foo.job_name,
+                    foo.succeeded,
+                    foo.id,
+                    foo.sha1,
+                    foo.commit_number,
+                    lag(foo.id) OVER (PARTITION BY foo.job_name ORDER BY foo.id) AS failure_start_commit_id_exclusive,
+                    lag(foo.sha1) OVER (PARTITION BY foo.job_name ORDER BY foo.id) AS failure_start_commit_sha1_exclusive,
+                    lag(foo.commit_number) OVER (PARTITION BY foo.job_name ORDER BY foo.id) AS failure_start_commit_number_exclusive,
+                    lead(foo.id) OVER (PARTITION BY foo.job_name ORDER BY foo.id) AS failure_end_commit_id_exclusive,
+                    lead(foo.sha1) OVER (PARTITION BY foo.job_name ORDER BY foo.id) AS failure_end_commit_sha1_exclusive,
+                    lead(foo.commit_number) OVER (PARTITION BY foo.job_name ORDER BY foo.id) AS failure_end_commit_number_exclusive
+                   FROM ( SELECT master_commits_contiguously_indexed.id,
+                            master_commits_contiguously_indexed.sha1,
+                            master_commits_contiguously_indexed.commit_number,
+                            builds_deduped.job_name,
+                            builds_deduped.succeeded,
+                            (builds_deduped.succeeded <> lag(builds_deduped.succeeded) OVER (PARTITION BY builds_deduped.job_name ORDER BY master_commits_contiguously_indexed.id)) AS forward_edge_transition,
+                            (builds_deduped.succeeded <> lead(builds_deduped.succeeded) OVER (PARTITION BY builds_deduped.job_name ORDER BY master_commits_contiguously_indexed.id)) AS backward_edge_transition
+                           FROM (public.builds_deduped
+                             JOIN public.master_commits_contiguously_indexed ON ((builds_deduped.vcs_revision = master_commits_contiguously_indexed.sha1)))
+                          ORDER BY master_commits_contiguously_indexed.id, builds_deduped.job_name) foo
+                  WHERE (foo.forward_edge_transition OR foo.backward_edge_transition)) bar
+          WHERE (NOT bar.succeeded)) blah
+  WHERE blah.forward_edge_transition;
+
+
+ALTER TABLE public.master_job_failure_spans_conservative OWNER TO postgres;
+
+--
+-- Name: VIEW master_job_failure_spans_conservative; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.master_job_failure_spans_conservative IS 'In contrast with "master_job_failure_spans", which only extends the failure forward up until (and excluding) the next successful build, this view also extends the failure span backwards up until (and excluding) the previous successful build.';
 
 
 --
@@ -5293,6 +5394,13 @@ CREATE INDEX idx_provider_sha1_universal_build ON public.universal_builds USING 
 
 
 --
+-- Name: idx_shipit_source_id; Type: INDEX; Schema: public; Owner: materialized_view_updater
+--
+
+CREATE UNIQUE INDEX idx_shipit_source_id ON public.master_ordered_commits_with_metadata_mview USING btree (fb_shipit_source_id);
+
+
+--
 -- Name: idx_specificity; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -5789,6 +5897,7 @@ GRANT ALL ON TABLE public.master_built_commit_groups TO logan;
 --
 
 GRANT ALL ON TABLE public.master_commit_message_derived_fields TO logan;
+GRANT SELECT ON TABLE public.master_commit_message_derived_fields TO materialized_view_updater;
 
 
 --
@@ -6463,6 +6572,14 @@ GRANT SELECT ON TABLE public.master_commit_job_success_completeness_mview TO pos
 
 
 --
+-- Name: TABLE master_commit_reversion_spans; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_commit_reversion_spans TO logan;
+GRANT SELECT ON TABLE public.master_commit_reversion_spans TO materialized_view_updater;
+
+
+--
 -- Name: TABLE master_commits_contiguously_indexed_mview; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -6607,10 +6724,19 @@ GRANT ALL ON TABLE public.master_indiscriminate_failure_spans TO logan;
 
 
 --
+-- Name: TABLE master_job_failure_spans_conservative; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_job_failure_spans_conservative TO logan;
+GRANT SELECT ON TABLE public.master_job_failure_spans_conservative TO materialized_view_updater;
+
+
+--
 -- Name: TABLE master_ordered_commits_with_metadata_mview; Type: ACL; Schema: public; Owner: materialized_view_updater
 --
 
 GRANT SELECT ON TABLE public.master_ordered_commits_with_metadata_mview TO logan;
+GRANT SELECT ON TABLE public.master_ordered_commits_with_metadata_mview TO postgres;
 
 
 --
