@@ -29,15 +29,26 @@ type IndexedCommit = DbHelpers.WithId Builds.RawCommit
 type IndexedRichCommit = DbHelpers.WithId CommitAndMetadata
 
 
+data RequiredJobCounts = RequiredJobCounts {
+    _total   :: Int
+  , _unbuilt :: Int
+  , _failed  :: Int
+  } deriving Generic
+
+instance ToJSON RequiredJobCounts where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
 data CommitAndMetadata = CommitAndMetadata {
-    _commit                  :: Builds.RawCommit
-  , _metadata                :: Maybe Commits.CommitMetadata
-  , _contiguous_index        :: Int
-  , _pr_number               :: Maybe Builds.PullRequestNumber
-  , _was_built               :: Bool
-  , _populated_config_yaml   :: Bool
-  , _downstream_commit_count :: Int
-  , _reverted_sha1           :: Maybe Builds.RawCommit
+    _commit                     :: Builds.RawCommit
+  , _metadata                   :: Maybe Commits.CommitMetadata
+  , _contiguous_index           :: Int
+  , _pr_number                  :: Maybe Builds.PullRequestNumber
+  , _was_built                  :: Bool
+  , _populated_config_yaml      :: Bool
+  , _downstream_commit_count    :: Int
+  , _reverted_sha1              :: Maybe Builds.RawCommit
+  , _required_commit_job_counts :: Maybe RequiredJobCounts
   } deriving Generic
 
 instance ToJSON CommitAndMetadata where

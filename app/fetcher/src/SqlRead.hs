@@ -1562,7 +1562,10 @@ getMasterCommits conn parent_offset_mode =
       , was_built
       , populated_config_yaml
       , downstream_commit_count
-      , reverted_sha1) =
+      , reverted_sha1
+      , total_required_commit_job_count
+      , unbuilt_required_job_count
+      , failed_required_job_count) =
       DbHelpers.WithId commit_id $ BuildResults.CommitAndMetadata
         wrapped_sha1
         maybe_metadata
@@ -1572,7 +1575,14 @@ getMasterCommits conn parent_offset_mode =
         populated_config_yaml
         downstream_commit_count
         reverted_sha1
+        maybe_required_job_counts
+
       where
+        maybe_required_job_counts = BuildResults.RequiredJobCounts <$>
+          total_required_commit_job_count <*>
+          unbuilt_required_job_count <*>
+          failed_required_job_count
+
         wrapped_sha1 = Builds.RawCommit commit_sha1
         maybe_metadata = Commits.CommitMetadata wrapped_sha1 <$>
           maybe_message <*>
@@ -1606,6 +1616,9 @@ getMasterCommits conn parent_offset_mode =
           , "populated_config_yaml"
           , "downstream_commit_count"
           , "reverted_sha1"
+          , "total_required_commit_job_count"
+          , "unbuilt_required_job_count"
+          , "failed_required_job_count"
           ]
       , "FROM master_ordered_commits_with_metadata"
       ]
