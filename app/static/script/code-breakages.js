@@ -274,7 +274,9 @@ function gen_failure_modes_chart(container_id) {
 }
 
 
-function main() {
+function load_failure_spans_table(button) {
+
+	$(button).hide();
 
 	// TODO Apply throbber to more fetches
 	$("#scan-throbber").show();
@@ -289,8 +291,13 @@ function main() {
 
 		// TODO FIXME
 		console.log("WARNING: Temporarily disabled slow-loading table");
-//		gen_annotated_breakages_table("annotated-breakages-table", "/api/code-breakages-annotated", failure_modes_dict);
+		gen_annotated_breakages_table("annotated-breakages-table", "/api/code-breakages-annotated", failure_modes_dict);
 	});
+}
+
+
+function main() {
+
 
 	gen_failure_modes_chart("container-failure-modes");
 
@@ -301,7 +308,7 @@ function main() {
 
 	downstream_impact_by_week("/api/downstream-impact-weekly");
 
-	// TODO
+	// TODO Not yet implemented
 //	gen_nonannotated_commit_detected_breakages_table("detected-commit-leftovers-table", "/api/code-breakages-leftover-by-commit");
 }
 

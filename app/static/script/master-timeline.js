@@ -752,12 +752,19 @@ function define_builds_completeness_column() {
 		tooltip: function(cell) {
 			const mydict = cell.getValue();
 			if (mydict) {
-				const lines = [
-					mydict["total"] + " total",
-					mydict["unbuilt"] + " unbuilt",
-					mydict["failed"] + " failed",
+				const stats_keys = [
+					"total",
+					"unbuilt",
+					"failed",
 				];
-				return lines.join("\n");
+
+				const lines = [];
+				for (var k of stats_keys) {
+					lines.push("* " + mydict[k] + " " + k);
+				}
+
+				const final_lines = lines.concat(["", "Disqualifying jobs:"], mydict["disqualifying_jobs"].map(x => "  " + x));
+				return final_lines.join("\n");
 			}
 		},
 		resizable: false,

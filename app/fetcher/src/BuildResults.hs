@@ -12,8 +12,8 @@ import qualified Data.Text                          as T
 import           Data.Time                          (UTCTime)
 import           Database.PostgreSQL.Simple         (FromRow)
 import           Database.PostgreSQL.Simple.FromRow (field, fromRow)
-import           Database.PostgreSQL.Simple.Range   (PGRange (PGRange),
-                                                     RangeBound (..))
+import           Database.PostgreSQL.Simple.Range   (PGRange)
+import           Database.PostgreSQL.Simple.Types   (PGArray)
 import           GHC.Generics
 import           GHC.Int                            (Int64)
 
@@ -30,9 +30,10 @@ type IndexedRichCommit = DbHelpers.WithId CommitAndMetadata
 
 
 data RequiredJobCounts = RequiredJobCounts {
-    _total   :: Int
-  , _unbuilt :: Int
-  , _failed  :: Int
+    _total              :: Int
+  , _unbuilt            :: Int
+  , _failed             :: Int
+  , _disqualifying_jobs :: PGArray Text
   } deriving Generic
 
 instance ToJSON RequiredJobCounts where
@@ -197,7 +198,7 @@ instance ToJSON WeeklyBreakageImpactStats where
 data PullRequestForeshadowing = PullRequestForeshadowing {
     _github_pr_number                   :: Builds.PullRequestNumber
   , _github_pr_head_commit              :: Maybe Builds.RawCommit
-  , _foreshadowed_broken_jobs_delimited :: [T.Text]
+  , _foreshadowed_broken_jobs_delimited :: PGArray T.Text
   } deriving Generic
 
 instance ToJSON PullRequestForeshadowing where
@@ -298,14 +299,14 @@ instance FromRow BreakageImpactStats where
 
     maybe_pr_number <- field
     maybe_pr_head_commit <- field
-    foreshadowed_jobs_delimited <- field
+    foreshadowed_jobs <- field
 
     let maybe_foreshadowed_breakage = do
           pr_number <- maybe_pr_number
           return $ PullRequestForeshadowing
             pr_number
             (Builds.RawCommit <$> maybe_pr_head_commit)
-            (DbHelpers.cleanSemicolonDelimitedList foreshadowed_jobs_delimited)
+            foreshadowed_jobs
 
     return $ BreakageImpactStats
       downstream_impact_stats
@@ -367,18 +368,6 @@ data JobFailureSpan = JobFailureSpan {
 
 instance ToJSON JobFailureSpan where
   toJSON = genericToJSON JsonUtils.dropUnderscore
-
-
-instance (ToJSON a) => ToJSON (RangeBound a) where
-  toJSON x = case x of
-    NegInfinity -> toJSON (Nothing :: Maybe Int64)
-    PosInfinity -> toJSON (Nothing :: Maybe Int64)
-    Inclusive x -> toJSON $ Just x
-    Exclusive x -> toJSON $ Just x
-
-
-instance (ToJSON a) => ToJSON (PGRange a) where
-  toJSON (PGRange x y) = toJSON [x, y]
 
 
 data MasterReversionSpan = MasterReversionSpan {

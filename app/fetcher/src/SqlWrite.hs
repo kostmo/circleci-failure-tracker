@@ -29,6 +29,7 @@ import           Data.Traversable                  (for)
 import           Data.Tuple                        (swap)
 import           Database.PostgreSQL.Simple
 import           Database.PostgreSQL.Simple.Errors
+import           Database.PostgreSQL.Simple.Types  (fromPGArray)
 import           GHC.Int                           (Int64)
 import qualified Network.OAuth.OAuth2              as OAuth2
 import qualified Safe
@@ -1108,7 +1109,7 @@ retirePattern conn (ScanPatterns.PatternId pattern_id) = do
 data PatternFieldOverrides = PatternFieldOverrides {
     pat_expression       :: Maybe Text
   , pat_is_regex         :: Maybe Bool
-  , pat_applicable_steps :: Maybe [String]
+  , pat_applicable_steps :: Maybe [Text]
   , pat_lines_from_end   :: Maybe Int
   }
 
@@ -1119,24 +1120,38 @@ copyPattern ::
   -> AuthStages.Username
   -> PatternFieldOverrides
   -> IO (Either Text Int64)
-copyPattern conn_data pattern_id@(ScanPatterns.PatternId pat_id) username field_overrides = do
+copyPattern
+    conn_data
+    pattern_id@(ScanPatterns.PatternId pat_id)
+    username
+    field_overrides = do
 
   conn <- DbHelpers.get_connection conn_data
   pattern_rows <- query conn sql $ Only pat_id
 
   runExceptT $ do
 
-    p <- except $ maybeToEither (T.pack $ unwords ["Pattern with ID", show pat_id, "not found."]) $ Safe.headMay pattern_rows
+    p <- except $ maybeToEither
+      (T.pack $ unwords ["Pattern with ID", show pat_id, "not found."])
+      (Safe.headMay pattern_rows)
 
-    let (p_is_regex, p_has_nondeterministic_values, p_expression_text, p_description, p_tags_concatenated, p_steps_concatenated, p_specificity, p_maybe_lines_from_end) = p
+    let (   p_is_regex
+          , p_has_nondeterministic_values
+          , p_expression_text
+          , p_description
+          , p_tags_array
+          , p_steps_array
+          , p_specificity
+          , p_maybe_lines_from_end) = p
+
         expression_text = Maybe.fromMaybe p_expression_text $ pat_expression field_overrides
         is_regex = Maybe.fromMaybe p_is_regex $ pat_is_regex field_overrides
 
         new_pattern = ScanPatterns.NewPattern
           (ScanPatterns.toMatchExpression is_regex expression_text p_has_nondeterministic_values)
           p_description
-          (map T.pack $ DbHelpers.splitAggText p_tags_concatenated)
-          (map T.pack $ Maybe.fromMaybe (DbHelpers.splitAggText p_steps_concatenated) $ pat_applicable_steps field_overrides)
+          (fromPGArray p_tags_array)
+          (Maybe.fromMaybe (fromPGArray p_steps_array) $ pat_applicable_steps field_overrides)
           p_specificity
           False
           (pat_lines_from_end field_overrides <|> p_maybe_lines_from_end)
@@ -1148,8 +1163,19 @@ copyPattern conn_data pattern_id@(ScanPatterns.PatternId pat_id) username field_
 
   where
     sql = MyUtils.qjoin [
-        "SELECT regex, has_nondeterministic_values, expression, description, tags, steps, specificity, lines_from_end"
-      , "FROM patterns_augmented WHERE id = ?;"
+        "SELECT"
+      , MyUtils.qlist [
+          "regex"
+        , "has_nondeterministic_values"
+        , "expression"
+        , "description"
+        , "tags_array"
+        , "steps_array"
+        , "specificity"
+        , "lines_from_end"
+        ]
+      , "FROM patterns_augmented"
+      , "WHERE id = ?;"
       ]
 
 

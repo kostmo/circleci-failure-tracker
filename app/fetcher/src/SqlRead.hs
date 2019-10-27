@@ -1565,7 +1565,8 @@ getMasterCommits conn parent_offset_mode =
       , reverted_sha1
       , total_required_commit_job_count
       , unbuilt_required_job_count
-      , failed_required_job_count) =
+      , failed_required_job_count
+      , disqualifying_jobs_array) =
       DbHelpers.WithId commit_id $ BuildResults.CommitAndMetadata
         wrapped_sha1
         maybe_metadata
@@ -1581,7 +1582,8 @@ getMasterCommits conn parent_offset_mode =
         maybe_required_job_counts = BuildResults.RequiredJobCounts <$>
           total_required_commit_job_count <*>
           unbuilt_required_job_count <*>
-          failed_required_job_count
+          failed_required_job_count <*>
+          disqualifying_jobs_array
 
         wrapped_sha1 = Builds.RawCommit commit_sha1
         maybe_metadata = Commits.CommitMetadata wrapped_sha1 <$>
@@ -1619,6 +1621,7 @@ getMasterCommits conn parent_offset_mode =
           , "total_required_commit_job_count"
           , "unbuilt_required_job_count"
           , "failed_required_job_count"
+          , "disqualifying_jobs_array"
           ]
       , "FROM master_ordered_commits_with_metadata"
       ]
@@ -2291,84 +2294,58 @@ apiListFailureModes = runQuery $ MyUtils.qjoin [
   ]
 
 
+annoatedCodeBreakagesFields = [
+    "cause_id"
+  , "cause_commit_index"
+  , "cause_sha1"
+  , "description"
+  , "failure_mode_reporter"
+  , "failure_mode_reported_at"
+  , "failure_mode_id"
+  , "cause_reporter"
+  , "cause_reported_at"
+  , "cause_jobs"
+  , "breakage_commit_author"
+  , "breakage_commit_message"
+  , "breakage_commit_date"
+  , "resolution_id"
+  , "resolved_commit_index"
+  , "resolution_sha1"
+  , "resolution_reporter"
+  , "resolution_reported_at"
+  , "resolution_commit_author"
+  , "resolution_commit_message"
+  , "resolution_commit_date"
+  , "spanned_commit_count"
+  , "commit_timespan_seconds"
+  ]
+
+
 -- | Filters by commit id range
 apiAnnotatedCodeBreakages ::
      WeeklyStats.InclusiveNumericBounds Int64
   -> DbIO [BuildResults.BreakageSpan Text ()]
 apiAnnotatedCodeBreakages commit_id_bounds = do
- conn <- ask
- liftIO $ query conn sql $ WeeklyStats.boundsAsTuple commit_id_bounds
- where
- sql = MyUtils.qjoin [
-    "SELECT"
-  , MyUtils.qlist [
-      "cause_id"
-    , "cause_commit_index"
-    , "cause_sha1"
-    , "description"
-    , "failure_mode_reporter"
-    , "failure_mode_reported_at"
-    , "failure_mode_id"
-    , "cause_reporter"
-    , "cause_reported_at"
-    , "cause_jobs"
-    , "breakage_commit_author"
-    , "breakage_commit_message"
-    , "breakage_commit_date"
-    , "resolution_id"
-    , "resolved_commit_index"
-    , "resolution_sha1"
-    , "resolution_reporter"
-    , "resolution_reported_at"
-    , "resolution_commit_author"
-    , "resolution_commit_message"
-    , "resolution_commit_date"
-    , "spanned_commit_count"
-    , "commit_timespan_seconds"
-    ]
-  , "FROM known_breakage_summaries_sans_impact"
-  , "WHERE int8range(?, ?, '[]') && int8range(cause_commit_index, resolved_commit_index)"
-  , "ORDER BY cause_commit_index DESC;"
-  ]
+  conn <- ask
+  liftIO $ query conn sql $ WeeklyStats.boundsAsTuple commit_id_bounds
+  where
+    sql = MyUtils.qjoin [
+        "SELECT"
+      , MyUtils.qlist annoatedCodeBreakagesFields
+      , "FROM known_breakage_summaries_sans_impact"
+      , "WHERE int8range(?, ?, '[]') && int8range(cause_commit_index, resolved_commit_index)"
+      , "ORDER BY cause_commit_index DESC;"
+      ]
 
 
--- | Identical to above except for addition of:
--- * downstream_broken_commit_count
--- * failed_downstream_build_count
--- * github_pr_number
--- * github_pr_head_commit
--- * foreshadowed_broken_jobs_delimited
 sqlPrefixAnnotatedCodeBreakagesWithImpact = MyUtils.qjoin [
     "SELECT"
-  , MyUtils.qlist [
-      "cause_id"
-    , "cause_commit_index"
-    , "cause_sha1"
-    , "description"
-    , "failure_mode_reporter"
-    , "failure_mode_reported_at"
-    , "failure_mode_id"
-    , "cause_reporter"
-    , "cause_reported_at"
-    , "cause_jobs"
-    , "breakage_commit_author"
-    , "breakage_commit_message"
-    , "breakage_commit_date"
-    , "resolution_id"
-    , "resolved_commit_index"
-    , "resolution_sha1"
-    , "resolution_reporter"
-    , "resolution_reported_at"
-    , "resolution_commit_author"
-    , "resolution_commit_message"
-    , "resolution_commit_date"
-    , "spanned_commit_count"
-    , "commit_timespan_seconds"
-    , "downstream_broken_commit_count"
+  , MyUtils.qlist $ annoatedCodeBreakagesFields ++ [
+      "downstream_broken_commit_count"
     , "failed_downstream_build_count"
     , "github_pr_number"
     , "github_pr_head_commit"
-    , "foreshadowed_broken_jobs_delimited"
+    , "foreshadowed_broken_jobs_array"
     ]
   , "FROM known_breakage_summaries"
   ]

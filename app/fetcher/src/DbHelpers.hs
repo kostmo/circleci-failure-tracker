@@ -15,10 +15,31 @@ import           Data.Time                            (UTCTime)
 import           Database.PostgreSQL.Simple
 import           Database.PostgreSQL.Simple.FromField (FromField, fromField)
 import           Database.PostgreSQL.Simple.FromRow   (field, fromRow)
+import           Database.PostgreSQL.Simple.Range     (PGRange (PGRange),
+                                                       RangeBound (..))
+import           Database.PostgreSQL.Simple.Types     (PGArray, fromPGArray)
 import           GHC.Generics
 import           GHC.Int                              (Int64)
 
 import qualified JsonUtils
+
+
+instance (ToJSON a) => ToJSON (PGArray a) where
+  toJSON = toJSON . fromPGArray
+
+
+-- | XXX Note: this is an an arbitrary implementation
+-- for my purpose.
+instance (ToJSON a) => ToJSON (RangeBound a) where
+  toJSON x = case x of
+    NegInfinity -> toJSON (Nothing :: Maybe Int64)
+    PosInfinity -> toJSON (Nothing :: Maybe Int64)
+    Inclusive x -> toJSON $ Just x
+    Exclusive x -> toJSON $ Just x
+
+
+instance (ToJSON a) => ToJSON (PGRange a) where
+  toJSON (PGRange x y) = toJSON [x, y]
 
 
 data BenchmarkedResponse a b = BenchmarkedResponse {
@@ -49,8 +70,14 @@ data OwnerAndRepo = OwnerAndRepo {
   }
 
 
+-- | This should only be used for deserializing HTML form values
+-- into lists. For converting database arrays to Haskell records,
+-- use the PGArray datatype.
+--
+-- Compare to "splitAggText"
 cleanSemicolonDelimitedList :: String -> [Text]
-cleanSemicolonDelimitedList = filter (not . T.null) . map (T.strip . T.pack) . splitOn ";"
+cleanSemicolonDelimitedList =
+  filter (not . T.null) . map (T.strip . T.pack) . splitOn ";"
 
 
 -- | Returned by database queries as semicolon-delimited string.
@@ -64,6 +91,10 @@ instance FromField SemicolonDelimitedDbText where
 instance ToJSON SemicolonDelimitedDbText
 
 
+-- | Compare to "cleanSemicolonDelimitedList"
+--
+-- TODO Eliminate this function by using array_agg
+-- in the database query instead of string_agg
 splitAggText :: String -> [String]
 splitAggText = filter (not . null) . splitOn ";"
 
