@@ -193,6 +193,12 @@ scottyApp
   get "/api/code-breakages-leftover-by-commit" $
     pure SqlRead.apiLeftoverCodeBreakagesByCommit
 
+  get "/api/missing-required-builds" $
+    pure SqlRead.apiMissingRequiredBuilds
+
+  get "/api/scan-commits-queue" $
+    pure SqlRead.apiScanCommitsQueue
+
   get "/api/code-breakages-leftover-detected" $
     pure SqlRead.apiLeftoverDetectedCodeBreakages
 

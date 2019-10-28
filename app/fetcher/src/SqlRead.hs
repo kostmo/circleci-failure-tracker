@@ -1681,6 +1681,61 @@ instance FromRow CommitBreakageRegionCounts where
     CommitBreakageRegionCounts <$> fromRow <*> field <*> field <*> field
 
 
+data MissingJobStats = MissingJobStats {
+    _job_name          :: Text
+  , _count             :: Int
+  , _latest_absence_at :: UTCTime
+  } deriving (Generic, FromRow)
+
+instance ToJSON MissingJobStats where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+
+data ScanQueueEntry = ScanQueueEntry {
+    _sha1        :: Builds.RawCommit
+  , _inserted_at :: UTCTime
+  } deriving (Generic, FromRow)
+
+instance ToJSON ScanQueueEntry where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+apiScanCommitsQueue :: DbIO [ScanQueueEntry]
+apiScanCommitsQueue = runQuery sql
+  where
+  sql = MyUtils.qjoin [
+      "SELECT"
+    , MyUtils.qlist [
+        "sha1"
+      , "inserted_at"
+      ]
+    , "FROM work_queues.queued_sha1_scans"
+    , "ORDER BY inserted_at DESC"
+    ]
+
+
+apiMissingRequiredBuilds :: DbIO [MissingJobStats]
+apiMissingRequiredBuilds = runQuery sql
+  where
+  sql = MyUtils.qjoin [
+      "SELECT"
+    , MyUtils.qlist [
+        "job_name"
+      , "COUNT(*) AS count"
+      , "MAX(master_commits_basic_metadata.committer_date) AS latest_absence_at"
+--      , "MAX(master_required_unbuilt_jobs_mview.id) AS latest_id"
+--      , "array_agg(master_required_unbuilt_jobs_mview.id) AS commit_ids"
+      ]
+    , "FROM master_required_unbuilt_jobs_mview"
+    , "JOIN master_commits_basic_metadata ON"
+    , "master_commits_basic_metadata.id = master_required_unbuilt_jobs_mview.id"
+    , "WHERE tstzrange(now() - interval '7 days', now()) @> master_commits_basic_metadata.committer_date"
+    , "GROUP BY master_required_unbuilt_jobs_mview.job_name"
+    , "ORDER BY count DESC"
+    ]
+
+
 apiLeftoverCodeBreakagesByCommit :: DbIO [CommitBreakageRegionCounts]
 apiLeftoverCodeBreakagesByCommit = runQuery $ MyUtils.qjoin [
     "SELECT id, vcs_revision, only_longitudinal_breakages, only_lateral_breakages, both_breakages"

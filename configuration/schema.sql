@@ -256,28 +256,30 @@ CREATE VIEW lambda_logging.materialized_view_refresh_event_stats WITH (security_
 ALTER TABLE lambda_logging.materialized_view_refresh_event_stats OWNER TO postgres;
 
 --
--- Name: cached_master_merge_base; Type: TABLE; Schema: public; Owner: postgres
+-- Name: builds; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE TABLE public.cached_master_merge_base (
-    branch_commit character(40) NOT NULL,
-    master_commit character(40) NOT NULL,
-    computation_timestamp timestamp without time zone DEFAULT now() NOT NULL,
-    distance integer NOT NULL
+CREATE TABLE public.builds (
+    queued_at timestamp with time zone,
+    job_name text NOT NULL,
+    branch character varying,
+    succeeded boolean,
+    started_at timestamp with time zone,
+    finished_at timestamp with time zone,
+    global_build_num integer NOT NULL,
+    ci_provider_scan integer
 );
 
 
-ALTER TABLE public.cached_master_merge_base OWNER TO postgres;
+ALTER TABLE public.builds OWNER TO postgres;
 
 --
--- Name: TABLE cached_master_merge_base; Type: COMMENT; Schema: public; Owner: postgres
+-- Name: TABLE builds; Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON TABLE public.cached_master_merge_base IS 'Caches the computed "merge base" of a PR commit with the master branch.
+COMMENT ON TABLE public.builds IS 'In contrast with the "universal_builds" table, this is information that may be fetched using a provider-specific API and may be populated asynchronously from the "universal_builds" info which is available from the GitHub status notification.
 
-In general, it would be possible for the merge base to change over time if the master branch is advanced to a more recent ancestor (up to and including the HEAD) of the PR branch.  In practice, however, this will not happen in the Facebook mirrored repo configuration, as a novel commit is produced for every change to the master branch.
-
-Therefore, this cache of merge bases never needs to be invalidated.';
+The "ci_provider_scan" field is optional; it can link a build record back to the CI provider-specific scan from which it was obtained.';
 
 
 --
@@ -300,6 +302,212 @@ ALTER TABLE public.circleci_expanded_config_yaml_hashes_by_commit OWNER TO postg
 COMMENT ON TABLE public.circleci_expanded_config_yaml_hashes_by_commit IS 'This is for performance and space efficiency; the config.yml file doesn''t change every commit, so we only store every unique version.
 
 Allowed only for commits on the master branch.';
+
+
+--
+-- Name: circleci_job_branch_filters; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.circleci_job_branch_filters (
+    workflow integer NOT NULL,
+    job_name text NOT NULL,
+    branch text NOT NULL,
+    filter_include boolean
+);
+
+
+ALTER TABLE public.circleci_job_branch_filters OWNER TO postgres;
+
+--
+-- Name: circleci_workflow_jobs; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.circleci_workflow_jobs (
+    job_name text NOT NULL,
+    workflow integer NOT NULL
+);
+
+
+ALTER TABLE public.circleci_workflow_jobs OWNER TO postgres;
+
+--
+-- Name: circleci_workflow_schedules; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.circleci_workflow_schedules (
+    workflow integer NOT NULL,
+    cron_schedule text NOT NULL
+);
+
+
+ALTER TABLE public.circleci_workflow_schedules OWNER TO postgres;
+
+--
+-- Name: circleci_workflows_by_yaml_file; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.circleci_workflows_by_yaml_file (
+    yaml_content_sha1 character(40) NOT NULL,
+    name text NOT NULL,
+    id integer NOT NULL,
+    inserted_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+ALTER TABLE public.circleci_workflows_by_yaml_file OWNER TO postgres;
+
+--
+-- Name: TABLE circleci_workflows_by_yaml_file; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.circleci_workflows_by_yaml_file IS 'CircleCI config.yml files are identified uniquely by the SHA1 of their contents in the Git repo.';
+
+
+--
+-- Name: master_commit_circleci_scheduled_job_discrimination; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_commit_circleci_scheduled_job_discrimination WITH (security_barrier='false') AS
+ SELECT foo.job_name,
+    foo.commit_sha1,
+    bool_and(foo.is_scheduled) AS is_scheduled,
+    count(*) AS count
+   FROM ( SELECT circleci_workflow_jobs.job_name,
+            circleci_expanded_config_yaml_hashes_by_commit.commit_sha1,
+            ((circleci_workflow_schedules.cron_schedule IS NOT NULL) OR COALESCE(bar.not_run_on_master, false)) AS is_scheduled
+           FROM ((((public.circleci_workflow_jobs
+             JOIN public.circleci_workflows_by_yaml_file ON ((circleci_workflows_by_yaml_file.id = circleci_workflow_jobs.workflow)))
+             JOIN public.circleci_expanded_config_yaml_hashes_by_commit ON ((circleci_expanded_config_yaml_hashes_by_commit.repo_yaml_sha1 = circleci_workflows_by_yaml_file.yaml_content_sha1)))
+             LEFT JOIN public.circleci_workflow_schedules ON ((circleci_workflows_by_yaml_file.id = circleci_workflow_schedules.workflow)))
+             LEFT JOIN ( SELECT foo_1.workflow,
+                    foo_1.job_name,
+                    (NOT bool_or(foo_1.include_master_branch)) AS not_run_on_master
+                   FROM ( SELECT circleci_job_branch_filters.workflow,
+                            circleci_job_branch_filters.job_name,
+                            circleci_job_branch_filters.branch,
+                            ((circleci_job_branch_filters.branch = 'master'::text) AND circleci_job_branch_filters.filter_include) AS include_master_branch
+                           FROM public.circleci_job_branch_filters) foo_1
+                  GROUP BY foo_1.workflow, foo_1.job_name) bar ON (((circleci_workflows_by_yaml_file.id = bar.workflow) AND (circleci_workflow_jobs.job_name = bar.job_name))))) foo
+  GROUP BY foo.job_name, foo.commit_sha1;
+
+
+ALTER TABLE public.master_commit_circleci_scheduled_job_discrimination OWNER TO postgres;
+
+--
+-- Name: VIEW master_commit_circleci_scheduled_job_discrimination; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.master_commit_circleci_scheduled_job_discrimination IS 'NOTE:
+A job name may appear more than once in the config.yml file (once per workflow).
+The "is_scheduled" column means that *all* of the occurrences of that workflow are scheduled.';
+
+
+--
+-- Name: universal_builds; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.universal_builds (
+    id integer NOT NULL,
+    build_number integer,
+    build_namespace text,
+    provider integer,
+    commit_sha1 character(40) NOT NULL,
+    succeeded boolean NOT NULL,
+    stored_at timestamp with time zone DEFAULT now()
+);
+
+
+ALTER TABLE public.universal_builds OWNER TO postgres;
+
+--
+-- Name: TABLE universal_builds; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.universal_builds IS 'Currently, these records are stored even if the build succeeds.';
+
+
+--
+-- Name: global_builds; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.global_builds WITH (security_barrier='false') AS
+ SELECT builds.global_build_num,
+    universal_builds.succeeded,
+    universal_builds.commit_sha1 AS vcs_revision,
+    builds.job_name,
+    builds.branch,
+    universal_builds.build_number,
+    universal_builds.build_namespace,
+    builds.queued_at,
+    builds.started_at,
+    builds.finished_at,
+    universal_builds.provider,
+    builds.ci_provider_scan,
+    master_commit_circleci_scheduled_job_discrimination.is_scheduled AS maybe_is_scheduled
+   FROM ((public.universal_builds
+     JOIN public.builds ON ((builds.global_build_num = universal_builds.id)))
+     LEFT JOIN public.master_commit_circleci_scheduled_job_discrimination ON (((builds.job_name = master_commit_circleci_scheduled_job_discrimination.job_name) AND (universal_builds.commit_sha1 = master_commit_circleci_scheduled_job_discrimination.commit_sha1))));
+
+
+ALTER TABLE public.global_builds OWNER TO postgres;
+
+--
+-- Name: builds_deduped; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.builds_deduped WITH (security_barrier='false') AS
+ SELECT DISTINCT ON (global_builds.provider, global_builds.job_name, global_builds.vcs_revision) global_builds.build_number AS build_num,
+    global_builds.vcs_revision,
+    global_builds.queued_at,
+    global_builds.job_name,
+    global_builds.branch,
+    global_builds.succeeded,
+    global_builds.started_at,
+    global_builds.finished_at,
+    count(*) OVER (PARTITION BY global_builds.provider, global_builds.job_name, global_builds.vcs_revision) AS rebuild_count,
+    global_builds.global_build_num AS global_build,
+    global_builds.provider,
+    global_builds.build_namespace,
+    global_builds.ci_provider_scan,
+    global_builds.maybe_is_scheduled
+   FROM public.global_builds
+  ORDER BY global_builds.provider, global_builds.job_name, global_builds.vcs_revision, global_builds.global_build_num DESC;
+
+
+ALTER TABLE public.builds_deduped OWNER TO postgres;
+
+--
+-- Name: VIEW builds_deduped; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.builds_deduped IS 'NOTE: Using "GROUP BY" on the unique columns plus a JOIN on the original table is more efficient than DISTINCT ON the unique columns for computing the *complete* list of builds.
+
+However, for downstream queries (which do not use the complete list of builds, e.g. "matches_for_build" and ""best_pattern_match_for_builds for a specific revision), DISTINCT ON seems to have an advantage.';
+
+
+--
+-- Name: cached_master_merge_base; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.cached_master_merge_base (
+    branch_commit character(40) NOT NULL,
+    master_commit character(40) NOT NULL,
+    computation_timestamp timestamp without time zone DEFAULT now() NOT NULL,
+    distance integer NOT NULL
+);
+
+
+ALTER TABLE public.cached_master_merge_base OWNER TO postgres;
+
+--
+-- Name: TABLE cached_master_merge_base; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.cached_master_merge_base IS 'Caches the computed "merge base" of a PR commit with the master branch.
+
+In general, it would be possible for the merge base to change over time if the master branch is advanced to a more recent ancestor (up to and including the HEAD) of the PR branch.  In practice, however, this will not happen in the Facebook mirrored repo configuration, as a novel commit is produced for every change to the master branch.
+
+Therefore, this cache of merge bases never needs to be invalidated.';
 
 
 --
@@ -401,30 +609,6 @@ COMMENT ON TABLE public.ordered_master_commits IS 'Warning: the "id" column may 
 
 
 --
--- Name: universal_builds; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.universal_builds (
-    id integer NOT NULL,
-    build_number integer,
-    build_namespace text,
-    provider integer,
-    commit_sha1 character(40) NOT NULL,
-    succeeded boolean NOT NULL,
-    stored_at timestamp with time zone DEFAULT now()
-);
-
-
-ALTER TABLE public.universal_builds OWNER TO postgres;
-
---
--- Name: TABLE universal_builds; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON TABLE public.universal_builds IS 'Currently, these records are stored even if the build succeeds.';
-
-
---
 -- Name: master_built_commit_groups; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -457,12 +641,143 @@ Note that this technique of grouping unbuilt commits with the next built commit 
 
 
 --
+-- Name: master_commits_basic_metadata; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_commits_basic_metadata AS
+ SELECT ordered_master_commits.id,
+    ordered_master_commits.sha1,
+    commit_metadata.message,
+    commit_metadata.tree_sha1,
+    commit_metadata.author_name,
+    commit_metadata.author_email,
+    commit_metadata.author_date,
+    commit_metadata.committer_name,
+    commit_metadata.committer_email,
+    commit_metadata.committer_date
+   FROM (public.ordered_master_commits
+     LEFT JOIN public.commit_metadata ON ((commit_metadata.sha1 = ordered_master_commits.sha1)));
+
+
+ALTER TABLE public.master_commits_basic_metadata OWNER TO postgres;
+
+--
+-- Name: VIEW master_commits_basic_metadata; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.master_commits_basic_metadata IS 'NOTE: Overlaps functionally with "master_ordered_commits_with_metadata" view';
+
+
+--
+-- Name: master_commit_job_success_completeness; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_commit_job_success_completeness WITH (security_barrier='false') AS
+ SELECT foobar.commit_id,
+    foobar.sha1,
+    foobar.total_required_commit_job_count,
+    foobar.not_succeeded_required_job_count,
+    foobar.unbuilt_required_job_count,
+    array_to_string(foobar.disqualifying_jobs_array, ';'::text) AS disqualifying_jobs,
+    foobar.committer_date,
+    foobar.age_hours,
+    foobar.disqualifying_jobs_array,
+    (foobar.not_succeeded_required_job_count - foobar.unbuilt_required_job_count) AS failed_required_job_count,
+    foobar.unbuilt_jobs_array
+   FROM ( SELECT master_commits_basic_metadata.id AS commit_id,
+            master_commits_basic_metadata.sha1,
+            bar.total_required_commit_job_count,
+            (bar.total_required_commit_job_count - bar.succeeded_built_required_job_count) AS not_succeeded_required_job_count,
+            (bar.total_required_commit_job_count - bar.all_built_required_job_count) AS unbuilt_required_job_count,
+            bar.disqualifying_jobs_array,
+            master_commits_basic_metadata.committer_date,
+            (date_part('epoch'::text, (now() - master_commits_basic_metadata.committer_date)) / (3600)::double precision) AS age_hours,
+            bar.unbuilt_jobs_array
+           FROM (public.master_commits_basic_metadata
+             JOIN ( SELECT foo.joblist_commit_sha1,
+                    count(foo.required_job_name) AS total_required_commit_job_count,
+                    count(foo.succeeded_build_job_name) AS succeeded_built_required_job_count,
+                    count(foo.any_build_job_name) AS all_built_required_job_count,
+                    ARRAY( SELECT unnest(array_agg(foo.required_job_name)) AS unnest
+                        EXCEPT
+                         SELECT unnest(array_agg(foo.succeeded_build_job_name)) AS unnest) AS disqualifying_jobs_array,
+                    ARRAY( SELECT unnest(array_agg(foo.required_job_name)) AS unnest
+                        EXCEPT
+                         SELECT unnest(array_agg(foo.any_build_job_name)) AS unnest) AS unbuilt_jobs_array
+                   FROM ( SELECT master_commit_circleci_scheduled_job_discrimination.commit_sha1 AS joblist_commit_sha1,
+                            master_commit_circleci_scheduled_job_discrimination.job_name AS required_job_name,
+                            succeeded_jobs_table.job_name AS succeeded_build_job_name,
+                            built_jobs_table.job_name AS any_build_job_name
+                           FROM ((public.master_commit_circleci_scheduled_job_discrimination
+                             LEFT JOIN ( SELECT builds_deduped.build_num,
+                                    builds_deduped.vcs_revision,
+                                    builds_deduped.queued_at,
+                                    builds_deduped.job_name,
+                                    builds_deduped.branch,
+                                    builds_deduped.succeeded,
+                                    builds_deduped.started_at,
+                                    builds_deduped.finished_at,
+                                    builds_deduped.rebuild_count,
+                                    builds_deduped.global_build,
+                                    builds_deduped.provider,
+                                    builds_deduped.build_namespace,
+                                    builds_deduped.ci_provider_scan,
+                                    builds_deduped.maybe_is_scheduled
+                                   FROM public.builds_deduped
+                                  WHERE builds_deduped.succeeded) succeeded_jobs_table ON (((succeeded_jobs_table.job_name = master_commit_circleci_scheduled_job_discrimination.job_name) AND (succeeded_jobs_table.vcs_revision = master_commit_circleci_scheduled_job_discrimination.commit_sha1))))
+                             LEFT JOIN ( SELECT builds_deduped.build_num,
+                                    builds_deduped.vcs_revision,
+                                    builds_deduped.queued_at,
+                                    builds_deduped.job_name,
+                                    builds_deduped.branch,
+                                    builds_deduped.succeeded,
+                                    builds_deduped.started_at,
+                                    builds_deduped.finished_at,
+                                    builds_deduped.rebuild_count,
+                                    builds_deduped.global_build,
+                                    builds_deduped.provider,
+                                    builds_deduped.build_namespace,
+                                    builds_deduped.ci_provider_scan,
+                                    builds_deduped.maybe_is_scheduled
+                                   FROM public.builds_deduped) built_jobs_table ON (((built_jobs_table.job_name = master_commit_circleci_scheduled_job_discrimination.job_name) AND (built_jobs_table.vcs_revision = master_commit_circleci_scheduled_job_discrimination.commit_sha1))))
+                          WHERE (NOT master_commit_circleci_scheduled_job_discrimination.is_scheduled)) foo
+                  GROUP BY foo.joblist_commit_sha1) bar ON ((master_commits_basic_metadata.sha1 = bar.joblist_commit_sha1)))
+          ORDER BY master_commits_basic_metadata.id DESC) foobar;
+
+
+ALTER TABLE public.master_commit_job_success_completeness OWNER TO postgres;
+
+--
+-- Name: master_commit_job_success_completeness_mview; Type: MATERIALIZED VIEW; Schema: public; Owner: materialized_view_updater
+--
+
+CREATE MATERIALIZED VIEW public.master_commit_job_success_completeness_mview AS
+ SELECT master_commit_job_success_completeness.commit_id,
+    master_commit_job_success_completeness.sha1,
+    master_commit_job_success_completeness.total_required_commit_job_count,
+    master_commit_job_success_completeness.not_succeeded_required_job_count,
+    master_commit_job_success_completeness.unbuilt_required_job_count,
+    master_commit_job_success_completeness.disqualifying_jobs,
+    master_commit_job_success_completeness.committer_date,
+    master_commit_job_success_completeness.age_hours,
+    master_commit_job_success_completeness.disqualifying_jobs_array,
+    master_commit_job_success_completeness.failed_required_job_count
+   FROM public.master_commit_job_success_completeness
+  WITH NO DATA;
+
+
+ALTER TABLE public.master_commit_job_success_completeness_mview OWNER TO materialized_view_updater;
+
+--
 -- Name: master_commit_message_derived_fields; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.master_commit_message_derived_fields AS
+CREATE VIEW public.master_commit_message_derived_fields WITH (security_barrier='false') AS
  SELECT foo.id,
-    foo.github_pr_number,
+        CASE
+            WHEN (foo.fb_reversion_shipit_source_id IS NOT NULL) THEN NULL::integer
+            ELSE foo.github_pr_number
+        END AS github_pr_number,
     foo.fb_differential_revision,
     foo.fb_pulled_by,
     foo.fb_reviewed_by,
@@ -494,32 +809,34 @@ COMMENT ON VIEW public.master_commit_message_derived_fields IS 'TODO: Derive the
 
 
 --
--- Name: master_commits_basic_metadata; Type: VIEW; Schema: public; Owner: postgres
+-- Name: master_commit_reversion_spans; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.master_commits_basic_metadata AS
- SELECT ordered_master_commits.id,
-    ordered_master_commits.sha1,
-    commit_metadata.message,
-    commit_metadata.tree_sha1,
-    commit_metadata.author_name,
-    commit_metadata.author_email,
-    commit_metadata.author_date,
-    commit_metadata.committer_name,
-    commit_metadata.committer_email,
-    commit_metadata.committer_date
-   FROM (public.ordered_master_commits
-     LEFT JOIN public.commit_metadata ON ((commit_metadata.sha1 = ordered_master_commits.sha1)));
+CREATE VIEW public.master_commit_reversion_spans AS
+ SELECT foo.reverted_commit_id,
+    foo.reversion_commit_id,
+    int8range((foo.reverted_commit_id)::bigint, (foo.reversion_commit_id)::bigint) AS reversion_span
+   FROM ( SELECT a2.id AS reverted_commit_id,
+            a1.id AS reversion_commit_id
+           FROM (public.master_commit_message_derived_fields a1
+             JOIN public.master_commit_message_derived_fields a2 ON ((a1.fb_reversion_shipit_source_id = a2.fb_shipit_source_id_truncated)))) foo;
 
 
-ALTER TABLE public.master_commits_basic_metadata OWNER TO postgres;
+ALTER TABLE public.master_commit_reversion_spans OWNER TO postgres;
 
 --
--- Name: VIEW master_commits_basic_metadata; Type: COMMENT; Schema: public; Owner: postgres
+-- Name: master_commit_reversion_spans_mview; Type: MATERIALIZED VIEW; Schema: public; Owner: materialized_view_updater
 --
 
-COMMENT ON VIEW public.master_commits_basic_metadata IS 'NOTE: Overlaps functionally with "master_ordered_commits_with_metadata" view';
+CREATE MATERIALIZED VIEW public.master_commit_reversion_spans_mview AS
+ SELECT master_commit_reversion_spans.reverted_commit_id,
+    master_commit_reversion_spans.reversion_commit_id,
+    master_commit_reversion_spans.reversion_span
+   FROM public.master_commit_reversion_spans
+  WITH NO DATA;
 
+
+ALTER TABLE public.master_commit_reversion_spans_mview OWNER TO materialized_view_updater;
 
 --
 -- Name: master_commits_contiguously_indexed; Type: VIEW; Schema: public; Owner: postgres
@@ -589,14 +906,14 @@ ALTER TABLE public.master_downstream_commit_counts OWNER TO postgres;
 CREATE VIEW public.master_ordered_commits_with_metadata WITH (security_barrier='false') AS
  SELECT master_commits_contiguously_indexed.id,
     master_commits_contiguously_indexed.sha1,
-    commit_metadata.message,
-    commit_metadata.tree_sha1,
-    commit_metadata.author_name,
-    commit_metadata.author_email,
-    commit_metadata.author_date,
-    commit_metadata.committer_name,
-    commit_metadata.committer_email,
-    commit_metadata.committer_date,
+    master_commits_basic_metadata.message,
+    master_commits_basic_metadata.tree_sha1,
+    master_commits_basic_metadata.author_name,
+    master_commits_basic_metadata.author_email,
+    master_commits_basic_metadata.author_date,
+    master_commits_basic_metadata.committer_name,
+    master_commits_basic_metadata.committer_email,
+    master_commits_basic_metadata.committer_date,
     master_commit_message_derived_fields.github_pr_number,
     master_commit_message_derived_fields.fb_differential_revision,
     master_commit_message_derived_fields.fb_pulled_by,
@@ -607,12 +924,22 @@ CREATE VIEW public.master_ordered_commits_with_metadata WITH (security_barrier='
     master_built_commit_groups.representative_commit_id,
     master_built_commit_groups.was_built,
     (circleci_expanded_config_yaml_hashes_by_commit.commit_sha1 IS NOT NULL) AS populated_config_yaml,
-    COALESCE(master_downstream_commit_counts.downstream_commit_count, (0)::bigint) AS downstream_commit_count
-   FROM (((((public.master_commits_contiguously_indexed
-     LEFT JOIN public.commit_metadata ON ((commit_metadata.sha1 = master_commits_contiguously_indexed.sha1)))
+    COALESCE(master_downstream_commit_counts.downstream_commit_count, (0)::bigint) AS downstream_commit_count,
+    foo.reverted_sha1,
+    master_commit_job_success_completeness_mview.total_required_commit_job_count,
+    master_commit_job_success_completeness_mview.unbuilt_required_job_count,
+    master_commit_job_success_completeness_mview.failed_required_job_count,
+    master_commit_job_success_completeness_mview.disqualifying_jobs_array
+   FROM (((((((public.master_commits_contiguously_indexed
+     LEFT JOIN public.master_commits_basic_metadata ON ((master_commits_basic_metadata.id = master_commits_contiguously_indexed.id)))
      LEFT JOIN public.master_commit_message_derived_fields ON ((master_commits_contiguously_indexed.id = master_commit_message_derived_fields.id)))
      LEFT JOIN public.master_downstream_commit_counts ON ((master_downstream_commit_counts.master_commit_id = master_commits_contiguously_indexed.id)))
      LEFT JOIN public.circleci_expanded_config_yaml_hashes_by_commit ON ((master_commits_contiguously_indexed.sha1 = circleci_expanded_config_yaml_hashes_by_commit.commit_sha1)))
+     LEFT JOIN public.master_commit_job_success_completeness_mview ON ((master_commit_job_success_completeness_mview.commit_id = master_commits_contiguously_indexed.id)))
+     LEFT JOIN ( SELECT master_commit_reversion_spans_mview.reversion_commit_id,
+            ordered_master_commits.sha1 AS reverted_sha1
+           FROM (public.master_commit_reversion_spans_mview
+             JOIN public.ordered_master_commits ON ((master_commit_reversion_spans_mview.reverted_commit_id = ordered_master_commits.id)))) foo ON ((foo.reversion_commit_id = master_commits_contiguously_indexed.id)))
      JOIN public.master_built_commit_groups ON ((master_commits_contiguously_indexed.id = master_built_commit_groups.commit_id)));
 
 
@@ -769,190 +1096,6 @@ COMMENT ON VIEW public.build_steps_deduped_mitigation IS 'TODO: remove this miti
 
 
 --
--- Name: builds; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.builds (
-    queued_at timestamp with time zone,
-    job_name text NOT NULL,
-    branch character varying,
-    succeeded boolean,
-    started_at timestamp with time zone,
-    finished_at timestamp with time zone,
-    global_build_num integer NOT NULL,
-    ci_provider_scan integer
-);
-
-
-ALTER TABLE public.builds OWNER TO postgres;
-
---
--- Name: TABLE builds; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON TABLE public.builds IS 'In contrast with the "universal_builds" table, this is information that may be fetched using a provider-specific API and may be populated asynchronously from the "universal_builds" info which is available from the GitHub status notification.
-
-The "ci_provider_scan" field is optional; it can link a build record back to the CI provider-specific scan from which it was obtained.';
-
-
---
--- Name: circleci_job_branch_filters; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.circleci_job_branch_filters (
-    workflow integer NOT NULL,
-    job_name text NOT NULL,
-    branch text NOT NULL,
-    filter_include boolean
-);
-
-
-ALTER TABLE public.circleci_job_branch_filters OWNER TO postgres;
-
---
--- Name: circleci_workflow_jobs; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.circleci_workflow_jobs (
-    job_name text NOT NULL,
-    workflow integer NOT NULL
-);
-
-
-ALTER TABLE public.circleci_workflow_jobs OWNER TO postgres;
-
---
--- Name: circleci_workflow_schedules; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.circleci_workflow_schedules (
-    workflow integer NOT NULL,
-    cron_schedule text NOT NULL
-);
-
-
-ALTER TABLE public.circleci_workflow_schedules OWNER TO postgres;
-
---
--- Name: circleci_workflows_by_yaml_file; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.circleci_workflows_by_yaml_file (
-    yaml_content_sha1 character(40) NOT NULL,
-    name text NOT NULL,
-    id integer NOT NULL,
-    inserted_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
-ALTER TABLE public.circleci_workflows_by_yaml_file OWNER TO postgres;
-
---
--- Name: TABLE circleci_workflows_by_yaml_file; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON TABLE public.circleci_workflows_by_yaml_file IS 'CircleCI config.yml files are identified uniquely by the SHA1 of their contents in the Git repo.';
-
-
---
--- Name: master_commit_circleci_scheduled_job_discrimination; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.master_commit_circleci_scheduled_job_discrimination WITH (security_barrier='false') AS
- SELECT foo.job_name,
-    foo.commit_sha1,
-    bool_and(foo.is_scheduled) AS is_scheduled,
-    count(*) AS count
-   FROM ( SELECT circleci_workflow_jobs.job_name,
-            circleci_expanded_config_yaml_hashes_by_commit.commit_sha1,
-            ((circleci_workflow_schedules.cron_schedule IS NOT NULL) OR COALESCE(bar.not_run_on_master, false)) AS is_scheduled
-           FROM ((((public.circleci_workflow_jobs
-             JOIN public.circleci_workflows_by_yaml_file ON ((circleci_workflows_by_yaml_file.id = circleci_workflow_jobs.workflow)))
-             JOIN public.circleci_expanded_config_yaml_hashes_by_commit ON ((circleci_expanded_config_yaml_hashes_by_commit.repo_yaml_sha1 = circleci_workflows_by_yaml_file.yaml_content_sha1)))
-             LEFT JOIN public.circleci_workflow_schedules ON ((circleci_workflows_by_yaml_file.id = circleci_workflow_schedules.workflow)))
-             LEFT JOIN ( SELECT foo_1.workflow,
-                    foo_1.job_name,
-                    (NOT bool_or(foo_1.include_master_branch)) AS not_run_on_master
-                   FROM ( SELECT circleci_job_branch_filters.workflow,
-                            circleci_job_branch_filters.job_name,
-                            circleci_job_branch_filters.branch,
-                            ((circleci_job_branch_filters.branch = 'master'::text) AND circleci_job_branch_filters.filter_include) AS include_master_branch
-                           FROM public.circleci_job_branch_filters) foo_1
-                  GROUP BY foo_1.workflow, foo_1.job_name) bar ON (((circleci_workflows_by_yaml_file.id = bar.workflow) AND (circleci_workflow_jobs.job_name = bar.job_name))))) foo
-  GROUP BY foo.job_name, foo.commit_sha1;
-
-
-ALTER TABLE public.master_commit_circleci_scheduled_job_discrimination OWNER TO postgres;
-
---
--- Name: VIEW master_commit_circleci_scheduled_job_discrimination; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON VIEW public.master_commit_circleci_scheduled_job_discrimination IS 'NOTE:
-A job name may appear more than once in the config.yml file (once per workflow).
-The "is_scheduled" column means that *all* of the occurrences of that workflow are scheduled.';
-
-
---
--- Name: global_builds; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.global_builds WITH (security_barrier='false') AS
- SELECT builds.global_build_num,
-    universal_builds.succeeded,
-    universal_builds.commit_sha1 AS vcs_revision,
-    builds.job_name,
-    builds.branch,
-    universal_builds.build_number,
-    universal_builds.build_namespace,
-    builds.queued_at,
-    builds.started_at,
-    builds.finished_at,
-    universal_builds.provider,
-    builds.ci_provider_scan,
-    master_commit_circleci_scheduled_job_discrimination.is_scheduled AS maybe_is_scheduled
-   FROM ((public.universal_builds
-     JOIN public.builds ON ((builds.global_build_num = universal_builds.id)))
-     LEFT JOIN public.master_commit_circleci_scheduled_job_discrimination ON (((builds.job_name = master_commit_circleci_scheduled_job_discrimination.job_name) AND (universal_builds.commit_sha1 = master_commit_circleci_scheduled_job_discrimination.commit_sha1))));
-
-
-ALTER TABLE public.global_builds OWNER TO postgres;
-
---
--- Name: builds_deduped; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.builds_deduped WITH (security_barrier='false') AS
- SELECT DISTINCT ON (global_builds.provider, global_builds.job_name, global_builds.vcs_revision) global_builds.build_number AS build_num,
-    global_builds.vcs_revision,
-    global_builds.queued_at,
-    global_builds.job_name,
-    global_builds.branch,
-    global_builds.succeeded,
-    global_builds.started_at,
-    global_builds.finished_at,
-    count(*) OVER (PARTITION BY global_builds.provider, global_builds.job_name, global_builds.vcs_revision) AS rebuild_count,
-    global_builds.global_build_num AS global_build,
-    global_builds.provider,
-    global_builds.build_namespace,
-    global_builds.ci_provider_scan,
-    global_builds.maybe_is_scheduled
-   FROM public.global_builds
-  ORDER BY global_builds.provider, global_builds.job_name, global_builds.vcs_revision, global_builds.global_build_num DESC;
-
-
-ALTER TABLE public.builds_deduped OWNER TO postgres;
-
---
--- Name: VIEW builds_deduped; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON VIEW public.builds_deduped IS 'NOTE: Using "GROUP BY" on the unique columns plus a JOIN on the original table is more efficient than DISTINCT ON the unique columns for computing the *complete* list of builds.
-
-However, for downstream queries (which do not use the complete list of builds, e.g. "matches_for_build" and ""best_pattern_match_for_builds for a specific revision), DISTINCT ON seems to have an advantage.';
-
-
---
 -- Name: builds_join_steps; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -1104,7 +1247,7 @@ ALTER TABLE public.patterns OWNER TO postgres;
 -- Name: patterns_rich; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.patterns_rich AS
+CREATE VIEW public.patterns_rich WITH (security_barrier='false') AS
  SELECT patterns.expression,
     patterns.id,
     patterns.description,
@@ -1122,14 +1265,18 @@ CREATE VIEW public.patterns_rich AS
           WHERE (((pattern_tags.tag)::text = 'flaky'::text) AND (pattern_tags.pattern = patterns.id)))) AS is_flaky,
     (EXISTS ( SELECT pattern_tags.pattern
            FROM public.pattern_tags
-          WHERE (((pattern_tags.tag)::text = 'network'::text) AND (pattern_tags.pattern = patterns.id)))) AS is_network
+          WHERE (((pattern_tags.tag)::text = 'network'::text) AND (pattern_tags.pattern = patterns.id)))) AS is_network,
+    COALESCE(foo.tags_array, ('{}'::text[])::character varying[]) AS tags_array,
+    COALESCE(bar.steps_array, '{}'::text[]) AS steps_array
    FROM (((public.patterns
      LEFT JOIN ( SELECT pattern_tags.pattern,
-            string_agg((pattern_tags.tag)::text, ';'::text) AS tags
+            string_agg((pattern_tags.tag)::text, ';'::text) AS tags,
+            array_agg(pattern_tags.tag) AS tags_array
            FROM public.pattern_tags
           GROUP BY pattern_tags.pattern) foo ON ((foo.pattern = patterns.id)))
      LEFT JOIN ( SELECT pattern_step_applicability.pattern,
-            string_agg(pattern_step_applicability.step_name, ';'::text) AS steps
+            string_agg(pattern_step_applicability.step_name, ';'::text) AS steps,
+            array_agg(pattern_step_applicability.step_name) AS steps_array
            FROM public.pattern_step_applicability
           GROUP BY pattern_step_applicability.pattern) bar ON ((bar.pattern = patterns.id)))
      LEFT JOIN public.pattern_authorship ON ((pattern_authorship.pattern = patterns.id)));
@@ -1759,16 +1906,25 @@ CREATE VIEW public.code_breakage_failing_pr_jobs WITH (security_barrier='false')
  SELECT foo.cause_id,
     foo.foreshadowed_broken_job_count,
     foo.foreshadowed_broken_jobs_delimited,
-    code_breakage_cause.sha1 AS master_commit_breakage_sha1
+    code_breakage_cause.sha1 AS master_commit_breakage_sha1,
+    foo.foreshadowed_broken_jobs_array
    FROM (( SELECT breakage_affected_jobs_failing_at_merge_time.cause_id,
             count(*) AS foreshadowed_broken_job_count,
-            string_agg(breakage_affected_jobs_failing_at_merge_time.job, ';'::text) AS foreshadowed_broken_jobs_delimited
+            string_agg(breakage_affected_jobs_failing_at_merge_time.job, ';'::text) AS foreshadowed_broken_jobs_delimited,
+            array_agg(breakage_affected_jobs_failing_at_merge_time.job) AS foreshadowed_broken_jobs_array
            FROM public.breakage_affected_jobs_failing_at_merge_time
           GROUP BY breakage_affected_jobs_failing_at_merge_time.cause_id) foo
      JOIN public.code_breakage_cause ON ((code_breakage_cause.id = foo.cause_id)));
 
 
 ALTER TABLE public.code_breakage_failing_pr_jobs OWNER TO postgres;
+
+--
+-- Name: VIEW code_breakage_failing_pr_jobs; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.code_breakage_failing_pr_jobs IS 'TODO: Get rid of "foreshadowed_broken_jobs_delimited" column';
+
 
 --
 -- Name: known_breakage_summaries_sans_impact; Type: VIEW; Schema: public; Owner: logan
@@ -1966,7 +2122,8 @@ CREATE VIEW public.known_breakage_summaries WITH (security_barrier='false') AS
         CASE
             WHEN (code_breakage_failing_pr_jobs.foreshadowed_broken_job_count > 0) THEN (0)::bigint
             ELSE COALESCE(pr_impact_cause_summary.downstream_broken_commit_count_for_cause, (0)::bigint)
-        END AS unavoidable_downstream_broken_commit_count
+        END AS unavoidable_downstream_broken_commit_count,
+    COALESCE(code_breakage_failing_pr_jobs.foreshadowed_broken_jobs_array, '{}'::text[]) AS foreshadowed_broken_jobs_array
    FROM (((public.known_breakage_summaries_sans_impact
      LEFT JOIN public.pr_impact_cause_summary ON ((pr_impact_cause_summary.first_cause = known_breakage_summaries_sans_impact.cause_id)))
      LEFT JOIN public.pr_current_heads ON ((known_breakage_summaries_sans_impact.github_pr_number = pr_current_heads.pr_number)))
@@ -1985,7 +2142,10 @@ UNLESS foreshadowed_broken_job_count is nonzero, in which case
 "unavoidable_downstream_broken_commit_count" is zero.
 
 That is to say, all downstream commit failures were avoidable if this
-master commit''s Pull Request had job failures foreshadowing the master breakage.';
+master commit''s Pull Request had job failures foreshadowing the master breakage.
+
+
+TODO: Remove "foreshadowed_broken_jobs_delimited" column';
 
 
 --
@@ -2170,58 +2330,91 @@ CREATE VIEW public.disjoint_circleci_build_statuses WITH (security_barrier='fals
 ALTER TABLE public.disjoint_circleci_build_statuses OWNER TO postgres;
 
 --
--- Name: master_job_failure_spans; Type: VIEW; Schema: public; Owner: postgres
+-- Name: master_job_failure_spans_conservative; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.master_job_failure_spans WITH (security_barrier='false') AS
- SELECT bar.job_name,
-    bar.sha1 AS failure_start_commit_sha1,
-    bar.failure_end_commit_sha1,
-    int8range((bar.id)::bigint, (bar.failure_end_commit_id)::bigint) AS failure_commit_id_range,
-    (bar.failure_end_commit_number - bar.commit_number) AS span_length
-   FROM ( SELECT foo.job_name,
-            foo.succeeded,
-            foo.id,
-            foo.sha1,
-            foo.commit_number,
-            lead(foo.id) OVER (PARTITION BY foo.job_name ORDER BY foo.id) AS failure_end_commit_id,
-            lead(foo.sha1) OVER (PARTITION BY foo.job_name ORDER BY foo.id) AS failure_end_commit_sha1,
-            lead(foo.commit_number) OVER (PARTITION BY foo.job_name ORDER BY foo.id) AS failure_end_commit_number
-           FROM ( SELECT master_commits_contiguously_indexed.id,
-                    master_commits_contiguously_indexed.sha1,
-                    master_commits_contiguously_indexed.commit_number,
-                    builds_deduped.job_name,
-                    builds_deduped.succeeded,
-                    (builds_deduped.succeeded <> lag(builds_deduped.succeeded) OVER (PARTITION BY builds_deduped.job_name ORDER BY master_commits_contiguously_indexed.id)) AS edge_transition
-                   FROM (public.builds_deduped
-                     JOIN public.master_commits_contiguously_indexed ON ((builds_deduped.vcs_revision = master_commits_contiguously_indexed.sha1)))
-                  ORDER BY master_commits_contiguously_indexed.id, builds_deduped.job_name) foo
-          WHERE foo.edge_transition) bar
-  WHERE (NOT bar.succeeded);
+CREATE VIEW public.master_job_failure_spans_conservative WITH (security_barrier='false') AS
+ SELECT blah.job_name,
+    blah.failure_start_commit_sha1_exclusive AS failure_start_commit_sha1,
+    blah.real_failure_end_commit_sha1_exclusive AS failure_end_commit_sha1,
+    int8range((blah.failure_start_commit_id_exclusive)::bigint, (blah.real_failure_end_commit_id_exclusive)::bigint, '()'::text) AS failure_commit_id_range,
+    ((blah.real_failure_end_commit_number_exclusive - blah.failure_start_commit_number_exclusive) - 1) AS span_length
+   FROM ( SELECT
+                CASE
+                    WHEN bar.backward_edge_transition THEN bar.failure_end_commit_id_exclusive
+                    ELSE lead(bar.failure_end_commit_id_exclusive) OVER (PARTITION BY bar.job_name ORDER BY bar.id)
+                END AS real_failure_end_commit_id_exclusive,
+                CASE
+                    WHEN bar.backward_edge_transition THEN bar.failure_end_commit_sha1_exclusive
+                    ELSE lead(bar.failure_end_commit_sha1_exclusive) OVER (PARTITION BY bar.job_name ORDER BY bar.id)
+                END AS real_failure_end_commit_sha1_exclusive,
+                CASE
+                    WHEN bar.backward_edge_transition THEN bar.failure_end_commit_number_exclusive
+                    ELSE lead(bar.failure_end_commit_number_exclusive) OVER (PARTITION BY bar.job_name ORDER BY bar.id)
+                END AS real_failure_end_commit_number_exclusive,
+            bar.forward_edge_transition,
+            bar.backward_edge_transition,
+            bar.job_name,
+            bar.succeeded,
+            bar.id,
+            bar.sha1,
+            bar.commit_number,
+            bar.failure_start_commit_id_exclusive,
+            bar.failure_start_commit_sha1_exclusive,
+            bar.failure_start_commit_number_exclusive,
+            bar.failure_end_commit_id_exclusive,
+            bar.failure_end_commit_sha1_exclusive,
+            bar.failure_end_commit_number_exclusive
+           FROM ( SELECT foo.forward_edge_transition,
+                    foo.backward_edge_transition,
+                    foo.job_name,
+                    foo.succeeded,
+                    foo.id,
+                    foo.sha1,
+                    foo.commit_number,
+                    lag(foo.id) OVER (PARTITION BY foo.job_name ORDER BY foo.id) AS failure_start_commit_id_exclusive,
+                    lag(foo.sha1) OVER (PARTITION BY foo.job_name ORDER BY foo.id) AS failure_start_commit_sha1_exclusive,
+                    lag(foo.commit_number) OVER (PARTITION BY foo.job_name ORDER BY foo.id) AS failure_start_commit_number_exclusive,
+                    lead(foo.id) OVER (PARTITION BY foo.job_name ORDER BY foo.id) AS failure_end_commit_id_exclusive,
+                    lead(foo.sha1) OVER (PARTITION BY foo.job_name ORDER BY foo.id) AS failure_end_commit_sha1_exclusive,
+                    lead(foo.commit_number) OVER (PARTITION BY foo.job_name ORDER BY foo.id) AS failure_end_commit_number_exclusive
+                   FROM ( SELECT master_commits_contiguously_indexed.id,
+                            master_commits_contiguously_indexed.sha1,
+                            master_commits_contiguously_indexed.commit_number,
+                            builds_deduped.job_name,
+                            builds_deduped.succeeded,
+                            (builds_deduped.succeeded <> lag(builds_deduped.succeeded) OVER (PARTITION BY builds_deduped.job_name ORDER BY master_commits_contiguously_indexed.id)) AS forward_edge_transition,
+                            (builds_deduped.succeeded <> lead(builds_deduped.succeeded) OVER (PARTITION BY builds_deduped.job_name ORDER BY master_commits_contiguously_indexed.id)) AS backward_edge_transition
+                           FROM (public.builds_deduped
+                             JOIN public.master_commits_contiguously_indexed ON ((builds_deduped.vcs_revision = master_commits_contiguously_indexed.sha1)))
+                          ORDER BY master_commits_contiguously_indexed.id, builds_deduped.job_name) foo
+                  WHERE (foo.forward_edge_transition OR foo.backward_edge_transition)) bar
+          WHERE (NOT bar.succeeded)) blah
+  WHERE blah.forward_edge_transition;
 
 
-ALTER TABLE public.master_job_failure_spans OWNER TO postgres;
+ALTER TABLE public.master_job_failure_spans_conservative OWNER TO postgres;
 
 --
--- Name: VIEW master_job_failure_spans; Type: COMMENT; Schema: public; Owner: postgres
+-- Name: VIEW master_job_failure_spans_conservative; Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON VIEW public.master_job_failure_spans IS 'In contrast with the "master_contiguous_failures" view, this view treats any "absent" builds as a continuation of the last state.';
+COMMENT ON VIEW public.master_job_failure_spans_conservative IS 'In contrast with "master_job_failure_spans", which only extends the failure forward up until (and excluding) the next successful build, this view also extends the failure span backwards up until (and excluding) the previous successful build.';
 
 
 --
--- Name: master_job_failure_spans_mview; Type: MATERIALIZED VIEW; Schema: public; Owner: materialized_view_updater
+-- Name: master_job_failure_spans_conservative_mview; Type: MATERIALIZED VIEW; Schema: public; Owner: materialized_view_updater
 --
 
-CREATE MATERIALIZED VIEW public.master_job_failure_spans_mview AS
- SELECT master_job_failure_spans.job_name,
-    master_job_failure_spans.failure_commit_id_range,
-    master_job_failure_spans.span_length
-   FROM public.master_job_failure_spans
+CREATE MATERIALIZED VIEW public.master_job_failure_spans_conservative_mview AS
+ SELECT master_job_failure_spans_conservative.job_name,
+    master_job_failure_spans_conservative.failure_commit_id_range,
+    master_job_failure_spans_conservative.span_length
+   FROM public.master_job_failure_spans_conservative
   WITH NO DATA;
 
 
-ALTER TABLE public.master_job_failure_spans_mview OWNER TO materialized_view_updater;
+ALTER TABLE public.master_job_failure_spans_conservative_mview OWNER TO materialized_view_updater;
 
 --
 -- Name: downstream_build_failures_from_upstream_inferred_breakages; Type: VIEW; Schema: public; Owner: postgres
@@ -2232,7 +2425,7 @@ CREATE VIEW public.downstream_build_failures_from_upstream_inferred_breakages WI
     pr_merge_bases.master_commit,
     ordered_master_commits.id,
     build_failure_standalone_causes.job_name,
-    master_job_failure_spans_mview.failure_commit_id_range,
+    master_job_failure_spans_conservative_mview.failure_commit_id_range,
     m1.sha1 AS open_sha1,
     m2.sha1 AS closed_sha1,
     m1.committer_date AS open_date,
@@ -2240,9 +2433,9 @@ CREATE VIEW public.downstream_build_failures_from_upstream_inferred_breakages WI
    FROM (((((public.pr_merge_bases
      JOIN public.ordered_master_commits ON ((pr_merge_bases.master_commit = ordered_master_commits.sha1)))
      JOIN public.build_failure_standalone_causes ON (((build_failure_standalone_causes.vcs_revision = pr_merge_bases.branch_commit) AND (NOT build_failure_standalone_causes.succeeded))))
-     JOIN public.master_job_failure_spans_mview ON (((master_job_failure_spans_mview.job_name = build_failure_standalone_causes.job_name) AND (master_job_failure_spans_mview.failure_commit_id_range @> (ordered_master_commits.id)::bigint))))
-     JOIN public.master_ordered_commits_with_metadata m1 ON ((lower(master_job_failure_spans_mview.failure_commit_id_range) = m1.id)))
-     LEFT JOIN public.master_ordered_commits_with_metadata m2 ON ((upper(master_job_failure_spans_mview.failure_commit_id_range) = m2.id)));
+     JOIN public.master_job_failure_spans_conservative_mview ON (((master_job_failure_spans_conservative_mview.job_name = build_failure_standalone_causes.job_name) AND (master_job_failure_spans_conservative_mview.failure_commit_id_range @> (ordered_master_commits.id)::bigint))))
+     JOIN public.master_ordered_commits_with_metadata m1 ON ((lower(master_job_failure_spans_conservative_mview.failure_commit_id_range) = m1.id)))
+     LEFT JOIN public.master_ordered_commits_with_metadata m2 ON ((upper(master_job_failure_spans_conservative_mview.failure_commit_id_range) = m2.id)));
 
 
 ALTER TABLE public.downstream_build_failures_from_upstream_inferred_breakages OWNER TO postgres;
@@ -2758,84 +2951,10 @@ CREATE VIEW public.master_commit_job_coverage_by_week AS
 ALTER TABLE public.master_commit_job_coverage_by_week OWNER TO postgres;
 
 --
--- Name: master_commit_job_success_completeness; Type: VIEW; Schema: public; Owner: postgres
+-- Name: master_commit_job_success_completeness_mview2; Type: MATERIALIZED VIEW; Schema: public; Owner: materialized_view_updater
 --
 
-CREATE VIEW public.master_commit_job_success_completeness WITH (security_barrier='false') AS
- SELECT foobar.commit_id,
-    foobar.sha1,
-    foobar.total_required_commit_job_count,
-    foobar.not_succeeded_required_job_count,
-    foobar.unbuilt_required_job_count,
-    array_to_string(foobar.disqualifying_jobs_array, ';'::text) AS disqualifying_jobs,
-    foobar.committer_date,
-    foobar.age_hours,
-    foobar.disqualifying_jobs_array,
-    (foobar.not_succeeded_required_job_count - foobar.unbuilt_required_job_count) AS failed_required_job_count
-   FROM ( SELECT master_ordered_commits_with_metadata.id AS commit_id,
-            master_ordered_commits_with_metadata.sha1,
-            bar.total_required_commit_job_count,
-            (bar.total_required_commit_job_count - bar.succeeded_built_required_job_count) AS not_succeeded_required_job_count,
-            (bar.total_required_commit_job_count - bar.all_built_required_job_count) AS unbuilt_required_job_count,
-            bar.disqualifying_jobs_array,
-            master_ordered_commits_with_metadata.committer_date,
-            (date_part('epoch'::text, (now() - master_ordered_commits_with_metadata.committer_date)) / (3600)::double precision) AS age_hours
-           FROM (public.master_ordered_commits_with_metadata
-             JOIN ( SELECT foo.joblist_commit_sha1,
-                    count(foo.required_job_name) AS total_required_commit_job_count,
-                    count(foo.succeeded_build_job_name) AS succeeded_built_required_job_count,
-                    count(foo.any_build_job_name) AS all_built_required_job_count,
-                    ARRAY( SELECT unnest(array_agg(foo.required_job_name)) AS unnest
-                        EXCEPT
-                         SELECT unnest(array_agg(foo.succeeded_build_job_name)) AS unnest) AS disqualifying_jobs_array
-                   FROM ( SELECT master_commit_circleci_scheduled_job_discrimination.commit_sha1 AS joblist_commit_sha1,
-                            master_commit_circleci_scheduled_job_discrimination.job_name AS required_job_name,
-                            succeeded_jobs_table.job_name AS succeeded_build_job_name,
-                            built_jobs_table.job_name AS any_build_job_name
-                           FROM ((public.master_commit_circleci_scheduled_job_discrimination
-                             LEFT JOIN ( SELECT builds_deduped.build_num,
-                                    builds_deduped.vcs_revision,
-                                    builds_deduped.queued_at,
-                                    builds_deduped.job_name,
-                                    builds_deduped.branch,
-                                    builds_deduped.succeeded,
-                                    builds_deduped.started_at,
-                                    builds_deduped.finished_at,
-                                    builds_deduped.rebuild_count,
-                                    builds_deduped.global_build,
-                                    builds_deduped.provider,
-                                    builds_deduped.build_namespace,
-                                    builds_deduped.ci_provider_scan,
-                                    builds_deduped.maybe_is_scheduled
-                                   FROM public.builds_deduped
-                                  WHERE builds_deduped.succeeded) succeeded_jobs_table ON (((succeeded_jobs_table.job_name = master_commit_circleci_scheduled_job_discrimination.job_name) AND (succeeded_jobs_table.vcs_revision = master_commit_circleci_scheduled_job_discrimination.commit_sha1))))
-                             LEFT JOIN ( SELECT builds_deduped.build_num,
-                                    builds_deduped.vcs_revision,
-                                    builds_deduped.queued_at,
-                                    builds_deduped.job_name,
-                                    builds_deduped.branch,
-                                    builds_deduped.succeeded,
-                                    builds_deduped.started_at,
-                                    builds_deduped.finished_at,
-                                    builds_deduped.rebuild_count,
-                                    builds_deduped.global_build,
-                                    builds_deduped.provider,
-                                    builds_deduped.build_namespace,
-                                    builds_deduped.ci_provider_scan,
-                                    builds_deduped.maybe_is_scheduled
-                                   FROM public.builds_deduped) built_jobs_table ON (((built_jobs_table.job_name = master_commit_circleci_scheduled_job_discrimination.job_name) AND (built_jobs_table.vcs_revision = master_commit_circleci_scheduled_job_discrimination.commit_sha1))))
-                          WHERE (NOT master_commit_circleci_scheduled_job_discrimination.is_scheduled)) foo
-                  GROUP BY foo.joblist_commit_sha1) bar ON ((master_ordered_commits_with_metadata.sha1 = bar.joblist_commit_sha1)))
-          ORDER BY master_ordered_commits_with_metadata.id DESC) foobar;
-
-
-ALTER TABLE public.master_commit_job_success_completeness OWNER TO postgres;
-
---
--- Name: master_commit_job_success_completeness_mview; Type: MATERIALIZED VIEW; Schema: public; Owner: materialized_view_updater
---
-
-CREATE MATERIALIZED VIEW public.master_commit_job_success_completeness_mview AS
+CREATE MATERIALIZED VIEW public.master_commit_job_success_completeness_mview2 AS
  SELECT master_commit_job_success_completeness.commit_id,
     master_commit_job_success_completeness.sha1,
     master_commit_job_success_completeness.total_required_commit_job_count,
@@ -2845,28 +2964,13 @@ CREATE MATERIALIZED VIEW public.master_commit_job_success_completeness_mview AS
     master_commit_job_success_completeness.committer_date,
     master_commit_job_success_completeness.age_hours,
     master_commit_job_success_completeness.disqualifying_jobs_array,
-    master_commit_job_success_completeness.failed_required_job_count
+    master_commit_job_success_completeness.failed_required_job_count,
+    master_commit_job_success_completeness.unbuilt_jobs_array
    FROM public.master_commit_job_success_completeness
   WITH NO DATA;
 
 
-ALTER TABLE public.master_commit_job_success_completeness_mview OWNER TO materialized_view_updater;
-
---
--- Name: master_commit_reversion_spans; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.master_commit_reversion_spans AS
- SELECT foo.reverted_commit_id,
-    foo.reversion_commit_id,
-    int8range((foo.reverted_commit_id)::bigint, (foo.reversion_commit_id)::bigint) AS reversion_span
-   FROM ( SELECT a2.id AS reverted_commit_id,
-            a1.id AS reversion_commit_id
-           FROM (public.master_commit_message_derived_fields a1
-             JOIN public.master_commit_message_derived_fields a2 ON ((a1.fb_reversion_shipit_source_id = a2.fb_shipit_source_id_truncated)))) foo;
-
-
-ALTER TABLE public.master_commit_reversion_spans OWNER TO postgres;
+ALTER TABLE public.master_commit_job_success_completeness_mview2 OWNER TO materialized_view_updater;
 
 --
 -- Name: master_commits_contiguously_indexed_mview; Type: MATERIALIZED VIEW; Schema: public; Owner: postgres
@@ -3515,77 +3619,58 @@ COMMENT ON VIEW public.master_indiscriminate_failure_spans IS 'For rendering dat
 
 
 --
--- Name: master_job_failure_spans_conservative; Type: VIEW; Schema: public; Owner: postgres
+-- Name: master_job_failure_spans; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.master_job_failure_spans_conservative WITH (security_barrier='false') AS
- SELECT blah.job_name,
-    blah.failure_start_commit_sha1_exclusive AS failure_start_commit_sha1,
-    blah.real_failure_end_commit_sha1_exclusive AS failure_end_commit_sha1,
-    int8range((blah.failure_start_commit_id_exclusive)::bigint, (blah.real_failure_end_commit_id_exclusive)::bigint, '()'::text) AS failure_commit_id_range,
-    ((blah.real_failure_end_commit_number_exclusive - blah.failure_start_commit_number_exclusive) - 1) AS span_length
-   FROM ( SELECT
-                CASE
-                    WHEN bar.backward_edge_transition THEN bar.failure_end_commit_id_exclusive
-                    ELSE lead(bar.failure_end_commit_id_exclusive) OVER (PARTITION BY bar.job_name ORDER BY bar.id)
-                END AS real_failure_end_commit_id_exclusive,
-                CASE
-                    WHEN bar.backward_edge_transition THEN bar.failure_end_commit_sha1_exclusive
-                    ELSE lead(bar.failure_end_commit_sha1_exclusive) OVER (PARTITION BY bar.job_name ORDER BY bar.id)
-                END AS real_failure_end_commit_sha1_exclusive,
-                CASE
-                    WHEN bar.backward_edge_transition THEN bar.failure_end_commit_number_exclusive
-                    ELSE lead(bar.failure_end_commit_number_exclusive) OVER (PARTITION BY bar.job_name ORDER BY bar.id)
-                END AS real_failure_end_commit_number_exclusive,
-            bar.forward_edge_transition,
-            bar.backward_edge_transition,
-            bar.job_name,
-            bar.succeeded,
-            bar.id,
-            bar.sha1,
-            bar.commit_number,
-            bar.failure_start_commit_id_exclusive,
-            bar.failure_start_commit_sha1_exclusive,
-            bar.failure_start_commit_number_exclusive,
-            bar.failure_end_commit_id_exclusive,
-            bar.failure_end_commit_sha1_exclusive,
-            bar.failure_end_commit_number_exclusive
-           FROM ( SELECT foo.forward_edge_transition,
-                    foo.backward_edge_transition,
-                    foo.job_name,
-                    foo.succeeded,
-                    foo.id,
-                    foo.sha1,
-                    foo.commit_number,
-                    lag(foo.id) OVER (PARTITION BY foo.job_name ORDER BY foo.id) AS failure_start_commit_id_exclusive,
-                    lag(foo.sha1) OVER (PARTITION BY foo.job_name ORDER BY foo.id) AS failure_start_commit_sha1_exclusive,
-                    lag(foo.commit_number) OVER (PARTITION BY foo.job_name ORDER BY foo.id) AS failure_start_commit_number_exclusive,
-                    lead(foo.id) OVER (PARTITION BY foo.job_name ORDER BY foo.id) AS failure_end_commit_id_exclusive,
-                    lead(foo.sha1) OVER (PARTITION BY foo.job_name ORDER BY foo.id) AS failure_end_commit_sha1_exclusive,
-                    lead(foo.commit_number) OVER (PARTITION BY foo.job_name ORDER BY foo.id) AS failure_end_commit_number_exclusive
-                   FROM ( SELECT master_commits_contiguously_indexed.id,
-                            master_commits_contiguously_indexed.sha1,
-                            master_commits_contiguously_indexed.commit_number,
-                            builds_deduped.job_name,
-                            builds_deduped.succeeded,
-                            (builds_deduped.succeeded <> lag(builds_deduped.succeeded) OVER (PARTITION BY builds_deduped.job_name ORDER BY master_commits_contiguously_indexed.id)) AS forward_edge_transition,
-                            (builds_deduped.succeeded <> lead(builds_deduped.succeeded) OVER (PARTITION BY builds_deduped.job_name ORDER BY master_commits_contiguously_indexed.id)) AS backward_edge_transition
-                           FROM (public.builds_deduped
-                             JOIN public.master_commits_contiguously_indexed ON ((builds_deduped.vcs_revision = master_commits_contiguously_indexed.sha1)))
-                          ORDER BY master_commits_contiguously_indexed.id, builds_deduped.job_name) foo
-                  WHERE (foo.forward_edge_transition OR foo.backward_edge_transition)) bar
-          WHERE (NOT bar.succeeded)) blah
-  WHERE blah.forward_edge_transition;
+CREATE VIEW public.master_job_failure_spans WITH (security_barrier='false') AS
+ SELECT bar.job_name,
+    bar.sha1 AS failure_start_commit_sha1,
+    bar.failure_end_commit_sha1,
+    int8range((bar.id)::bigint, (bar.failure_end_commit_id)::bigint) AS failure_commit_id_range,
+    (bar.failure_end_commit_number - bar.commit_number) AS span_length
+   FROM ( SELECT foo.job_name,
+            foo.succeeded,
+            foo.id,
+            foo.sha1,
+            foo.commit_number,
+            lead(foo.id) OVER (PARTITION BY foo.job_name ORDER BY foo.id) AS failure_end_commit_id,
+            lead(foo.sha1) OVER (PARTITION BY foo.job_name ORDER BY foo.id) AS failure_end_commit_sha1,
+            lead(foo.commit_number) OVER (PARTITION BY foo.job_name ORDER BY foo.id) AS failure_end_commit_number
+           FROM ( SELECT master_commits_contiguously_indexed.id,
+                    master_commits_contiguously_indexed.sha1,
+                    master_commits_contiguously_indexed.commit_number,
+                    builds_deduped.job_name,
+                    builds_deduped.succeeded,
+                    (builds_deduped.succeeded <> lag(builds_deduped.succeeded) OVER (PARTITION BY builds_deduped.job_name ORDER BY master_commits_contiguously_indexed.id)) AS edge_transition
+                   FROM (public.builds_deduped
+                     JOIN public.master_commits_contiguously_indexed ON ((builds_deduped.vcs_revision = master_commits_contiguously_indexed.sha1)))
+                  ORDER BY master_commits_contiguously_indexed.id, builds_deduped.job_name) foo
+          WHERE foo.edge_transition) bar
+  WHERE (NOT bar.succeeded);
 
 
-ALTER TABLE public.master_job_failure_spans_conservative OWNER TO postgres;
+ALTER TABLE public.master_job_failure_spans OWNER TO postgres;
 
 --
--- Name: VIEW master_job_failure_spans_conservative; Type: COMMENT; Schema: public; Owner: postgres
+-- Name: VIEW master_job_failure_spans; Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON VIEW public.master_job_failure_spans_conservative IS 'In contrast with "master_job_failure_spans", which only extends the failure forward up until (and excluding) the next successful build, this view also extends the failure span backwards up until (and excluding) the previous successful build.';
+COMMENT ON VIEW public.master_job_failure_spans IS 'In contrast with the "master_contiguous_failures" view, this view treats any "absent" builds as a continuation of the last state.';
 
+
+--
+-- Name: master_job_failure_spans_mview; Type: MATERIALIZED VIEW; Schema: public; Owner: materialized_view_updater
+--
+
+CREATE MATERIALIZED VIEW public.master_job_failure_spans_mview AS
+ SELECT master_job_failure_spans.job_name,
+    master_job_failure_spans.failure_commit_id_range,
+    master_job_failure_spans.span_length
+   FROM public.master_job_failure_spans
+  WITH NO DATA;
+
+
+ALTER TABLE public.master_job_failure_spans_mview OWNER TO materialized_view_updater;
 
 --
 -- Name: master_ordered_commits_with_metadata_mview; Type: MATERIALIZED VIEW; Schema: public; Owner: materialized_view_updater
@@ -3940,7 +4025,9 @@ CREATE VIEW public.patterns_augmented WITH (security_barrier='false') AS
     match_last_position_frequencies.position_likelihood,
     patterns_rich.lines_from_end,
     patterns_rich.is_flaky,
-    patterns_rich.is_network
+    patterns_rich.is_network,
+    patterns_rich.tags_array,
+    patterns_rich.steps_array
    FROM (public.patterns_rich
      LEFT JOIN public.match_last_position_frequencies ON ((patterns_rich.id = match_last_position_frequencies.pattern)));
 
@@ -5373,6 +5460,13 @@ CREATE UNIQUE INDEX idx_master_job_failure_spans ON public.master_job_failure_sp
 
 
 --
+-- Name: idx_master_job_failure_spans_conservative; Type: INDEX; Schema: public; Owner: materialized_view_updater
+--
+
+CREATE UNIQUE INDEX idx_master_job_failure_spans_conservative ON public.master_job_failure_spans_conservative_mview USING btree (failure_commit_id_range DESC NULLS LAST, job_name);
+
+
+--
 -- Name: idx_master_ordered_commits_with_metadata_mview_commit_id; Type: INDEX; Schema: public; Owner: materialized_view_updater
 --
 
@@ -5391,6 +5485,20 @@ CREATE UNIQUE INDEX idx_pr_merge_time_failing_builds_by_week_mview_week ON publi
 --
 
 CREATE INDEX idx_provider_sha1_universal_build ON public.universal_builds USING btree (provider, commit_sha1, id);
+
+
+--
+-- Name: idx_reversion_commit_id; Type: INDEX; Schema: public; Owner: materialized_view_updater
+--
+
+CREATE UNIQUE INDEX idx_reversion_commit_id ON public.master_commit_reversion_spans_mview USING btree (reversion_commit_id DESC NULLS LAST);
+
+
+--
+-- Name: idx_reversion_span; Type: INDEX; Schema: public; Owner: materialized_view_updater
+--
+
+CREATE UNIQUE INDEX idx_reversion_span ON public.master_commit_reversion_spans_mview USING btree (reversion_span DESC NULLS LAST);
 
 
 --
@@ -5822,10 +5930,11 @@ GRANT SELECT ON TABLE lambda_logging.materialized_view_refresh_event_stats TO lo
 
 
 --
--- Name: TABLE cached_master_merge_base; Type: ACL; Schema: public; Owner: postgres
+-- Name: TABLE builds; Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON TABLE public.cached_master_merge_base TO logan;
+GRANT ALL ON TABLE public.builds TO logan;
+GRANT SELECT ON TABLE public.builds TO readonly_user;
 
 
 --
@@ -5833,6 +5942,70 @@ GRANT ALL ON TABLE public.cached_master_merge_base TO logan;
 --
 
 GRANT ALL ON TABLE public.circleci_expanded_config_yaml_hashes_by_commit TO logan;
+
+
+--
+-- Name: TABLE circleci_job_branch_filters; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.circleci_job_branch_filters TO logan;
+
+
+--
+-- Name: TABLE circleci_workflow_jobs; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.circleci_workflow_jobs TO logan;
+
+
+--
+-- Name: TABLE circleci_workflow_schedules; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.circleci_workflow_schedules TO logan;
+
+
+--
+-- Name: TABLE circleci_workflows_by_yaml_file; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.circleci_workflows_by_yaml_file TO logan;
+
+
+--
+-- Name: TABLE master_commit_circleci_scheduled_job_discrimination; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_commit_circleci_scheduled_job_discrimination TO logan;
+
+
+--
+-- Name: TABLE universal_builds; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.universal_builds TO logan;
+GRANT SELECT ON TABLE public.universal_builds TO readonly_user;
+
+
+--
+-- Name: TABLE global_builds; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.global_builds TO logan;
+
+
+--
+-- Name: TABLE builds_deduped; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.builds_deduped TO logan;
+
+
+--
+-- Name: TABLE cached_master_merge_base; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.cached_master_merge_base TO logan;
 
 
 --
@@ -5878,18 +6051,34 @@ GRANT ALL ON TABLE public.ordered_master_commits TO logan;
 
 
 --
--- Name: TABLE universal_builds; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.universal_builds TO logan;
-GRANT SELECT ON TABLE public.universal_builds TO readonly_user;
-
-
---
 -- Name: TABLE master_built_commit_groups; Type: ACL; Schema: public; Owner: postgres
 --
 
 GRANT ALL ON TABLE public.master_built_commit_groups TO logan;
+
+
+--
+-- Name: TABLE master_commits_basic_metadata; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_commits_basic_metadata TO logan;
+GRANT SELECT ON TABLE public.master_commits_basic_metadata TO materialized_view_updater;
+
+
+--
+-- Name: TABLE master_commit_job_success_completeness; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_commit_job_success_completeness TO logan;
+GRANT SELECT ON TABLE public.master_commit_job_success_completeness TO materialized_view_updater;
+
+
+--
+-- Name: TABLE master_commit_job_success_completeness_mview; Type: ACL; Schema: public; Owner: materialized_view_updater
+--
+
+GRANT SELECT ON TABLE public.master_commit_job_success_completeness_mview TO logan;
+GRANT SELECT ON TABLE public.master_commit_job_success_completeness_mview TO postgres;
 
 
 --
@@ -5901,11 +6090,19 @@ GRANT SELECT ON TABLE public.master_commit_message_derived_fields TO materialize
 
 
 --
--- Name: TABLE master_commits_basic_metadata; Type: ACL; Schema: public; Owner: postgres
+-- Name: TABLE master_commit_reversion_spans; Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON TABLE public.master_commits_basic_metadata TO logan;
-GRANT SELECT ON TABLE public.master_commits_basic_metadata TO materialized_view_updater;
+GRANT ALL ON TABLE public.master_commit_reversion_spans TO logan;
+GRANT SELECT ON TABLE public.master_commit_reversion_spans TO materialized_view_updater;
+
+
+--
+-- Name: TABLE master_commit_reversion_spans_mview; Type: ACL; Schema: public; Owner: materialized_view_updater
+--
+
+GRANT SELECT ON TABLE public.master_commit_reversion_spans_mview TO logan;
+GRANT SELECT ON TABLE public.master_commit_reversion_spans_mview TO postgres;
 
 
 --
@@ -5971,63 +6168,6 @@ GRANT ALL ON TABLE public.build_steps TO logan;
 --
 
 GRANT ALL ON TABLE public.build_steps_deduped_mitigation TO logan;
-
-
---
--- Name: TABLE builds; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.builds TO logan;
-GRANT SELECT ON TABLE public.builds TO readonly_user;
-
-
---
--- Name: TABLE circleci_job_branch_filters; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.circleci_job_branch_filters TO logan;
-
-
---
--- Name: TABLE circleci_workflow_jobs; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.circleci_workflow_jobs TO logan;
-
-
---
--- Name: TABLE circleci_workflow_schedules; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.circleci_workflow_schedules TO logan;
-
-
---
--- Name: TABLE circleci_workflows_by_yaml_file; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.circleci_workflows_by_yaml_file TO logan;
-
-
---
--- Name: TABLE master_commit_circleci_scheduled_job_discrimination; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.master_commit_circleci_scheduled_job_discrimination TO logan;
-
-
---
--- Name: TABLE global_builds; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.global_builds TO logan;
-
-
---
--- Name: TABLE builds_deduped; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.builds_deduped TO logan;
 
 
 --
@@ -6404,19 +6544,19 @@ GRANT SELECT ON TABLE public.disjoint_circleci_build_statuses TO materialized_vi
 
 
 --
--- Name: TABLE master_job_failure_spans; Type: ACL; Schema: public; Owner: postgres
+-- Name: TABLE master_job_failure_spans_conservative; Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON TABLE public.master_job_failure_spans TO logan;
-GRANT SELECT ON TABLE public.master_job_failure_spans TO materialized_view_updater;
+GRANT ALL ON TABLE public.master_job_failure_spans_conservative TO logan;
+GRANT SELECT ON TABLE public.master_job_failure_spans_conservative TO materialized_view_updater;
 
 
 --
--- Name: TABLE master_job_failure_spans_mview; Type: ACL; Schema: public; Owner: materialized_view_updater
+-- Name: TABLE master_job_failure_spans_conservative_mview; Type: ACL; Schema: public; Owner: materialized_view_updater
 --
 
-GRANT SELECT ON TABLE public.master_job_failure_spans_mview TO logan;
-GRANT SELECT ON TABLE public.master_job_failure_spans_mview TO postgres;
+GRANT SELECT ON TABLE public.master_job_failure_spans_conservative_mview TO logan;
+GRANT SELECT ON TABLE public.master_job_failure_spans_conservative_mview TO postgres;
 
 
 --
@@ -6556,27 +6696,10 @@ GRANT ALL ON TABLE public.master_commit_job_coverage_by_week TO logan;
 
 
 --
--- Name: TABLE master_commit_job_success_completeness; Type: ACL; Schema: public; Owner: postgres
+-- Name: TABLE master_commit_job_success_completeness_mview2; Type: ACL; Schema: public; Owner: materialized_view_updater
 --
 
-GRANT ALL ON TABLE public.master_commit_job_success_completeness TO logan;
-GRANT SELECT ON TABLE public.master_commit_job_success_completeness TO materialized_view_updater;
-
-
---
--- Name: TABLE master_commit_job_success_completeness_mview; Type: ACL; Schema: public; Owner: materialized_view_updater
---
-
-GRANT SELECT ON TABLE public.master_commit_job_success_completeness_mview TO logan;
-GRANT SELECT ON TABLE public.master_commit_job_success_completeness_mview TO postgres;
-
-
---
--- Name: TABLE master_commit_reversion_spans; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.master_commit_reversion_spans TO logan;
-GRANT SELECT ON TABLE public.master_commit_reversion_spans TO materialized_view_updater;
+GRANT SELECT ON TABLE public.master_commit_job_success_completeness_mview2 TO logan;
 
 
 --
@@ -6724,11 +6847,19 @@ GRANT ALL ON TABLE public.master_indiscriminate_failure_spans TO logan;
 
 
 --
--- Name: TABLE master_job_failure_spans_conservative; Type: ACL; Schema: public; Owner: postgres
+-- Name: TABLE master_job_failure_spans; Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON TABLE public.master_job_failure_spans_conservative TO logan;
-GRANT SELECT ON TABLE public.master_job_failure_spans_conservative TO materialized_view_updater;
+GRANT ALL ON TABLE public.master_job_failure_spans TO logan;
+GRANT SELECT ON TABLE public.master_job_failure_spans TO materialized_view_updater;
+
+
+--
+-- Name: TABLE master_job_failure_spans_mview; Type: ACL; Schema: public; Owner: materialized_view_updater
+--
+
+GRANT SELECT ON TABLE public.master_job_failure_spans_mview TO logan;
+GRANT SELECT ON TABLE public.master_job_failure_spans_mview TO postgres;
 
 
 --

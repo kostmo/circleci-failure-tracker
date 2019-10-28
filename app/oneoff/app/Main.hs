@@ -40,7 +40,6 @@ myCliParser = NewCommandLineArgs
     <> help "Path to .git directory of repository, for use in computing merge bases")
 
 
-
 mainAppCode :: CommandLineArgs -> IO ()
 mainAppCode args = do
 
