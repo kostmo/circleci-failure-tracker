@@ -32,10 +32,10 @@ link label url = bracket label <> parens url
 
 
 bullets :: [Text] -> Text
-bullets items = T.unlines $ map ("* " <>) items
+bullets = T.unlines . map ("* " <>)
 
 
--- | Adds a period at the end.
+-- | Adds a period at the end of a list of words.
 sentence ::  [Text] -> Text
 sentence pieces = T.unwords pieces <> "."
 

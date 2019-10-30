@@ -431,6 +431,10 @@ scottyApp
       runReaderT (SqlRead.apiNewPatternTest (Builds.UniversalBuildId buildnum) new_pattern) conn
     S.json $ WebApi.toJsonEither x
 
+  S.get "/api/user-opt-out-settings" $
+    FrontendHelpers.jsonAuthorizedDbInteract2 connection_data session github_config $
+      pure SqlRead.userOptOutSettings
+
   S.get "/api/view-log-context" $
     FrontendHelpers.jsonAuthorizedDbInteract connection_data session github_config $
       SqlRead.logContextFunc

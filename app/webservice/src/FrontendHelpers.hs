@@ -188,6 +188,38 @@ jsonDbGet connection_data endpoint_path f =
     run_with_connection = liftIO . (=<< wrapped_connection) . runReaderT
 
 
+jsonAuthorizedDbInteract2 :: ToJSON a =>
+     DbHelpers.DbConnectionData
+  -> Vault.Key (Session IO String String)
+  -> AuthConfig.GithubConfig
+  -> ScottyTypes.ActionT LT.Text IO (ReaderT SqlRead.AuthConnection IO (Either Text a))
+  -> ScottyTypes.ActionT LT.Text IO ()
+jsonAuthorizedDbInteract2
+    connection_data
+    session
+    github_config
+    f = do
+
+  func <- f
+
+  let callback_func user_alias = do
+        conn <- DbHelpers.get_connection connection_data
+        runReaderT func $ SqlRead.AuthConnection conn user_alias
+
+  login_redirect_path <- S.param "login_redirect_path"
+
+  rq <- S.request
+  insertion_result <- liftIO $
+    Auth.getAuthenticatedUser
+      login_redirect_path
+      rq
+      session
+      github_config
+      callback_func
+
+  S.json $ WebApi.toJsonEither insertion_result
+
+
 jsonAuthorizedDbInteract :: ToJSON a =>
      DbHelpers.DbConnectionData
   -> Vault.Key (Session IO String String)

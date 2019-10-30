@@ -57,6 +57,10 @@ import qualified StatusEventQuery
 import qualified Webhooks
 
 
+gitCommitPrefixLength :: Int
+gitCommitPrefixLength = 7
+
+
 -- | 3 minutes
 buildStatusHandlerTimeoutMicroseconds :: Int
 buildStatusHandlerTimeoutMicroseconds = 1000000 * 60 * 3
@@ -504,8 +508,8 @@ generateCommentMarkdown
   where
     preliminary_lines_list = [
         T.unlines [
-          Markdown.heading 2 "Build failures summary"
-        , "As of commit " <> T.take 7 sha1_text <> ":"
+          Markdown.heading 2 "CircleCI build failures summary"
+        , "As of commit " <> T.take gitCommitPrefixLength sha1_text <> ":"
         , Markdown.bullets $ map T.pack $ genMetricsList build_summary_stats
         ]
       , Markdown.sentence [
@@ -519,14 +523,15 @@ generateCommentMarkdown
           ]
         , Markdown.sentence [
             "Follow"
-          , Markdown.link "this link to opt-out" "https://dr.pytorch.org/admin/comments-opt-out.html"
+          , Markdown.link "this link to opt-out" opt_out_url
           , "for your Pull Requests"
           ]
         ]
       ]
 
-    -- Note that the revision count will be accurate for the (N+1)th comment using the current count
-    -- of N comments, because the first post doesn't count as a "revision".
+    -- Note that using the current count of N comments as the revision count will be
+    -- appropriate for the (N+1)th comment (the one that's about to be posted), because
+    -- the first post doesn't count as a "revision".
     optional_suffix = case maybe_previous_pr_comment of
       Nothing -> []
       Just previous_pr_comment -> [
@@ -539,6 +544,7 @@ generateCommentMarkdown
 
     dr_ci_base_url = LT.toStrict webserverBaseUrl
     dr_ci_commit_details_link = dr_ci_base_url <> "/commit-details.html?sha1=" <> sha1_text
+    opt_out_url = dr_ci_base_url <> "/admin/comments-opt-out.html"
 
 
 -- | Operations:

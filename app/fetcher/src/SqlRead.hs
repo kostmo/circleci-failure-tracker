@@ -240,6 +240,8 @@ getGlobalBuild (Builds.UniversalBuildId global_build_num) = do
       ]
 
 
+-- | TODO Get rid of semicolon as delimiter!
+-- See: cleanSemicolonDelimitedList, splitAggText
 common_xform (delimited_pattern_ids, step_id, step_name, universal_build_id, build_num, provider_id, build_namespace, succeeded, vcs_revision) =
   ( Builds.NewBuildStepId step_id
   , step_name
@@ -251,6 +253,25 @@ common_xform (delimited_pattern_ids, step_id, step_name, universal_build_id, bui
       (Builds.RawCommit vcs_revision)
   , map read $ splitOn ";" delimited_pattern_ids
   )
+
+
+
+data OptOutResponse = OptOutResponse {
+    _user       :: AuthStages.Username
+  , _is_opt_out :: Bool
+  } deriving Generic
+
+instance ToJSON OptOutResponse where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+userOptOutSettings :: SqlRead.AuthDbIO (Either Text OptOutResponse)
+userOptOutSettings = do
+  SqlRead.AuthConnection conn user@(AuthStages.Username author) <- ask
+  xs <- liftIO $ query conn sql $ Only author
+  return $ Right $ OptOutResponse user $ Safe.headDef False $ map (\(Only x) -> x) xs
+  where
+    sql = "SELECT enabled FROM pr_comment_posting_opt_outs WHERE username = ?;"
 
 
 getRevisitableWhitelistedBuilds ::

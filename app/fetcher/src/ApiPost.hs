@@ -6,7 +6,6 @@
 module ApiPost where
 
 import           Control.Lens               hiding ((<.>))
-import           Control.Monad.IO.Class     (liftIO)
 import           Control.Monad.Trans.Except (ExceptT (ExceptT), except,
                                              runExceptT)
 import           Data.Aeson                 (FromJSON, ToJSON, eitherDecode,
@@ -27,7 +26,6 @@ import           Network.Wreq               as NW
 import qualified Builds
 import qualified DbHelpers
 import qualified FetchHelpers
-import qualified MyUtils
 import qualified StatusEvent
 
 
