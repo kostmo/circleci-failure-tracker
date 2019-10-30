@@ -523,7 +523,13 @@ storeBuildsList conn maybe_provider_scan_id builds_list =
         ]
       , "ON CONFLICT (global_build_num)"
       , "DO UPDATE"
-      , "SET branch = COALESCE(builds.branch, EXCLUDED.branch), queued_at = COALESCE(builds.queued_at, EXCLUDED.queued_at), started_at = COALESCE(builds.started_at, EXCLUDED.started_at), finished_at = COALESCE(builds.finished_at, EXCLUDED.finished_at);"
+      , "SET"
+      , MyUtils.qlist [
+          "branch = COALESCE(builds.branch, EXCLUDED.branch)"
+        , "queued_at = COALESCE(builds.queued_at, EXCLUDED.queued_at)"
+        , "started_at = COALESCE(builds.started_at, EXCLUDED.started_at)"
+        , "finished_at = COALESCE(builds.finished_at, EXCLUDED.finished_at)"
+        ]
       ]
 
 
@@ -615,7 +621,7 @@ insertSingleCIProvider conn hostname = do
   where
     sql_query = "SELECT id FROM ci_providers WHERE hostname = ? LIMIT 1;"
     sql_insert = MyUtils.qjoin [
-      "INSERT INTO ci_providers"
+        "INSERT INTO ci_providers"
       , MyUtils.insertionValues ["hostname"]
       , "RETURNING id;"
       ]
@@ -1129,8 +1135,16 @@ storeLogInfo
         ]
       , "ON CONFLICT (step)"
       , "DO UPDATE"
-      , "SET line_count = EXCLUDED.line_count, byte_count = EXCLUDED.byte_count, content = EXCLUDED.content, modified_by_ansi_stripping = EXCLUDED.modified_by_ansi_stripping, was_truncated_for_size = EXCLUDED.was_truncated_for_size;"
+      , "SET"
+      , MyUtils.qlist [
+          "line_count = EXCLUDED.line_count"
+        , "byte_count = EXCLUDED.byte_count"
+        , "content = EXCLUDED.content"
+        , "modified_by_ansi_stripping = EXCLUDED.modified_by_ansi_stripping"
+        , "was_truncated_for_size = EXCLUDED.was_truncated_for_size"
+        ]
       ]
+
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
 
 
@@ -1193,9 +1207,14 @@ insertBuildVisitation scan_resources (ubuild, visitation_result) = do
         ]
       , "ON CONFLICT"
       , "ON CONSTRAINT build_steps_universal_build_step_index_key"
-      , "DO UPDATE SET name = excluded.name, is_timeout = excluded.is_timeout"
+      , "DO UPDATE SET"
+      , MyUtils.qlist [
+          "name = excluded.name"
+        , "is_timeout = excluded.is_timeout"
+        ]
       , "RETURNING id;"
       ]
+
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
 
 
