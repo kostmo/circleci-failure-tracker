@@ -53,8 +53,13 @@ import qualified Webhooks
 sqlInsertUniversalBuild :: Query
 sqlInsertUniversalBuild = MyUtils.qjoin [
     "INSERT INTO universal_builds"
-  , MyUtils.qparens "provider, build_number, build_namespace, succeeded, commit_sha1"
-  , "VALUES(?,?,?,?,?)"
+  , MyUtils.insertionValues [
+      "provider"
+    , "build_number"
+    , "build_namespace"
+    , "succeeded"
+    , "commit_sha1"
+    ]
   , "ON CONFLICT"
   , "ON CONSTRAINT universal_builds_build_number_build_namespace_provider_key"
   , "DO UPDATE SET build_number = excluded.build_number"
@@ -77,8 +82,17 @@ storeCommitMetadata conn commit_list =
 
     insertion_sql = MyUtils.qjoin [
         "INSERT INTO commit_metadata"
-      , MyUtils.qparens "sha1, message, tree_sha1, author_name, author_email, author_date, committer_name, committer_email, committer_date"
-      , "VALUES(?,?,?,?,?,?,?,?,?);"
+      , MyUtils.insertionValues [
+          "sha1"
+        , "message"
+        , "tree_sha1"
+        , "author_name"
+        , "author_email"
+        , "author_date"
+        , "committer_name"
+        , "committer_email"
+        , "committer_date"
+        ]
       ]
 
     catcher _ (UniqueViolation some_error) = return $ Left $
@@ -187,8 +201,11 @@ findMasterAncestorWithPrecomputation
 
     merge_base_insertion_sql = MyUtils.qjoin [
         "INSERT INTO cached_master_merge_base"
-      , MyUtils.qparens "branch_commit, master_commit, distance"
-      , "VALUES(?,?,?);"
+      , MyUtils.insertionValues [
+          "branch_commit"
+        , "master_commit"
+        , "distance"
+        ]
       ]
 
 
@@ -246,8 +263,10 @@ getAllPullRequestHeadCommits conn git_dir = do
   where
     insertion_sql = MyUtils.qjoin [
         "INSERT INTO pull_request_heads"
-      , MyUtils.qparens "pr_number, head_sha1"
-      , "VALUES(?,?)"
+      , MyUtils.insertionValues [
+          "pr_number"
+        , "head_sha1"
+        ]
       , "ON CONFLICT"
       , "ON CONSTRAINT pull_request_heads_pr_number_head_sha1_key"
       , "DO UPDATE SET timestamp = NOW();"
@@ -266,7 +285,14 @@ storeCachedMergeBases conn merge_base_records =
   where
     f (MergeBase.CommitMergeBase (Builds.RawCommit branch_commit) (Builds.RawCommit master_commit) distance) = (branch_commit, master_commit, distance)
 
-    insertion_sql = "INSERT INTO cached_master_merge_base(branch_commit, master_commit, distance) VALUES(?,?,?);"
+    insertion_sql = MyUtils.qjoin [
+        "INSERT INTO cached_master_merge_base"
+      , MyUtils.insertionValues [
+          "branch_commit"
+        , "master_commit"
+        , "distance"
+        ]
+      ]
 
     catcher _ (UniqueViolation some_error) = return $ Left $
       "Insertion error: " <> T.pack (BS.unpack some_error)
@@ -375,7 +401,10 @@ storeMasterCommits conn commit_list =
     return $ Right count
 
   where
-    insertion_sql = "INSERT INTO ordered_master_commits(sha1) VALUES(?);"
+    insertion_sql = MyUtils.qjoin [
+        "INSERT INTO ordered_master_commits"
+      , MyUtils.insertionValues ["sha1"]
+      ]
 
     catcher _ (UniqueViolation some_error) = return $ Left $
       "Insertion error: " <> T.pack (BS.unpack some_error)
@@ -483,8 +512,15 @@ storeBuildsList conn maybe_provider_scan_id builds_list =
 
     sql = MyUtils.qjoin [
         "INSERT INTO builds"
-      , MyUtils.qparens "queued_at, job_name, branch, global_build_num, started_at, finished_at, ci_provider_scan"
-      , "VALUES(?,?,?,?,?,?,?)"
+      , MyUtils.insertionValues [
+          "queued_at"
+        , "job_name"
+        , "branch"
+        , "global_build_num"
+        , "started_at"
+        , "finished_at"
+        , "ci_provider_scan"
+        ]
       , "ON CONFLICT (global_build_num)"
       , "DO UPDATE"
       , "SET branch = COALESCE(builds.branch, EXCLUDED.branch), queued_at = COALESCE(builds.queued_at, EXCLUDED.queued_at), started_at = COALESCE(builds.started_at, EXCLUDED.started_at), finished_at = COALESCE(builds.finished_at, EXCLUDED.finished_at);"
@@ -502,7 +538,16 @@ storeScanRecord provider_id branch_filter initiated_at maybe_eb_worker_event_id 
   [Only new_id] <- liftIO $ query conn sql (provider_id, branch_filter, initiated_at, maybe_eb_worker_event_id)
   return new_id
   where
-    sql = "INSERT INTO ci_provider_build_scans(provider, branch_filter, initiated_at, eb_worker_event) VALUES(?,?,?,?) RETURNING id;"
+    sql = MyUtils.qjoin [
+        "INSERT INTO ci_provider_build_scans"
+      , MyUtils.insertionValues [
+          "provider"
+        , "branch_filter"
+        , "initiated_at"
+        , "eb_worker_event"
+        ]
+      , "RETURNING id;"
+      ]
 
 
 storeMatches ::
@@ -546,8 +591,15 @@ storeMatches scan_resources (Builds.NewBuildStepId build_step_id) scoped_matches
 
     insertion_sql = MyUtils.qjoin [
         "INSERT INTO matches"
-      , MyUtils.qparens "scan_id, build_step, pattern, line_number, line_text, span_start, span_end"
-      , "VALUES(?,?,?,?,?,?,?);"
+      , MyUtils.insertionValues [
+            "scan_id"
+          , "build_step"
+          , "pattern"
+          , "line_number"
+          , "line_text"
+          , "span_start"
+          , "span_end"
+          ]
       ]
 
 
@@ -562,7 +614,11 @@ insertSingleCIProvider conn hostname = do
   return $ DbHelpers.WithId row_id hostname
   where
     sql_query = "SELECT id FROM ci_providers WHERE hostname = ? LIMIT 1;"
-    sql_insert = "INSERT INTO ci_providers(hostname) VALUES(?) RETURNING id;"
+    sql_insert = MyUtils.qjoin [
+      "INSERT INTO ci_providers"
+      , MyUtils.insertionValues ["hostname"]
+      , "RETURNING id;"
+      ]
 
 
 getAndStoreCIProviders ::
@@ -600,8 +656,14 @@ insertEbWorkerStart conn web_request_path label maybe_beanstalk_headers = do
   where
     sql = MyUtils.qjoin [
         "INSERT INTO lambda_logging.eb_worker_event_start"
-      , MyUtils.qparens "path, label, task_name, scheduled_at, sender_id"
-      , "VALUES(?,?,?,?,?) RETURNING id;"
+      , MyUtils.insertionValues [
+          "path"
+        , "label"
+        , "task_name"
+        , "scheduled_at"
+        , "sender_id"
+        ]
+      , "RETURNING id;"
       ]
 
 
@@ -614,8 +676,8 @@ insertEbWorkerFinish conn start_id = do
   return ()
   where
     sql = MyUtils.qjoin [
-        "INSERT INTO lambda_logging.eb_worker_event_finish(start_id)"
-      , "VALUES(?);"
+        "INSERT INTO lambda_logging.eb_worker_event_finish"
+      , MyUtils.insertionValues ["start_id"]
       ]
 
 
@@ -630,8 +692,15 @@ insertReceivedGithubStatus conn (Webhooks.GitHubStatusEvent sha name description
   where
     sql = MyUtils.qjoin [
         "INSERT INTO github_incoming_status_events"
-      , MyUtils.qparens "sha1, name, description, state, target_url, context, created_at"
-      , "VALUES(?,?,?,?,?,?,?)"
+      , MyUtils.insertionValues [
+          "sha1"
+        , "name"
+        , "description"
+        , "state"
+        , "target_url"
+        , "context"
+        , "created_at"
+        ]
       , "RETURNING id;"
       ]
 
@@ -664,8 +733,6 @@ insertPostedGithubStatus conn (Builds.RawCommit git_sha1) (DbHelpers.OwnerAndRep
         ]
       , "RETURNING id;"
       ]
-
-
 
 
 commentBodyInsertionSql = MyUtils.qjoin [
@@ -739,7 +806,13 @@ addPatternTag (ScanPatterns.PatternId pattern_id) tag = do
   conn <- ask
   liftIO $ Right <$> execute conn sql (pattern_id, tag)
   where
-    sql = "INSERT INTO pattern_tags(pattern, tag) VALUES(?,?);"
+    sql = MyUtils.qjoin [
+        "INSERT INTO pattern_tags"
+      , MyUtils.insertionValues [
+          "pattern"
+        , "tag"
+        ]
+      ]
 
 
 removePatternTag ::
@@ -824,7 +897,14 @@ addCodeBreakageJobName cause_id job_name = do
   SqlRead.AuthConnection conn (AuthStages.Username author) <- ask
   liftIO $ Right <$> execute conn job_insertion_sql (job_name, cause_id, author)
   where
-    job_insertion_sql = "INSERT INTO code_breakage_affected_jobs(job, cause, reporter) VALUES(?,?,?);"
+    job_insertion_sql = MyUtils.qjoin [
+        "INSERT INTO code_breakage_affected_jobs"
+      , MyUtils.insertionValues [
+          "job"
+        , "cause"
+        , "reporter"
+        ]
+      ]
 
 
 updateCodeBreakageMode ::
@@ -835,7 +915,14 @@ updateCodeBreakageMode cause_id mode = do
   SqlRead.AuthConnection conn (AuthStages.Username author) <- ask
   liftIO $ Right <$> execute conn insertion_sql (cause_id, author, mode)
   where
-    insertion_sql = "INSERT INTO master_failure_mode_attributions(cause_id, reporter, mode_id) VALUES(?,?,?);"
+    insertion_sql = MyUtils.qjoin [
+        "INSERT INTO master_failure_mode_attributions"
+      , MyUtils.insertionValues [
+          "cause_id"
+        , "reporter"
+        , "mode_id"
+        ]
+      ]
 
 
 updatePatternDescription ::
@@ -898,22 +985,65 @@ insertSinglePattern either_pattern = do
 
     pattern_insertion_sql = MyUtils.qjoin [
         "INSERT INTO patterns"
-      , MyUtils.qparens "regex, expression, description, is_retired, has_nondeterministic_values, specificity, lines_from_end"
-      , "VALUES(?,?,?,?,?,?,?) RETURNING id;"
+      , MyUtils.insertionValues [
+          "regex"
+        , "expression"
+        , "description"
+        , "is_retired"
+        , "has_nondeterministic_values"
+        , "specificity"
+        , "lines_from_end"
+        ]
+      , "RETURNING id;"
       ]
 
     pattern_insertion_with_id_sql = MyUtils.qjoin [
         "INSERT INTO patterns"
-      , MyUtils.qparens "id, regex, expression, description, is_retired, has_nondeterministic_values, specificity, lines_from_end"
-      , "VALUES(?,?,?,?,?,?,?,?) RETURNING id;"
+      , MyUtils.insertionValues [
+          "id"
+        , "regex"
+        , "expression"
+        , "description"
+        , "is_retired"
+        , "has_nondeterministic_values"
+        , "specificity"
+        , "lines_from_end"
+        ]
+      , "RETURNING id;"
       ]
 
-    tag_insertion_sql = "INSERT INTO pattern_tags(tag, pattern) VALUES(?,?);"
+    tag_insertion_sql = MyUtils.qjoin [
+        "INSERT INTO pattern_tags"
+      , MyUtils.insertionValues [
+          "tag"
+        , "pattern"
+        ]
+      ]
 
-    authorship_insertion_with_timestamp_sql = "INSERT INTO pattern_authorship(pattern, author, created) VALUES(?,?,?);"
-    authorship_insertion_sql = "INSERT INTO pattern_authorship(pattern, author) VALUES(?,?);"
+    authorship_insertion_with_timestamp_sql = MyUtils.qjoin [
+        "INSERT INTO pattern_authorship"
+      , MyUtils.insertionValues [
+          "pattern"
+        , "author"
+        , "created"
+        ]
+      ]
 
-    applicable_step_insertion_sql = "INSERT INTO pattern_step_applicability(step_name, pattern) VALUES(?,?);"
+    authorship_insertion_sql = MyUtils.qjoin [
+        "INSERT INTO pattern_authorship"
+      , MyUtils.insertionValues [
+          "pattern"
+        , "author"
+        ]
+      ]
+
+    applicable_step_insertion_sql = MyUtils.qjoin [
+        "INSERT INTO pattern_step_applicability"
+      , MyUtils.insertionValues [
+          "step_name"
+        , "pattern"
+        ]
+      ]
 
 
 restorePatterns ::
@@ -940,7 +1070,10 @@ populatePresumedStableBranches :: Connection -> [Text] -> IO Int64
 populatePresumedStableBranches conn =
   executeMany conn sql . map Only
   where
-    sql = "INSERT INTO presumed_stable_branches(branch) VALUES(?);"
+    sql = MyUtils.qjoin [
+        "INSERT INTO presumed_stable_branches"
+      , MyUtils.insertionValues ["branch"]
+      ]
 
 
 cacheAllMergeBases ::
@@ -986,8 +1119,14 @@ storeLogInfo
   where
     sql = MyUtils.qjoin [
         "INSERT INTO log_metadata"
-      , MyUtils.qparens "step, line_count, byte_count, content, modified_by_ansi_stripping, was_truncated_for_size"
-      , "VALUES(?,?,?,?,?,?)"
+      , MyUtils.insertionValues [
+          "step"
+        , "line_count"
+        , "byte_count"
+        , "content"
+        , "modified_by_ansi_stripping"
+        , "was_truncated_for_size"
+        ]
       , "ON CONFLICT (step)"
       , "DO UPDATE"
       , "SET line_count = EXCLUDED.line_count, byte_count = EXCLUDED.byte_count, content = EXCLUDED.content, modified_by_ansi_stripping = EXCLUDED.modified_by_ansi_stripping, was_truncated_for_size = EXCLUDED.was_truncated_for_size;"
@@ -1018,7 +1157,15 @@ insertLatestPatternBuildScan
     ]
 
   where
-    sql = "INSERT INTO scanned_patterns(scan, step_id, newest_pattern) VALUES(?,?,?);"
+    sql = MyUtils.qjoin [
+        "INSERT INTO scanned_patterns"
+      , MyUtils.insertionValues [
+          "scan"
+        , "step_id"
+        , "newest_pattern"
+        ]
+      ]
+
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
 
 
@@ -1038,8 +1185,12 @@ insertBuildVisitation scan_resources (ubuild, visitation_result) = do
 
     insertion_sql = MyUtils.qjoin [
         "INSERT INTO build_steps"
-      , MyUtils.qparens "name, is_timeout, universal_build, step_index"
-      , "VALUES(?,?,?,?)"
+      , MyUtils.insertionValues [
+          "name"
+        , "is_timeout"
+        , "universal_build"
+        , "step_index"
+        ]
       , "ON CONFLICT"
       , "ON CONSTRAINT build_steps_universal_build_step_index_key"
       , "DO UPDATE SET name = excluded.name, is_timeout = excluded.is_timeout"
@@ -1059,8 +1210,12 @@ insertScanId conn maybe_initiator (ScanPatterns.PatternId pattern_id)  = do
   where
     inititator = fmap (\(AuthStages.Username x) -> x) maybe_initiator
     sql = MyUtils.qjoin [
-        "INSERT INTO scans(latest_pattern_id, initiator)"
-      , "VALUES(?,?) RETURNING id;"
+        "INSERT INTO scans"
+      , MyUtils.insertionValues [
+          "latest_pattern_id"
+        , "initiator"
+        ]
+      , "RETURNING id;"
       ]
 
 
@@ -1136,8 +1291,24 @@ apiCodeBreakageCauseInsert
     return $ Right report_id
 
   where
-    insertion_sql = "INSERT INTO code_breakage_cause(sha1, description, reporter) VALUES(?,?,?) RETURNING id;"
-    job_insertion_sql = "INSERT INTO code_breakage_affected_jobs(job, cause, reporter) VALUES(?,?,?);"
+    insertion_sql = MyUtils.qjoin [
+        "INSERT INTO code_breakage_cause"
+      , MyUtils.insertionValues [
+          "sha1"
+        , "description"
+        , "reporter"
+        ]
+      , "RETURNING id;"
+      ]
+
+    job_insertion_sql = MyUtils.qjoin [
+        "INSERT INTO code_breakage_affected_jobs"
+      , MyUtils.insertionValues [
+          "job"
+        , "cause"
+        , "reporter"
+        ]
+      ]
 
     catcher _ (UniqueViolation some_error) = return $ Left $ "Insertion error: " <> T.pack (BS.unpack some_error)
     catcher e _                                  = throwIO e
@@ -1178,8 +1349,13 @@ apiCodeBreakageResolutionInsert
 
   where
     insertion_sql = MyUtils.qjoin [
-        "INSERT INTO code_breakage_resolution(sha1, cause, reporter)"
-      , "VALUES(?,?,?) RETURNING id;"
+        "INSERT INTO code_breakage_resolution"
+      , MyUtils.insertionValues [
+          "sha1"
+        , "cause"
+        , "reporter"
+        ]
+      , "RETURNING id;"
       ]
 
     catcher _ (UniqueViolation some_error) = return $ Left $ "Insertion error: " <> T.pack (BS.unpack some_error)
