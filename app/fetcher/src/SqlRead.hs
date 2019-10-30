@@ -115,7 +115,17 @@ getPatterns conn = do
 
   where
     patterns_sql = MyUtils.qjoin [
-      "SELECT id, regex, expression, has_nondeterministic_values, description, specificity, is_retired, lines_from_end"
+        "SELECT"
+      , MyUtils.qlist [
+          "id"
+        , "regex"
+        , "expression"
+        , "has_nondeterministic_values"
+        , "description"
+        , "specificity"
+        , "is_retired"
+        , "lines_from_end"
+        ]
       , "FROM patterns ORDER BY description;"
       ]
 
@@ -143,7 +153,15 @@ getUnvisitedBuildIds conn maybe_limit = do
       (Builds.RawCommit sha1)
 
     unlimited_sql = MyUtils.qjoin [
-        "SELECT universal_build_id, build_num, provider, build_namespace, succeeded, commit_sha1"
+        "SELECT"
+      , MyUtils.qlist [
+          "universal_build_id"
+        , "build_num"
+        , "provider"
+        , "build_namespace"
+        , "succeeded"
+        , "commit_sha1"
+        ]
       , "FROM unvisited_builds"
       , "WHERE provider = ?"
       , "ORDER BY build_num DESC"
@@ -171,7 +189,15 @@ getUnvisitedBuildsForSha1 (Builds.RawCommit sha1) = do
 
 
     sql = MyUtils.qjoin [
-        "SELECT universal_build_id, build_num, provider, build_namespace, succeeded, commit_sha1"
+        "SELECT"
+      , MyUtils.qlist [
+          "universal_build_id"
+        , "build_num"
+        , "provider"
+        , "build_namespace"
+        , "succeeded"
+        , "commit_sha1"
+        ]
       , "FROM unvisited_builds"
       , "WHERE provider = ?"
       , "AND commit_sha1 = ?"
@@ -190,7 +216,20 @@ lookupUniversalBuildFromProviderBuild conn (Builds.NewBuildNumber build_num) = d
   return $ Safe.headMay rows
   where
     sql = MyUtils.qjoin [
-        "SELECT global_build_num, build_number, provider, build_namespace, succeeded, vcs_revision, queued_at, job_name, branch, started_at, finished_at"
+        "SELECT"
+      , MyUtils.qlist [
+          "global_build_num"
+        , "build_number"
+        , "provider"
+        , "build_namespace"
+        , "succeeded"
+        , "vcs_revision"
+        , "queued_at"
+        , "job_name"
+        , "branch"
+        , "started_at"
+        , "finished_at"
+        ]
       , "FROM global_builds WHERE build_number = ?"
       , "ORDER BY provider DESC, global_build_num DESC LIMIT 1;"
       ]
@@ -205,7 +244,15 @@ lookupUniversalBuild (Builds.UniversalBuildId universal_build_num) = do
   liftIO $ head <$> query conn sql (Only universal_build_num)
   where
     sql = MyUtils.qjoin [
-        "SELECT id, build_number, provider, build_namespace, succeeded, commit_sha1"
+        "SELECT"
+      , MyUtils.qlist [
+          "id"
+        , "build_number"
+        , "provider"
+        , "build_namespace"
+        , "succeeded"
+        , "commit_sha1"
+        ]
       , "FROM universal_builds WHERE id = ?;"
       ]
 
@@ -219,7 +266,15 @@ getUniversalBuilds (Builds.UniversalBuildId oldest_universal_build_num) limit = 
   liftIO $ query conn sql (oldest_universal_build_num, limit)
   where
     sql = MyUtils.qjoin [
-        "SELECT id, build_number, provider, build_namespace, succeeded, commit_sha1"
+        "SELECT"
+      , MyUtils.qlist [
+          "id"
+        , "build_number"
+        , "provider"
+        , "build_namespace"
+        , "succeeded"
+        , "commit_sha1"
+        ]
       , "FROM universal_builds"
       , "WHERE id >= ? ORDER BY id ASC LIMIT ?;"
       ]
@@ -235,7 +290,20 @@ getGlobalBuild (Builds.UniversalBuildId global_build_num) = do
   return x
   where
     sql = MyUtils.qjoin [
-        "SELECT global_build_num, build_number, provider, build_namespace, succeeded, vcs_revision, queued_at, job_name, branch, started_at, finished_at"
+        "SELECT"
+      , MyUtils.qlist [
+          "global_build_num"
+        , "build_number"
+        , "provider"
+        , "build_namespace"
+        , "succeeded"
+        , "vcs_revision"
+        , "queued_at"
+        , "job_name"
+        , "branch"
+        , "started_at"
+        , "finished_at"
+        ]
       , "FROM global_builds WHERE global_build_num = ?;"
       ]
 
@@ -253,7 +321,6 @@ common_xform (delimited_pattern_ids, step_id, step_name, universal_build_id, bui
       (Builds.RawCommit vcs_revision)
   , map read $ splitOn ";" delimited_pattern_ids
   )
-
 
 
 data OptOutResponse = OptOutResponse {
@@ -284,7 +351,18 @@ getRevisitableWhitelistedBuilds conn universal_build_ids = do
     (Only $ In $ map (\(Builds.UniversalBuildId x) -> x) universal_build_ids)
   where
     sql = MyUtils.qjoin [
-        "SELECT unscanned_patterns_delimited, step_id, step_name, universal_build, build_num, provider, build_namespace, succeeded, vcs_revision"
+        "SELECT"
+      , MyUtils.qlist [
+          "unscanned_patterns_delimited"
+        , "step_id"
+        , "step_name"
+        , "universal_build"
+        , "build_num"
+        , "provider"
+        , "build_namespace"
+        , "succeeded"
+        , "vcs_revision"
+        ]
       , "FROM unscanned_patterns WHERE universal_build IN ?;"
       ]
 
