@@ -91,7 +91,7 @@ CREATE FUNCTION public.snapshot_master_viable_commit_age() RETURNS void
 SELECT CURRENT_TIMESTAMP AS inserted_at, failed_required_job_count_threshold, unbuilt_or_failed_required_job_count, commit_id, age_hours, disqualifying_jobs_array
 FROM (SELECT * FROM generate_series(0, 1) as failed_required_job_count_threshold
 CROSS JOIN generate_series(0, 2) as unbuilt_or_failed_required_job_count) bar,
-     LATERAL (SELECT * FROM master_commit_job_success_completeness_mview
+     LATERAL (SELECT * FROM master_commit_job_success_completeness_mview2
 
 WHERE not_succeeded_required_job_count <= unbuilt_or_failed_required_job_count
 AND failed_required_job_count <= failed_required_job_count_threshold
@@ -748,6 +748,13 @@ CREATE VIEW public.master_commit_job_success_completeness WITH (security_barrier
 ALTER TABLE public.master_commit_job_success_completeness OWNER TO postgres;
 
 --
+-- Name: VIEW master_commit_job_success_completeness; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.master_commit_job_success_completeness IS 'See also the "master_required_unbuilt_jobs" view for individual rows per job and commit, which can be aggregated by job.';
+
+
+--
 -- Name: master_commit_job_success_completeness_mview; Type: MATERIALIZED VIEW; Schema: public; Owner: materialized_view_updater
 --
 
@@ -761,7 +768,8 @@ CREATE MATERIALIZED VIEW public.master_commit_job_success_completeness_mview AS
     master_commit_job_success_completeness.committer_date,
     master_commit_job_success_completeness.age_hours,
     master_commit_job_success_completeness.disqualifying_jobs_array,
-    master_commit_job_success_completeness.failed_required_job_count
+    master_commit_job_success_completeness.failed_required_job_count,
+    master_commit_job_success_completeness.unbuilt_jobs_array
    FROM public.master_commit_job_success_completeness
   WITH NO DATA;
 
@@ -2239,6 +2247,57 @@ ALTER SEQUENCE public.code_breakage_resolution_id_seq OWNED BY public.code_break
 
 
 --
+-- Name: created_pull_request_comment_revisions; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.created_pull_request_comment_revisions (
+    id integer NOT NULL,
+    comment_id integer NOT NULL,
+    body text,
+    updated_at timestamp without time zone
+);
+
+
+ALTER TABLE public.created_pull_request_comment_revisions OWNER TO postgres;
+
+--
+-- Name: created_pull_request_comment_revisions_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.created_pull_request_comment_revisions_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.created_pull_request_comment_revisions_id_seq OWNER TO postgres;
+
+--
+-- Name: created_pull_request_comment_revisions_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.created_pull_request_comment_revisions_id_seq OWNED BY public.created_pull_request_comment_revisions.id;
+
+
+--
+-- Name: created_pull_request_comments; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.created_pull_request_comments (
+    comment_id integer NOT NULL,
+    project text NOT NULL,
+    repo text NOT NULL,
+    created_at timestamp with time zone,
+    pr_number integer NOT NULL
+);
+
+
+ALTER TABLE public.created_pull_request_comments OWNER TO postgres;
+
+--
 -- Name: github_incoming_status_events; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -2892,6 +2951,31 @@ CREATE VIEW public.jobs_non_scheduled_built_yesterday AS
 ALTER TABLE public.jobs_non_scheduled_built_yesterday OWNER TO postgres;
 
 --
+-- Name: latest_created_pull_request_comment_revision; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.latest_created_pull_request_comment_revision AS
+ SELECT created_pull_request_comment_revisions.id,
+    created_pull_request_comment_revisions.comment_id,
+    created_pull_request_comment_revisions.body,
+    created_pull_request_comment_revisions.updated_at,
+    foo.revision_count,
+    created_pull_request_comments.project,
+    created_pull_request_comments.repo,
+    created_pull_request_comments.created_at,
+    created_pull_request_comments.pr_number
+   FROM ((( SELECT created_pull_request_comment_revisions_1.comment_id,
+            max(created_pull_request_comment_revisions_1.id) AS latest_revision_id,
+            count(created_pull_request_comment_revisions_1.id) AS revision_count
+           FROM public.created_pull_request_comment_revisions created_pull_request_comment_revisions_1
+          GROUP BY created_pull_request_comment_revisions_1.comment_id) foo
+     JOIN public.created_pull_request_comments ON ((created_pull_request_comments.comment_id = foo.comment_id)))
+     JOIN public.created_pull_request_comment_revisions ON ((foo.latest_revision_id = created_pull_request_comment_revisions.id)));
+
+
+ALTER TABLE public.latest_created_pull_request_comment_revision OWNER TO postgres;
+
+--
 -- Name: scanned_patterns; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -2949,28 +3033,6 @@ CREATE VIEW public.master_commit_job_coverage_by_week AS
 
 
 ALTER TABLE public.master_commit_job_coverage_by_week OWNER TO postgres;
-
---
--- Name: master_commit_job_success_completeness_mview2; Type: MATERIALIZED VIEW; Schema: public; Owner: materialized_view_updater
---
-
-CREATE MATERIALIZED VIEW public.master_commit_job_success_completeness_mview2 AS
- SELECT master_commit_job_success_completeness.commit_id,
-    master_commit_job_success_completeness.sha1,
-    master_commit_job_success_completeness.total_required_commit_job_count,
-    master_commit_job_success_completeness.not_succeeded_required_job_count,
-    master_commit_job_success_completeness.unbuilt_required_job_count,
-    master_commit_job_success_completeness.disqualifying_jobs,
-    master_commit_job_success_completeness.committer_date,
-    master_commit_job_success_completeness.age_hours,
-    master_commit_job_success_completeness.disqualifying_jobs_array,
-    master_commit_job_success_completeness.failed_required_job_count,
-    master_commit_job_success_completeness.unbuilt_jobs_array
-   FROM public.master_commit_job_success_completeness
-  WITH NO DATA;
-
-
-ALTER TABLE public.master_commit_job_success_completeness_mview2 OWNER TO materialized_view_updater;
 
 --
 -- Name: master_commits_contiguously_indexed_mview; Type: MATERIALIZED VIEW; Schema: public; Owner: postgres
@@ -3703,6 +3765,44 @@ CREATE MATERIALIZED VIEW public.master_ordered_commits_with_metadata_mview AS
 ALTER TABLE public.master_ordered_commits_with_metadata_mview OWNER TO materialized_view_updater;
 
 --
+-- Name: master_required_unbuilt_jobs; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_required_unbuilt_jobs AS
+ SELECT ordered_master_commits.id,
+    master_commit_circleci_scheduled_job_discrimination.commit_sha1 AS sha1,
+    master_commit_circleci_scheduled_job_discrimination.job_name
+   FROM ((public.master_commit_circleci_scheduled_job_discrimination
+     JOIN public.ordered_master_commits ON ((master_commit_circleci_scheduled_job_discrimination.commit_sha1 = ordered_master_commits.sha1)))
+     LEFT JOIN public.global_builds ON (((global_builds.job_name = master_commit_circleci_scheduled_job_discrimination.job_name) AND (global_builds.vcs_revision = master_commit_circleci_scheduled_job_discrimination.commit_sha1))))
+  WHERE ((NOT master_commit_circleci_scheduled_job_discrimination.is_scheduled) AND (global_builds.job_name IS NULL))
+  ORDER BY ordered_master_commits.id DESC, master_commit_circleci_scheduled_job_discrimination.job_name;
+
+
+ALTER TABLE public.master_required_unbuilt_jobs OWNER TO postgres;
+
+--
+-- Name: VIEW master_required_unbuilt_jobs; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.master_required_unbuilt_jobs IS 'See also "master_commit_job_success_completeness", which already aggregates unbuilt jobs by commit.';
+
+
+--
+-- Name: master_required_unbuilt_jobs_mview; Type: MATERIALIZED VIEW; Schema: public; Owner: materialized_view_updater
+--
+
+CREATE MATERIALIZED VIEW public.master_required_unbuilt_jobs_mview AS
+ SELECT master_required_unbuilt_jobs.id,
+    master_required_unbuilt_jobs.sha1,
+    master_required_unbuilt_jobs.job_name
+   FROM public.master_required_unbuilt_jobs
+  WITH NO DATA;
+
+
+ALTER TABLE public.master_required_unbuilt_jobs_mview OWNER TO materialized_view_updater;
+
+--
 -- Name: master_unmarked_breakage_regions_by_commit; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -4103,6 +4203,20 @@ ALTER TABLE public.pattern_step_applicability_id_seq OWNER TO postgres;
 
 ALTER SEQUENCE public.pattern_step_applicability_id_seq OWNED BY public.pattern_step_applicability.id;
 
+
+--
+-- Name: pr_comment_posting_opt_outs; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.pr_comment_posting_opt_outs (
+    username text NOT NULL,
+    modification_count integer DEFAULT 0 NOT NULL,
+    enabled boolean DEFAULT false NOT NULL,
+    modified_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+ALTER TABLE public.pr_comment_posting_opt_outs OWNER TO postgres;
 
 --
 -- Name: pr_dependent_breakages_with_patterns; Type: VIEW; Schema: public; Owner: postgres
@@ -4723,6 +4837,13 @@ ALTER TABLE ONLY public.code_breakage_resolution ALTER COLUMN id SET DEFAULT nex
 
 
 --
+-- Name: created_pull_request_comment_revisions id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.created_pull_request_comment_revisions ALTER COLUMN id SET DEFAULT nextval('public.created_pull_request_comment_revisions_id_seq'::regclass);
+
+
+--
 -- Name: github_incoming_status_events id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
@@ -4961,6 +5082,22 @@ ALTER TABLE ONLY public.created_github_statuses
 
 
 --
+-- Name: created_pull_request_comment_revisions created_pull_request_comment_revisions_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.created_pull_request_comment_revisions
+    ADD CONSTRAINT created_pull_request_comment_revisions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: created_pull_request_comments created_pull_request_comments_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.created_pull_request_comments
+    ADD CONSTRAINT created_pull_request_comments_pkey PRIMARY KEY (comment_id);
+
+
+--
 -- Name: github_incoming_status_events_derived_circleci_columns github_incoming_status_events_derived_circleci_columns_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5070,6 +5207,14 @@ ALTER TABLE ONLY public.pattern_step_applicability
 
 ALTER TABLE ONLY public.pattern_tags
     ADD CONSTRAINT pattern_tags_pkey PRIMARY KEY (pattern, tag);
+
+
+--
+-- Name: pr_comment_posting_opt_outs pr_comment_posting_opt_outs_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.pr_comment_posting_opt_outs
+    ADD CONSTRAINT pr_comment_posting_opt_outs_pkey PRIMARY KEY (username);
 
 
 --
@@ -5348,6 +5493,13 @@ CREATE INDEX fki_fk_yaml_sha1_from_workflow ON public.circleci_workflows_by_yaml
 
 
 --
+-- Name: fki_idx_comment_id; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX fki_idx_comment_id ON public.created_pull_request_comment_revisions USING btree (comment_id);
+
+
+--
 -- Name: id_github_pr_number_master_commits; Type: INDEX; Schema: public; Owner: materialized_view_updater
 --
 
@@ -5425,10 +5577,10 @@ CREATE INDEX idx_line_number ON public.matches USING btree (line_number);
 
 
 --
--- Name: idx_master_commit_job_success_completeness_mview; Type: INDEX; Schema: public; Owner: materialized_view_updater
+-- Name: idx_master_commit_job_success_completeness_mview2; Type: INDEX; Schema: public; Owner: materialized_view_updater
 --
 
-CREATE UNIQUE INDEX idx_master_commit_job_success_completeness_mview ON public.master_commit_job_success_completeness_mview USING btree (commit_id DESC NULLS LAST);
+CREATE UNIQUE INDEX idx_master_commit_job_success_completeness_mview2 ON public.master_commit_job_success_completeness_mview USING btree (commit_id DESC NULLS LAST);
 
 
 --
@@ -5471,6 +5623,13 @@ CREATE UNIQUE INDEX idx_master_job_failure_spans_conservative ON public.master_j
 --
 
 CREATE UNIQUE INDEX idx_master_ordered_commits_with_metadata_mview_commit_id ON public.master_ordered_commits_with_metadata_mview USING btree (id);
+
+
+--
+-- Name: idx_master_required_unbuilt_jobs_mview; Type: INDEX; Schema: public; Owner: materialized_view_updater
+--
+
+CREATE UNIQUE INDEX idx_master_required_unbuilt_jobs_mview ON public.master_required_unbuilt_jobs_mview USING btree (id DESC NULLS LAST, job_name);
 
 
 --
@@ -5625,6 +5784,14 @@ ALTER TABLE ONLY public.code_breakage_resolution
 
 ALTER TABLE ONLY public.code_breakage_resolution
     ADD CONSTRAINT code_breakage_resolution_sha1_fkey FOREIGN KEY (sha1) REFERENCES public.ordered_master_commits(sha1);
+
+
+--
+-- Name: created_pull_request_comment_revisions created_pull_request_comment_revisions_comment_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.created_pull_request_comment_revisions
+    ADD CONSTRAINT created_pull_request_comment_revisions_comment_id_fkey FOREIGN KEY (comment_id) REFERENCES public.created_pull_request_comments(comment_id) ON DELETE CASCADE NOT VALID;
 
 
 --
@@ -6505,6 +6672,22 @@ GRANT ALL ON SEQUENCE public.code_breakage_resolution_id_seq TO logan;
 
 
 --
+-- Name: TABLE created_pull_request_comment_revisions; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.created_pull_request_comment_revisions TO logan;
+GRANT SELECT ON TABLE public.created_pull_request_comment_revisions TO materialized_view_updater;
+
+
+--
+-- Name: TABLE created_pull_request_comments; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.created_pull_request_comments TO logan;
+GRANT SELECT ON TABLE public.created_pull_request_comments TO materialized_view_updater;
+
+
+--
 -- Name: TABLE github_incoming_status_events; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -6675,6 +6858,14 @@ GRANT ALL ON TABLE public.jobs_non_scheduled_built_yesterday TO logan;
 
 
 --
+-- Name: TABLE latest_created_pull_request_comment_revision; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.latest_created_pull_request_comment_revision TO logan;
+GRANT SELECT ON TABLE public.latest_created_pull_request_comment_revision TO materialized_view_updater;
+
+
+--
 -- Name: TABLE scanned_patterns; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -6693,13 +6884,6 @@ GRANT ALL ON TABLE public.latest_pattern_scanned_for_build_step TO logan;
 --
 
 GRANT ALL ON TABLE public.master_commit_job_coverage_by_week TO logan;
-
-
---
--- Name: TABLE master_commit_job_success_completeness_mview2; Type: ACL; Schema: public; Owner: materialized_view_updater
---
-
-GRANT SELECT ON TABLE public.master_commit_job_success_completeness_mview2 TO logan;
 
 
 --
@@ -6871,6 +7055,22 @@ GRANT SELECT ON TABLE public.master_ordered_commits_with_metadata_mview TO postg
 
 
 --
+-- Name: TABLE master_required_unbuilt_jobs; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_required_unbuilt_jobs TO logan;
+GRANT SELECT ON TABLE public.master_required_unbuilt_jobs TO materialized_view_updater;
+
+
+--
+-- Name: TABLE master_required_unbuilt_jobs_mview; Type: ACL; Schema: public; Owner: materialized_view_updater
+--
+
+GRANT SELECT ON TABLE public.master_required_unbuilt_jobs_mview TO logan;
+GRANT SELECT ON TABLE public.master_required_unbuilt_jobs_mview TO postgres;
+
+
+--
 -- Name: TABLE master_unmarked_breakage_regions_by_commit; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -6973,6 +7173,14 @@ GRANT ALL ON SEQUENCE public.pattern_id_seq TO logan;
 --
 
 GRANT ALL ON SEQUENCE public.pattern_step_applicability_id_seq TO logan;
+
+
+--
+-- Name: TABLE pr_comment_posting_opt_outs; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.pr_comment_posting_opt_outs TO logan;
+GRANT SELECT ON TABLE public.pr_comment_posting_opt_outs TO materialized_view_updater;
 
 
 --

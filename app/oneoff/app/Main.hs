@@ -1,17 +1,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 import           Data.Text            (Text)
-import qualified Data.Text            as T
 import qualified Network.OAuth.OAuth2 as OAuth2
 import           Options.Applicative
 import           System.IO
 
-import qualified Builds
 import qualified Constants
 import qualified DbHelpers
 import qualified DbPreparation
-import qualified Scanning
-import qualified SqlRead
 import qualified SqlUpdate
 import qualified SqlWrite
 

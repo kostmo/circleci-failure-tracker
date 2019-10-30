@@ -793,11 +793,14 @@ function define_commit_age_column() {
 				const hex_string = color.toHexString();
 
 				cell.getElement().style.borderLeft = "4px solid " + hex_string;
-				return moment(commit_date).fromNow(true);
+
+
+				return link(moment(commit_date).fromNow(true), "/week-in-review.html?commit-id=" + cell.getRow().getData()["commit_index"])
 			}
 
 			return "?";
 		},
+		tooltip: "Review starting here",
 		resizable: false,
 		headerSort: false,
 	};

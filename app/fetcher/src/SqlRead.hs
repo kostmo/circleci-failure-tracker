@@ -1900,6 +1900,7 @@ getLastCachedMasterGridRefreshTime = do
       , "ORDER BY timestamp DESC LIMIT 1;"
       ]
 
+
 -- | Get the most recent queued_at time of a build that was
 -- fetched via the provider-specific API.
 getMostRecentProviderApiFetchedBuild ::
@@ -1919,6 +1920,43 @@ getMostRecentProviderApiFetchedBuild provider_id = do
       ]
 
 
+data PostedPRComment = PostedPRComment {
+    _pr_number      :: Int
+  , _comment_id     :: Int64
+  , _revision_id    :: Int64
+  , _body           :: Text
+  , _created_at     :: UTCTime
+  , _updated_at     :: UTCTime
+  , _revision_count :: Int
+  } deriving (Generic, FromRow)
+
+
+getPostedCommentForPR ::
+     Builds.PullRequestNumber
+  -> DbIO (Maybe PostedPRComment)
+getPostedCommentForPR (Builds.PullRequestNumber pr_number) = do
+  conn <- ask
+  liftIO $ do
+    xs <- query conn sql $ Only pr_number
+    return $ Safe.headMay xs
+  where
+    sql = MyUtils.qjoin [
+        "SELECT"
+      , MyUtils.qlist [
+          "pr_number"
+        , "comment_id"
+        , "id"
+        , "body"
+        , "created_at"
+        , "updated_at"
+        , "revision_count"
+        ]
+      , "FROM latest_created_pull_request_comment_revision"
+      , "WHERE pr_number = ?"
+      , "LIMIT 1;"
+      ]
+
+
 data MaterializedViewRefreshInfo = MaterializedViewRefreshInfo {
     _view_name              :: Text
   , _latest                 :: UTCTime
@@ -1935,7 +1973,7 @@ apiMaterializedViewRefreshes :: DbIO [MaterializedViewRefreshInfo]
 apiMaterializedViewRefreshes = runQuery sql
   where
     sql = MyUtils.qjoin [
-        "SELECT"
+          "SELECT"
         , MyUtils.qlist [
             "view_name"
           , "latest"

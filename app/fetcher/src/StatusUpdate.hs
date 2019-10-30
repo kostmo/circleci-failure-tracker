@@ -15,6 +15,7 @@ import           Control.Monad.Trans.Except    (ExceptT (ExceptT), except,
 import           Control.Monad.Trans.Reader    (runReaderT)
 import           Data.Bifunctor                (first)
 import qualified Data.ByteString.Lazy          as LBS
+import           Data.Foldable                 (for_)
 import           Data.List                     (filter, intercalate)
 import           Data.List.Split               (splitOn)
 import qualified Data.Maybe                    as Maybe
@@ -41,7 +42,9 @@ import qualified AuthConfig
 import qualified AuthStages
 import qualified Builds
 import qualified DbHelpers
+import qualified GadgitFetch
 import qualified GithubApiFetch
+import qualified Markdown
 import qualified MyUtils
 import qualified PushWebhooks
 import qualified Scanning
@@ -354,6 +357,13 @@ postCommitSummaryStatus
     scan_matches
 
 
+data BuildSummaryStats = BuildSummaryStats {
+    flaky_count       :: Int -- ^ flaky count
+  , _pre_broken_count :: Int -- ^ pre-broken count
+  , total_failcount   :: Int -- ^ total failure count
+  }
+
+
 postCommitSummaryStatusInner
     circleci_failcount
     known_broken_circle_build_count
@@ -372,7 +382,10 @@ postCommitSummaryStatusInner
       when (previous_state_description_tuple /= new_state_description_tuple)
         post_and_store
 
+  post_pr_comment_and_store
+
   where
+  build_summary_stats = BuildSummaryStats flaky_count known_broken_circle_build_count circleci_failcount
 
   -- TODO - we should instead see if the "best matching pattern" is
   -- flaky, rather than checking if *any* matching pattern is a
@@ -382,11 +395,8 @@ postCommitSummaryStatusInner
   builds_with_flaky_pattern_matches = filter flaky_predicate scan_matches
 
   flaky_count = length builds_with_flaky_pattern_matches
-  status_setter_data = genFlakinessStatus
-    sha1
-    flaky_count
-    known_broken_circle_build_count
-    circleci_failcount
+  status_setter_data = genFlakinessStatus sha1 build_summary_stats
+
 
   new_state_description_tuple = (
       LT.toStrict $ StatusEvent._state status_setter_data
@@ -412,6 +422,123 @@ postCommitSummaryStatusInner
       post_result
 
     return ()
+
+
+
+  post_initial_comment pr_number = do
+    comment_post_result <- ExceptT $ ApiPost.postPullRequestComment
+      access_token
+      owned_repo
+      pr_number
+      pr_comment_text
+
+    liftIO $ putStrLn "Here F"
+
+    liftIO $ SqlWrite.insertPostedGithubComment
+      conn
+      owned_repo
+      pr_number
+      comment_post_result
+    where
+      pr_comment_text = generateCommentMarkdown Nothing build_summary_stats sha1
+
+
+  update_comment_or_fallback pr_number previous_pr_comment = do
+    liftIO $ putStrLn "Here G"
+    either_comment_update_result <- liftIO $ ApiPost.updatePullRequestComment
+      access_token
+      owned_repo
+      comment_id
+      pr_comment_text
+
+    liftIO $ putStrLn "Here H"
+
+    case either_comment_update_result of
+      Right comment_update_result ->
+        liftIO $ SqlWrite.modifyPostedGithubComment
+          conn
+          comment_update_result
+
+      -- If the comment was deleted, we need to re-post one.
+      Left "Not Found" -> do
+        liftIO $ MyUtils.debugStr "Comment was deleted. Posting a new one..."
+
+        -- Mark our database entry as stale
+        liftIO $ SqlWrite.markPostedGithubCommentAsDeleted conn comment_id
+
+        post_initial_comment pr_number
+
+      Left other_failure_message -> except $ Left other_failure_message
+
+    where
+      pr_comment_text = generateCommentMarkdown (Just previous_pr_comment) build_summary_stats sha1
+      comment_id =  ApiPost.CommentId $ SqlRead._comment_id previous_pr_comment
+
+
+  post_pr_comment_and_store = do
+    liftIO $ putStrLn "Here A"
+    containing_pr_list <- ExceptT $ first LT.pack <$> GadgitFetch.getContainingPRs sha1
+
+    liftIO $ putStrLn "Here B"
+    for_ containing_pr_list $ \pr_number -> do
+
+      liftIO $ putStrLn "Here C"
+      maybe_previous_pr_comment <- liftIO $ runReaderT (SqlRead.getPostedCommentForPR pr_number) conn
+
+      liftIO $ putStrLn "Here D"
+      case maybe_previous_pr_comment of
+        Nothing -> do
+          liftIO $ putStrLn "Here E"
+          post_initial_comment pr_number
+
+        Just previous_pr_comment -> update_comment_or_fallback pr_number previous_pr_comment
+
+      liftIO $ putStrLn "Here I"
+
+
+generateCommentMarkdown
+    maybe_previous_pr_comment
+    build_summary_stats
+    (Builds.RawCommit sha1_text) =
+  Markdown.paragraphs $ preliminary_lines_list ++ optional_suffix
+  where
+    preliminary_lines_list = [
+        T.unlines [
+          Markdown.heading 2 "Build failures summary"
+        , "As of commit " <> T.take 7 sha1_text <> ":"
+        , Markdown.bullets $ map T.pack $ genMetricsList build_summary_stats
+        ]
+      , Markdown.sentence [
+          "Here are the"
+        , Markdown.link "reasons each build failed" dr_ci_commit_details_link
+        ]
+      , T.unlines [
+          Markdown.sentence [
+            "This comment was automatically generated by"
+          , Markdown.link "Dr. CI" dr_ci_base_url
+          ]
+        , Markdown.sentence [
+            "Follow"
+          , Markdown.link "this link to opt-out" "https://dr.pytorch.org/admin/comments-opt-out.html"
+          , "for your Pull Requests"
+          ]
+        ]
+      ]
+
+    -- Note that the revision count will be accurate for the (N+1)th comment using the current count
+    -- of N comments, because the first post doesn't count as a "revision".
+    optional_suffix = case maybe_previous_pr_comment of
+      Nothing -> []
+      Just previous_pr_comment -> [
+          Markdown.italic $ Markdown.sentence [
+            "This comment has been revised"
+          , T.pack $ show $ SqlRead._revision_count previous_pr_comment
+          , "time(s)"
+          ]
+        ]
+
+    dr_ci_base_url = LT.toStrict webserverBaseUrl
+    dr_ci_commit_details_link = dr_ci_base_url <> "/commit-details.html?sha1=" <> sha1_text
 
 
 -- | Operations:
@@ -449,13 +576,13 @@ readGitHubStatusesAndScanAndPostSummaryForCommit
       sha1
 
   when should_scan $
-   scanAndPost
-    conn
-    access_token
-    maybe_initiator
-    scannable_build_numbers
-    owned_repo
-    sha1
+    scanAndPost
+      conn
+      access_token
+      maybe_initiator
+      scannable_build_numbers
+      owned_repo
+      sha1
 
 
 handlePushWebhook ::
@@ -595,13 +722,20 @@ handleStatusWebhook
     sha1 = Builds.RawCommit $ LT.toStrict $ Webhooks.sha status_event
 
 
+genMetricsList (BuildSummaryStats flaky_count pre_broken_count total_failcount) = [
+    show flaky_count <> "/" <> show total_failcount <> " flaky"
+  ] ++ optional_kb_metric
+  where
+    optional_kb_metric = if pre_broken_count > 0
+      then [show pre_broken_count <> "/" <> show total_failcount <> " broken upstream"]
+      else []
+
+
 genFlakinessStatus ::
      Builds.RawCommit
-  -> Int -- ^ flaky count
-  -> Int -- ^ pre-broken count
-  -> Int -- ^ total failure count
+  -> BuildSummaryStats
   -> StatusEvent.GitHubStatusEventSetter
-genFlakinessStatus (Builds.RawCommit sha1) flaky_count pre_broken_count total_failcount =
+genFlakinessStatus (Builds.RawCommit sha1) build_summary_stats =
 
   StatusEvent.GitHubStatusEventSetter
     description
@@ -610,20 +744,13 @@ genFlakinessStatus (Builds.RawCommit sha1) flaky_count pre_broken_count total_fa
     (LT.fromStrict myAppStatusContext)
 
   where
-    optional_kb_metric = if pre_broken_count > 0
-      then [show pre_broken_count <> "/" <> show total_failcount <> " broken upstream"]
-      else []
-
-    metrics = intercalate ", " $ [
-        show flaky_count <> "/" <> show total_failcount <> " flaky"
-      ] ++ optional_kb_metric
-
     description = LT.pack $ unwords [
+--        "(deprecated)"
         "(experimental)"
-      , metrics
+      , intercalate ", " $ genMetricsList build_summary_stats
       ]
 
-    status_string = if flaky_count == total_failcount
+    status_string = if flaky_count build_summary_stats == total_failcount build_summary_stats
       then gitHubStatusSuccessString
       else gitHubStatusFailureString
 

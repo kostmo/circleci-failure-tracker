@@ -22,7 +22,22 @@ function gen_missing_required_builds_table(element_id, data_url) {
 }
 
 
+
+
+function populate_form_from_url() {
+
+	const urlParams = new URLSearchParams(window.location.search);
+
+	const commit_id = urlParams.get('commit-id');
+	if (commit_id != null) {
+		$('#commit-id-input').val(commit_id);
+	}
+}
+
+
 function main() {
+
+	populate_form_from_url();
 
 	gen_missing_required_builds_table("missing-required-jobs-table", "/api/missing-required-builds");
 }

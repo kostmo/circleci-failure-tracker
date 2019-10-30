@@ -1,16 +1,13 @@
 <html>
 <head>
-<title>Week in Review</title>
+<title>Comments opt-out</title>
 <link href="/style.css" rel="stylesheet" type="text/css"></link>
 
 <link href="/dropdown.css" rel="stylesheet" type="text/css"></link>
 
-<!--
 <script src="https://code.highcharts.com/highcharts.js"></script>
--->
-
-<script src="https://code.highcharts.com/gantt/highcharts-gantt.js"></script>
 <script src="https://code.highcharts.com/modules/exporting.js"></script>
+<script src="https://code.highcharts.com/modules/annotations.js"></script>
 
 <script src="https://code.highcharts.com/modules/export-data.js"></script>
 <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
@@ -22,11 +19,10 @@
 <script src="https://cdn.jsdelivr.net/npm/lodash@4.17.11/lodash.min.js"></script>
 
 
-
 <script src="/script/js-utils.js"></script>
 <script src="/script/html-utils.js"></script>
 <script src="/script/table-helpers.js"></script>
-<script src="/script/week-in-review.js"></script>
+<script src="/admin/script/comments-opt-out.js"></script>
 
 </head>
 
@@ -34,34 +30,14 @@
 
 
 <span style="float: right;">[<a href="/">home</a>]</span>
-<h2>Week in Review</h2>
+<h2>Comments opt-out</h2>
 
-<form>
+<p>Here you may opt-out of automatically-posted build summaries on Pull Requests.</p>
 
-<ul>
-<li>
-	<label>Starting <input id="weeks-ago-input" type="number" value="1" min="1" size="2"/> week(s) ago</label>
-</li>
-
-<li>
-	<label>Master commit index: <input id="commit-id-input" type="number" size="7"/></label>
-</li>
-
-</ul>
-
-</form>
-
-TODO: Query master_ordered_commits_with_metadata
-
-<h3>Required jobs that did not run</h3>
-
-<div id="missing-required-jobs-table"></div>
-
-<h3>Detected breakage spans</h3>
+<div id="scan-throbber" class="scan-throbbers" style="display: none;"><img src="/images/duck.gif"/></div>
 
 
-<h3>Reversions</h3>
-
+<div id="container-stacked-timeline-by-week" style="min-width: 500px; height: 600px; max-width: 1000px; margin: 0 auto"></div>
 
 <hr/>
 

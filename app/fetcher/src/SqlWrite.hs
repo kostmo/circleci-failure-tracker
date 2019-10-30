@@ -52,7 +52,8 @@ import qualified Webhooks
 
 sqlInsertUniversalBuild :: Query
 sqlInsertUniversalBuild = MyUtils.qjoin [
-    "INSERT INTO universal_builds(provider, build_number, build_namespace, succeeded, commit_sha1)"
+    "INSERT INTO universal_builds"
+  , MyUtils.qparens "provider, build_number, build_namespace, succeeded, commit_sha1"
   , "VALUES(?,?,?,?,?)"
   , "ON CONFLICT"
   , "ON CONSTRAINT universal_builds_build_number_build_namespace_provider_key"
@@ -75,7 +76,8 @@ storeCommitMetadata conn commit_list =
     f (Commits.CommitMetadata (Builds.RawCommit sha1) message tree_sha1 author_name author_email author_date committer_name committer_email committer_date) = (sha1, message, tree_sha1, author_name, author_email, author_date, committer_name, committer_email, committer_date)
 
     insertion_sql = MyUtils.qjoin [
-      "INSERT INTO commit_metadata(sha1, message, tree_sha1, author_name, author_email, author_date, committer_name, committer_email, committer_date)"
+        "INSERT INTO commit_metadata"
+      , MyUtils.qparens "sha1, message, tree_sha1, author_name, author_email, author_date, committer_name, committer_email, committer_date"
       , "VALUES(?,?,?,?,?,?,?,?,?);"
       ]
 
@@ -184,7 +186,8 @@ findMasterAncestorWithPrecomputation
       ]
 
     merge_base_insertion_sql = MyUtils.qjoin [
-        "INSERT INTO cached_master_merge_base(branch_commit, master_commit, distance)"
+        "INSERT INTO cached_master_merge_base"
+      , MyUtils.qparens "branch_commit, master_commit, distance"
       , "VALUES(?,?,?);"
       ]
 
@@ -208,6 +211,7 @@ getAllPullRequestHeadCommits ::
   -> IO (Either T.Text [(Builds.PullRequestNumber, Builds.RawCommit)])
 getAllPullRequestHeadCommits conn git_dir = do
 
+  -- This can take over 10 minutes when fetching all PR refs
   MergeBase.fetchRefs git_dir
 
 --  pr_associations <- runReaderT SqlRead.getImplicatedMasterCommitPullRequests conn
@@ -220,7 +224,7 @@ getAllPullRequestHeadCommits conn git_dir = do
       (unretrieved_pr_heads, retrieved_pr_heads) = partitionEithers pr_head_eithers
 
   MyUtils.debugList [
-    "Retrieved"
+      "Retrieved"
     , show $ length retrieved_pr_heads
     , "out of"
     , show $ length pr_numbers
@@ -241,7 +245,8 @@ getAllPullRequestHeadCommits conn git_dir = do
   return $ Right retrieved_pr_heads
   where
     insertion_sql = MyUtils.qjoin [
-        "INSERT INTO pull_request_heads(pr_number, head_sha1)"
+        "INSERT INTO pull_request_heads"
+      , MyUtils.qparens "pr_number, head_sha1"
       , "VALUES(?,?)"
       , "ON CONFLICT"
       , "ON CONSTRAINT pull_request_heads_pr_number_head_sha1_key"
@@ -341,7 +346,6 @@ populateLatestMasterCommits conn access_token owned_repo = do
         access_token
         owned_repo
         either_result
-
 
 
     let fetched_commits_oldest_first = reverse fetched_commits_newest_first
@@ -478,7 +482,8 @@ storeBuildsList conn maybe_provider_scan_id builds_list =
         (Builds.NewBuild _ _ queuedat jobname branch start_time stop_time) = rbuild
 
     sql = MyUtils.qjoin [
-        "INSERT INTO builds(queued_at, job_name, branch, global_build_num, started_at, finished_at, ci_provider_scan)"
+        "INSERT INTO builds"
+      , MyUtils.qparens "queued_at, job_name, branch, global_build_num, started_at, finished_at, ci_provider_scan"
       , "VALUES(?,?,?,?,?,?,?)"
       , "ON CONFLICT (global_build_num)"
       , "DO UPDATE"
@@ -540,7 +545,8 @@ storeMatches scan_resources (Builds.NewBuildStepId build_step_id) scoped_matches
         match_deets = ScanPatterns.match_details match
 
     insertion_sql = MyUtils.qjoin [
-      "INSERT INTO matches(scan_id, build_step, pattern, line_number, line_text, span_start, span_end)"
+        "INSERT INTO matches"
+      , MyUtils.qparens "scan_id, build_step, pattern, line_number, line_text, span_start, span_end"
       , "VALUES(?,?,?,?,?,?,?);"
       ]
 
@@ -593,7 +599,8 @@ insertEbWorkerStart conn web_request_path label maybe_beanstalk_headers = do
   return record_id
   where
     sql = MyUtils.qjoin [
-        "INSERT INTO lambda_logging.eb_worker_event_start(path, label, task_name, scheduled_at, sender_id)"
+        "INSERT INTO lambda_logging.eb_worker_event_start"
+      , MyUtils.qparens "path, label, task_name, scheduled_at, sender_id"
       , "VALUES(?,?,?,?,?) RETURNING id;"
       ]
 
@@ -622,8 +629,10 @@ insertReceivedGithubStatus conn (Webhooks.GitHubStatusEvent sha name description
   return record_id
   where
     sql = MyUtils.qjoin [
-        "INSERT INTO github_incoming_status_events(sha1, name, description, state, target_url, context, created_at)"
-      , "VALUES(?,?,?,?,?,?,?) RETURNING id;"
+        "INSERT INTO github_incoming_status_events"
+      , MyUtils.qparens "sha1, name, description, state, target_url, context, created_at"
+      , "VALUES(?,?,?,?,?,?,?)"
+      , "RETURNING id;"
       ]
 
 
@@ -639,9 +648,87 @@ insertPostedGithubStatus conn (Builds.RawCommit git_sha1) (DbHelpers.OwnerAndRep
   return record_id
   where
     sql = MyUtils.qjoin [
-        "INSERT INTO created_github_statuses(id, sha1, project, repo, url, state, description, target_url, context, created_at, updated_at)"
-      , "VALUES(?,?,?,?,?,?,?,?,?,?,?) RETURNING id;"
+        "INSERT INTO created_github_statuses"
+      , MyUtils.insertionValues [
+          "id"
+        , "sha1"
+        , "project"
+        , "repo"
+        , "url"
+        , "state"
+        , "description"
+        , "target_url"
+        , "context"
+        , "created_at"
+        , "updated_at"
+        ]
+      , "RETURNING id;"
       ]
+
+
+
+
+commentBodyInsertionSql = MyUtils.qjoin [
+    "INSERT INTO created_pull_request_comment_revisions"
+  , MyUtils.insertionValues [
+      "comment_id"
+    , "body"
+    , "updated_at"
+    ]
+  , "RETURNING id;"
+  ]
+
+
+insertPostedGithubComment ::
+     Connection
+  -> DbHelpers.OwnerAndRepo
+  -> Builds.PullRequestNumber
+  -> ApiPost.CommentPostResult
+  -> IO Int64
+insertPostedGithubComment
+    conn
+    (DbHelpers.OwnerAndRepo owner repo)
+    (Builds.PullRequestNumber pull_request_number)
+    (ApiPost.CommentPostResult comment_id body created_at updated_at) = do
+
+  execute conn comment_insertion_sql (comment_id, owner, repo, pull_request_number, created_at)
+
+  [Only comment_revision_id] <- query conn commentBodyInsertionSql (comment_id, body, updated_at)
+  return comment_revision_id
+
+  where
+    comment_insertion_sql = MyUtils.qjoin [
+        "INSERT INTO created_pull_request_comments"
+      , MyUtils.insertionValues [
+          "comment_id"
+        , "project"
+        , "repo"
+        , "pr_number"
+        , "created_at"
+        ]
+      ]
+
+
+markPostedGithubCommentAsDeleted ::
+     Connection
+  -> ApiPost.CommentId
+  -> IO Int64
+markPostedGithubCommentAsDeleted conn (ApiPost.CommentId comment_id) =
+  execute conn sql (Only comment_id)
+  where
+    sql = "UPDATE created_pull_request_comments SET deleted = TRUE WHERE comment_id = ?;"
+
+
+modifyPostedGithubComment ::
+     Connection
+  -> ApiPost.CommentPostResult
+  -> IO Int64
+modifyPostedGithubComment
+    conn
+    (ApiPost.CommentPostResult comment_id body _created_at updated_at) = do
+
+  [Only comment_revision_id] <- query conn commentBodyInsertionSql (comment_id, body, updated_at)
+  return comment_revision_id
 
 
 addPatternTag ::
@@ -810,12 +897,14 @@ insertSinglePattern either_pattern = do
       ScanPatterns.LiteralExpression _                       -> False
 
     pattern_insertion_sql = MyUtils.qjoin [
-        "INSERT INTO patterns(regex, expression, description, is_retired, has_nondeterministic_values, specificity, lines_from_end)"
+        "INSERT INTO patterns"
+      , MyUtils.qparens "regex, expression, description, is_retired, has_nondeterministic_values, specificity, lines_from_end"
       , "VALUES(?,?,?,?,?,?,?) RETURNING id;"
       ]
 
     pattern_insertion_with_id_sql = MyUtils.qjoin [
-        "INSERT INTO patterns(id, regex, expression, description, is_retired, has_nondeterministic_values, specificity, lines_from_end)"
+        "INSERT INTO patterns"
+      , MyUtils.qparens "id, regex, expression, description, is_retired, has_nondeterministic_values, specificity, lines_from_end"
       , "VALUES(?,?,?,?,?,?,?,?) RETURNING id;"
       ]
 
@@ -896,7 +985,8 @@ storeLogInfo
   execute conn sql (step_id, line_count, byte_count, log_content, modified_by_ansi_stripping, was_truncated_for_size)
   where
     sql = MyUtils.qjoin [
-        "INSERT INTO log_metadata(step, line_count, byte_count, content, modified_by_ansi_stripping, was_truncated_for_size)"
+        "INSERT INTO log_metadata"
+      , MyUtils.qparens "step, line_count, byte_count, content, modified_by_ansi_stripping, was_truncated_for_size"
       , "VALUES(?,?,?,?,?,?)"
       , "ON CONFLICT (step)"
       , "DO UPDATE"
@@ -947,7 +1037,8 @@ insertBuildVisitation scan_resources (ubuild, visitation_result) = do
     universal_build_id = DbHelpers.db_id ubuild
 
     insertion_sql = MyUtils.qjoin [
-        "INSERT INTO build_steps(name, is_timeout, universal_build, step_index)"
+        "INSERT INTO build_steps"
+      , MyUtils.qparens "name, is_timeout, universal_build, step_index"
       , "VALUES(?,?,?,?)"
       , "ON CONFLICT"
       , "ON CONSTRAINT build_steps_universal_build_step_index_key"
