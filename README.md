@@ -54,7 +54,7 @@ Deployment
 * `gh-notification-ingest-env` is a **Web Server** that services GitHub webhook notifications, storing their payloads synchronously to the database
     * The code is **also** defined in `app/webservice/src`, and the deployed binary is named `/opt/app/my-webapp` in the Docker image.
     * Its domain name is `github-notifications-ingest.pytorch.org`
-* `github-notification-processor` is a **Worker** that consumes SQS messages produced by its own `cron.yaml`. It is not well-named.
+* `github-notification-processor` is a **Worker** that consumes SQS messages produced by its own `cron.yaml` (this server is not well-named).
     * The code is defined in `app/eb-worker/src`, and the deployed binary is named `beanstalk-worker`.
     * It has 2 endpoints:
         * It posts to its own endpoint `/worker/scheduled-work` every 5 minutes to fetch CircleCI builds directly from the CircleCI API, both to provide information that does not exist in GitHub status notifications, and to backfill any builds of the `master` branch for which a GitHub notification was not received.
