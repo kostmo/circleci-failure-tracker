@@ -22,8 +22,6 @@ function gen_missing_required_builds_table(element_id, data_url) {
 }
 
 
-
-
 function populate_form_from_url() {
 
 	const urlParams = new URLSearchParams(window.location.search);

@@ -745,11 +745,14 @@ handleStatusWebhook
 
 genMetricsList (BuildSummaryStats flaky_count pre_broken total_failcount) = [
     show flaky_count <> "/" <> show (length total_failcount) <> " flaky"
-  ] ++ optional_kb_metric
+  ] ++ optional_kb_metric ++ failures_introduced_in_pull_request
   where
     optional_kb_metric = if length pre_broken > 0
       then [show (length pre_broken) <> "/" <> show (length total_failcount) <> " broken upstream"]
       else []
+
+    broken_in_pr_count = length total_failcount - length pre_broken
+    failures_introduced_in_pull_request = [show broken_in_pr_count <> "/" <> show (length total_failcount) <> " failures introduced in this PR"]
 
 
 genFlakinessStatus ::

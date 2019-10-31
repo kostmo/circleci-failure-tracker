@@ -25,7 +25,7 @@ Follow [this link](https://dr.pytorch.org/admin/comments-opt-out.html).
 For a time, the mechanism used to publish build analyses on Pull Requests was to post an additional build status with the label `_dr.ci`.
 The leading underscore helped keep the Dr. CI summary near the top of a long list of build statuses.
 
-However, gaming the alphabetic sorting is no longer sufficient to push this status to the top, as GitHub Actions are given precedent,
+However, gaming the alphabetic sorting is no longer sufficient to push this status to the top, as GitHub Actions are given precedence,
 and a few of these are enough to push the Dr. CI status offscreen.
 
 Comments are an alternative vehicle to post analysis information to each Pull Request.  They offer more screen space and formatting options, at
@@ -37,7 +37,7 @@ the cost of potentially noisy email production.
 
 ## More information on Dr. CI
 
-* [Toplevel README](../..)
+* [Toplevel README](https://github.com/kostmo/circleci-failure-tracker/blob/master/README.md)
 
 ### Facebook internal resources:
 
