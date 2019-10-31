@@ -79,6 +79,8 @@ function submit_pattern() {
 		url: "/api/new-pattern-insert",
 		data: add_redirect_path_to_query_parms(pattern_data),
 		success: function( data ) {
+
+			// TODO consolidate with "handle_submission_response()" in "html-utils.js"
 			if (data.success) {
 				alert("submitted pattern with ID: " + data.payload);
 					window.location.href = "/";

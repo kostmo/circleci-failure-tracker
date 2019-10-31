@@ -12,6 +12,10 @@ function load_opt_out_status() {
 
 		} else {
 
+			// TODO consolidate this error handling with "handle_submission_response()" from "html-utils.js"
+			if (data.error.details.authentication_failed) {
+				window.location.href = data.error.details.login_url;
+			}
 		}
 	});
 }

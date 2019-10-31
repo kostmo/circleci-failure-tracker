@@ -257,24 +257,6 @@ function rescan_commit(button) {
 }
 
 
-function handle_submission_response(data) {
-
-	if (data.success) {
-		location.reload();
-	} else {
-
-		if (data.error.details.authentication_failed) {
-			alert("Not logged in: " + data.error.message);
-			window.location.href = data.error.details.login_url;
-		} else if (data.error.details.database_failed) {
-			alert("Database error: " + data.error.message);
-		} else {
-			alert("Unknown error: " + data.error.message);
-		}
-	}
-}
-
-
 // XXX hack around HUD URL-generation logic which appends "/console"
 function get_scrubbed_sha1() {
 

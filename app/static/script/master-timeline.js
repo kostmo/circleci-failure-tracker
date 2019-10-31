@@ -239,6 +239,9 @@ function mark_failure_resolution(commit_sha1, active_breakages) {
 }
 
 
+
+// TODO consolidate with "handle_submission_response()" in "html-utils.js"
+// with some adjustments
 function handle_report_submission_response(data) {
 
 	if (data.success) {

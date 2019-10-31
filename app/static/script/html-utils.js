@@ -9,26 +9,32 @@ function add_redirect_path_to_query_parms(data_dict) {
 }
 
 
+function handle_submission_response(data) {
+
+	if (data.success) {
+		location.reload();
+	} else {
+
+		if (data.error.details.authentication_failed) {
+//			alert("Not logged in: " + data.error.message);
+			console.log("Not logged in: " + data.error.message);
+			window.location.href = data.error.details.login_url;
+		} else if (data.error.details.database_failed) {
+			alert("Database error: " + data.error.message);
+		} else {
+			alert("Unknown error: " + data.error.message);
+		}
+	}
+}
+
+
 function post_modification(api_endpoint, data_dict) {
 
 	$.post( {
 		url: api_endpoint,
 		data: add_redirect_path_to_query_parms(data_dict),
 		success: function( data ) {
-
-			if (data.success) {
-				console.log("Result: " + data.payload);
-				location.reload();
-			} else {
-				if (data.error.details.authentication_failed) {
-					alert("Not logged in: " + data.error.message);
-					window.location.href = data.error.details.login_url;
-				} else if (data.error.details.database_failed) {
-					alert("Database error: " + data.error.message);
-				} else {
-					alert("Unknown error: " + data.error.message);
-				}
-			}
+			handle_submission_response(data);
 		}
 	});
 }
