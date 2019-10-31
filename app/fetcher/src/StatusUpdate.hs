@@ -340,15 +340,11 @@ postCommitSummaryStatus
     sha1
     scan_matches = do
 
-  liftIO $ MyUtils.debugList ["Marker 1"]
-
+  -- TODO This should return the actual jobs that failed, rather than
+  -- just the count
   basic_revision_stats <- ExceptT $ runReaderT (SqlRead.getNonPatternMatchRevisionStats sha1) conn
 
-  liftIO $ MyUtils.debugList ["Marker 2"]
-
   let (SqlRead.BasicRevisionBuildStats _ _ _ _ _ circleci_failcount) = basic_revision_stats
-
-
 
   -- TODO WIP!!!
   (_manually_annotated_breakages, inferred_upstream_caused_broken_jobs) <- ExceptT $
@@ -361,9 +357,6 @@ postCommitSummaryStatus
 --      circleci_failed_builds = []  -- FIXME TODO!!!
 --    all_broken_jobs = Set.unions $ map (SqlRead._jobs . DbHelpers.record) manually_annotated_breakages
 --    known_broken_circle_builds = filter ((`Set.member` all_broken_jobs) . Builds.job_name . Builds.build_record) circleci_failed_builds
-
-
-  liftIO $ MyUtils.debugList ["Marker 3"]
 
   postCommitSummaryStatusInner
     (replicate circleci_failcount "xxx") -- TODO FIXME
@@ -384,20 +377,14 @@ postCommitSummaryStatusInner
     sha1
     scan_matches = do
 
-  liftIO $ MyUtils.debugList ["Marker 4"]
-
   maybe_previously_posted_status <- liftIO $
     runReaderT (SqlRead.getPostedGithubStatus owned_repo sha1) conn
-
-  liftIO $ MyUtils.debugList ["Marker 5"]
 
   case maybe_previously_posted_status of
     Nothing -> when (circleci_failcount > 0) post_and_store
     Just previous_state_description_tuple ->
       when (previous_state_description_tuple /= new_state_description_tuple)
         post_and_store
-
-  liftIO $ MyUtils.debugList ["Marker 6"]
 
   post_pr_comment_and_store
 
@@ -430,19 +417,19 @@ postCommitSummaryStatusInner
   -- since we don't want GitHub to throttle our requests.
 
   post_and_store = do
-    liftIO $ MyUtils.debugList ["Marker AA"]
+
     post_result <- ExceptT $ ApiPost.postCommitStatus
       access_token
       owned_repo
       sha1
       status_setter_data
-    liftIO $ MyUtils.debugList ["Marker BB"]
+
     liftIO $ SqlWrite.insertPostedGithubStatus
       conn
       sha1
       owned_repo
       post_result
-    liftIO $ MyUtils.debugList ["Marker CC"]
+
     return ()
 
 
@@ -453,11 +440,10 @@ postCommitSummaryStatusInner
       pr_number
       pr_comment_text
 
-    liftIO $ putStrLn "Here F"
-
     liftIO $ SqlWrite.insertPostedGithubComment
       conn
       owned_repo
+      sha1
       pr_number
       comment_post_result
     where
@@ -465,19 +451,18 @@ postCommitSummaryStatusInner
 
 
   update_comment_or_fallback pr_number previous_pr_comment = do
-    liftIO $ putStrLn "Here G"
+
     either_comment_update_result <- liftIO $ ApiPost.updatePullRequestComment
       access_token
       owned_repo
       comment_id
       pr_comment_text
 
-    liftIO $ putStrLn "Here H"
-
     case either_comment_update_result of
       Right comment_update_result ->
         liftIO $ SqlWrite.modifyPostedGithubComment
           conn
+          sha1
           comment_update_result
 
       -- If the comment was deleted, we need to re-post one.
@@ -498,12 +483,9 @@ postCommitSummaryStatusInner
 
   post_pr_comment_and_store = do
 
-    liftIO $ putStrLn "Here A"
     containing_pr_list <- ExceptT $ first LT.pack <$> GadgitFetch.getContainingPRs sha1
 
-    liftIO $ putStrLn "Here B"
     for_ containing_pr_list $ \pr_number -> do
-
 
       pr_author <- ExceptT $ first snd <$> GithubApiFetch.getPullRequestAuthor access_token pr_number
 
@@ -511,22 +493,16 @@ postCommitSummaryStatusInner
       if can_post_comments
         then do
 
-          liftIO $ putStrLn "Here C"
           maybe_previous_pr_comment <- liftIO $ runReaderT (SqlRead.getPostedCommentForPR pr_number) conn
 
-          liftIO $ putStrLn "Here D"
           case maybe_previous_pr_comment of
-            Nothing -> do
-              liftIO $ putStrLn "Here E"
-              post_initial_comment pr_number
+            Nothing -> post_initial_comment pr_number
 
             Just previous_pr_comment -> update_comment_or_fallback pr_number previous_pr_comment
 
-          liftIO $ putStrLn "Here I"
-        else do
+        else
           ExceptT $ runReaderT (SqlWrite.recordBlockedPRCommentPosting pr_number) $
             SqlRead.AuthConnection conn pr_author
-          return ()
 
 
 generateCommentMarkdown

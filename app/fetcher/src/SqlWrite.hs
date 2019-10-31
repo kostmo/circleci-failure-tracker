@@ -780,6 +780,7 @@ commentBodyInsertionSql = MyUtils.qjoin [
       "comment_id"
     , "body"
     , "updated_at"
+    , "sha1"
     ]
   , "RETURNING id;"
   ]
@@ -788,18 +789,20 @@ commentBodyInsertionSql = MyUtils.qjoin [
 insertPostedGithubComment ::
      Connection
   -> DbHelpers.OwnerAndRepo
+  -> Builds.RawCommit -- ^ only used for logging
   -> Builds.PullRequestNumber
   -> ApiPost.CommentPostResult
   -> IO Int64
 insertPostedGithubComment
     conn
     (DbHelpers.OwnerAndRepo owner repo)
+    (Builds.RawCommit sha1)
     (Builds.PullRequestNumber pull_request_number)
     (ApiPost.CommentPostResult comment_id body created_at updated_at) = do
 
   execute conn comment_insertion_sql (comment_id, owner, repo, pull_request_number, created_at)
 
-  [Only comment_revision_id] <- query conn commentBodyInsertionSql (comment_id, body, updated_at)
+  [Only comment_revision_id] <- query conn commentBodyInsertionSql (comment_id, body, updated_at, sha1)
   return comment_revision_id
 
   where
@@ -827,13 +830,15 @@ markPostedGithubCommentAsDeleted conn (ApiPost.CommentId comment_id) =
 
 modifyPostedGithubComment ::
      Connection
+  -> Builds.RawCommit -- ^ only used for logging
   -> ApiPost.CommentPostResult
   -> IO Int64
 modifyPostedGithubComment
     conn
+    (Builds.RawCommit sha1)
     (ApiPost.CommentPostResult comment_id body _created_at updated_at) = do
 
-  [Only comment_revision_id] <- query conn commentBodyInsertionSql (comment_id, body, updated_at)
+  [Only comment_revision_id] <- query conn commentBodyInsertionSql (comment_id, body, updated_at, sha1)
   return comment_revision_id
 
 

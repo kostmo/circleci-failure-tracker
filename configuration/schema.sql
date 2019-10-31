@@ -1431,6 +1431,42 @@ CREATE VIEW public.best_pattern_match_augmented_builds WITH (security_barrier='f
 ALTER TABLE public.best_pattern_match_augmented_builds OWNER TO postgres;
 
 --
+-- Name: blocked_pr_comment_postings; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.blocked_pr_comment_postings (
+    id integer NOT NULL,
+    username text NOT NULL,
+    pr_number integer NOT NULL,
+    inserted_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+ALTER TABLE public.blocked_pr_comment_postings OWNER TO postgres;
+
+--
+-- Name: blocked_pr_comment_postings_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.blocked_pr_comment_postings_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.blocked_pr_comment_postings_id_seq OWNER TO postgres;
+
+--
+-- Name: blocked_pr_comment_postings_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.blocked_pr_comment_postings_id_seq OWNED BY public.blocked_pr_comment_postings.id;
+
+
+--
 -- Name: code_breakage_affected_jobs; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -2254,7 +2290,7 @@ CREATE TABLE public.created_pull_request_comment_revisions (
     id integer NOT NULL,
     comment_id integer NOT NULL,
     body text,
-    updated_at timestamp without time zone
+    updated_at timestamp with time zone NOT NULL
 );
 
 
@@ -2291,7 +2327,8 @@ CREATE TABLE public.created_pull_request_comments (
     project text NOT NULL,
     repo text NOT NULL,
     created_at timestamp with time zone,
-    pr_number integer NOT NULL
+    pr_number integer NOT NULL,
+    deleted boolean DEFAULT false NOT NULL
 );
 
 
@@ -2954,7 +2991,7 @@ ALTER TABLE public.jobs_non_scheduled_built_yesterday OWNER TO postgres;
 -- Name: latest_created_pull_request_comment_revision; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.latest_created_pull_request_comment_revision AS
+CREATE VIEW public.latest_created_pull_request_comment_revision WITH (security_barrier='false') AS
  SELECT created_pull_request_comment_revisions.id,
     created_pull_request_comment_revisions.comment_id,
     created_pull_request_comment_revisions.body,
@@ -2970,7 +3007,8 @@ CREATE VIEW public.latest_created_pull_request_comment_revision AS
            FROM public.created_pull_request_comment_revisions created_pull_request_comment_revisions_1
           GROUP BY created_pull_request_comment_revisions_1.comment_id) foo
      JOIN public.created_pull_request_comments ON ((created_pull_request_comments.comment_id = foo.comment_id)))
-     JOIN public.created_pull_request_comment_revisions ON ((foo.latest_revision_id = created_pull_request_comment_revisions.id)));
+     JOIN public.created_pull_request_comment_revisions ON ((foo.latest_revision_id = created_pull_request_comment_revisions.id)))
+  WHERE (NOT created_pull_request_comments.deleted);
 
 
 ALTER TABLE public.latest_created_pull_request_comment_revision OWNER TO postgres;
@@ -4211,7 +4249,7 @@ ALTER SEQUENCE public.pattern_step_applicability_id_seq OWNED BY public.pattern_
 CREATE TABLE public.pr_comment_posting_opt_outs (
     username text NOT NULL,
     modification_count integer DEFAULT 0 NOT NULL,
-    enabled boolean DEFAULT false NOT NULL,
+    disabled boolean NOT NULL,
     modified_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
@@ -4795,6 +4833,13 @@ ALTER TABLE ONLY lambda_logging.eb_worker_event_start ALTER COLUMN id SET DEFAUL
 
 
 --
+-- Name: blocked_pr_comment_postings id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.blocked_pr_comment_postings ALTER COLUMN id SET DEFAULT nextval('public.blocked_pr_comment_postings_id_seq'::regclass);
+
+
+--
 -- Name: build_steps id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
@@ -4927,6 +4972,14 @@ ALTER TABLE ONLY lambda_logging.eb_worker_event_finish
 
 ALTER TABLE ONLY lambda_logging.eb_worker_event_start
     ADD CONSTRAINT eb_worker_event_start_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: blocked_pr_comment_postings blocked_pr_comment_postings_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.blocked_pr_comment_postings
+    ADD CONSTRAINT blocked_pr_comment_postings_pkey PRIMARY KEY (id);
 
 
 --
@@ -6443,6 +6496,21 @@ GRANT ALL ON TABLE public.best_pattern_match_augmented_builds TO logan;
 
 
 --
+-- Name: TABLE blocked_pr_comment_postings; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.blocked_pr_comment_postings TO logan;
+GRANT SELECT ON TABLE public.blocked_pr_comment_postings TO materialized_view_updater;
+
+
+--
+-- Name: SEQUENCE blocked_pr_comment_postings_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE public.blocked_pr_comment_postings_id_seq TO logan;
+
+
+--
 -- Name: TABLE code_breakage_affected_jobs; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -6677,6 +6745,13 @@ GRANT ALL ON SEQUENCE public.code_breakage_resolution_id_seq TO logan;
 
 GRANT ALL ON TABLE public.created_pull_request_comment_revisions TO logan;
 GRANT SELECT ON TABLE public.created_pull_request_comment_revisions TO materialized_view_updater;
+
+
+--
+-- Name: SEQUENCE created_pull_request_comment_revisions_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE public.created_pull_request_comment_revisions_id_seq TO logan;
 
 
 --
