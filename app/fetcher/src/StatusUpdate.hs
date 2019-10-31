@@ -107,6 +107,13 @@ conclusiveStatuses = [
   ]
 
 
+data BuildSummaryStats = BuildSummaryStats {
+    flaky_count                 :: Int -- ^ flaky count
+  , _pre_broken_joblist         :: [Text]
+  , total_circleci_fail_joblist :: [Text]
+  }
+
+
 groupStatusesByHostname ::
      [StatusEventQuery.GitHubStatusEventGetter]
   -> [(String, [StatusEventQuery.GitHubStatusEventGetter])]
@@ -308,6 +315,9 @@ scanAndPost
       False -- do not re-download log
       (Left $ Set.fromList scannable_build_numbers)
 
+
+  liftIO $ MyUtils.debugList ["About to enter postCommitSummaryStatus"]
+
   postCommitSummaryStatus
     conn
     access_token
@@ -330,7 +340,11 @@ postCommitSummaryStatus
     sha1
     scan_matches = do
 
+  liftIO $ MyUtils.debugList ["Marker 1"]
+
   basic_revision_stats <- ExceptT $ runReaderT (SqlRead.getNonPatternMatchRevisionStats sha1) conn
+
+  liftIO $ MyUtils.debugList ["Marker 2"]
 
   let (SqlRead.BasicRevisionBuildStats _ _ _ _ _ circleci_failcount) = basic_revision_stats
 
@@ -344,16 +358,16 @@ postCommitSummaryStatus
       owned_repo
       sha1
 
-  let known_broken_circle_builds = inferred_upstream_caused_broken_jobs
 --      circleci_failed_builds = []  -- FIXME TODO!!!
 --    all_broken_jobs = Set.unions $ map (SqlRead._jobs . DbHelpers.record) manually_annotated_breakages
 --    known_broken_circle_builds = filter ((`Set.member` all_broken_jobs) . Builds.job_name . Builds.build_record) circleci_failed_builds
-      known_broken_circle_build_count = length known_broken_circle_builds
 
+
+  liftIO $ MyUtils.debugList ["Marker 3"]
 
   postCommitSummaryStatusInner
-    circleci_failcount
-    known_broken_circle_build_count
+    (replicate circleci_failcount "xxx") -- TODO FIXME
+    inferred_upstream_caused_broken_jobs
     conn
     access_token
     owned_repo
@@ -361,15 +375,8 @@ postCommitSummaryStatus
     scan_matches
 
 
-data BuildSummaryStats = BuildSummaryStats {
-    flaky_count       :: Int -- ^ flaky count
-  , _pre_broken_count :: Int -- ^ pre-broken count
-  , total_failcount   :: Int -- ^ total failure count
-  }
-
-
 postCommitSummaryStatusInner
-    circleci_failcount
+    circleci_fail_joblist
     known_broken_circle_build_count
     conn
     access_token
@@ -377,8 +384,12 @@ postCommitSummaryStatusInner
     sha1
     scan_matches = do
 
+  liftIO $ MyUtils.debugList ["Marker 4"]
+
   maybe_previously_posted_status <- liftIO $
     runReaderT (SqlRead.getPostedGithubStatus owned_repo sha1) conn
+
+  liftIO $ MyUtils.debugList ["Marker 5"]
 
   case maybe_previously_posted_status of
     Nothing -> when (circleci_failcount > 0) post_and_store
@@ -386,10 +397,16 @@ postCommitSummaryStatusInner
       when (previous_state_description_tuple /= new_state_description_tuple)
         post_and_store
 
+  liftIO $ MyUtils.debugList ["Marker 6"]
+
   post_pr_comment_and_store
 
   where
-  build_summary_stats = BuildSummaryStats flaky_count known_broken_circle_build_count circleci_failcount
+  circleci_failcount = length circleci_fail_joblist
+  build_summary_stats = BuildSummaryStats
+    flaky_count
+    known_broken_circle_build_count
+    circleci_fail_joblist
 
   -- TODO - we should instead see if the "best matching pattern" is
   -- flaky, rather than checking if *any* matching pattern is a
@@ -413,20 +430,20 @@ postCommitSummaryStatusInner
   -- since we don't want GitHub to throttle our requests.
 
   post_and_store = do
+    liftIO $ MyUtils.debugList ["Marker AA"]
     post_result <- ExceptT $ ApiPost.postCommitStatus
       access_token
       owned_repo
       sha1
       status_setter_data
-
+    liftIO $ MyUtils.debugList ["Marker BB"]
     liftIO $ SqlWrite.insertPostedGithubStatus
       conn
       sha1
       owned_repo
       post_result
-
+    liftIO $ MyUtils.debugList ["Marker CC"]
     return ()
-
 
 
   post_initial_comment pr_number = do
@@ -480,24 +497,36 @@ postCommitSummaryStatusInner
 
 
   post_pr_comment_and_store = do
+
     liftIO $ putStrLn "Here A"
     containing_pr_list <- ExceptT $ first LT.pack <$> GadgitFetch.getContainingPRs sha1
 
     liftIO $ putStrLn "Here B"
     for_ containing_pr_list $ \pr_number -> do
 
-      liftIO $ putStrLn "Here C"
-      maybe_previous_pr_comment <- liftIO $ runReaderT (SqlRead.getPostedCommentForPR pr_number) conn
 
-      liftIO $ putStrLn "Here D"
-      case maybe_previous_pr_comment of
-        Nothing -> do
-          liftIO $ putStrLn "Here E"
-          post_initial_comment pr_number
+      pr_author <- ExceptT $ first snd <$> GithubApiFetch.getPullRequestAuthor access_token pr_number
 
-        Just previous_pr_comment -> update_comment_or_fallback pr_number previous_pr_comment
+      can_post_comments <- ExceptT $ SqlRead.canPostPullRequestComments conn pr_author
+      if can_post_comments
+        then do
 
-      liftIO $ putStrLn "Here I"
+          liftIO $ putStrLn "Here C"
+          maybe_previous_pr_comment <- liftIO $ runReaderT (SqlRead.getPostedCommentForPR pr_number) conn
+
+          liftIO $ putStrLn "Here D"
+          case maybe_previous_pr_comment of
+            Nothing -> do
+              liftIO $ putStrLn "Here E"
+              post_initial_comment pr_number
+
+            Just previous_pr_comment -> update_comment_or_fallback pr_number previous_pr_comment
+
+          liftIO $ putStrLn "Here I"
+        else do
+          ExceptT $ runReaderT (SqlWrite.recordBlockedPRCommentPosting pr_number) $
+            SqlRead.AuthConnection conn pr_author
+          return ()
 
 
 generateCommentMarkdown
@@ -517,16 +546,21 @@ generateCommentMarkdown
         , Markdown.link "reasons each build failed" dr_ci_commit_details_link
         ]
       , T.unlines [
-          Markdown.sentence [
+          "---"
+        , Markdown.sentence [
             "This comment was automatically generated by"
           , Markdown.link "Dr. CI" dr_ci_base_url
           ]
         , Markdown.sentence [
             "Follow"
           , Markdown.link "this link to opt-out" opt_out_url
-          , "for your Pull Requests"
+          , "of these comments for your Pull Requests"
           ]
         ]
+        , Markdown.sentence [
+            "Please report bugs/suggestions on the"
+          , Markdown.link "GitHub issue tracker" "https://github.com/kostmo/circleci-failure-tracker/issues"
+          ]
       ]
 
     -- Note that using the current count of N comments as the revision count will be
@@ -581,7 +615,12 @@ readGitHubStatusesAndScanAndPostSummaryForCommit
       should_store_second_level_success_records
       sha1
 
-  when should_scan $
+  liftIO $ MyUtils.debugList ["Finished getBuildsFromGithub"]
+
+
+  when should_scan $ do
+    liftIO $ MyUtils.debugList ["About to enter scanAndPost"]
+
     scanAndPost
       conn
       access_token
@@ -728,12 +767,12 @@ handleStatusWebhook
     sha1 = Builds.RawCommit $ LT.toStrict $ Webhooks.sha status_event
 
 
-genMetricsList (BuildSummaryStats flaky_count pre_broken_count total_failcount) = [
-    show flaky_count <> "/" <> show total_failcount <> " flaky"
+genMetricsList (BuildSummaryStats flaky_count pre_broken total_failcount) = [
+    show flaky_count <> "/" <> show (length total_failcount) <> " flaky"
   ] ++ optional_kb_metric
   where
-    optional_kb_metric = if pre_broken_count > 0
-      then [show pre_broken_count <> "/" <> show total_failcount <> " broken upstream"]
+    optional_kb_metric = if length pre_broken > 0
+      then [show (length pre_broken) <> "/" <> show (length total_failcount) <> " broken upstream"]
       else []
 
 
@@ -756,7 +795,7 @@ genFlakinessStatus (Builds.RawCommit sha1) build_summary_stats =
       , intercalate ", " $ genMetricsList build_summary_stats
       ]
 
-    status_string = if flaky_count build_summary_stats == total_failcount build_summary_stats
+    status_string = if flaky_count build_summary_stats == length (total_circleci_fail_joblist build_summary_stats)
       then gitHubStatusSuccessString
       else gitHubStatusFailureString
 

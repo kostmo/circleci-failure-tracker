@@ -32,12 +32,17 @@
 <span style="float: right;">[<a href="/">home</a>]</span>
 <h2>Comments opt-out</h2>
 
-<p>Here you may opt-out of automatically-posted build summaries on Pull Requests.</p>
+<p>
+By default, Dr. CI automatically posts build summaries to Pull Requests, but members of the PyTorch Org may opt-out below if this is too noisy.
+</p>
 
 <div id="throbber" class="throbbers" style="display: none;"><img src="/images/duck.gif"/></div>
 
-
-<div id="container-stacked-timeline-by-week" style="min-width: 500px; height: 600px; max-width: 1000px; margin: 0 auto"></div>
+<form id="options-form" style="display: none;" onsubmit="return submit_form();">
+<label><input id="checkbox-comment-posting-enabled" type="checkbox" name="enabled"/> Automatically post comments to <span id="username-container" style="font-weight: bold">...</span>'s Pull Requests?</label>
+<br/>
+<input type="submit" id="submit-button"/> <img id="mini-throbber" src="/images/animated-spinner.svg" style="width: 16px; vertical-align: middle; display: none;"/>
+</form>
 
 <hr/>
 

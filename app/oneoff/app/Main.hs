@@ -5,6 +5,7 @@ import qualified Network.OAuth.OAuth2 as OAuth2
 import           Options.Applicative
 import           System.IO
 
+import qualified Builds
 import qualified Constants
 import qualified DbHelpers
 import qualified DbPreparation
@@ -45,15 +46,6 @@ mainAppCode args = do
 
   conn <- DbPreparation.prepareDatabase connection_data False
 
-  {-
-  thing <- SqlRead.getInferredSpanningBrokenJobs conn
-     (Builds.RawCommit "3d2c90131abb04dbd9ad039f96de7f43437c77f6")
-     (Builds.RawCommit "3144fc608a818e9a846543037ef86b4359859bc8")
-
-  putStrLn $ show $ map T.unpack thing
-  -}
-
-
 
   batch_diagnosis_result <- SqlUpdate.diagnoseCommitsBatch
     (Just git_repo_dir)
@@ -73,9 +65,6 @@ mainAppCode args = do
     ]
 
   SqlWrite.getAllPullRequestHeadCommits conn git_repo_dir
-
-
-
 
 
   -- ===========================================

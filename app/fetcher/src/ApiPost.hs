@@ -6,6 +6,7 @@
 module ApiPost where
 
 import           Control.Lens               hiding ((<.>))
+import           Control.Monad.IO.Class     (liftIO)
 import           Control.Monad.Trans.Except (ExceptT (ExceptT), except,
                                              runExceptT)
 import           Data.Aeson                 (FromJSON, ToJSON, eitherDecode,
@@ -26,6 +27,7 @@ import           Network.Wreq               as NW
 import qualified Builds
 import qualified DbHelpers
 import qualified FetchHelpers
+import qualified MyUtils
 import qualified StatusEvent
 
 
@@ -55,12 +57,29 @@ postCommitStatus
     (Builds.RawCommit target_sha1)
     status_obj = runExceptT $ do
 
-  response <- ExceptT $ fmap (first LT.pack) $ FetchHelpers.safeGetUrl $
-    NW.postWith opts url_string $ toJSON status_obj
+  liftIO $ MyUtils.debugList [
+      "Posting to URL:"
+    , url_string
+    , "with json object"
+    , show json_status_obj
+    ]
+
+  either_response <- liftIO $ FetchHelpers.safeGetUrl $
+    NW.postWith opts url_string json_status_obj
+
+  {-
+  liftIO $ MyUtils.debugList [
+      "either_response:"
+    , show either_response
+    ]
+  -}
+
+  response <- except $ first LT.pack either_response
 
   except $ first LT.pack $ eitherDecode $ NC.responseBody response
 
   where
+    json_status_obj = toJSON status_obj
     opts = NW.defaults
       & NW.header "Authorization" .~ ["token " <> encodeUtf8 personal_access_token]
 

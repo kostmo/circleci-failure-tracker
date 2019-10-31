@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveGeneric             #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts          #-}
 {-# LANGUAGE GADTs                     #-}
@@ -12,6 +13,7 @@ module GithubApiFetch (
   , GitHubApiSupport (..)
   , CommitsFetchError (..)
   , fetchUser
+  , getPullRequestAuthor
   ) where
 
 import           Control.Lens               hiding ((<.>))
@@ -31,12 +33,14 @@ import qualified Data.Set                   as Set
 import qualified Data.Text                  as T
 import qualified Data.Text.Lazy             as TL
 import qualified Data.Vector                as V
+import           GHC.Generics
 import           Network.HTTP.Conduit       hiding (Request)
 import qualified Network.OAuth.OAuth2       as OAuth2
 import           Prelude
 import qualified Safe
 import           URI.ByteString             (parseURI, strictURIParserOptions)
 
+import qualified AuthStages
 import qualified Builds
 import qualified DbHelpers
 import qualified Github
@@ -127,6 +131,47 @@ data CommitsFetchError =
     TooManyCommits [GitHubRecords.GitHubCommit]
   | NonlinearAncestry
   | OtherFetchError
+
+
+data UserResponseSubset = UserResponseSubset {
+    login :: TL.Text
+  } deriving Generic
+
+instance FromJSON UserResponseSubset
+
+
+data PullRequestResponseSubset = PullRequestResponseSubset {
+    user :: UserResponseSubset
+  } deriving Generic
+
+instance FromJSON PullRequestResponseSubset
+
+
+getPullRequestAuthor ::
+     OAuth2.AccessToken
+  -> Builds.PullRequestNumber
+  -> IO (Either (CommitsFetchError, TL.Text) AuthStages.Username)
+getPullRequestAuthor
+    token
+    (Builds.PullRequestNumber pr_number) = do
+
+  mgr <- newManager tlsManagerSettings
+--  let ghsupport = GitHubApiSupport mgr token
+
+  runExceptT $ do
+
+    uri <- except $ first (const (OtherFetchError, "Bad URL: " <> TL.pack uri_string)) either_uri
+
+    newly_retrieved_item <- ExceptT $
+      first (\x -> (OtherFetchError, displayOAuth2Error x)) <$> OAuth2.authGetJSON mgr token uri
+
+    return $ AuthStages.Username $ TL.toStrict $ login $ user newly_retrieved_item
+  where
+    either_uri = parseURI strictURIParserOptions $ BSU.pack uri_string
+
+    uri_string = "https://api.github.com/repos/pytorch/pytorch/pulls/"
+      <> show pr_number
+
 
 
 -- | Returns an error if the commit chain is not linear,

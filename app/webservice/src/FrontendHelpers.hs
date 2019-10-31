@@ -28,6 +28,7 @@ import qualified Constants
 import qualified DbHelpers
 import qualified DbInsertion
 import qualified GitRev
+import qualified MyUtils
 import qualified Pagination
 import qualified ScanPatterns
 import qualified SqlRead
@@ -188,6 +189,7 @@ jsonDbGet connection_data endpoint_path f =
     run_with_connection = liftIO . (=<< wrapped_connection) . runReaderT
 
 
+-- | Compare to: "postWithAuthentication"
 jsonAuthorizedDbInteract2 :: ToJSON a =>
      DbHelpers.DbConnectionData
   -> Vault.Key (Session IO String String)
@@ -417,6 +419,8 @@ rescanCommitCallback github_config commit = do
   SqlRead.AuthConnection conn user_alias <- ask
 
   liftIO $ do
+
+    MyUtils.debugList ["Starting rescanCommitCallback"]
 
     run_result <- runExceptT $
       StatusUpdate.readGitHubStatusesAndScanAndPostSummaryForCommit

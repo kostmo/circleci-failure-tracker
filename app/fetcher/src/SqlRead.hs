@@ -324,21 +324,58 @@ common_xform (delimited_pattern_ids, step_id, step_name, universal_build_id, bui
 
 
 data OptOutResponse = OptOutResponse {
-    _user       :: AuthStages.Username
-  , _is_opt_out :: Bool
-  } deriving Generic
+    _username           :: AuthStages.Username
+  , _disabled           :: Bool
+  , _modification_count :: Int
+  , _modified_at        :: UTCTime
+  } deriving (FromRow, Generic)
 
 instance ToJSON OptOutResponse where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
-userOptOutSettings :: SqlRead.AuthDbIO (Either Text OptOutResponse)
+data UserWrapper a = UserWrapper {
+    user    :: AuthStages.Username
+  , content :: a
+  } deriving (FromRow, Generic)
+
+instance (ToJSON a) => ToJSON (UserWrapper a)
+
+
+canPostPullRequestComments ::
+     Connection
+  -> AuthStages.Username
+  -> IO (Either LT.Text Bool)
+canPostPullRequestComments conn (AuthStages.Username author) = do
+  [Only is_disabled] <- query conn sql $ Only author
+  return $ Right $ not is_disabled
+  where
+    sql = MyUtils.qjoin [
+        "SELECT COALESCE(disabled, FALSE) AS disabled"
+      , "FROM (SELECT ? AS myname) foo"
+      , "LEFT JOIN pr_comment_posting_opt_outs"
+      , "ON foo.myname = pr_comment_posting_opt_outs.username"
+      , "LIMIT 1"
+      ]
+
+
+userOptOutSettings :: SqlRead.AuthDbIO (Either Text (UserWrapper (Maybe OptOutResponse)))
 userOptOutSettings = do
   SqlRead.AuthConnection conn user@(AuthStages.Username author) <- ask
   xs <- liftIO $ query conn sql $ Only author
-  return $ Right $ OptOutResponse user $ Safe.headDef False $ map (\(Only x) -> x) xs
+  return $ Right $ UserWrapper user $ Safe.headMay xs
   where
-    sql = "SELECT enabled FROM pr_comment_posting_opt_outs WHERE username = ?;"
+    sql = MyUtils.qjoin [
+        "SELECT"
+      , MyUtils.qlist [
+          "username"
+        , "disabled"
+        , "modification_count"
+        , "modified_at"
+        ]
+      , "FROM pr_comment_posting_opt_outs"
+      , "WHERE username = ?;"
+      ]
 
 
 getRevisitableWhitelistedBuilds ::
@@ -1138,7 +1175,7 @@ data CodeBreakage = CodeBreakage {
     _breakage_commit      :: Builds.RawCommit
   , _breakage_description :: Text
   , _jobs                 :: Set Text
-  } deriving Generic
+  } deriving (Show, Generic)
 
 instance ToJSON CodeBreakage where
   toJSON = genericToJSON JsonUtils.dropUnderscore
@@ -1184,7 +1221,11 @@ instance ToJSON UpstreamBrokenJob where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
--- | Compare to: getInferredSpanningBrokenJobs
+extractJobName :: UpstreamBrokenJob -> Text
+extractJobName (UpstreamBrokenJob x _ _ _ _) = x
+
+
+-- | Compare to: getSpanningBreakages
 --
 -- This query is only valid after the PR commit ancestor in the master branch
 -- is cached in the database.
@@ -1208,53 +1249,6 @@ getInferredSpanningBrokenJobsBetter (Builds.RawCommit branch_sha1) = do
         ]
       , "FROM downstream_build_failures_from_upstream_inferred_breakages"
       , "WHERE branch_commit = ?"
-      ]
-
-
--- | Compare to: getSpanningBreakages
---
--- NOTE: This query is used when the PR commit ancestor in the master branch
--- is not necessarily cached in the database.
--- When the ancestor *is* known to be cached, use a more
--- direct query!
-getInferredSpanningBrokenJobs ::
-     Connection
-  -> Builds.RawCommit -- ^ merge base with master
-  -> Builds.RawCommit -- ^ branch commit
-  -> IO [Text]
-getInferredSpanningBrokenJobs conn (Builds.RawCommit master_sha1) (Builds.RawCommit branch_sha1) = do
-
-  -- Beware of the order of these parameters, since we're
-  -- including a snippet of SQL defined below the main query
-  rows <- query conn sql (master_sha1, branch_sha1, master_sha1)
-  return $ map (\(Only x) -> x) rows
-
-  where
-    sql = MyUtils.qjoin [
-        "SELECT"
-      , MyUtils.qlist [
-          "master_job_failure_spans_conservative_mview.job_name"
-        ]
-      , "FROM master_job_failure_spans_conservative_mview"
-      , "JOIN"
-      , MyUtils.qparens inner_q
-      , "foo"
-      , "ON foo.job_name = master_job_failure_spans_conservative_mview.job_name"
-      , "JOIN build_failure_standalone_causes"
-      , "ON build_failure_standalone_causes.vcs_revision = ?"
-      , "AND build_failure_standalone_causes.job_name = foo.job_name"
-      , "WHERE"
-      , "failure_commit_id_range @> (SELECT id FROM ordered_master_commits WHERE sha1 = ?)::int8"
-      ]
-
-    -- NOTE: Ideally we don't even need this filter, since we only care about the *overlap*
-    -- of failing jobs between the branch commit and master commit.
-    -- Scheduled jobs should never be run on the branch commit.
-    -- HOWEVER, there a a large number of "scheduled" jobs that have had been failing indefinitely.
-    inner_q = MyUtils.qjoin [
-        "SELECT job_name FROM master_commit_circleci_scheduled_job_discrimination"
-      , "WHERE master_commit_circleci_scheduled_job_discrimination.commit_sha1 = ?"
-      , "AND NOT is_scheduled"
       ]
 
 

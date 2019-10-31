@@ -1,11 +1,30 @@
 
 function load_opt_out_status() {
 
-	getJsonWithThrobber("#throbber", "/api/user-opt-out-settings", {"login_redirect_path": "/hello-world"}, function (data) {
+	getJsonWithThrobber("#throbber", "/api/get-user-opt-out-settings", {"login_redirect_path": get_url_path_for_redirect()}, function (data) {
 
-		console.log("hi", data);
+		if (data["success"]) {
 
+			$("#username-container").html(data.payload.user);
+			$('#checkbox-comment-posting-enabled').prop('checked', !(data.payload.content && data.payload.content["disabled"]));
+
+			$('#options-form').show();
+
+		} else {
+
+		}
 	});
+}
+
+
+function submit_form() {
+
+	$("#submit-button").prop("disabled", true);
+	$('#mini-throbber').show();
+
+	post_modification("/api/update-user-opt-out-settings", {"enabled": $('#checkbox-comment-posting-enabled').is(":checked")});
+
+	return false;
 }
 
 

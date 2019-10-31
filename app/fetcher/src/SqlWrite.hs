@@ -116,9 +116,7 @@ findMasterAncestorWithPrecomputation ::
   -> Connection
   -> OAuth2.AccessToken
   -> DbHelpers.OwnerAndRepo
-  -> Bool
-     -- ^ do not store to cache, in case we want to use this
-     -- function without side effects.
+  -> CacheMergeBaseOption
   -> Builds.RawCommit
   -> IO (Either Text Builds.RawCommit)
 findMasterAncestorWithPrecomputation
@@ -126,7 +124,7 @@ findMasterAncestorWithPrecomputation
   conn
   access_token
   owner_and_repo
-  do_not_store_to_cache
+  merge_base_cache_option
   sha1@(Builds.RawCommit unwrapped_sha1) =
 
   -- This is another optimization:
@@ -179,7 +177,7 @@ findMasterAncestorWithPrecomputation
             known_commit_set
 
           -- Distance 0 means it was a member of the master branch.
-          unless (distance == 0 || do_not_store_to_cache) $ liftIO $ do
+          unless (distance == 0 || merge_base_cache_option == NoCache) $ liftIO $ do
             execute conn merge_base_insertion_sql (unwrapped_sha1, unwrapped_merge_base, distance)
             MyUtils.debugList [
                 "Stored merge base of"
@@ -209,13 +207,17 @@ findMasterAncestorWithPrecomputation
       ]
 
 
+-- | for in case we want to use the
+-- "findMasterAncestor" function without side effects.
+data CacheMergeBaseOption = StoreToCache | NoCache
+  deriving Eq
+
+
 findMasterAncestor ::
      Connection
   -> OAuth2.AccessToken
   -> DbHelpers.OwnerAndRepo
-  -> Bool
-     -- ^ do not store to cache, in case we want to use this
-     -- function without side effects.
+  -> CacheMergeBaseOption
   -> Builds.RawCommit
   -> IO (Either Text Builds.RawCommit)
 findMasterAncestor = findMasterAncestorWithPrecomputation Nothing
@@ -318,7 +320,7 @@ diagnoseCommitsFetchFailure
           conn
           access_token
           owned_repo
-          True
+          NoCache
           (Builds.RawCommit $ GitHubRecords.extractCommitSha $ head retrieved_commits)
 
         return $ Left $ TL.pack $ unwords $ case either_ancestor of
@@ -380,10 +382,10 @@ populateLatestMasterCommits conn access_token owned_repo = do
       map GitHubRecords.extractCommitSha fetched_commits_oldest_first
 
     liftIO $ MyUtils.debugList [
-          "Inserted "
-        , show commit_insertion_count
-        , "commits"
-        ]
+        "Inserted "
+      , show commit_insertion_count
+      , "commits"
+      ]
 
     metadata_insertion_count <- ExceptT $ storeCommitMetadata conn $ map Commits.fromGithubRecord fetched_commits_oldest_first
 
@@ -687,6 +689,37 @@ insertEbWorkerFinish conn start_id = do
       ]
 
 
+updateUserOptOutSettings ::
+     Bool
+  -> SqlRead.AuthDbIO (Either Text SqlRead.OptOutResponse)
+updateUserOptOutSettings posting_is_enabled = do
+  SqlRead.AuthConnection conn (AuthStages.Username author) <- ask
+  [x] <- liftIO $ query conn sql (author, not posting_is_enabled)
+  return $ Right x
+  where
+    sql = MyUtils.qjoin [
+        "INSERT INTO pr_comment_posting_opt_outs"
+      , MyUtils.insertionValues [
+          "username"
+        , "disabled"
+        ]
+      , "ON CONFLICT (username) DO UPDATE"
+      , "SET"
+      , MyUtils.qlist [
+          "disabled = EXCLUDED.disabled"
+        , "modification_count = pr_comment_posting_opt_outs.modification_count + 1"
+        , "modified_at = now()"
+        ]
+      , "RETURNING"
+      , MyUtils.qlist [
+          "username"
+        , "disabled"
+        , "modification_count"
+        , "modified_at"
+        ]
+      ]
+
+
 insertReceivedGithubStatus ::
      Connection
   -> Webhooks.GitHubStatusEvent
@@ -931,6 +964,22 @@ updateCodeBreakageMode cause_id mode = do
       ]
 
 
+recordBlockedPRCommentPosting ::
+     Builds.PullRequestNumber
+  -> SqlRead.AuthDbIO (Either TL.Text Int64)
+recordBlockedPRCommentPosting (Builds.PullRequestNumber pr_number) = do
+  SqlRead.AuthConnection conn (AuthStages.Username author) <- ask
+  liftIO $ Right <$> execute conn insertion_sql (author, pr_number)
+  where
+    insertion_sql = MyUtils.qjoin [
+        "INSERT INTO blocked_pr_comment_postings"
+      , MyUtils.insertionValues [
+          "username"
+        , "pr_number"
+        ]
+      ]
+
+
 updatePatternDescription ::
      ScanPatterns.PatternId
   -> Text
@@ -1100,7 +1149,7 @@ cacheAllMergeBases conn all_master_commits access_token owned_repo commits =
         conn
         access_token
         owned_repo
-        False
+        StoreToCache
         x
 
       MyUtils.debugList [

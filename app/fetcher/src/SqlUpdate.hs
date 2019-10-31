@@ -7,7 +7,7 @@ module SqlUpdate where
 import           Control.Monad.IO.Class     (liftIO)
 import           Control.Monad.Trans.Except (ExceptT (ExceptT), except,
                                              runExceptT)
-import           Control.Monad.Trans.Reader (ask)
+import           Control.Monad.Trans.Reader (ask, runReaderT)
 import           Data.Aeson
 import           Data.Either.Utils          (maybeToEither)
 import qualified Data.Set                   as Set
@@ -172,11 +172,6 @@ countRevisionBuilds access_token git_revision = do
 
   liftIO $ do
 
-   MyUtils.debugList [
-        "SQL to execute:"
-      , show aggregate_causes_sql
-      ]
-
    runExceptT $ do
 
 
@@ -323,7 +318,7 @@ findKnownBuildBreakages conn access_token owned_repo sha1 =
       conn
       access_token
       owned_repo
-      False
+      SqlWrite.StoreToCache
       sha1
 
 
@@ -334,9 +329,9 @@ findKnownBuildBreakages conn access_token owned_repo sha1 =
     -- TODO Use both manually annotated and inferred methods for
     -- associating breakages!
 
-    inferred_upstream_caused_broken_jobs <- liftIO $ SqlRead.getInferredSpanningBrokenJobs
-      conn
-      nearest_ancestor
-      sha1
+    inferred_upstream_caused_broken_jobs <- liftIO $ runReaderT (SqlRead.getInferredSpanningBrokenJobsBetter sha1) conn
 
-    return (manually_annotated_breakages, inferred_upstream_caused_broken_jobs)
+    -- NOTE: This requires that the "merge base" with master of the branch
+    -- commit already be cached into the database.
+    -- SqlWrite.findMasterAncestor does this for us.
+    return (manually_annotated_breakages, map SqlRead.extractJobName inferred_upstream_caused_broken_jobs)
