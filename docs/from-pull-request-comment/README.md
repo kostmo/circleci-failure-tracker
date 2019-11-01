@@ -33,6 +33,9 @@ the cost of potentially noisy email production.
 
 ## TODO List
 
+* suggest user to submit new failure classification patterns
+* suggest to rerun flaky builds
+* Add more information from the build analysis directly in the comment
 * Currently a Personal Access Token (`kostmo`) is used to post the comment.  The comment should instead be posted by the `circleci-failure-attribution` GitHub App.
 
 ## More information on Dr. CI

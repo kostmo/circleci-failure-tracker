@@ -235,6 +235,25 @@ lookupUniversalBuildFromProviderBuild conn (Builds.NewBuildNumber build_num) = d
       ]
 
 
+getCachedPullRequestAuthor ::
+     Builds.PullRequestNumber
+  -> DbIO (Maybe AuthStages.Username)
+getCachedPullRequestAuthor (Builds.PullRequestNumber pr_number) = do
+  conn <- ask
+  liftIO $ do
+    xs <- query conn sql $ Only pr_number
+    return $ Safe.headMay $ map (\(Only x) -> AuthStages.Username x) xs
+  where
+    sql = MyUtils.qjoin [
+        "SELECT"
+      , MyUtils.qlist [
+          "github_user_login"
+        ]
+      , "FROM pull_request_static_metadata"
+      , "WHERE pr_number = ?;"
+      ]
+
+
 -- | FIXME partial function
 lookupUniversalBuild ::
      Builds.UniversalBuildId -- ^ oldest build number
@@ -2200,11 +2219,12 @@ instance ToJSON ViableCommitAgeRecord where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
+-- | Note list reversal for the sake of Highcharts
 apiLatestViableMasterCommitAgeHistory ::
    DbIO [ViableCommitAgeRecord]
 apiLatestViableMasterCommitAgeHistory = do
   conn <- ask
-  liftIO $ query_ conn sql
+  liftIO $ reverse <$> query_ conn sql
   where
     sql = MyUtils.qjoin [
         "SELECT"
@@ -2217,8 +2237,8 @@ apiLatestViableMasterCommitAgeHistory = do
         ]
       , "FROM viable_master_commit_age_history"
 --      , "WHERE inserted_at > ?"
-      , "ORDER BY inserted_at ASC"
-      , "LIMIT 1000"
+      , "ORDER BY inserted_at DESC"
+      , "LIMIT 250" -- About 1.5 weeks
       ]
 
 

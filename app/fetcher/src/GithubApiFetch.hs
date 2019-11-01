@@ -14,6 +14,8 @@ module GithubApiFetch (
   , CommitsFetchError (..)
   , fetchUser
   , getPullRequestAuthor
+  , PullRequestResponseSubset
+  , toDbFields
   ) where
 
 import           Control.Lens               hiding ((<.>))
@@ -140,23 +142,54 @@ data UserResponseSubset = UserResponseSubset {
 instance FromJSON UserResponseSubset
 
 
+data PullRequestRepoSubset = PullRequestRepoSubset {
+    name  :: TL.Text
+  , owner :: UserResponseSubset
+  } deriving Generic
+
+instance FromJSON PullRequestRepoSubset
+
+
+data PullRequestEndpointSubset = PullRequestEndpointSubset {
+    ref  :: TL.Text
+  , repo :: PullRequestRepoSubset
+  } deriving Generic
+
+instance FromJSON PullRequestEndpointSubset
+
+
 data PullRequestResponseSubset = PullRequestResponseSubset {
     user :: UserResponseSubset
+  , base :: PullRequestEndpointSubset
+  , head :: PullRequestEndpointSubset
   } deriving Generic
 
 instance FromJSON PullRequestResponseSubset
 
 
+toDbFields ::
+     Builds.PullRequestNumber
+  -> PullRequestResponseSubset
+  -> (Int, TL.Text, TL.Text, TL.Text, TL.Text, TL.Text, TL.Text, TL.Text)
+toDbFields (Builds.PullRequestNumber pr_number) (PullRequestResponseSubset (UserResponseSubset u) b h) =
+  (pr_number, u, base_repo_owner, base_repo_name, base_ref, head_repo_owner, head_repo_name, head_ref)
+  where
+    PullRequestEndpointSubset base_ref base_repo = b
+    PullRequestRepoSubset base_repo_name (UserResponseSubset base_repo_owner) = base_repo
+
+    PullRequestEndpointSubset head_ref head_repo = h
+    PullRequestRepoSubset head_repo_name (UserResponseSubset head_repo_owner) = head_repo
+
+
 getPullRequestAuthor ::
      OAuth2.AccessToken
   -> Builds.PullRequestNumber
-  -> IO (Either (CommitsFetchError, TL.Text) AuthStages.Username)
+  -> IO (Either (CommitsFetchError, TL.Text) (AuthStages.Username, PullRequestResponseSubset))
 getPullRequestAuthor
     token
     (Builds.PullRequestNumber pr_number) = do
 
   mgr <- newManager tlsManagerSettings
---  let ghsupport = GitHubApiSupport mgr token
 
   runExceptT $ do
 
@@ -165,13 +198,13 @@ getPullRequestAuthor
     newly_retrieved_item <- ExceptT $
       first (\x -> (OtherFetchError, displayOAuth2Error x)) <$> OAuth2.authGetJSON mgr token uri
 
-    return $ AuthStages.Username $ TL.toStrict $ login $ user newly_retrieved_item
+    let wrapped_author = AuthStages.Username $ TL.toStrict $ login $ user newly_retrieved_item
+    return (wrapped_author, newly_retrieved_item)
   where
     either_uri = parseURI strictURIParserOptions $ BSU.pack uri_string
 
     uri_string = "https://api.github.com/repos/pytorch/pytorch/pulls/"
       <> show pr_number
-
 
 
 -- | Returns an error if the commit chain is not linear,

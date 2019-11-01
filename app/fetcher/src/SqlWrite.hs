@@ -969,6 +969,29 @@ updateCodeBreakageMode cause_id mode = do
       ]
 
 
+storePullRequestStaticMetadata ::
+     Builds.PullRequestNumber
+  -> GithubApiFetch.PullRequestResponseSubset
+  -> SqlRead.DbIO (Either Text Int64)
+storePullRequestStaticMetadata pr_number pr_metadata = do
+  conn <- ask
+  liftIO $ Right <$> execute conn insertion_sql (GithubApiFetch.toDbFields pr_number pr_metadata)
+  where
+    insertion_sql = MyUtils.qjoin [
+        "INSERT INTO pull_request_static_metadata"
+      , MyUtils.insertionValues [
+          "pr_number"
+        , "github_user_login"
+        , "base_repo_owner"
+        , "base_repo_name"
+        , "base_ref"
+        , "head_repo_owner"
+        , "head_repo_name"
+        , "head_ref"
+        ]
+      ]
+
+
 recordBlockedPRCommentPosting ::
      Builds.PullRequestNumber
   -> SqlRead.AuthDbIO (Either TL.Text Int64)
