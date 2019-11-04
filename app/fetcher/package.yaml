@@ -17,6 +17,7 @@ library:
 #  - -fprof-auto
 #  - -fprof-cafs
   dependencies:
+    - markdown-dsl
     - wreq
     - lens
     - lens-aeson

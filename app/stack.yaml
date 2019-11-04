@@ -8,6 +8,7 @@ packages:
 - oneoff
   #- session-demo
 - log-postgres
+- markdown-dsl
 
 extra-deps:
 - directory-1.3.4.0@sha256:500019f04494324d1df16cf83eefeb3f809b2b20b32a32ccd755ee0439c18bfd,2829

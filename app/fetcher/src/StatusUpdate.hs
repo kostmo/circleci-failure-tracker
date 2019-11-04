@@ -25,6 +25,8 @@ import qualified Data.Text                     as T
 import qualified Data.Text.Lazy                as LT
 import qualified Data.Time.Clock               as Clock
 import           Data.Traversable              (for)
+--import           Data.Tree                     (Forest)
+import qualified Data.Tree                     as Tr
 import           Data.Tuple                    (swap)
 import           Database.PostgreSQL.Simple    (Connection)
 import           GHC.Int                       (Int64)
@@ -563,7 +565,7 @@ generateCommentMarkdown
         T.unlines [
           Markdown.heading 2 "CircleCI build failures summary"
         , "As of commit " <> T.take gitCommitPrefixLength sha1_text <> ":"
-        , Markdown.bullets $ map T.pack $ genMetricsListVerbose build_summary_stats
+        , Markdown.bulletTree $ genMetricsTreeVerbose build_summary_stats
         ]
       , Markdown.sentence [
           "Here are the"
@@ -791,22 +793,42 @@ handleStatusWebhook
     sha1 = Builds.RawCommit $ LT.toStrict $ Webhooks.sha status_event
 
 
-
-genMetricsListVerbose (BuildSummaryStats flaky_count pre_broken total_failcount) = [
-    show flaky_count <> "/" <> show (length total_failcount) <> " recognized as flaky"
-  ] ++ optional_kb_metric ++ failures_introduced_in_pull_request
+genMetricsTreeVerbose :: BuildSummaryStats -> Tr.Forest Text
+genMetricsTreeVerbose (BuildSummaryStats flaky_count pre_broken all_failures) =
+  optional_kb_metric ++ failures_introduced_in_pull_request ++ flaky_bullet_tree
   where
-    optional_kb_metric = if length pre_broken > 0
+
+    upstream_breakage_bullet_children = [pure $ T.pack $ unwords [
+        "You may want to rebase on the"
+      , T.unpack (Markdown.link "latest viable branch" viableCommitsHistoryUrl) <> "."
+      ]]
+
+    upstream_broken_count = length pre_broken
+    total_failcount = length all_failures
+    broken_in_pr_count = total_failcount - upstream_broken_count
+
+    upstream_breakage_bullet_tree = Tr.Node (T.pack $
+       unwords [show upstream_broken_count <> "/" <> show total_failcount
+       , "broken upstream."
+       ]) upstream_breakage_bullet_children
+
+    optional_kb_metric = if null pre_broken
+      then []
+      else [upstream_breakage_bullet_tree]
+
+
+    failures_introduced_in_pull_request = [pure $ T.pack $ show broken_in_pr_count <> "/" <> show total_failcount <> " failures introduced in this PR"]
+
+
+    flaky_bullet_children = if flaky_count > 0
       then [
-             unwords [show (length pre_broken) <> "/" <> show (length total_failcount)
-             , "broken upstream. You may want to rebase on the"
-             , T.unpack (Markdown.link "latest viable branch" viableCommitsHistoryUrl) <> "."
-             ]
-           ]
+        pure "Re-run these jobs?"
+      ]
       else []
 
-    broken_in_pr_count = length total_failcount - length pre_broken
-    failures_introduced_in_pull_request = [show broken_in_pr_count <> "/" <> show (length total_failcount) <> " failures introduced in this PR"]
+    flaky_bullet_tree = [
+        Tr.Node (T.pack $ show flaky_count <> "/" <> show total_failcount <> " recognized as flaky") flaky_bullet_children
+      ]
 
 
 genCompactMetricsList (BuildSummaryStats flaky_count pre_broken total_failcount) = [
