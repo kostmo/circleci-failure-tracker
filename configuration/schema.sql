@@ -91,7 +91,7 @@ CREATE FUNCTION public.snapshot_master_viable_commit_age() RETURNS void
 SELECT CURRENT_TIMESTAMP AS inserted_at, failed_required_job_count_threshold, unbuilt_or_failed_required_job_count, commit_id, age_hours, disqualifying_jobs_array
 FROM (SELECT * FROM generate_series(0, 1) as failed_required_job_count_threshold
 CROSS JOIN generate_series(0, 2) as unbuilt_or_failed_required_job_count) bar,
-     LATERAL (SELECT * FROM master_commit_job_success_completeness_mview2
+     LATERAL (SELECT * FROM master_commit_job_success_completeness_mview
 
 WHERE not_succeeded_required_job_count <= unbuilt_or_failed_required_job_count
 AND failed_required_job_count <= failed_required_job_count_threshold
@@ -2290,7 +2290,8 @@ CREATE TABLE public.created_pull_request_comment_revisions (
     id integer NOT NULL,
     comment_id integer NOT NULL,
     body text,
-    updated_at timestamp with time zone NOT NULL
+    updated_at timestamp with time zone NOT NULL,
+    sha1 character(40)
 );
 
 
@@ -2988,6 +2989,24 @@ CREATE VIEW public.jobs_non_scheduled_built_yesterday AS
 ALTER TABLE public.jobs_non_scheduled_built_yesterday OWNER TO postgres;
 
 --
+-- Name: pull_request_static_metadata; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.pull_request_static_metadata (
+    pr_number integer NOT NULL,
+    github_user_login text NOT NULL,
+    base_repo_owner text NOT NULL,
+    base_repo_name text NOT NULL,
+    head_repo_owner text NOT NULL,
+    head_repo_name text NOT NULL,
+    base_ref text NOT NULL,
+    head_ref text NOT NULL
+);
+
+
+ALTER TABLE public.pull_request_static_metadata OWNER TO postgres;
+
+--
 -- Name: latest_created_pull_request_comment_revision; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -3000,14 +3019,17 @@ CREATE VIEW public.latest_created_pull_request_comment_revision WITH (security_b
     created_pull_request_comments.project,
     created_pull_request_comments.repo,
     created_pull_request_comments.created_at,
-    created_pull_request_comments.pr_number
-   FROM ((( SELECT created_pull_request_comment_revisions_1.comment_id,
+    created_pull_request_comments.pr_number,
+    created_pull_request_comment_revisions.sha1,
+    pull_request_static_metadata.github_user_login
+   FROM (((( SELECT created_pull_request_comment_revisions_1.comment_id,
             max(created_pull_request_comment_revisions_1.id) AS latest_revision_id,
             count(created_pull_request_comment_revisions_1.id) AS revision_count
            FROM public.created_pull_request_comment_revisions created_pull_request_comment_revisions_1
           GROUP BY created_pull_request_comment_revisions_1.comment_id) foo
      JOIN public.created_pull_request_comments ON ((created_pull_request_comments.comment_id = foo.comment_id)))
      JOIN public.created_pull_request_comment_revisions ON ((foo.latest_revision_id = created_pull_request_comment_revisions.id)))
+     LEFT JOIN public.pull_request_static_metadata ON ((pull_request_static_metadata.pr_number = created_pull_request_comments.pr_number)))
   WHERE (NOT created_pull_request_comments.deleted);
 
 
@@ -5295,6 +5317,14 @@ ALTER TABLE ONLY public.pull_request_heads
 
 
 --
+-- Name: pull_request_static_metadata pull_request_static_metadata_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.pull_request_static_metadata
+    ADD CONSTRAINT pull_request_static_metadata_pkey PRIMARY KEY (pr_number);
+
+
+--
 -- Name: scanned_patterns scanned_patterns_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -6930,6 +6960,14 @@ GRANT ALL ON TABLE public.master_commit_job_coverage_by_day TO logan;
 --
 
 GRANT ALL ON TABLE public.jobs_non_scheduled_built_yesterday TO logan;
+
+
+--
+-- Name: TABLE pull_request_static_metadata; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.pull_request_static_metadata TO logan;
+GRANT SELECT ON TABLE public.pull_request_static_metadata TO materialized_view_updater;
 
 
 --
