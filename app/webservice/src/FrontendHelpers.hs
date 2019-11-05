@@ -435,4 +435,4 @@ rescanCommitCallback github_config commit = do
     return $ first LT.toStrict $ run_result $> "Commit rescan complete."
 
   where
-    owned_repo = DbHelpers.OwnerAndRepo Constants.project_name Constants.repo_name
+    owned_repo = DbHelpers.OwnerAndRepo Constants.projectName Constants.repoName

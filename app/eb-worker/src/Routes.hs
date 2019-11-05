@@ -164,7 +164,7 @@ scottyApp
       liftIO $ doStuff
         connection_data
         (AuthConfig.personal_access_token github_config)
-        (DbHelpers.OwnerAndRepo Constants.project_name Constants.repo_name)
+        (DbHelpers.OwnerAndRepo Constants.projectName Constants.repoName)
         body_json
 
     S.json ["hello-post" :: Text]

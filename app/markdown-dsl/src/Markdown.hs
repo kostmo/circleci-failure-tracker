@@ -15,6 +15,10 @@ italic :: Text -> Text
 italic x = mconcat ["*", x, "*"]
 
 
+bold :: Text -> Text
+bold x = mconcat ["**", x, "**"]
+
+
 parens :: Text -> Text
 parens x = "(" <> x <> ")"
 
@@ -53,13 +57,12 @@ paragraphs :: [Text] -> Text
 paragraphs = T.unlines . intersperse ""
 
 
-
 bulletTree :: Forest Text -> Text
-bulletTree = T.unlines . map (uncurry bulletize) . bulletTreeRecurse 0
+bulletTree = T.unlines . map (uncurry bulletize) . flattenWithDepth 0
 
 
-bulletTreeRecurse :: Int -> Forest Text -> [(Int, Text)]
-bulletTreeRecurse depth = mconcat . map go
+-- | Generally call with 0 as the first argument
+flattenWithDepth :: Int -> Forest a -> [(Int, a)]
+flattenWithDepth depth = concatMap go
   where
-    go t = (depth, Tree.rootLabel t) : bulletTreeRecurse (depth + 1) (Tree.subForest t)
-
+    go t = (depth, Tree.rootLabel t) : flattenWithDepth (depth + 1) (Tree.subForest t)

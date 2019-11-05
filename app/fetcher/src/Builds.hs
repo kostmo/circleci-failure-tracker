@@ -16,10 +16,6 @@ import           GHC.Int                              (Int64)
 import qualified DbHelpers
 
 
-masterName :: Text
-masterName = "master"
-
-
 newtype PullRequestNumber = PullRequestNumber Int
  deriving (Generic, Eq, Ord, Show)
 

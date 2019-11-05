@@ -5,7 +5,6 @@ import qualified Network.OAuth.OAuth2 as OAuth2
 import           Options.Applicative
 import           System.IO
 
-import qualified Builds
 import qualified Constants
 import qualified DbHelpers
 import qualified DbPreparation
@@ -80,7 +79,7 @@ mainAppCode args = do
 
   where
     git_repo_dir = repoGitDir args
-    owned_repo = DbHelpers.OwnerAndRepo Constants.project_name Constants.repo_name
+    owned_repo = DbHelpers.OwnerAndRepo Constants.projectName Constants.repoName
 
     oauth_access_token = OAuth2.AccessToken $ gitHubPersonalAccessToken args
 

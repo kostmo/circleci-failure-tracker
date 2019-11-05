@@ -31,7 +31,7 @@ import qualified SqlWrite
 
 
 pytorchRepoOwner :: DbHelpers.OwnerAndRepo
-pytorchRepoOwner = DbHelpers.OwnerAndRepo Constants.project_name Constants.repo_name
+pytorchRepoOwner = DbHelpers.OwnerAndRepo Constants.projectName Constants.repoName
 
 
 data CommitInfoCounts = NewCommitInfoCounts {
@@ -78,6 +78,13 @@ instance ToJSON BuildInfoRetrievalBenchmarks where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
+data UpstreamBreakagesInfo = UpstreamBreakagesInfo {
+    merge_base :: Builds.RawCommit
+  , manually_annotated_breakages :: [DbHelpers.WithId SqlRead.CodeBreakage]
+  , inferred_upstream_caused_broken_jobs :: [Text]
+  }
+
+
 getBuildInfo ::
      OAuth2.AccessToken
   -> Builds.UniversalBuildId
@@ -112,7 +119,7 @@ getBuildInfo access_token build@(Builds.UniversalBuildId build_id) = do
           job_name = Builds.job_name $ BuildSteps.build step_container
 
       -- TODO Replace this!
-      (breakages_retrieval_timing, (breakages, _)) <- MyUtils.timeThisFloat $ ExceptT $
+      (breakages_retrieval_timing, UpstreamBreakagesInfo _ breakages _) <- MyUtils.timeThisFloat $ ExceptT $
         findKnownBuildBreakages conn access_token pytorchRepoOwner sha1
 
       let applicable_breakages = filter (Set.member job_name . SqlRead._jobs . DbHelpers.record) breakages
@@ -195,7 +202,7 @@ countRevisionBuilds access_token git_revision = do
       ) <- except $ maybeToEither err $ Safe.headMay rows
 
     -- TODO Replace this
-    (known_broken_determination_time, (breakages, _)) <- MyUtils.timeThisFloat $ ExceptT $
+    (known_broken_determination_time, UpstreamBreakagesInfo _ breakages _) <- MyUtils.timeThisFloat $ ExceptT $
       findKnownBuildBreakages conn access_token pytorchRepoOwner $ Builds.RawCommit sha1
 
     return $ DbHelpers.BenchmarkedResponse
@@ -307,7 +314,7 @@ findKnownBuildBreakages ::
   -> OAuth2.AccessToken
   -> DbHelpers.OwnerAndRepo
   -> Builds.RawCommit
-  -> IO (Either Text ([DbHelpers.WithId SqlRead.CodeBreakage], [Text]))
+  -> IO (Either Text UpstreamBreakagesInfo)
 findKnownBuildBreakages conn access_token owned_repo sha1 =
 
   runExceptT $ do
@@ -321,7 +328,6 @@ findKnownBuildBreakages conn access_token owned_repo sha1 =
       SqlWrite.StoreToCache
       sha1
 
-
     -- Third, find whether that commit is within the
     -- [start, end) span of any known breakages
     manually_annotated_breakages <- ExceptT $ SqlRead.getSpanningBreakages conn nearest_ancestor
@@ -334,4 +340,7 @@ findKnownBuildBreakages conn access_token owned_repo sha1 =
     -- NOTE: This requires that the "merge base" with master of the branch
     -- commit already be cached into the database.
     -- SqlWrite.findMasterAncestor does this for us.
-    return (manually_annotated_breakages, map SqlRead.extractJobName inferred_upstream_caused_broken_jobs)
+    return $ UpstreamBreakagesInfo
+      nearest_ancestor
+      manually_annotated_breakages
+      (map SqlRead.extractJobName inferred_upstream_caused_broken_jobs)

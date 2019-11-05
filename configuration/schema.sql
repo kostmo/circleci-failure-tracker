@@ -88,15 +88,17 @@ ALTER FUNCTION public.insert_derived_github_status_event_columns() OWNER TO post
 CREATE FUNCTION public.snapshot_master_viable_commit_age() RETURNS void
     LANGUAGE sql
     AS $$INSERT INTO viable_master_commit_age_history 
-SELECT CURRENT_TIMESTAMP AS inserted_at, failed_required_job_count_threshold, unbuilt_or_failed_required_job_count, commit_id, age_hours, disqualifying_jobs_array
+SELECT CURRENT_TIMESTAMP AS inserted_at,
+failed_required_job_count_threshold, unbuilt_or_failed_required_job_count, commit_id, age_hours, disqualifying_jobs_array,
+(SELECT MAX(commit_number) FROM master_commits_contiguously_indexed)  - master_commits_contiguously_indexed.commit_number AS commit_count_behind
 FROM (SELECT * FROM generate_series(0, 1) as failed_required_job_count_threshold
 CROSS JOIN generate_series(0, 2) as unbuilt_or_failed_required_job_count) bar,
      LATERAL (SELECT * FROM master_commit_job_success_completeness_mview
-
 WHERE not_succeeded_required_job_count <= unbuilt_or_failed_required_job_count
 AND failed_required_job_count <= failed_required_job_count_threshold
 ORDER BY commit_id DESC
-LIMIT 1) foo;$$;
+LIMIT 1) foo
+JOIN master_commits_contiguously_indexed ON master_commits_contiguously_indexed.id = foo.commit_id;$$;
 
 
 ALTER FUNCTION public.snapshot_master_viable_commit_age() OWNER TO postgres;
@@ -4803,7 +4805,8 @@ CREATE TABLE public.viable_master_commit_age_history (
     unbuilt_or_failed_required_job_count_threshold integer NOT NULL,
     commit_id integer NOT NULL,
     age_hours double precision NOT NULL,
-    disqualifying_jobs_array text[] NOT NULL
+    disqualifying_jobs_array text[] NOT NULL,
+    commit_count_behind integer
 );
 
 

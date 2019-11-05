@@ -39,6 +39,7 @@ import qualified AuthStages
 import qualified Breakages
 import qualified Builds
 import qualified Commits
+import qualified Constants
 import qualified DbHelpers
 import qualified GithubApiFetch
 import qualified GitHubRecords
@@ -366,7 +367,7 @@ populateLatestMasterCommits conn access_token owned_repo = do
       either_result <- GithubApiFetch.getCommitsNewestFirst
         access_token
         owned_repo
-        Builds.masterName
+        Constants.masterName
         latest_known_commit
 
       diagnoseCommitsFetchFailure

@@ -13,13 +13,21 @@ printDebug :: Bool
 printDebug = True
 
 
+masterName :: Text
+masterName = "master"
+
+
+gitCommitPrefixLength :: Int
+gitCommitPrefixLength = 7
+
+
 defaultPatternAuthor :: AuthStages.Username
 defaultPatternAuthor = AuthStages.Username "kostmo"
 
 
 presumedGoodBranches :: [Text]
 presumedGoodBranches = [
-    "master"
+    masterName
   , "pull/18339"
   , "pull/18340"
   , "pull/18341"
@@ -38,18 +46,19 @@ jsonMimeType :: ByteString
 jsonMimeType = "application/json"
 
 
-project_name :: String
-project_name = "pytorch"
+projectName :: String
+projectName = "pytorch"
 
-repo_name :: String
-repo_name = "pytorch"
+
+repoName :: String
+repoName = "pytorch"
 
 
 circleci_api_base :: String
 circleci_api_base = intercalate "/"
   [ "https://circleci.com/api/v1.1/project/github"
-  , project_name
-  , repo_name
+  , projectName
+  , repoName
   ]
 
 

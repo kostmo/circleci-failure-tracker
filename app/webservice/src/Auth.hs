@@ -78,7 +78,7 @@ getAuthenticatedUserByToken redirect_path wrapped_token github_config callback =
 
     unless is_org_member $ except $
       Left $ AuthStages.AuthFailure $ AuthStages.AuthenticationFailure (Just $ AuthStages.LoginUrl login_url True)
-        $ AuthStages.FailOrgMembership (AuthStages.Username username_text) $ T.pack Constants.project_name
+        $ AuthStages.FailOrgMembership (AuthStages.Username username_text) $ T.pack Constants.projectName
 
     ExceptT $ fmap (first AuthStages.DbFailure) $
       callback $ AuthStages.Username username_text
@@ -217,5 +217,5 @@ isOrgMember wrapped_token username = do
       return $ Right $ isOrgMemberInner either_response
 
   where
-    url_string = "https://api.github.com/orgs/" <> T.pack Constants.project_name <> "/members/" <> username
+    url_string = "https://api.github.com/orgs/" <> T.pack Constants.projectName <> "/members/" <> username
     either_membership_query_uri = parseURI strictURIParserOptions $ BSU.pack $ T.unpack url_string

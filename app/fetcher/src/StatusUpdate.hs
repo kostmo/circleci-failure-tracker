@@ -25,7 +25,6 @@ import qualified Data.Text                     as T
 import qualified Data.Text.Lazy                as LT
 import qualified Data.Time.Clock               as Clock
 import           Data.Traversable              (for)
---import           Data.Tree                     (Forest)
 import qualified Data.Tree                     as Tr
 import           Data.Tuple                    (swap)
 import           Database.PostgreSQL.Simple    (Connection)
@@ -43,6 +42,7 @@ import qualified ApiPost
 import qualified AuthConfig
 import qualified AuthStages
 import qualified Builds
+import qualified Constants
 import qualified DbHelpers
 import qualified GadgitFetch
 import qualified GithubApiFetch
@@ -75,10 +75,6 @@ drCIPullRequestCommentsReadmeUrl = "https://github.com/kostmo/circleci-failure-t
 viableCommitsHistoryUrl = "https://dr.pytorch.org/master-viable-commits.html"
 
 
-gitCommitPrefixLength :: Int
-gitCommitPrefixLength = 7
-
-
 -- | 3 minutes
 buildStatusHandlerTimeoutMicroseconds :: Int
 buildStatusHandlerTimeoutMicroseconds = 1000000 * 60 * 3
@@ -91,7 +87,7 @@ scanningStatementTimeoutSeconds = 20
 
 
 fullMasterRefName :: Text
-fullMasterRefName = "refs/heads/" <> Builds.masterName
+fullMasterRefName = "refs/heads/" <> Constants.masterName
 
 
 webserverBaseUrl :: LT.Text
@@ -127,7 +123,7 @@ conclusiveStatuses = [
 
 data BuildSummaryStats = BuildSummaryStats {
     flaky_count                 :: Int -- ^ flaky count
-  , _pre_broken_joblist         :: [Text]
+  , _upstream_breakages_info    :: SqlUpdate.UpstreamBreakagesInfo
   , total_circleci_fail_joblist :: [Text]
   }
 
@@ -365,20 +361,16 @@ postCommitSummaryStatus
   let (SqlRead.BasicRevisionBuildStats _ _ _ _ _ circleci_failcount) = basic_revision_stats
 
   -- TODO WIP!!!
-  (_manually_annotated_breakages, inferred_upstream_caused_broken_jobs) <- ExceptT $
+  upstream_breakages_info <- ExceptT $
     first LT.fromStrict <$> SqlUpdate.findKnownBuildBreakages
       conn
       access_token
       owned_repo
       sha1
 
---      circleci_failed_builds = []  -- FIXME TODO!!!
---    all_broken_jobs = Set.unions $ map (SqlRead._jobs . DbHelpers.record) manually_annotated_breakages
---    known_broken_circle_builds = filter ((`Set.member` all_broken_jobs) . Builds.job_name . Builds.build_record) circleci_failed_builds
-
   postCommitSummaryStatusInner
     (replicate circleci_failcount "xxx") -- TODO FIXME
-    inferred_upstream_caused_broken_jobs
+    upstream_breakages_info
     conn
     access_token
     owned_repo
@@ -405,7 +397,7 @@ fetchAndCachePrAuthor conn access_token pr_number = do
 
 postCommitSummaryStatusInner
     circleci_fail_joblist
-    known_broken_circle_build_count
+    upstream_breakages_info
     conn
     access_token
     owned_repo
@@ -427,7 +419,7 @@ postCommitSummaryStatusInner
   circleci_failcount = length circleci_fail_joblist
   build_summary_stats = BuildSummaryStats
     flaky_count
-    known_broken_circle_build_count
+    upstream_breakages_info
     circleci_fail_joblist
 
   -- TODO - we should instead see if the "best matching pattern" is
@@ -564,7 +556,7 @@ generateCommentMarkdown
     preliminary_lines_list = [
         T.unlines [
           Markdown.heading 2 "CircleCI build failures summary"
-        , "As of commit " <> T.take gitCommitPrefixLength sha1_text <> ":"
+        , "As of commit " <> T.take Constants.gitCommitPrefixLength sha1_text <> ":"
         , Markdown.bulletTree $ genMetricsTreeVerbose build_summary_stats
         ]
       , Markdown.sentence [
@@ -794,30 +786,42 @@ handleStatusWebhook
 
 
 genMetricsTreeVerbose :: BuildSummaryStats -> Tr.Forest Text
-genMetricsTreeVerbose (BuildSummaryStats flaky_count pre_broken all_failures) =
+genMetricsTreeVerbose (BuildSummaryStats flaky_count pre_broken_info all_failures) =
   optional_kb_metric ++ failures_introduced_in_pull_request ++ flaky_bullet_tree
   where
 
-    upstream_breakage_bullet_children = [pure $ T.pack $ unwords [
+    Builds.RawCommit merge_base_sha1_text = SqlUpdate.merge_base pre_broken_info
+
+    upstream_breakage_bullet_children = [pure $ Markdown.sentence [
         "You may want to rebase on the"
-      , T.unpack (Markdown.link "latest viable branch" viableCommitsHistoryUrl) <> "."
+      , Markdown.link "latest viable branch" viableCommitsHistoryUrl
       ]]
 
-    upstream_broken_count = length pre_broken
+    pre_broken_list = SqlUpdate.inferred_upstream_caused_broken_jobs pre_broken_info
+    upstream_broken_count = length pre_broken_list
     total_failcount = length all_failures
     broken_in_pr_count = total_failcount - upstream_broken_count
 
-    upstream_breakage_bullet_tree = Tr.Node (T.pack $
-       unwords [show upstream_broken_count <> "/" <> show total_failcount
-       , "broken upstream."
+    bold_fraction a b = Markdown.bold $ T.pack $ show a <> "/" <> show b
+
+    upstream_breakage_bullet_tree = Tr.Node (
+       T.unwords [
+           bold_fraction upstream_broken_count total_failcount
+         , "broken upstream at merge base"
+         , T.take Constants.gitCommitPrefixLength merge_base_sha1_text
        ]) upstream_breakage_bullet_children
 
-    optional_kb_metric = if null pre_broken
+    optional_kb_metric = if null pre_broken_list
       then []
       else [upstream_breakage_bullet_tree]
 
 
-    failures_introduced_in_pull_request = [pure $ T.pack $ show broken_in_pr_count <> "/" <> show total_failcount <> " failures introduced in this PR"]
+    failures_introduced_in_pull_request = [
+        pure $ T.unwords [
+            bold_fraction broken_in_pr_count total_failcount
+          , "failures introduced in this PR"
+          ]
+      ]
 
 
     flaky_bullet_children = if flaky_count > 0
@@ -827,11 +831,14 @@ genMetricsTreeVerbose (BuildSummaryStats flaky_count pre_broken all_failures) =
       else []
 
     flaky_bullet_tree = [
-        Tr.Node (T.pack $ show flaky_count <> "/" <> show total_failcount <> " recognized as flaky") flaky_bullet_children
+        Tr.Node (T.unwords [
+            bold_fraction flaky_count total_failcount
+          , "recognized as flaky"
+          ]) flaky_bullet_children
       ]
 
 
-genCompactMetricsList (BuildSummaryStats flaky_count pre_broken total_failcount) = [
+genCompactMetricsList (BuildSummaryStats flaky_count (SqlUpdate.UpstreamBreakagesInfo _ _ pre_broken) total_failcount) = [
     show flaky_count <> "/" <> show (length total_failcount) <> " flaky"
   ] ++ optional_kb_metric ++ failures_introduced_in_pull_request
   where

@@ -2236,9 +2236,12 @@ apiLatestViableMasterCommitAgeHistory = do
         , "age_hours"
         ]
       , "FROM viable_master_commit_age_history"
---      , "WHERE inserted_at > ?"
+      , "WHERE inserted_at > now() - interval '7 days'"
       , "ORDER BY inserted_at DESC"
-      , "LIMIT 250" -- About 1.5 weeks
+      -- Hard coding a limit doesn't work to indirectly define a timespan,
+      -- both because occasionally the records are not evenly spaced
+      -- and because there are multiple records for each timestamp.
+--      , "LIMIT 250"
       ]
 
 
@@ -2343,9 +2346,9 @@ apiMasterBuilds timeline_parms = do
     reversion_spans_sql = MyUtils.qjoin [
         "SELECT"
       , MyUtils.qlist [
-            "reverted_commit_id"
-          , "reversion_commit_id"
-          ]
+          "reverted_commit_id"
+        , "reversion_commit_id"
+        ]
       , "FROM master_commit_reversion_spans_mview"
       , "WHERE int8range(?, ?, '[]') && reversion_span"
       , "ORDER BY reversion_commit_id DESC"

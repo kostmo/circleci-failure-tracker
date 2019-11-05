@@ -42,6 +42,17 @@ PRs and thus will break master both without the author being able to predict so 
 other devs ever noticing.
 </p>
 
+<p>
+<b>Note:</b> A few factors result in the most recent data being omitted:
+<ul>
+<li>Buckets start on a fixed day of the week (Sunday)</li>
+<li>The current week is always omitted, as it is incomplete and would show misleadingly lower numbers</li>
+<li>A master build failure span falls into a bucket based on the span's start timestamp</li>
+<li>Some recent failure spans may not have been manually annotated yet</li>
+<li>The buckets query is cached as a "materialized view" nightly (around 5:30am UTC)</li>
+</ul>
+</p>
+
 <button onclick="refresh_cache();">Refresh cache</button>
 
 
