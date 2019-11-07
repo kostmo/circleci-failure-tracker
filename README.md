@@ -32,7 +32,7 @@ Requiring that failures in the master branch be annotated will facilitate tracki
 
 It is possible for only specific jobs of a commit to be marked as "known broken", e.g. the Travis CI Lint job.
 
-## Data flow diagram
+## Log scanning data flow diagram
 
 ![flow diagram](docs/data-flow.svg)
 

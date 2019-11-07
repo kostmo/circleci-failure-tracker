@@ -21,6 +21,10 @@ import qualified FetchHelpers
 import qualified JsonUtils
 
 
+gadgitUrlPrefix :: String
+gadgitUrlPrefix = "http://gadgit.pytorch.org"
+
+
 -- | Note: "result" and "error" are mutually exclusive
 data GadgitResponse a = GadgitResponse {
     _result  :: Maybe a
@@ -41,6 +45,15 @@ instance FromJSON PullRequestHeadAssociation where
   parseJSON = genericParseJSON JsonUtils.dropUnderscore
 
 
+--processResult :: a -> Either String b
+processResult f decoded_json = if _success decoded_json
+    then maybeToEither "API indicates success but has no result!" $ f <$> _result decoded_json
+    else Left $ unwords [
+        "Webservice error:"
+      , Maybe.fromMaybe "<none>" $ _error decoded_json
+      ]
+
+
 -- | TODO: Handle errors on individual items
 getPullRequestHeadCommitsBulk ::
      [Builds.PullRequestNumber]
@@ -50,15 +63,9 @@ getPullRequestHeadCommitsBulk pr_numbers = runExceptT $ do
     NW.post url_string $ toJSON pr_numbers
 
   decoded_json <- except $ eitherDecode $ NC.responseBody response
-  except $ if _success decoded_json
-    then maybeToEither "API indicates success but has no result!" $ _result decoded_json
-    else Left $ unwords [
-        "Webservice error:"
-      , Maybe.fromMaybe "<none>" $ _error decoded_json
-      ]
-
+  except $ processResult id decoded_json
   where
-    url_string = "http://gadgit.pytorch.org/bulk-pull-request-heads"
+    url_string = gadgitUrlPrefix <> "/bulk-pull-request-heads"
 
 
 getSinglePullRequestHeadCommit ::
@@ -68,15 +75,9 @@ getSinglePullRequestHeadCommit (Builds.PullRequestNumber pr_num) = runExceptT $ 
 
   response <- ExceptT $ liftIO $ FetchHelpers.safeGetUrl $ NW.get url_string
   decoded_json <- except $ eitherDecode $ NC.responseBody response
-  except $ if _success decoded_json
-    then maybeToEither "API indicates success but has no result!" $ Builds.RawCommit <$> _result decoded_json
-    else Left $ unwords [
-        "Webservice error:"
-      , Maybe.fromMaybe "<none>" $ _error decoded_json
-      ]
-
+  except $ processResult Builds.RawCommit decoded_json
   where
-    url_string = "http://gadgit.pytorch.org/pr-head-commit/" <> show pr_num
+    url_string = gadgitUrlPrefix <> "/pr-head-commit/" <> show pr_num
 
 
 getContainingPRs :: Builds.RawCommit -> IO (Either String [Builds.PullRequestNumber])
@@ -84,12 +85,7 @@ getContainingPRs (Builds.RawCommit sha1) = runExceptT $ do
 
   response <- ExceptT $ liftIO $ FetchHelpers.safeGetUrl $ NW.get url_string
   decoded_json <- except $ eitherDecode $ NC.responseBody response
-  except $ if _success decoded_json
-    then maybeToEither "API indicates success but has no result!" $ map Builds.PullRequestNumber <$> _result decoded_json
-    else Left $ unwords [
-        "Webservice error:"
-      , Maybe.fromMaybe "<none>" $ _error decoded_json
-      ]
+  except $ processResult (map Builds.PullRequestNumber) decoded_json
 
   where
-    url_string = "http://gadgit.pytorch.org/head-of-pull-requests/" <> T.unpack sha1
+    url_string = gadgitUrlPrefix <> "/head-of-pull-requests/" <> T.unpack sha1
