@@ -5,12 +5,14 @@ import qualified Network.OAuth.OAuth2 as OAuth2
 import           Options.Applicative
 import           System.IO
 
+import qualified Builds
 import qualified Constants
 import qualified DbHelpers
 import qualified DbPreparation
+import qualified GadgitFetch
+import qualified MyUtils
 import qualified SqlUpdate
 import qualified SqlWrite
-
 
 data CommandLineArgs = NewCommandLineArgs {
     dbHostname                :: String
@@ -42,6 +44,30 @@ mainAppCode args = do
   hSetBuffering stdout LineBuffering
 
 
+
+  result1 <- GadgitFetch.getSinglePullRequestHeadCommit $ Builds.PullRequestNumber 27445
+  MyUtils.debugList [
+      "result1:"
+    , show result1
+    ]
+
+
+  result2 <- GadgitFetch.getSinglePullRequestHeadCommit $ Builds.PullRequestNumber 27445547
+  MyUtils.debugList [
+      "result2:"
+    , show result2
+    ]
+
+
+  -- | TODO move these to unit tests
+  result3 <- GadgitFetch.getPullRequestHeadCommitsBulk $ map Builds.PullRequestNumber [22201, 23463]
+  MyUtils.debugList [
+      "result3:"
+    , show result3
+    ]
+
+
+  putStrLn "============================="
 
   conn <- DbPreparation.prepareDatabase connection_data False
 

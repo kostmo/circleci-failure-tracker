@@ -102,11 +102,12 @@ fetchRefs git_dir = do
   return $ first T.pack $ void $ exitStatusToEither exit_status out err
 
 
-getPullRequestHeadCommit ::
+
+getPullRequestHeadCommitLocal ::
      FilePath -- ^ repo git dir
   -> Builds.PullRequestNumber
   -> IO (Either T.Text Builds.RawCommit)
-getPullRequestHeadCommit git_dir (Builds.PullRequestNumber pr_number) = do
+getPullRequestHeadCommitLocal git_dir (Builds.PullRequestNumber pr_number) = do
   (Command.Exit exit_status, Command.Stdout out, Command.Stderr err) <- Command.cmd $ unwords [
       "git"
     , "--git-dir"

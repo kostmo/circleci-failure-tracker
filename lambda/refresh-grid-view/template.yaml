@@ -60,6 +60,14 @@ Resources:
       Runtime: python3.7
 
 
+  CleanupEnqueuedSha1ScanPlaceholdersFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: dr_ci_view_refresh/
+      Handler: cleanup_in_progress_sha1_scan_placeholders.do_cleanup_lambda_handler
+      Runtime: python3.7
+
+
 Outputs:
   # ServerlessRestApi is an implicit API created out of Events key under Serverless::Function
   # Find out more about other implicit resources you can reference within SAM

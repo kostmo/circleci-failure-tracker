@@ -238,7 +238,12 @@ getAllPullRequestHeadCommits conn git_dir = do
   pr_associations <- runReaderT SqlRead.getAllMasterCommitPullRequests conn
 
   let pr_numbers = map (\(SqlRead.MasterCommitAndSourcePr _ pr_num) -> pr_num) pr_associations
-  pr_head_commits <- mapM (MergeBase.getPullRequestHeadCommit git_dir) pr_numbers
+
+  -- TODO Bulk retrieval lacks per-item error reporting
+--  pr_associations <- GadgitFetch.getPullRequestHeadCommitsBulk pr_numbers
+--  let pr_head_commits = map GadgitFetch._head_commit pr_associations
+
+  pr_head_commits <- mapM (MergeBase.getPullRequestHeadCommitLocal git_dir) pr_numbers
 
   let pr_head_eithers = zipWith (curry sequenceA) pr_numbers pr_head_commits
       (unretrieved_pr_heads, retrieved_pr_heads) = partitionEithers pr_head_eithers
@@ -473,11 +478,13 @@ storeCircleCiBuildsList
         zipped_output1
         (map fst deduped_builds_list)
 
-  ci_scan_id <- runReaderT (storeScanRecord
-    SqlRead.circleCIProviderIndex
-    branch_name
-    fetch_initiation_timestamp
-    maybe_eb_worker_event_id) conn
+  let store_scan_record = storeScanRecord
+        SqlRead.circleCIProviderIndex
+        branch_name
+        fetch_initiation_timestamp
+        maybe_eb_worker_event_id
+
+  ci_scan_id <- runReaderT store_scan_record conn
 
   storeBuildsList conn (Just ci_scan_id) zipped_output2
 
