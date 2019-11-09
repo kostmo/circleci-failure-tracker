@@ -61,7 +61,7 @@ import qualified Webhooks
 
 -- | For auto-commenting feature
 whitelistedPRAuthors :: [Text]
-whitelistedPRAuthors = ["ezyang", "kostmo", "suo", "yf225", "ZolotukhinM", "zdevito"]
+whitelistedPRAuthors = ["ezyang", "kostmo", "suo", "yf225", "ZolotukhinM", "zdevito", "albanD"]
 
 
 drCIApplicationTitle :: Text
@@ -793,8 +793,8 @@ genMetricsTreeVerbose (BuildSummaryStats flaky_count pre_broken_info all_failure
     Builds.RawCommit merge_base_sha1_text = SqlUpdate.merge_base pre_broken_info
 
     upstream_breakage_bullet_children = [pure $ Markdown.sentence [
-        "You may want to rebase on the"
-      , Markdown.link "latest viable branch" viableCommitsHistoryUrl
+        "You may want to rebase on the `viable/strict` branch"
+      , Markdown.parens $ T.unwords ["see", Markdown.link "age history" viableCommitsHistoryUrl]
       ]]
 
     pre_broken_list = SqlUpdate.inferred_upstream_caused_broken_jobs pre_broken_info
@@ -809,6 +809,7 @@ genMetricsTreeVerbose (BuildSummaryStats flaky_count pre_broken_info all_failure
            bold_fraction upstream_broken_count total_failcount
          , "broken upstream at merge base"
          , T.take Constants.gitCommitPrefixLength merge_base_sha1_text
+         , Markdown.parens $ Markdown.link "grid view" ("https://dr.pytorch.org/master-timeline.html?count=10&sha1=" <> merge_base_sha1_text <> "&should_suppress_scheduled_builds=true&should_suppress_fully_successful_columns=true&max_columns_suppress_successful=35")
        ]) upstream_breakage_bullet_children
 
     optional_kb_metric = if null pre_broken_list
