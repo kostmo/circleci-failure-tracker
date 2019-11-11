@@ -5,7 +5,10 @@
 <link href="/style.css" rel="stylesheet" type="text/css"></link>
 
 
-<script src="https://code.highcharts.com/7.1/highcharts.js"></script>
+
+
+
+<script src="https://code.highcharts.com/highcharts.js"></script>
 <script src="https://code.highcharts.com/modules/exporting.js"></script>
 <script src="https://code.highcharts.com/modules/export-data.js"></script>
 <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
@@ -37,6 +40,16 @@ ul > li {
 <span style="float: right">[<a href="/">home</a>]</span>
 <h2>Viable master commits</h2>
 
+<h3>Viable commit age history</h3>
+
+<div id="scan-throbber2" style="display: none;"><img src="/images/duck.gif"/></div>
+
+<div id="age-history-plot"></div>
+
+<div id="lag-count-history-plot"></div>
+
+
+<h3>Disqualifying jobs list</h3>
 <p>
 This lists the best candidate commits on the <code>master</code> branch for developers to base their work upon.
 </p>
@@ -57,12 +70,7 @@ This lists the best candidate commits on the <code>master</code> branch for deve
 
 <div id="good-commits-table"></div>
 
-<h2>Viable commit age history</h2>
 
-
-<div id="scan-throbber2" style="display: none;"><img src="/images/duck.gif"/></div>
-
-<div id="age-history-plot"></div>
 
 <hr/>
 

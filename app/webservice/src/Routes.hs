@@ -405,7 +405,12 @@ scottyApp
       <*> S.param "failing-threshold"
 
   get "/api/viable-commit-age-history" $
-    pure SqlRead.apiLatestViableMasterCommitAgeHistory
+    SqlRead.apiLatestViableMasterCommitAgeHistory
+      <$> S.param "weeks"
+
+  get "/api/viable-commit-lag-count-history" $
+    SqlRead.apiLatestViableMasterCommitLagCountHistory
+      <$> S.param "weeks"
 
   get "/api/is-master-commit" $
     SqlRead.isMasterCommit . Builds.RawCommit <$> S.param "sha1"

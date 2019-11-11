@@ -2204,24 +2204,26 @@ apiCleanestMasterCommits missing_threshold failing_threshold = do
       ]
 
 
-data ViableCommitAgeRecord = ViableCommitAgeRecord {
+-- | Also works for commit count lag
+data ViableCommitAgeRecord a = ViableCommitAgeRecord {
     _inserted_at                                    :: UTCTime
   , _failed_required_job_count_threshold            :: Int
   , _unbuilt_or_failed_required_job_count_threshold :: Int
   , _commit_id                                      :: Int64
-  , _age_hours                                      :: Double
+  , _value                                          :: a
   } deriving (Generic, FromRow)
 
-instance ToJSON ViableCommitAgeRecord where
+instance (ToJSON a) => ToJSON (ViableCommitAgeRecord a) where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
 -- | Note list reversal for the sake of Highcharts
 apiLatestViableMasterCommitAgeHistory ::
-   DbIO [ViableCommitAgeRecord]
-apiLatestViableMasterCommitAgeHistory = do
+     Int -- ^ weeks count
+  -> DbIO [ViableCommitAgeRecord Double]
+apiLatestViableMasterCommitAgeHistory weeks_count = do
   conn <- ask
-  liftIO $ reverse <$> query_ conn sql
+  liftIO $ reverse <$> query conn sql (Only weeks_count)
   where
     sql = MyUtils.qjoin [
         "SELECT"
@@ -2233,12 +2235,36 @@ apiLatestViableMasterCommitAgeHistory = do
         , "age_hours"
         ]
       , "FROM viable_master_commit_age_history"
-      , "WHERE inserted_at > now() - interval '7 days'"
+      , "WHERE inserted_at > now() - interval '? weeks'"
       , "ORDER BY inserted_at DESC"
-      -- Hard coding a limit doesn't work to indirectly define a timespan,
+      -- Hard coding a row limit doesn't work to indirectly define a timespan,
       -- both because occasionally the records are not evenly spaced
       -- and because there are multiple records for each timestamp.
 --      , "LIMIT 250"
+      ]
+
+
+-- | Note list reversal for the sake of Highcharts
+apiLatestViableMasterCommitLagCountHistory ::
+     Int -- ^ weeks count
+  -> DbIO [ViableCommitAgeRecord Int]
+apiLatestViableMasterCommitLagCountHistory weeks_count = do
+  conn <- ask
+  liftIO $ reverse <$> query conn sql (Only weeks_count)
+  where
+    sql = MyUtils.qjoin [
+        "SELECT"
+      , MyUtils.qlist [
+          "inserted_at"
+        , "failed_required_job_count_threshold"
+        , "unbuilt_or_failed_required_job_count_threshold"
+        , "commit_id"
+        , "commit_count_behind"
+        ]
+      , "FROM viable_master_commit_age_history"
+      , "WHERE inserted_at > now() - interval '? weeks'"
+      , "AND commit_count_behind IS NOT NULL"
+      , "ORDER BY inserted_at DESC"
       ]
 
 
