@@ -10,8 +10,7 @@ function gen_good_commits_table(element_id, data_url, height_string) {
 			    return moment(cell.getValue()).fromNow();
 			},
 		},
-		{title: "Unbuilt", field: "unbuilt_required_job_count", width: 125,},
-		{title: "Failed", field: "failed_required_build_count", width: 125,
+		{title: "Failed", field: "failed_required_job_count", width: 125,
 		},
 		{title: "Disqualifying jobs", field: "disqualifying_jobs", formatter: function(cell, formatterParams, onRendered) {
 			    return cell.getValue().join(", ");
@@ -59,7 +58,7 @@ function latest_viable_age_timeline_highchart(chart_id, data, stacking_type) {
 	const series_list = [];
 	for (const [failed_threshold, by_failed_threshold] of Object.entries(all_points)) {
 		for (const [unbuilt_threshold, by_unbuilt_threshold] of Object.entries(by_failed_threshold)) {
-			series_list.push({"name": failed_threshold + " failed, " + unbuilt_threshold + " unbuilt", data: by_unbuilt_threshold});
+			series_list.push({"name": failed_threshold + " failed, " + unbuilt_threshold + " failed or incomplete", data: by_unbuilt_threshold});
 		}
 	}
 

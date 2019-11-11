@@ -31,7 +31,7 @@ type IndexedRichCommit = DbHelpers.WithId CommitAndMetadata
 
 data RequiredJobCounts = RequiredJobCounts {
     _total              :: Int
-  , _unbuilt            :: Int
+  , _not_succeeded      :: Int
   , _failed             :: Int
   , _disqualifying_jobs :: PGArray Text
   } deriving Generic

@@ -1720,7 +1720,7 @@ getMasterCommits conn parent_offset_mode =
       , downstream_commit_count
       , reverted_sha1
       , total_required_commit_job_count
-      , unbuilt_required_job_count
+      , failed_or_incomplete_required_job_count
       , failed_required_job_count
       , disqualifying_jobs_array) =
       DbHelpers.WithId commit_id $ BuildResults.CommitAndMetadata
@@ -1737,7 +1737,7 @@ getMasterCommits conn parent_offset_mode =
       where
         maybe_required_job_counts = BuildResults.RequiredJobCounts <$>
           total_required_commit_job_count <*>
-          unbuilt_required_job_count <*>
+          failed_or_incomplete_required_job_count <*>
           failed_required_job_count <*>
           disqualifying_jobs_array
 
@@ -1775,7 +1775,7 @@ getMasterCommits conn parent_offset_mode =
           , "downstream_commit_count"
           , "reverted_sha1"
           , "total_required_commit_job_count"
-          , "unbuilt_required_job_count"
+          , "not_succeeded_required_job_count"
           , "failed_required_job_count"
           , "disqualifying_jobs_array"
           ]
@@ -2158,14 +2158,12 @@ getScheduledJobNames = listFlat sql
       ]
 
 
-
 data MasterJobCoverage = MasterJobCoverage {
     _commit_id                        :: Int64
   , _sha1                             :: Builds.RawCommit
   , _total_required_commit_job_count  :: Int
   , _not_succeeded_required_job_count :: Int
-  , _unbuilt_required_job_count       :: Int
-  , _failed_required_build_count      :: Int
+  , _failed_required_job_count        :: Int
   , _disqualifying_jobs               :: DbHelpers.SemicolonDelimitedDbText
   , _commit_timestamp                 :: Maybe UTCTime
   , _age_hours                        :: Maybe Double
@@ -2190,15 +2188,14 @@ apiCleanestMasterCommits missing_threshold failing_threshold = do
         , "sha1"
         , "total_required_commit_job_count"
         , "not_succeeded_required_job_count"
-        , "unbuilt_required_job_count"
-        , "not_succeeded_required_job_count - unbuilt_required_job_count AS failed_required_build_count"
+        , "failed_required_job_count"
         , "disqualifying_jobs"
         , "committer_date"
         , "age_hours"
         ]
       , "FROM master_commit_job_success_completeness_mview"
       , "WHERE not_succeeded_required_job_count <= ?"
-      , "AND not_succeeded_required_job_count - unbuilt_required_job_count <= ?"
+      , "AND failed_required_job_count <= ?"
       , "ORDER BY"
       , MyUtils.qlist [
           "commit_id DESC"

@@ -3,7 +3,7 @@
 --
 
 -- Dumped from database version 10.6
--- Dumped by pg_dump version 11.5 (Ubuntu 11.5-3.pgdg18.04+1)
+-- Dumped by pg_dump version 12.0 (Ubuntu 12.0-2.pgdg18.04+1)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -104,8 +104,6 @@ JOIN master_commits_contiguously_indexed ON master_commits_contiguously_indexed.
 ALTER FUNCTION public.snapshot_master_viable_commit_age() OWNER TO postgres;
 
 SET default_tablespace = '';
-
-SET default_with_oids = false;
 
 --
 -- Name: logs; Type: TABLE; Schema: frontend_logging; Owner: postgres
@@ -2607,6 +2605,31 @@ ALTER TABLE public.github_status_events_aggregate_circleci_failures OWNER TO pos
 --
 
 COMMENT ON VIEW public.github_status_events_aggregate_circleci_failures IS 'NOTE: It''s possible to receive more than one failure notification for a given job and sha1, so one would need to use DISTINCT to obtain an accurate count of jobs.';
+
+
+--
+-- Name: github_status_events_circleci_success; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.github_status_events_circleci_success AS
+ SELECT github_status_events_circleci.sha1,
+    github_status_events_circleci.created_at,
+    github_status_events_circleci.job_name_extracted,
+    github_status_events_circleci.build_number_extracted,
+    github_status_events_circleci.state
+   FROM public.github_status_events_circleci
+  WHERE (github_status_events_circleci.state = 'success'::text);
+
+
+ALTER TABLE public.github_status_events_circleci_success OWNER TO postgres;
+
+--
+-- Name: VIEW github_status_events_circleci_success; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.github_status_events_circleci_success IS 'Filtering by "success" does not require use of the (very slow, from use of DISTINCT ON) "github_circleci_latest_statuses_by_build" view, since the "success" state should always be unique and the last state.
+
+Related: "disjoint_circleci_build_statuses" view for examining which CircleCI builds have been observed as GitHub notifications but not processed any further.';
 
 
 --
@@ -6880,6 +6903,14 @@ GRANT ALL ON TABLE public.github_status_events_aggregate_circleci_failures TO lo
 
 
 --
+-- Name: TABLE github_status_events_circleci_success; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.github_status_events_circleci_success TO logan;
+GRANT SELECT ON TABLE public.github_status_events_circleci_success TO materialized_view_updater;
+
+
+--
 -- Name: TABLE github_status_events_window_functions; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -7446,6 +7477,7 @@ GRANT SELECT ON TABLE public.upstream_breakages_weekly_aggregation TO materializ
 --
 
 GRANT SELECT ON TABLE public.upstream_breakages_weekly_aggregation_mview TO logan;
+GRANT SELECT ON TABLE public.upstream_breakages_weekly_aggregation_mview TO postgres;
 
 
 --

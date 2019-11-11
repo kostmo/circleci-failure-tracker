@@ -418,11 +418,28 @@ function define_job_column(col) {
 
 					return bracketed_job_name + "<" + failure_mode_obj["step_name"] + ">";
 
+
+				} else if (failure_mode_obj["tag"] == "Success") {
+
+					return "Build succeeded, details retrieved";
+
 				} else {
 					return false;
 				}
+
 			} else {
-				return false;
+
+				const row_data = cell.getRow().getData();
+				const commit_id = row_data["commit_index"];
+				const state = disjoint_statuses_by_commit_id[commit_id] && disjoint_statuses_by_commit_id[commit_id][job_name];
+
+				if (state) {
+					return "State: " + state;
+
+				} else {
+//					return "<nothing>";
+					return false;
+				}
 			}
 		},
 		formatter: function(cell, formatterParams, onRendered) {
@@ -515,6 +532,15 @@ function define_job_column(col) {
 						cell.getElement().style.backgroundSize = "20px";
 						cell.getElement().style.backgroundImage = "url('/images/corner-triangle-red.svg')";
 						return "";
+					} else if (state == "success") {
+
+						/*
+						cell.getElement().style.backgroundRepeat = "no-repeat";
+						cell.getElement().style.backgroundSize = "20px";
+						cell.getElement().style.backgroundImage = "url('/images/corner-triangle-green.svg')";
+						*/
+
+						return '<img src="/images/build-status-indicators/green-dot-concentric.svg" style="width: 100%; top: 50%;"/>';
 					} else {
 						return "";
 					}
@@ -746,7 +772,7 @@ function define_builds_completeness_column() {
 
 			const mydict = cell.getValue();
 			if (mydict) {
-				const succeeded_count = mydict["total"] - (mydict["unbuilt"] + mydict["failed"])
+				const succeeded_count = mydict["total"] - mydict["not_succeeded"]
 				return succeeded_count + "/" + mydict["total"] + "; " + mydict["failed"] + "F";
 			}
 
@@ -757,7 +783,7 @@ function define_builds_completeness_column() {
 			if (mydict) {
 				const stats_keys = [
 					"total",
-					"unbuilt",
+					"not_succeeded",
 					"failed",
 				];
 
@@ -1053,7 +1079,7 @@ function gen_timeline_table(element_id, fetched_data) {
 			var data = row.getData();
 
 			if (!data["was_built"]) {
-				row.getElement().style.backgroundColor = "#dda";
+				row.getElement().style.backgroundColor = "#eec";
 				row.getElement().style.color = "#777";
 			}
 		},
