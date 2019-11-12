@@ -111,19 +111,29 @@ function requery_table() {
 }
 
 
-function main() {
+function render_timeplots() {
 
-	requery_table();
 
 	const ending_on_timestamp = new Date();
 	const ending_on_timestamp_string = ending_on_timestamp.toISOString();
 
-	getJsonWithThrobber("#scan-throbber2", "/api/viable-commit-age-history", {"weeks": 2, "end-timestamp": ending_on_timestamp_string}, function (data) {
+	const weeks_count = $("#week-count-input").val();
+
+	getJsonWithThrobber("#scan-throbber2", "/api/viable-commit-age-history", {"weeks": weeks_count, "end-timestamp": ending_on_timestamp_string}, function (data) {
 		latest_viable_age_timeline_highchart("age-history-plot", "Age", 'Age (hours)', data);
 	});
 
-	getJsonWithThrobber("#scan-throbber2", "/api/viable-commit-lag-count-history", {"weeks": 2, "end-timestamp": ending_on_timestamp_string}, function (data) {
+	getJsonWithThrobber("#scan-throbber2", "/api/viable-commit-lag-count-history", {"weeks": weeks_count, "end-timestamp": ending_on_timestamp_string}, function (data) {
 		latest_viable_age_timeline_highchart("lag-count-history-plot", "Commit Count Lag", 'commit count', data);
 	});
+
+}
+
+
+function main() {
+
+	requery_table();
+
+	render_timeplots();
 }
 
