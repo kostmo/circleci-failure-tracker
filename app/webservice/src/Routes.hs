@@ -29,6 +29,7 @@ import qualified Web.Scotty.Internal.Types       as ScottyTypes
 import qualified Auth
 import qualified AuthConfig
 import qualified AuthStages
+import qualified BuildRetrieval
 import qualified Builds
 import qualified DbHelpers
 import qualified FrontendHelpers
@@ -407,10 +408,12 @@ scottyApp
   get "/api/viable-commit-age-history" $
     SqlRead.apiLatestViableMasterCommitAgeHistory
       <$> S.param "weeks"
+      <*> (BuildRetrieval.decodeUtcTimeString <$> S.param "end-timestamp")
 
   get "/api/viable-commit-lag-count-history" $
     SqlRead.apiLatestViableMasterCommitLagCountHistory
       <$> S.param "weeks"
+      <*> (BuildRetrieval.decodeUtcTimeString <$> S.param "end-timestamp")
 
   get "/api/is-master-commit" $
     SqlRead.isMasterCommit . Builds.RawCommit <$> S.param "sha1"

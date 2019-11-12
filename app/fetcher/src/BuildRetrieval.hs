@@ -115,6 +115,10 @@ updateCircleCIBuildsList
   return $ sum insertion_counts
 
 
+decodeUtcTimeString :: T.Text -> UTCTime
+decodeUtcTimeString time_string = head $ Maybe.fromJust $ decode (encode [time_string])
+
+
 -- | This is populated from the "bulk" API query which lists multiple builds.
 -- Contrast with CircleBuild.SingleBuild, for which the API returns
 -- one build at a time.
@@ -124,11 +128,11 @@ itemToBuild json = (b, did_succeed)
     b = Builds.NewBuild {
       Builds.build_id = Builds.NewBuildNumber $ view (key "build_num" . _Integral) json
     , Builds.vcs_revision = Builds.RawCommit $ view (key "vcs_revision" . _String) json
-    , Builds.queued_at = head $ Maybe.fromJust $ decode (encode [queued_at_string])
+    , Builds.queued_at = decodeUtcTimeString queued_at_string
     , Builds.job_name = view (key "workflows" . key "job_name" . _String) json
     , Builds.branch = Just $ view (key "branch" . _String) json
-    , Builds.start_time = Just $ head $ Maybe.fromJust $ decode (encode [start_time_string])
-    , Builds.stop_time = Just $ head $ Maybe.fromJust $ decode (encode [stop_time_string])
+    , Builds.start_time = Just $ decodeUtcTimeString start_time_string
+    , Builds.stop_time = Just $ decodeUtcTimeString stop_time_string
     }
 
     queued_at_string = view (key "queued_at" . _String) json

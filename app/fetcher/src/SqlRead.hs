@@ -2220,10 +2220,11 @@ instance (ToJSON a) => ToJSON (ViableCommitAgeRecord a) where
 -- | Note list reversal for the sake of Highcharts
 apiLatestViableMasterCommitAgeHistory ::
      Int -- ^ weeks count
+  -> UTCTime -- ^ end time
   -> DbIO [ViableCommitAgeRecord Double]
-apiLatestViableMasterCommitAgeHistory weeks_count = do
+apiLatestViableMasterCommitAgeHistory weeks_count end_time = do
   conn <- ask
-  liftIO $ reverse <$> query conn sql (Only weeks_count)
+  liftIO $ reverse <$> query conn sql (end_time, weeks_count)
   where
     sql = MyUtils.qjoin [
         "SELECT"
@@ -2235,7 +2236,7 @@ apiLatestViableMasterCommitAgeHistory weeks_count = do
         , "age_hours"
         ]
       , "FROM viable_master_commit_age_history"
-      , "WHERE inserted_at > now() - interval '? weeks'"
+      , "WHERE inserted_at > ?::timestamp - interval '? weeks'"
       , "ORDER BY inserted_at DESC"
       -- Hard coding a row limit doesn't work to indirectly define a timespan,
       -- both because occasionally the records are not evenly spaced
@@ -2247,10 +2248,11 @@ apiLatestViableMasterCommitAgeHistory weeks_count = do
 -- | Note list reversal for the sake of Highcharts
 apiLatestViableMasterCommitLagCountHistory ::
      Int -- ^ weeks count
+  -> UTCTime -- ^ end time
   -> DbIO [ViableCommitAgeRecord Int]
-apiLatestViableMasterCommitLagCountHistory weeks_count = do
+apiLatestViableMasterCommitLagCountHistory weeks_count end_time = do
   conn <- ask
-  liftIO $ reverse <$> query conn sql (Only weeks_count)
+  liftIO $ reverse <$> query conn sql (end_time, weeks_count)
   where
     sql = MyUtils.qjoin [
         "SELECT"
@@ -2262,7 +2264,7 @@ apiLatestViableMasterCommitLagCountHistory weeks_count = do
         , "commit_count_behind"
         ]
       , "FROM viable_master_commit_age_history"
-      , "WHERE inserted_at > now() - interval '? weeks'"
+      , "WHERE inserted_at > ?::timestamp - interval '? weeks'"
       , "AND commit_count_behind IS NOT NULL"
       , "ORDER BY inserted_at DESC"
       ]
