@@ -41,6 +41,17 @@ function update_resolution_commit() {
 }
 
 
+function update_cause_commit() {
+
+	const cause_id = get_cause_id();
+	const new_cause_commit = $("#new-cause-sha1-field").val();
+
+	if (new_cause_commit && confirm("Update cause sha1 to " + new_cause_commit + "?")) {
+		post_modification("/api/code-breakage-update-cause-sha1", {"cause_id": cause_id, "cause_sha1": new_cause_commit});
+	}
+}
+
+
 function gen_affected_jobs_table(element_id, cause_id) {
 
 	const data_url = "/api/known-breakage-affected-jobs?cause_id=" + cause_id;

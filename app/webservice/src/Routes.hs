@@ -519,6 +519,11 @@ scottyApp
       <$> S.param "cause_id"
       <*> (Builds.RawCommit <$> S.param "resolution_sha1")
 
+  post "/api/code-breakage-update-cause-sha1" $
+    SqlWrite.updateCodeBreakageCauseSha1
+      <$> S.param "cause_id"
+      <*> (Builds.RawCommit <$> S.param "cause_sha1")
+
   post "/api/code-breakage-delete-resolution" $
     SqlWrite.deleteCodeBreakageResolution
       <$> S.param "cause_id"

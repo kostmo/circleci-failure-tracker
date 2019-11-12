@@ -67,6 +67,9 @@ function latest_viable_age_timeline_highchart(chart_id, metric_type, y_units, da
 		chart: {
 			type: 'line',
 		},
+		time: {
+			useUTC: false
+		},
 		title: {
 			text: metric_type + ' of latest viable commit',
 		},

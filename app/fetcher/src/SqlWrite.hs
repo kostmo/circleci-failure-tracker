@@ -931,6 +931,17 @@ updateCodeBreakageResolutionSha1 cause_id (Builds.RawCommit sha1) = do
     sql = "UPDATE code_breakage_resolution SET sha1 = ? WHERE cause = ?;"
 
 
+updateCodeBreakageCauseSha1 ::
+     Int64
+  -> Builds.RawCommit
+  -> SqlRead.DbIO (Either Text Int64)
+updateCodeBreakageCauseSha1 cause_id (Builds.RawCommit sha1) = do
+  conn <- ask
+  liftIO $ Right <$> execute conn sql (sha1, cause_id)
+  where
+    sql = "UPDATE code_breakage_cause SET sha1 = ? WHERE id = ?;"
+
+
 deleteCodeBreakageResolution ::
      Int64
   -> SqlRead.DbIO (Either Text Int64)
