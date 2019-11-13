@@ -5,6 +5,7 @@ module StatusUpdate (
   , readGitHubStatusesAndScanAndPostSummaryForCommit
   , getBuildsFromGithub
   , postCommitSummaryStatus
+  , genBuildFailuresTable
   ) where
 
 import           Control.Concurrent            (forkIO)
@@ -17,6 +18,8 @@ import           Data.Bifunctor                (first)
 import qualified Data.ByteString.Lazy          as LBS
 import           Data.Foldable                 (for_)
 import           Data.List                     (filter, intercalate)
+import           Data.List.NonEmpty            (NonEmpty ((:|)))
+import qualified Data.List.NonEmpty            as NE
 import           Data.List.Split               (splitOn)
 import qualified Data.Maybe                    as Maybe
 import qualified Data.Set                      as Set
@@ -42,11 +45,14 @@ import qualified ApiPost
 import qualified AuthConfig
 import qualified AuthStages
 import qualified Builds
+import qualified CommitBuilds
 import qualified Constants
 import qualified DbHelpers
 import qualified GadgitFetch
 import qualified GithubApiFetch
+import qualified GitRev
 import qualified Markdown
+import qualified MatchOccurrences
 import qualified MyUtils
 import qualified PushWebhooks
 import qualified Scanning
@@ -351,7 +357,7 @@ postCommitSummaryStatus
     conn
     access_token
     owned_repo
-    sha1
+    sha1@(Builds.RawCommit commit_sha1_text)
     scan_matches = do
 
   -- TODO This should return the actual jobs that failed, rather than
@@ -368,9 +374,13 @@ postCommitSummaryStatus
       owned_repo
       sha1
 
+  validated_sha1 <- except $ first LT.fromStrict $ GitRev.validateSha1 commit_sha1_text
+  DbHelpers.BenchmarkedResponse _ revision_builds <- liftIO $ runReaderT (SqlRead.getRevisionBuilds validated_sha1) conn
+
   postCommitSummaryStatusInner
     (replicate circleci_failcount "xxx") -- TODO FIXME
     upstream_breakages_info
+    revision_builds
     conn
     access_token
     owned_repo
@@ -398,6 +408,7 @@ fetchAndCachePrAuthor conn access_token pr_number = do
 postCommitSummaryStatusInner
     circleci_fail_joblist
     upstream_breakages_info
+    revision_builds
     conn
     access_token
     owned_repo
@@ -474,7 +485,11 @@ postCommitSummaryStatusInner
       pr_number
       comment_post_result
     where
-      pr_comment_text = generateCommentMarkdown Nothing build_summary_stats sha1
+      pr_comment_text = generateCommentMarkdown
+        Nothing
+        build_summary_stats
+        revision_builds
+        sha1
 
 
   update_comment_or_fallback pr_number previous_pr_comment = do
@@ -504,8 +519,13 @@ postCommitSummaryStatusInner
       Left other_failure_message -> except $ Left other_failure_message
 
     where
-      pr_comment_text = generateCommentMarkdown (Just previous_pr_comment) build_summary_stats sha1
-      comment_id =  ApiPost.CommentId $ SqlRead._comment_id previous_pr_comment
+      pr_comment_text = generateCommentMarkdown
+        (Just previous_pr_comment)
+        build_summary_stats
+        revision_builds
+        sha1
+
+      comment_id = ApiPost.CommentId $ SqlRead._comment_id previous_pr_comment
 
 
   post_pr_comment_and_store = do
@@ -547,22 +567,43 @@ postCommitSummaryStatusInner
           return 0
 
 
+genBuildFailuresTable :: [CommitBuilds.CommitBuild] -> NonEmpty Text
+genBuildFailuresTable revision_builds =
+  Markdown.table header_columns data_rows
+  where
+    header_columns = ["Job", "Step", "Log excerpt (context on hover)"]
+    data_rows = map gen_data_row revision_builds
+
+    gen_data_row (CommitBuilds.NewCommitBuild (Builds.StorableBuild _universal_build build_obj) match_obj _) = [
+        T.unwords [
+            "<img src='https://avatars0.githubusercontent.com/ml/7?s=12'/>"
+          , Markdown.sup $ Builds.job_name build_obj
+          ]
+      , Markdown.sup $ MatchOccurrences._build_step match_obj
+      , Markdown.supTitle (MatchOccurrences._line_text match_obj) $ Markdown.codeInline $ MatchOccurrences.getMatchedText match_obj
+      ]
+
+
 generateCommentMarkdown
     maybe_previous_pr_comment
     build_summary_stats
+    revision_builds
     (Builds.RawCommit sha1_text) =
   Markdown.paragraphs $ preliminary_lines_list ++ optional_suffix
   where
+    build_failures_table = T.unlines $ NE.toList $ genBuildFailuresTable revision_builds
+
     preliminary_lines_list = [
         T.unlines [
           Markdown.heading 2 "CircleCI build failures summary"
-        , "As of commit " <> T.take Constants.gitCommitPrefixLength sha1_text <> ":"
+        , Markdown.colonize ["As of commit", T.take Constants.gitCommitPrefixLength sha1_text]
         , Markdown.bulletTree $ genMetricsTreeVerbose build_summary_stats
         ]
-      , Markdown.sentence [
+      , Markdown.colonize [
           "Here are the"
         , Markdown.link "reasons each build failed" dr_ci_commit_details_link
         ]
+      , build_failures_table
       , T.unlines [
           "---"
         , Markdown.sentence [
@@ -737,7 +778,6 @@ handleStatusWebhook
       runReaderT (SqlRead.isMasterCommit sha1) synchronous_conn
 
 
-
     let dr_ci_posting_computation = do
           conn <- DbHelpers.get_connection db_connection_data
 
@@ -770,7 +810,6 @@ handleStatusWebhook
       _thread_id <- liftIO $ forkIO dr_ci_posting_computation
       return ()
 
-
     return will_post
 
   where
@@ -785,17 +824,19 @@ handleStatusWebhook
     sha1 = Builds.RawCommit $ LT.toStrict $ Webhooks.sha status_event
 
 
-genMetricsTreeVerbose :: BuildSummaryStats -> Tr.Forest Text
+genMetricsTreeVerbose :: BuildSummaryStats -> Tr.Forest (NonEmpty Text)
 genMetricsTreeVerbose (BuildSummaryStats flaky_count pre_broken_info all_failures) =
-  optional_kb_metric ++ failures_introduced_in_pull_request ++ flaky_bullet_tree
+  optional_kb_metric <> failures_introduced_in_pull_request <> flaky_bullet_tree
   where
 
     Builds.RawCommit merge_base_sha1_text = SqlUpdate.merge_base pre_broken_info
 
-    upstream_breakage_bullet_children = [pure $ Markdown.sentence [
+    rebase_advice = pure (Markdown.colonize [
         "You may want to rebase on the `viable/strict` branch"
       , Markdown.parens $ T.unwords ["see", Markdown.link "age history" viableCommitsHistoryUrl]
-      ]]
+      ]) <> Markdown.codeBlock ("git fetch viable/strict" :| ["git rebase viable/strict"])
+
+    upstream_breakage_bullet_children = [pure $ rebase_advice]
 
     pre_broken_list = SqlUpdate.inferred_upstream_caused_broken_jobs pre_broken_info
     upstream_broken_count = length pre_broken_list
@@ -804,12 +845,14 @@ genMetricsTreeVerbose (BuildSummaryStats flaky_count pre_broken_info all_failure
 
     bold_fraction a b = Markdown.bold $ T.pack $ show a <> "/" <> show b
 
+    grid_view_url = "https://dr.pytorch.org/master-timeline.html?count=10&sha1=" <> merge_base_sha1_text <> "&should_suppress_scheduled_builds=true&should_suppress_fully_successful_columns=true&max_columns_suppress_successful=35"
+
     upstream_breakage_bullet_tree = Tr.Node (
-       T.unwords [
+       pure $ T.unwords [
            bold_fraction upstream_broken_count total_failcount
          , "broken upstream at merge base"
          , T.take Constants.gitCommitPrefixLength merge_base_sha1_text
-         , Markdown.parens $ Markdown.link "grid view" ("https://dr.pytorch.org/master-timeline.html?count=10&sha1=" <> merge_base_sha1_text <> "&should_suppress_scheduled_builds=true&should_suppress_fully_successful_columns=true&max_columns_suppress_successful=35")
+         , Markdown.parens $ T.unwords ["see", Markdown.link "grid view" grid_view_url]
        ]) upstream_breakage_bullet_children
 
     optional_kb_metric = if null pre_broken_list
@@ -818,7 +861,7 @@ genMetricsTreeVerbose (BuildSummaryStats flaky_count pre_broken_info all_failure
 
 
     failures_introduced_in_pull_request = [
-        pure $ T.unwords [
+        pure $ pure $ T.unwords [
             bold_fraction broken_in_pr_count total_failcount
           , "failures introduced in this PR"
           ]
@@ -827,12 +870,12 @@ genMetricsTreeVerbose (BuildSummaryStats flaky_count pre_broken_info all_failure
 
     flaky_bullet_children = if flaky_count > 0
       then [
-        pure "Re-run these jobs?"
+        pure $ pure $ "Re-run these jobs?"
       ]
       else []
 
     flaky_bullet_tree = [
-        Tr.Node (T.unwords [
+        Tr.Node (pure $ T.unwords [
             bold_fraction flaky_count total_failcount
           , "recognized as flaky"
           ]) flaky_bullet_children

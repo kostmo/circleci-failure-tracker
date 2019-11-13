@@ -18,6 +18,7 @@ library:
 #  - -fprof-cafs
   dependencies:
     - text
+    - html-entities
     - containers
 
 executables:

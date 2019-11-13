@@ -10,7 +10,6 @@ import qualified Markdown
 
 data CommandLineArgs = NewCommandLineArgs {
     buildCount    :: Int
-
   }
 
 
@@ -35,20 +34,19 @@ mainAppCode args = do
   putStrLn $ T.unpack $ Markdown.bulletTree bullet_tree
 
 
-
   where
     bullet_tree = [
-        pure "First"
-      , pure "Second"
-      , Tree.Node "Third" [
-          Tree.Node "3a" [
-            pure "3a-i"
-          , pure "3a-ii"
-          , pure "3a-iii"
+        pure $ pure "First"
+      , pure $ pure "Second"
+      , Tree.Node (pure "Third") [
+          Tree.Node (pure "3a") [
+            pure $ pure "3a-i"
+          , pure $ pure "3a-ii"
+          , pure $ pure "3a-iii"
           ]
-        , pure "3b"
+        , pure $ pure "3b"
         ]
-      , pure "Fourth"
+      , pure $ pure "Fourth"
       ]
 
     fetch_count = buildCount args

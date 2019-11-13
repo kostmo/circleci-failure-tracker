@@ -5,6 +5,7 @@ module MatchOccurrences where
 
 import           Data.Aeson
 import           Data.Text                            (Text)
+import qualified Data.Text                            as T
 import           Database.PostgreSQL.Simple           (FromRow)
 import           Database.PostgreSQL.Simple.FromField (FromField, fromField)
 import           GHC.Generics
@@ -39,3 +40,10 @@ data MatchOccurrencesForBuild = MatchOccurrencesForBuild {
 
 instance ToJSON MatchOccurrencesForBuild where
   toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+getMatchedText :: MatchOccurrencesForBuild -> Text
+getMatchedText match_obj =
+  T.take span_length $ T.drop (_span_start match_obj) $ _line_text match_obj
+  where
+    span_length = _span_end match_obj - _span_start match_obj

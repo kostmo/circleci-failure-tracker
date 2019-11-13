@@ -1,7 +1,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-import           Data.Text            (Text)
-import qualified Network.OAuth.OAuth2 as OAuth2
+import           Control.Monad.Trans.Reader (runReaderT)
+import           Data.Either                (fromRight)
+import qualified Data.List.NonEmpty         as NE
+import           Data.Text                  (Text)
+import qualified Data.Text                  as T
+import qualified Network.OAuth.OAuth2       as OAuth2
 import           Options.Applicative
 import           System.IO
 
@@ -10,9 +14,13 @@ import qualified Constants
 import qualified DbHelpers
 import qualified DbPreparation
 import qualified GadgitFetch
+import qualified GitRev
 import qualified MyUtils
+import qualified SqlRead
 import qualified SqlUpdate
 import qualified SqlWrite
+import qualified StatusUpdate
+
 
 data CommandLineArgs = NewCommandLineArgs {
     dbHostname                :: String
@@ -44,6 +52,18 @@ mainAppCode args = do
   hSetBuffering stdout LineBuffering
 
 
+  conn <- DbPreparation.prepareDatabase connection_data False
+
+
+  let validated_sha1 = fromRight (error "BAD") $ GitRev.validateSha1 "1c6d7505adf51db267a0b27724028fb0c73ecbdd"
+  DbHelpers.BenchmarkedResponse _ revision_builds <- runReaderT (SqlRead.getRevisionBuilds validated_sha1) conn
+
+  putStrLn $ T.unpack $ T.unlines $ NE.toList $ StatusUpdate.genBuildFailuresTable revision_builds
+
+
+
+
+  putStrLn "============================="
 
   result1 <- GadgitFetch.getSinglePullRequestHeadCommit $ Builds.PullRequestNumber 27445
   MyUtils.debugList [
@@ -68,8 +88,6 @@ mainAppCode args = do
 
 
   putStrLn "============================="
-
-  conn <- DbPreparation.prepareDatabase connection_data False
 
 
   batch_diagnosis_result <- SqlUpdate.diagnoseCommitsBatch
