@@ -43,12 +43,22 @@ ul > li {
 
 <h3>Isolated failures in <code>master</code></h3>
 
+<ul style="list-style-type: none">
+<li>
+<button onclick="bounds_this_week();" title="From the most recent Sunday until today (may not be a full week)">This week</button>
+<button onclick="bounds_last_week();" title="Ending at the most recent Sunday, show the 7 preceeding days">Last week</button>
+<button onclick="bounds_today();" title="May not show a full day">Today</button>
+<button onclick="bounds_yesterday();" title="Shows a full day">Yesterday</button>
+</li>
+
+<li>
 <label>From <input type="text" id="datepicker-start"/></label>
 <label>until <input type="text" id="datepicker-end"/></label>
 <button onclick="requery_table();">Go</button>
+</li>
+</ul>
 
 <div id="good-commits-table"></div>
-
 
 
 <hr/>
