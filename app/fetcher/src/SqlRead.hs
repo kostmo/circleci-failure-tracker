@@ -477,7 +477,12 @@ apiPostedStatusesByCommit (Builds.RawCommit sha1) = do
   where
     sql = MyUtils.qjoin [
         "SELECT"
-      , "sha1, description, state, created_at"
+      , MyUtils.qlist [
+          "sha1"
+        , "description"
+        , "state"
+        , "created_at"
+        ]
       , "FROM created_github_statuses"
       , "WHERE sha1 = ?"
       , "ORDER BY created_at DESC"
@@ -491,7 +496,12 @@ apiAggregatePostedStatuses count = do
   where
     sql = MyUtils.qjoin [
         "SELECT"
-      , "sha1, count, last_time, EXTRACT(SECONDS FROM time_interval)"
+      , MyUtils.qlist [
+          "sha1"
+        , "count"
+        , "last_time"
+        , "EXTRACT(SECONDS FROM time_interval)"
+        ]
       , "FROM aggregated_github_status_postings LIMIT ?;"
       ]
 
@@ -545,7 +555,11 @@ getPageViewsByWeek _week_count = do
   where
     sql = MyUtils.qjoin [
         "SELECT"
-      , "week, url, request_count"
+      , MyUtils.qlist [
+          "week"
+        , "url"
+        , "request_count"
+        ]
       , "FROM frontend_logging.page_requests_by_week"
       , "ORDER BY week DESC"
 --      , "OFFSET 1"
@@ -584,7 +598,11 @@ apiPatternOccurrenceTimeline = do
   where
     timeline_sql = MyUtils.qjoin [
         "SELECT"
-      , "pattern_id, COUNT(*) AS occurrences, date_trunc('week', queued_at) AS week"
+      , MyUtils.qlist [
+          "pattern_id"
+        , "COUNT(*) AS occurrences"
+        , "date_trunc('week', queued_at) AS week"
+        ]
       , "FROM best_pattern_match_augmented_builds"
       , "WHERE branch IN (SELECT branch FROM presumed_stable_branches)"
       , "GROUP BY pattern_id, week"
@@ -639,19 +657,28 @@ patternBuildStepOccurrences (ScanPatterns.PatternId patt) = do
   where
     sql = MyUtils.qjoin [
         "SELECT"
-      , "name, occurrence_count FROM pattern_build_step_occurrences"
+      , MyUtils.qlist [
+          "name"
+        , "occurrence_count"
+        ]
+      , "FROM pattern_build_step_occurrences"
       , "WHERE pattern = ? ORDER BY occurrence_count DESC, name ASC;"
       ]
 
 
-patternBuildJobOccurrences :: ScanPatterns.PatternId -> DbIO [WebApi.PieSliceApiRecord]
+patternBuildJobOccurrences ::
+    ScanPatterns.PatternId
+  -> DbIO [WebApi.PieSliceApiRecord]
 patternBuildJobOccurrences (ScanPatterns.PatternId patt) = do
   conn <- ask
   liftIO $ query conn sql $ Only patt
   where
     sql = MyUtils.qjoin [
         "SELECT"
-      , "job_name, occurrence_count"
+      , MyUtils.qlist [
+          "job_name"
+        , "occurrence_count"
+        ]
       , "FROM pattern_build_job_occurrences"
       , "WHERE pattern = ?"
       , "ORDER BY occurrence_count DESC, job_name ASC;"
@@ -664,7 +691,10 @@ apiLineCountHistogram = map (swap . f) <$> runQuery sql
     f = fmap $ \size -> T.pack $ show (size :: Int)
     sql = MyUtils.qjoin [
         "SELECT"
-      , "count(*) AS qty, pow(10, floor(ln(line_count) / ln(10)))::numeric::integer AS bin"
+      , MyUtils.qlist [
+          "count(*) AS qty"
+        , "pow(10, floor(ln(line_count) / ln(10)))::numeric::integer AS bin"
+        ]
       , "FROM log_metadata WHERE line_count > 0"
       , "GROUP BY bin ORDER BY bin ASC;"
       ]
@@ -676,7 +706,10 @@ apiByteCountHistogram = map (swap . f) <$> runQuery sql
     f = fmap $ \size -> T.pack $ show (size :: Int)
     sql = MyUtils.qjoin [
         "SELECT"
-      , "COUNT(*) AS qty, pow(10, floor(ln(byte_count) / ln(10)))::numeric::integer AS bin"
+      , MyUtils.qlist [
+          "COUNT(*) AS qty"
+        , "pow(10, floor(ln(byte_count) / ln(10)))::numeric::integer AS bin"
+        ]
       , "FROM log_metadata WHERE byte_count > 0"
       , "GROUP BY bin ORDER BY bin ASC;"
       ]
@@ -706,7 +739,15 @@ apiCommitJobs (Builds.RawCommit sha1) = do
   where
     sql = MyUtils.qjoin [
         "SELECT"
-      , "job_name, build_num, is_flaky, is_known_broken, global_build, provider, 1"
+      , MyUtils.qlist [
+          "job_name"
+        , "build_num"
+        , "is_flaky"
+        , "is_known_broken"
+        , "global_build"
+        , "provider"
+        , "1"
+        ]
       , "FROM build_failure_causes"
       , "WHERE vcs_revision = ? AND NOT succeeded"
       , "ORDER BY job_name;"
@@ -729,7 +770,15 @@ apiCommitRangeJobs (InclusiveSpan first_index last_index) = do
   where
     sql = MyUtils.qjoin [
         "SELECT DISTINCT ON (job_name)"
-      , "job_name, build_num, is_flaky, is_known_broken, global_build, provider, count(*) OVER (PARTITION BY job_name) AS job_occurrences"
+      , MyUtils.qlist [
+          "job_name"
+        , "build_num"
+        , "is_flaky"
+        , "is_known_broken"
+        , "global_build"
+        , "provider"
+        , "count(*) OVER (PARTITION BY job_name) AS job_occurrences"
+        ]
       , "FROM (SELECT sha1 FROM ordered_master_commits"
       , "WHERE id >= ? AND id <= ?) foo"
       , "JOIN build_failure_causes ON build_failure_causes.vcs_revision = foo.sha1"
@@ -2217,6 +2266,31 @@ instance (ToJSON a) => ToJSON (ViableCommitAgeRecord a) where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
+apiIsolatedFailuresTimespan ::
+     UTCTime -- ^ start time
+  -> UTCTime -- ^ end time
+  -> DbIO [WebApi.PieSliceApiRecord]
+apiIsolatedFailuresTimespan start_time end_time = do
+  conn <- ask
+  liftIO $ query conn sql (start_time, end_time)
+  where
+    sql = MyUtils.qjoin [
+        "SELECT"
+      , MyUtils.qlist [
+          "job_name"
+        , "COUNT(*) AS count"
+        ]
+      , "FROM master_failures_raw_causes_mview"
+      , "WHERE"
+      , "is_serially_isolated"
+      , "AND NOT succeeded"
+      , "AND"
+      , "tstzrange(?::timestamp, ?::timestamp) @> queued_at"
+      , "GROUP BY job_name"
+      , "ORDER BY count DESC, job_name"
+      ]
+
+
 -- | Note list reversal for the sake of Highcharts
 apiLatestViableMasterCommitAgeHistory ::
      Int -- ^ weeks count
@@ -2224,7 +2298,7 @@ apiLatestViableMasterCommitAgeHistory ::
   -> DbIO [ViableCommitAgeRecord Double]
 apiLatestViableMasterCommitAgeHistory weeks_count end_time = do
   conn <- ask
-  liftIO $ reverse <$> query conn sql (end_time, weeks_count)
+  liftIO $ reverse <$> query conn sql (end_time, weeks_count, end_time)
   where
     sql = MyUtils.qjoin [
         "SELECT"
@@ -2236,7 +2310,8 @@ apiLatestViableMasterCommitAgeHistory weeks_count end_time = do
         , "age_hours"
         ]
       , "FROM viable_master_commit_age_history"
-      , "WHERE inserted_at > ?::timestamp - interval '? weeks'"
+      , "WHERE"
+      , "tstzrange(?::timestamp - interval '? weeks', ?::timestamp) @> inserted_at"
       , "ORDER BY inserted_at DESC"
       -- Hard coding a row limit doesn't work to indirectly define a timespan,
       -- both because occasionally the records are not evenly spaced
@@ -2567,7 +2642,11 @@ apiDetectedCodeBreakages = runQuery $ MyUtils.qjoin [
 apiListFailureModes :: DbIO [DbHelpers.WithId BuildResults.MasterFailureModeDetails]
 apiListFailureModes = runQuery $ MyUtils.qjoin [
     "SELECT"
-  , "id, label, revertible"
+  , MyUtils.qlist [
+      "id"
+    , "label"
+    , "revertible"
+    ]
   , "FROM master_failure_modes ORDER BY id;"
   ]
 
@@ -2969,7 +3048,11 @@ instance ToJSON StorageStats where
 apiStorageStats :: DbIO StorageStats
 apiStorageStats = fmap head $ runQuery $ MyUtils.qjoin [
     "SELECT"
-  , "SUM(line_count) AS total_lines, SUM(byte_count) AS total_bytes, COUNT(*) log_count"
+  , MyUtils.qlist [
+      "SUM(line_count) AS total_lines"
+    , "SUM(byte_count) AS total_bytes"
+    , "COUNT(*) log_count"
+    ]
   , "FROM log_metadata;"
   ]
 
@@ -2997,7 +3080,21 @@ patternOccurrenceTxForm pattern_id = f
 commonQueryPrefixPatternMatches :: Query
 commonQueryPrefixPatternMatches = MyUtils.qjoin [
     "SELECT"
-  , "build, step_name, match_id, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch, universal_build"
+  , MyUtils.qlist [
+      "build"
+    , "step_name"
+    , "match_id"
+    , "line_number"
+    , "line_count"
+    , "line_text"
+    , "span_start"
+    , "span_end"
+    , "vcs_revision"
+    , "queued_at"
+    , "job_name"
+    , "branch"
+    , "universal_build"
+    ]
   , "FROM best_pattern_match_augmented_builds"
   , "WHERE pattern_id = ?"
   ]
@@ -3169,7 +3266,14 @@ logContextFunc (MatchOccurrences.MatchId match_id) context_linecount = do
   where
     sql = MyUtils.qjoin [
         "SELECT"
-      , "build_num, line_number, span_start, span_end, line_text, universal_build"
+      , MyUtils.qlist [
+          "build_num"
+        , "line_number"
+        , "span_start"
+        , "span_end"
+        , "line_text"
+        , "universal_build"
+        ]
       , "FROM matches_with_log_metadata"
       , "WHERE id = ?;"
       ]

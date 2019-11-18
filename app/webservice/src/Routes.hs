@@ -400,6 +400,11 @@ scottyApp
     S.json $ WebApi.toJsonEither json_result
 
 
+  get "/api/isolated-failures-timespan" $
+    SqlRead.apiIsolatedFailuresTimespan
+      <$> (BuildRetrieval.decodeUtcTimeString <$> S.param "start-timestamp")
+      <*> (BuildRetrieval.decodeUtcTimeString <$> S.param "end-timestamp")
+
   get "/api/latest-viable-master-commits" $
     SqlRead.apiCleanestMasterCommits
       <$> S.param "missing-threshold"

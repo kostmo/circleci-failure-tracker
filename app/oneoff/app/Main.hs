@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+import           Control.Monad.IO.Class     (liftIO)
 import           Control.Monad.Trans.Reader (runReaderT)
 import           Data.Either                (fromRight)
 import qualified Data.List.NonEmpty         as NE
@@ -55,11 +56,16 @@ mainAppCode args = do
   conn <- DbPreparation.prepareDatabase connection_data False
 
 
-  let validated_sha1 = fromRight (error "BAD") $ GitRev.validateSha1 "1c6d7505adf51db267a0b27724028fb0c73ecbdd"
+
+  let commit_sha1_text = "1c6d7505adf51db267a0b27724028fb0c73ecbdd"
+      raw_commit = Builds.RawCommit commit_sha1_text
+      validated_sha1 = fromRight (error "BAD") $ GitRev.validateSha1 commit_sha1_text
   DbHelpers.BenchmarkedResponse _ revision_builds <- runReaderT (SqlRead.getRevisionBuilds validated_sha1) conn
 
-  putStrLn $ T.unpack $ T.unlines $ NE.toList $ StatusUpdate.genBuildFailuresTable revision_builds
+  commit_page_info <- liftIO $
+    runReaderT (StatusUpdate.fetchCommitPageInfo raw_commit validated_sha1) conn
 
+  putStrLn $ T.unpack $ T.unlines $ StatusUpdate.genBuildFailuresTable commit_page_info
 
 
 

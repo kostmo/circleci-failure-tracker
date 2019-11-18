@@ -1,3 +1,5 @@
+// global
+var picker;
 
 function gen_good_commits_table(element_id, data_url, height_string) {
 
@@ -113,8 +115,7 @@ function requery_table() {
 
 function render_timeplots() {
 
-
-	const ending_on_timestamp = new Date();
+	const ending_on_timestamp = picker.getDate();
 	const ending_on_timestamp_string = ending_on_timestamp.toISOString();
 
 	const weeks_count = $("#week-count-input").val();
@@ -131,6 +132,9 @@ function render_timeplots() {
 
 
 function main() {
+
+	picker = new Pikaday({ field: document.getElementById('datepicker') });
+	picker.setDate(new Date())
 
 	requery_table();
 

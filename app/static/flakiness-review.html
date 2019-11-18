@@ -1,10 +1,8 @@
 <html>
 <head>
-<title>Viable master commits</title>
+<title>Flakiness review</title>
 
 <link href="/style.css" rel="stylesheet" type="text/css"></link>
-
-
 
 
 
@@ -26,7 +24,7 @@
 
 <script src="/script/js-utils.js"></script>
 <script src="/script/html-utils.js"></script>
-<script src="/script/master-viable-commits.js"></script>
+<script src="/script/flakiness-review.js"></script>
 
 <style>
 
@@ -41,41 +39,17 @@ ul > li {
 
 
 <span style="float: right">[<a href="/">home</a>]</span>
-<h2>Viable master commits</h2>
+<h2>Flakiness review</h2>
 
-<h3>Viable commit age history</h3>
+<h3>Isolated failures in <code>master</code></h3>
 
-<label>Spanning <input id="week-count-input" type="number" value="2" min="1" size="2"/> weeks</label>
-<label>until <input type="text" id="datepicker"/></label>
-<button onclick="render_timeplots();">Go</button>
-
-<div id="scan-throbber2" style="display: none;"><img src="/images/duck.gif"/></div>
-
-<div id="age-history-plot"></div>
-
-<div id="lag-count-history-plot"></div>
-
-
-<h3>Disqualifying jobs list</h3>
-<p>
-This lists the best candidate commits on the <code>master</code> branch for developers to base their work upon.
-</p>
-
-<form onsubmit="return requery_table();">
-
-<ul style="list-style-type:none">
-<li>
-<label>Max missing builds: <input id="max-absent-successes-input" type="number" value="3" min="0" size="2"/></label>
-</li>
-<li>
-<label>Max failing builds: <input id="max-failing-builds-input" type="number" value="0" min="0" size="2"/></label>
-</li>
-</ul>
-
-<input type="submit"/>
-</form>
+<label>From <input type="text" id="datepicker-start"/></label>
+<label>until <input type="text" id="datepicker-end"/></label>
+<button onclick="requery_table();">Go</button>
 
 <div id="good-commits-table"></div>
+
+
 
 <hr/>
 

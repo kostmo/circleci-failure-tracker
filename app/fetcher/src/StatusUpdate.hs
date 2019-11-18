@@ -6,6 +6,7 @@ module StatusUpdate (
   , getBuildsFromGithub
   , postCommitSummaryStatus
   , genBuildFailuresTable
+  , fetchCommitPageInfo
   ) where
 
 import           Control.Concurrent            (forkIO)
@@ -62,6 +63,7 @@ import qualified SqlUpdate
 import qualified SqlWrite
 import qualified StatusEvent
 import qualified StatusEventQuery
+import qualified WebApi
 import qualified Webhooks
 
 
@@ -346,6 +348,22 @@ scanAndPost
     scan_matches
 
 
+data CommitPageInfo = CommitPageInfo {
+    _revision_builds  :: [CommitBuilds.CommitBuild]
+  , _unmatched_builds :: [WebApi.UnmatchedBuild]
+  }
+
+
+
+
+fetchCommitPageInfo sha1 validated_sha1 = do
+  DbHelpers.BenchmarkedResponse _ revision_builds <- SqlRead.getRevisionBuilds validated_sha1
+
+  unmatched_builds <- SqlRead.apiUnmatchedCommitBuilds sha1
+  return $ CommitPageInfo revision_builds unmatched_builds
+
+
+
 postCommitSummaryStatus ::
      Connection
   -> OAuth2.AccessToken
@@ -375,12 +393,14 @@ postCommitSummaryStatus
       sha1
 
   validated_sha1 <- except $ first LT.fromStrict $ GitRev.validateSha1 commit_sha1_text
-  DbHelpers.BenchmarkedResponse _ revision_builds <- liftIO $ runReaderT (SqlRead.getRevisionBuilds validated_sha1) conn
+
+  commit_page_info <- liftIO $
+    runReaderT (fetchCommitPageInfo sha1 validated_sha1) conn
 
   postCommitSummaryStatusInner
     (replicate circleci_failcount "xxx") -- TODO FIXME
     upstream_breakages_info
-    revision_builds
+    commit_page_info
     conn
     access_token
     owned_repo
@@ -408,7 +428,7 @@ fetchAndCachePrAuthor conn access_token pr_number = do
 postCommitSummaryStatusInner
     circleci_fail_joblist
     upstream_breakages_info
-    revision_builds
+    commit_page_info
     conn
     access_token
     owned_repo
@@ -488,7 +508,7 @@ postCommitSummaryStatusInner
       pr_comment_text = generateCommentMarkdown
         Nothing
         build_summary_stats
-        revision_builds
+        commit_page_info
         sha1
 
 
@@ -522,7 +542,7 @@ postCommitSummaryStatusInner
       pr_comment_text = generateCommentMarkdown
         (Just previous_pr_comment)
         build_summary_stats
-        revision_builds
+        commit_page_info
         sha1
 
       comment_id = ApiPost.CommentId $ SqlRead._comment_id previous_pr_comment
@@ -567,31 +587,54 @@ postCommitSummaryStatusInner
           return 0
 
 
-genBuildFailuresTable :: [CommitBuilds.CommitBuild] -> NonEmpty Text
-genBuildFailuresTable revision_builds =
+genUnmatchedBuildsTable unmatched_builds =
   Markdown.table header_columns data_rows
   where
-    header_columns = ["Job", "Step", "Log excerpt (context on hover)"]
-    data_rows = map gen_data_row revision_builds
+    header_columns = ["Job", "Step"]
+    data_rows = map gen_unmatched_build_row unmatched_builds
 
-    gen_data_row (CommitBuilds.NewCommitBuild (Builds.StorableBuild _universal_build build_obj) match_obj _) = [
+    gen_unmatched_build_row (WebApi.UnmatchedBuild _build step_name _ job_name _ _ _ _) = [
         T.unwords [
             "<img src='https://avatars0.githubusercontent.com/ml/7?s=12'/>"
-          , Markdown.sup $ Builds.job_name build_obj
+          , Markdown.sup job_name
           ]
-      , Markdown.sup $ MatchOccurrences._build_step match_obj
-      , Markdown.supTitle (MatchOccurrences._line_text match_obj) $ Markdown.codeInline $ MatchOccurrences.getMatchedText match_obj
+      , Markdown.sup step_name
       ]
+
+
+genBuildFailuresTable :: CommitPageInfo -> [Text]
+genBuildFailuresTable (CommitPageInfo revision_builds unmatched_builds) =
+  pattern_matched_section <> pattern_unmatched_section
+  where
+
+    pattern_matched_section = if null revision_builds
+      then mempty
+      else pure (T.unwords ["###", T.pack $ show $ length revision_builds, "failures recognized by patterns:"])
+        <> concatMap gen_matched_build_section revision_builds
+
+    pattern_unmatched_section = if null unmatched_builds
+      then mempty
+      else pure (T.unwords ["###", T.pack $ show $ length unmatched_builds, "failures *not* recognized by patterns:"])
+        <> NE.toList (genUnmatchedBuildsTable unmatched_builds)
+
+    gen_matched_build_section (CommitBuilds.NewCommitBuild (Builds.StorableBuild _universal_build build_obj) match_obj _) = [
+        T.unwords [
+            "####"
+          , "<img src='https://avatars0.githubusercontent.com/ml/7?s=12'/>"
+          , Builds.job_name build_obj
+          ]
+      , T.unwords [Markdown.bold "Step:", MatchOccurrences._build_step match_obj]
+      ] <> (NE.toList $ Markdown.codeBlock $ pure $ MatchOccurrences._line_text match_obj)
 
 
 generateCommentMarkdown
     maybe_previous_pr_comment
     build_summary_stats
-    revision_builds
+    commit_page_info
     (Builds.RawCommit sha1_text) =
   Markdown.paragraphs $ preliminary_lines_list ++ optional_suffix
   where
-    build_failures_table = T.unlines $ NE.toList $ genBuildFailuresTable revision_builds
+    build_failures_table = T.unlines $ genBuildFailuresTable commit_page_info
 
     preliminary_lines_list = [
         T.unlines [
@@ -836,7 +879,7 @@ genMetricsTreeVerbose (BuildSummaryStats flaky_count pre_broken_info all_failure
       , Markdown.parens $ T.unwords ["see", Markdown.link "age history" viableCommitsHistoryUrl]
       ]) <> Markdown.codeBlock ("git fetch viable/strict" :| ["git rebase viable/strict"])
 
-    upstream_breakage_bullet_children = [pure $ rebase_advice]
+    upstream_breakage_bullet_children = [pure rebase_advice]
 
     pre_broken_list = SqlUpdate.inferred_upstream_caused_broken_jobs pre_broken_info
     upstream_broken_count = length pre_broken_list
@@ -867,28 +910,23 @@ genMetricsTreeVerbose (BuildSummaryStats flaky_count pre_broken_info all_failure
           ]
       ]
 
-
-    flaky_bullet_children = if flaky_count > 0
+    flaky_bullet_tree = if flaky_count > 0
       then [
-        pure $ pure $ "Re-run these jobs?"
-      ]
-      else []
-
-    flaky_bullet_tree = [
         Tr.Node (pure $ T.unwords [
             bold_fraction flaky_count total_failcount
           , "recognized as flaky"
-          ]) flaky_bullet_children
-      ]
+          ]) [pure $ pure "Re-run these jobs?"]
+        ]
+      else []
 
 
 genCompactMetricsList (BuildSummaryStats flaky_count (SqlUpdate.UpstreamBreakagesInfo _ _ pre_broken) total_failcount) = [
     show flaky_count <> "/" <> show (length total_failcount) <> " flaky"
   ] ++ optional_kb_metric ++ failures_introduced_in_pull_request
   where
-    optional_kb_metric = if length pre_broken > 0
-      then [show (length pre_broken) <> "/" <> show (length total_failcount) <> " broken upstream"]
-      else []
+    optional_kb_metric = if null pre_broken
+      then []
+      else [show (length pre_broken) <> "/" <> show (length total_failcount) <> " broken upstream"]
 
     broken_in_pr_count = length total_failcount - length pre_broken
     failures_introduced_in_pull_request = [show broken_in_pr_count <> "/" <> show (length total_failcount) <> " new failures"]

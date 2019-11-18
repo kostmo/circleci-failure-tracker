@@ -47,5 +47,5 @@ function gen_step_failures_chart(container_id) {
 
 function main() {
 
-	gen_step_failures_chart('container-step-failures');
+//	gen_step_failures_chart('container-step-failures');
 }
