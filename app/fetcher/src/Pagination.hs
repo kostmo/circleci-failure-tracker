@@ -1,9 +1,9 @@
 module Pagination where
 
-import           GHC.Int     (Int64)
+import           GHC.Int   (Int64)
 
 import qualified Builds
-import qualified WeeklyStats
+import qualified DbHelpers
 
 
 data ColumnFilteringOptions = ColumnFilteringOptions {
@@ -20,7 +20,7 @@ data TimelineParms = TimelineParms {
 
 data ParentOffsetMode =
     FixedAndOffset OffsetLimit
-  | CommitIndices (WeeklyStats.InclusiveNumericBounds Int64)
+  | CommitIndices (DbHelpers.InclusiveNumericBounds Int64)
 
 
 data OffsetMode =

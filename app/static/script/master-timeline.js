@@ -461,8 +461,20 @@ function define_job_column(col) {
 
 			const detected_lateral_breakage = cell_value && cell_value.detected_breakages.lateral_breakage != null;
 
+
+
+
+
+
+			const urlParams = new URLSearchParams(window.location.search);
+			const highlight_job = urlParams.get('highlight_job');
+
+
+
 			if (has_open_breakage) {
 				cell.getElement().style.backgroundColor = "#f664";
+			} else if (job_name == highlight_job) {
+				cell.getElement().style.backgroundColor = "#fc64";
 			}
 
 
@@ -492,6 +504,7 @@ function define_job_column(col) {
 				cell.getElement().style.backgroundImage = "url(\"data:image/svg+xml,%3Csvg width='1' height='40' viewBox='0 0 1 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 20h1v20H0z' fill='%23" + stripes_color_hex + "' fill-opacity='" + stripes_opacity_fraction + "' fill-rule='evenodd'/%3E%3C/svg%3E\")";
 
 			}
+
 
 			const context_menu_items = get_context_menu_items_for_cell(cell);
 			if (context_menu_items.length > 0) {
@@ -612,7 +625,6 @@ function get_commit_indices(commits) {
 
 	$('#commit-index-min').val( Math.min(...commit_ids)  );
 	$('#commit-index-max').val( Math.max(...commit_ids) );
-
 }
 
 

@@ -382,7 +382,7 @@ scottyApp
       <*> S.param "limit"
 
   get "/api/master-commits" $
-    fmap WebApi.toJsonEither . (fmap (fmap (fmap snd)) SqlRead.apiGetMasterCommits) <$> FrontendHelpers.getSimpleOffsetMode
+    fmap WebApi.toJsonEither . ((fmap . fmap . fmap) snd SqlRead.apiGetMasterCommits) <$> FrontendHelpers.getSimpleOffsetMode
 
   get "/api/master-timeline" $
     fmap WebApi.toJsonEither . SqlRead.apiMasterBuilds <$> FrontendHelpers.getOffsetMode
@@ -399,8 +399,12 @@ scottyApp
 
     S.json $ WebApi.toJsonEither json_result
 
-  get "/api/isolated-failures-timespan" $ (fmap WebApi.toJsonEither . SqlRead.apiIsolatedFailuresTimespan)
+  get "/api/isolated-failures-timespan" $ fmap WebApi.toJsonEither . SqlRead.apiIsolatedFailuresTimespan
       <$> parseTimeRangeParms
+
+  get "/api/master-job-failures-in-timespan" $ (fmap . fmap) WebApi.toJsonEither $ SqlRead.apiJobFailuresInTimespan
+      <$> S.param "job"
+      <*> (DbHelpers.InclusiveNumericBounds <$> S.param "commit-id-min" <*> S.param "commit-id-max")
 
   get "/api/latest-viable-master-commits" $
     SqlRead.apiCleanestMasterCommits
@@ -581,7 +585,7 @@ parseTimeRangeParms = do
 
   let bounded_result = do
         end_timestamp <- BuildRetrieval.decodeUtcTimeString <$> S.param "end-timestamp"
-        return $ SqlRead.Bounded $ SqlRead.StartEndDate start_timestamp end_timestamp
+        return $ SqlRead.Bounded $ DbHelpers.StartEnd start_timestamp end_timestamp
 
   bounded_result `S.rescue` (\_msg -> return $ SqlRead.StartOnly start_timestamp)
 

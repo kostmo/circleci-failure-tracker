@@ -156,7 +156,7 @@ getOffsetMode = do
             (Pagination.Commit $ Builds.RawCommit starting_commit)
             commit_count
       | checkboxIsTrue use_commit_index_bounds = Pagination.CommitIndices $
-          WeeklyStats.InclusiveNumericBounds
+          DbHelpers.InclusiveNumericBounds
             min_commit_index
             max_commit_index
       | otherwise = Pagination.FixedAndOffset $

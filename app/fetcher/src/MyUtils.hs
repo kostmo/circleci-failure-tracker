@@ -29,7 +29,7 @@ qlist = mconcat . intersperse ", "
 
 -- | AND-separated entities
 qconjunction :: [Query] -> Query
-qconjunction = mconcat . intersperse " AND "
+qconjunction = qjoin . intersperse "AND"
 
 
 qparens :: Query -> Query

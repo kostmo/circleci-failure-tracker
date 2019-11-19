@@ -599,8 +599,8 @@ storeMatches scan_resources (Builds.NewBuildStepId build_step_id) scoped_matches
       , DbHelpers.db_id $ ScanPatterns.scanned_pattern match
       , ScanPatterns.line_number match_deets
       , ScanPatterns.line_text match_deets
-      , ScanPatterns.start $ ScanPatterns.span match_deets
-      , ScanPatterns.end $ ScanPatterns.span match_deets
+      , DbHelpers._start $ ScanPatterns.span match_deets
+      , DbHelpers._end $ ScanPatterns.span match_deets
       )
       where
         match_deets = ScanPatterns.match_details match

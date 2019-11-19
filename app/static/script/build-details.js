@@ -48,7 +48,7 @@ function render_known_failure(failure_obj) {
 
 	return link(failure_obj["record"]["breakage_description"], "/breakage-details.html?cause=" + failure_obj["db_id"]) + render_list([
 		"Broken by " + sha1_link(failure_obj["record"]["breakage_commit"]),
-		"Applies to " + failure_obj["record"]["jobs"].length + " job(s)",
+		"Applies to " + pluralize(failure_obj["record"]["jobs"].length, "job"),
 	]);
 }
 

@@ -27,10 +27,10 @@ applySinglePattern (line_number, line) db_pattern =
     match_span = case ScanPatterns.expression pattern_obj of
       ScanPatterns.RegularExpression regex_text _ -> do
         (match_offset, match_length) <- LT.unpack line =~~ encodeUtf8 regex_text :: Maybe (MatchOffset, MatchLength)
-        return $ ScanPatterns.NewMatchSpan match_offset (match_offset + match_length)
+        return $ DbHelpers.StartEnd match_offset (match_offset + match_length)
       ScanPatterns.LiteralExpression literal_text -> do
         first_index <- Safe.headMay (Search.indices literal_text $ LT.toStrict line)
-        return $ ScanPatterns.NewMatchSpan first_index (first_index + T.length literal_text)
+        return $ DbHelpers.StartEnd first_index (first_index + T.length literal_text)
 
     match_partial = ScanPatterns.NewScanMatch db_pattern .
       ScanPatterns.NewMatchDetails

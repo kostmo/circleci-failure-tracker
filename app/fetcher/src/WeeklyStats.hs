@@ -2,25 +2,13 @@
 
 module WeeklyStats where
 
-import           Control.Arrow ((&&&))
 import           Data.Aeson
-import           Data.Time     (UTCTime)
+import           Data.Time    (UTCTime)
 import           GHC.Generics
-import           GHC.Int       (Int64)
+import           GHC.Int      (Int64)
 
+import qualified DbHelpers
 import qualified JsonUtils
-
-
-data InclusiveNumericBounds a = InclusiveNumericBounds {
-    min_bound :: a
-  , max_bound :: a
-  } deriving (Show, Generic)
-
-instance (ToJSON a) => ToJSON (InclusiveNumericBounds a)
-
-
-boundsAsTuple :: InclusiveNumericBounds a -> (a, a)
-boundsAsTuple = min_bound &&& max_bound
 
 
 -- | This holds two types of aggregations:
@@ -83,7 +71,7 @@ data MasterWeeklyStats = MasterWeeklyStats {
   , _aggregate_commit_counts :: AggregateCommitCounts Int
   , _aggregate_build_counts  :: AggregateBuildCounts Int
   , _week                    :: UTCTime
-  , _commit_id_bound         :: InclusiveNumericBounds Int64
+  , _commit_id_bound         :: DbHelpers.InclusiveNumericBounds Int64
   } deriving Generic
 
 instance ToJSON MasterWeeklyStats where

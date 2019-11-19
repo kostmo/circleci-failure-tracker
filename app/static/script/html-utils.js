@@ -1,6 +1,11 @@
 const PULL_REQUEST_URL_PREFIX = "https://github.com/pytorch/pytorch/pull/";
 
 
+function pluralize(quantity, word) {
+	return quantity + " " + word + (quantity == 1 ? "" : "s")
+}
+
+
 function add_redirect_path_to_query_parms(data_dict) {
 
 	const modified_data_dict = Object.assign({}, data_dict);

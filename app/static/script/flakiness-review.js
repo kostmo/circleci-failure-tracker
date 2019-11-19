@@ -2,19 +2,63 @@
 var start_picker;
 var end_picker;
 
+
+
+function gen_failure_details_table(element_id, data_payload, height_string) {
+
+	const table = new Tabulator("#" + element_id, {
+		height: height_string,
+		layout: "fitColumns",
+		placeholder: "No Data Set",
+		columns: gen_builds_table_columns(),
+		data: data_payload,
+	});
+}
+
+
+function load_failure_details(job_name, commit_id_min, commit_id_max) {
+
+	$("#selected-job-name-container").html(job_name);
+	
+	const query_args_dict = {
+		"job": job_name,
+		"commit-id-min": commit_id_min,
+		"commit-id-max": commit_id_max,
+	};
+
+	$("#failure-details-section").show();
+
+	$("#failure-details-table").hide();
+	getJsonWithThrobber("#throbber2", "/api/master-job-failures-in-timespan", query_args_dict, function (data) {
+
+		if (data.success) {
+
+			$("#failure-details-table").show();
+			gen_failure_details_table("failure-details-table", data.payload, 300)
+
+		} else {
+
+			// TODO consolidate this error handling with "handle_submission_response()" from "html-utils.js"
+			if (data.error.details.authentication_failed) {
+				window.location.href = data.error.details.login_url;
+			}
+		}
+	});
+}
+
+
 function gen_table(element_id, data_payload, height_string) {
 
 	const column_list = [
 		{title: "Job", field: "job", width: 500,
 		},
-		{title: "Isolated failures", field: "isolated_failure_count", width: 200,
+		{title: "Isolated failures", field: "isolated_failure_count", width: 150,
 		},
 		{title: "Recognized as flaky", field: "recognized_flaky_count", width: 200,
 		},
-
 		{title: "Matched by patterns", field: "matched_count", width: 200,
 		},
-		{title: "Timed out", field: "timeout_count", width: 200,
+		{title: "Timed out", field: "timeout_count", width: 150,
 		},
 		{title: "Timeline Span", field: "min_commit_index",
 			formatter: function(cell, formatterParams, onRendered) {
@@ -24,9 +68,12 @@ function gen_table(element_id, data_payload, height_string) {
 					"max_columns_suppress_successful": 35,
 					"should_suppress_scheduled_builds": true,
 					"should_suppress_fully_successful_columns": true,
+					"highlight_job": row_data.job,
 				};
 
-				return link("View", gen_master_timeline_commit_bounds_url(row_data.min_commit_index, row_data.max_commit_index, extra_args));
+				const commit_count = row_data["max_commit_number"] - row_data["min_commit_number"] + 1;
+
+				return link(pluralize(commit_count, "commit"), gen_master_timeline_commit_bounds_url(row_data.min_commit_index, row_data.max_commit_index, extra_args));
 			},
 		},
 	];
@@ -38,8 +85,15 @@ function gen_table(element_id, data_payload, height_string) {
 		columns: column_list,
 		data: data_payload,
 		rowClick:function(e, row) {
-			const job_name = row.getData()["job"];
+			const row_data = row.getData()
+			const job_name = row_data["job"];
+
 			console.log("Clicked job:", job_name);
+
+			const commit_id_min = row_data["min_commit_index"];
+			const commit_id_max = row_data["max_commit_index"];
+
+			load_failure_details(job_name, commit_id_min, commit_id_max);
 		},
 	});
 }

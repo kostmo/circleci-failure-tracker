@@ -24,6 +24,34 @@ import           GHC.Int                              (Int64)
 import qualified JsonUtils
 
 
+data InclusiveNumericBounds a = InclusiveNumericBounds {
+    min_bound :: a
+  , max_bound :: a
+  } deriving (Show, Generic)
+
+instance (ToJSON a) => ToJSON (InclusiveNumericBounds a)
+
+
+boundsAsTuple :: InclusiveNumericBounds a -> (a, a)
+boundsAsTuple = min_bound &&& max_bound
+
+
+data StartEnd a = StartEnd {
+    _start :: a
+  , _end   :: a
+  } deriving Generic
+
+instance (ToJSON a) => ToJSON (StartEnd a) where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+instance (FromJSON a) => FromJSON (StartEnd a) where
+  parseJSON = genericParseJSON JsonUtils.dropUnderscore
+
+instance (FromField a) => FromRow (StartEnd a) where
+  fromRow = StartEnd <$> field <*> field
+
+
+
 instance (ToJSON a) => ToJSON (PGArray a) where
   toJSON = toJSON . fromPGArray
 

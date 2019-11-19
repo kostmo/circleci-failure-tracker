@@ -84,19 +84,10 @@ is_flaky = elem "flaky" . tags
 type DbPattern = DbHelpers.WithId Pattern
 
 
-data MatchSpan = NewMatchSpan {
-    start :: Int
-  , end   :: Int
-  } deriving Generic
-
-instance ToJSON MatchSpan
-instance FromJSON MatchSpan
-
-
 data MatchDetails = NewMatchDetails {
     line_text   :: LT.Text
   , line_number :: Int
-  , span        :: MatchSpan
+  , span        :: DbHelpers.StartEnd Int
   } deriving Generic
 
 instance ToJSON MatchDetails
