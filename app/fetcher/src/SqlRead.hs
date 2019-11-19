@@ -1517,77 +1517,6 @@ apiListBranches = listFlat $ MyUtils.qjoin [
   ]
 
 
-instance FromRow CommitBuilds.CommitBuild where
-  fromRow = do
-    step_name <- field
-    match_id <- field
-    buildnum <- field
-    vcs_rev <- field
-    queuedat <- field
-    jobname <- field
-    branch <- field
-    patt <- field
-    line_number <- field
-    line_count <- field
-    line_text <- field
-    span_start <- field
-    span_end <- field
-    specificity <- field
-    universal_build <- field
-    provider_id <- field
-    build_namespace <- field
-    succeeded <- field
-    ci_label <- field
-    ci_icon_url <- field
-    started_at <- field
-    finished_at <- field
-
-    let provider_obj = Builds.CiProvider
-          ci_icon_url
-          ci_label
-
-        universal_build_obj = Builds.UniversalBuild
-          wrapped_build_num
-          provider_id
-          build_namespace
-          succeeded
-          wrapped_commit
-
-        parent_build_obj = Builds.StorableBuild
-          (DbHelpers.WithId universal_build universal_build_obj)
-          build_obj
-
-        wrapped_commit = Builds.RawCommit vcs_rev
-        wrapped_build_num = Builds.NewBuildNumber buildnum
-
-        build_obj = Builds.NewBuild
-          wrapped_build_num
-          wrapped_commit
-          queuedat
-          jobname
-          branch
-          started_at
-          finished_at
-
-        match_obj = MatchOccurrences.MatchOccurrencesForBuild
-          step_name
-          (ScanPatterns.PatternId patt)
-          (MatchOccurrences.MatchId match_id)
-          line_number
-          line_count
-          line_text
-          span_start
-          span_end
-          specificity
-
-        provider_with_id = DbHelpers.WithId provider_id provider_obj
-
-    return $ CommitBuilds.NewCommitBuild
-      parent_build_obj
-      match_obj
-      provider_with_id
-
-
 -- | Excludes pattern match aggregate counts since they (for now)
 -- are more expensive to compute
 data BasicRevisionBuildStats = BasicRevisionBuildStats {
@@ -1632,8 +1561,8 @@ getNonPatternMatchRevisionStats (Builds.RawCommit sha1) = do
       ]
 
 
-getBuildsParameterized ::
-     Only Text
+getBuildsParameterized :: ToRow q =>
+     q
   -> [Query]
   -> DbIO (DbHelpers.BenchmarkedResponse Float [CommitBuilds.CommitBuild])
 getBuildsParameterized sql_parms sql_where_conditions = do
@@ -1675,6 +1604,7 @@ getBuildsParameterized sql_parms sql_where_conditions = do
         , "icon_url"
         , "started_at"
         , "finished_at"
+        , "FALSE as is_timeout"
         ]
       , "FROM"
       , MyUtils.qparens best_match_subquery_sql
@@ -2427,6 +2357,7 @@ apiJobFailuresInTimespan job_name (DbHelpers.InclusiveNumericBounds lower_commit
         , "ci_providers.icon_url"
         , "master_failures_raw_causes_mview.started_at"
         , "master_failures_raw_causes_mview.finished_at"
+        , "master_failures_raw_causes_mview.is_timeout"
         ]
       , "FROM master_failures_raw_causes_mview"
       , "JOIN ci_providers"

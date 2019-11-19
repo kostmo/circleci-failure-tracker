@@ -354,14 +354,11 @@ data CommitPageInfo = CommitPageInfo {
   }
 
 
-
-
 fetchCommitPageInfo sha1 validated_sha1 = do
   DbHelpers.BenchmarkedResponse _ revision_builds <- SqlRead.getRevisionBuilds validated_sha1
 
   unmatched_builds <- SqlRead.apiUnmatchedCommitBuilds sha1
   return $ CommitPageInfo revision_builds unmatched_builds
-
 
 
 postCommitSummaryStatus ::
@@ -617,7 +614,7 @@ genBuildFailuresTable (CommitPageInfo revision_builds unmatched_builds) =
       else pure (T.unwords ["###", T.pack $ show $ length unmatched_builds, "failures *not* recognized by patterns:"])
         <> NE.toList (genUnmatchedBuildsTable unmatched_builds)
 
-    gen_matched_build_section (CommitBuilds.NewCommitBuild (Builds.StorableBuild _universal_build build_obj) match_obj _) = [
+    gen_matched_build_section (CommitBuilds.NewCommitBuild (Builds.StorableBuild _universal_build build_obj) match_obj _ _) = [
         T.unwords [
             "####"
           , "<img src='https://avatars0.githubusercontent.com/ml/7?s=12'/>"
