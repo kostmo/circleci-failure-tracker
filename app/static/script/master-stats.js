@@ -119,7 +119,7 @@ function normalized_commit_failure_count_highchart(series_list) {
 			},
 			pointFormatter: function() {
 				const commit_id_bounds = ranges_by_week[this.x]["commit_id_bound"];
-				const link_url = "/master-timeline.html?min_commit_index=" + commit_id_bounds["min_bound"] + "&max_commit_index=" + commit_id_bounds["max_bound"];
+				const link_url = gen_master_timeline_commit_bounds_url(commit_id_bounds["min_bound"], commit_id_bounds["max_bound"])
 
 				const y_val = this.series.name == "Commit count" ? this.y : this.y.toFixed(2);
 				const content = y_val + "<br/>" + link("(details)", link_url);

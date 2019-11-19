@@ -9,6 +9,15 @@ function add_redirect_path_to_query_parms(data_dict) {
 }
 
 
+function gen_master_timeline_commit_bounds_url(min_commit_idx, max_commit_idx, extra_args) {
+
+	const extra_dict_elements = extra_args || {};
+	const final_query_parms_dict = Object.assign({}, {"min_commit_index": min_commit_idx, "max_commit_index": max_commit_idx}, extra_dict_elements);
+
+	return link_url = "/master-timeline.html?" + $.param(final_query_parms_dict);
+}
+
+
 function handle_submission_response(data) {
 
 	if (data.success) {

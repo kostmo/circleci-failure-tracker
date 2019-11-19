@@ -2266,28 +2266,77 @@ instance (ToJSON a) => ToJSON (ViableCommitAgeRecord a) where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
+data FailuresReviewCounts = FailuresReviewCounts {
+    _job                    :: Text
+  , _isolated_failure_count :: Int
+  , _recognized_flaky_count :: Int
+  , _matched_count          :: Int
+  , _timeout_count          :: Int
+  , _min_commit_index       :: Int
+  , _max_commit_index       :: Int
+  , _min_commit_number      :: Int
+  , _max_commit_number      :: Int
+  } deriving (Generic, FromRow)
+
+instance ToJSON FailuresReviewCounts where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+data TimeRange =
+    Bounded StartEndDate
+  | StartOnly UTCTime
+
+
 apiIsolatedFailuresTimespan ::
-     UTCTime -- ^ start time
-  -> UTCTime -- ^ end time
-  -> DbIO [WebApi.PieSliceApiRecord]
-apiIsolatedFailuresTimespan start_time end_time = do
+     TimeRange
+  -> DbIO (Either Text [FailuresReviewCounts])
+apiIsolatedFailuresTimespan time_bounds = do
   conn <- ask
-  liftIO $ query conn sql (start_time, end_time)
+  liftIO $ do
+    MyUtils.debugList [
+        "Query string"
+      , show sql
+      ]
+
+    MyUtils.debugList [
+        "Args:"
+      , show query_parms
+      ]
+    rows <- query conn sql query_parms
+    return $ Right rows
   where
+
+    query_parms = case time_bounds of
+      Bounded (StartEndDate start_time end_time) -> (start_time, Just end_time)
+      StartOnly start_time -> (start_time, Nothing)
+
     sql = MyUtils.qjoin [
         "SELECT"
       , MyUtils.qlist [
           "job_name"
-        , "COUNT(*) AS count"
+        , "SUM(is_serially_isolated::int) AS isolated_count"
+        , "SUM(is_flaky::int) AS recognized_flaky_count"
+        , "SUM(is_matched::int) AS matched_count"
+        , "SUM(is_timeout::int) AS timeout_count"
+        , "MIN(master_failures_raw_causes_mview.commit_index) AS min_commit_index"
+        , "MAX(master_failures_raw_causes_mview.commit_index) AS max_commit_index"
+        , "MIN(master_ordered_commits_with_metadata_mview.commit_number) AS min_commit_number"
+        , "MAX(master_ordered_commits_with_metadata_mview.commit_number) AS max_commit_number"
         ]
       , "FROM master_failures_raw_causes_mview"
+      , "JOIN master_ordered_commits_with_metadata_mview"
+      , "ON master_failures_raw_causes_mview.commit_index = master_ordered_commits_with_metadata_mview.id"
       , "WHERE"
-      , "is_serially_isolated"
-      , "AND NOT succeeded"
-      , "AND"
-      , "tstzrange(?::timestamp, ?::timestamp) @> queued_at"
+      , MyUtils.qconjunction [
+          "is_serially_isolated"
+        , "NOT succeeded"
+        , MyUtils.qjoin [
+            "tstzrange(?::timestamp, ?::timestamp)"
+          , "@> master_ordered_commits_with_metadata_mview.committer_date"
+          ]
+        ]
       , "GROUP BY job_name"
-      , "ORDER BY count DESC, job_name"
+      , "ORDER BY isolated_count DESC, job_name"
       ]
 
 

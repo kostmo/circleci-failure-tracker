@@ -3,6 +3,10 @@
 # This script copies credentials temporarily from a secure location
 # for the duration of the "eb deploy" command.
 
+# Prerequsite:
+#     docker build -f Dockerfile-base --tag="karl-base" .
+
+
 AWS_DOCKERRUN_CONFIG_FILENAME=Dockerrun.aws.json
 
 

@@ -399,11 +399,8 @@ scottyApp
 
     S.json $ WebApi.toJsonEither json_result
 
-
-  get "/api/isolated-failures-timespan" $
-    SqlRead.apiIsolatedFailuresTimespan
-      <$> (BuildRetrieval.decodeUtcTimeString <$> S.param "start-timestamp")
-      <*> (BuildRetrieval.decodeUtcTimeString <$> S.param "end-timestamp")
+  get "/api/isolated-failures-timespan" $ (fmap WebApi.toJsonEither . SqlRead.apiIsolatedFailuresTimespan)
+      <$> parseTimeRangeParms
 
   get "/api/latest-viable-master-commits" $
     SqlRead.apiCleanestMasterCommits
@@ -576,3 +573,18 @@ scottyApp
     logger_domain_identifier = if AuthConfig.is_local github_config
       then "localhost"
       else "dr.pytorch.org"
+
+
+parseTimeRangeParms :: ScottyTypes.ActionT LT.Text IO SqlRead.TimeRange
+parseTimeRangeParms = do
+  start_timestamp <- BuildRetrieval.decodeUtcTimeString <$> S.param "start-timestamp"
+
+  let bounded_result = do
+        end_timestamp <- BuildRetrieval.decodeUtcTimeString <$> S.param "end-timestamp"
+        return $ SqlRead.Bounded $ SqlRead.StartEndDate start_timestamp end_timestamp
+
+  bounded_result `S.rescue` (\_msg -> return $ SqlRead.StartOnly start_timestamp)
+
+
+
+
