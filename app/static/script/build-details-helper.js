@@ -1,7 +1,7 @@
 
-function render_build_link_cell(universal_build_number, icon_url, provider_build_number) {
+function render_build_link_cell(universal_build_id, icon_url, provider_build_number) {
 
-	const url = "/build-details.html?build_id=" + universal_build_number;
+	const url = "/build-details.html?build_id=" + universal_build_id;
 	return link('<img src="' + icon_url + '?s=16" style="vertical-align: middle"/>', "https://circleci.com/gh/pytorch/pytorch/" + provider_build_number) + ' ' + render_tag("span", link(provider_build_number, url), {"style": "vertical-align: middle"})
 }
 
@@ -41,9 +41,9 @@ function gen_builds_table_columns(include_timeout_column) {
 				const row_data = cell.getRow().getData();
 
 				const provider_build_number = row_data["build"]["build_record"]["build_id"];
-				const universal_build_number = row_data["build"]["universal_build"]["db_id"];
+				const universal_build_id = row_data["build"]["universal_build"]["db_id"];
 
-				return render_build_link_cell(universal_build_number, row_data["provider"]["record"]["icon_url"], provider_build_number);
+				return render_build_link_cell(universal_build_id, row_data["provider"]["record"]["icon_url"], provider_build_number);
 			},
 			tooltip: function(cell) {
 				const row_data = cell.getRow().getData();
@@ -61,12 +61,21 @@ function gen_builds_table_columns(include_timeout_column) {
 
 				if (row_data["failure_mode"]["is_timeout"]) {
 
-					return "<span style='font-style: italic; color: #00b;'>&lt;timeout&gt;</span>";
-				} else {
+					return "<span style='font-style: italic; color: #880;'>&lt;timeout&gt;</span>";
+				} else if (row_data["match"]["pattern_id"] >= 0) {
+
 					const start_idx = row_data["match"]["span_start"];
 					const end_idx = row_data["match"]["span_end"];
 							
 					return gen_error_cell_html_parameterized(cell, start_idx, end_idx);
+				} else {
+					const universal_build_id = row_data["build"]["universal_build"]["db_id"];
+
+					const view_log_link = link("View log", "/api/view-log-full?build_id=" + universal_build_id)
+					const define_pattern_link = link("Add pattern", "/add-pattern.html?build_id=" + universal_build_id);
+
+					const msg_string = "failure did not match predefined pattern";
+					return "<span style='font-style: italic; color: #7cb5ec;'>&lt;" + msg_string + "&gt;</span> " + define_pattern_link + " | " + view_log_link;
 				}
 
 			},
@@ -76,10 +85,10 @@ function gen_builds_table_columns(include_timeout_column) {
 				if (row_data["match"]["pattern_id"] >= 0) {
 
 					const provider_build_number = row_data["build"]["build_record"]["build_id"];
-					const universal_build_number = row_data["build"]["universal_build"]["db_id"];
+					const universal_build_id = row_data["build"]["universal_build"]["db_id"];
 
 					const build_id = row_data["build"]["build_id"];
-					get_log_text(row_data["match"]["match_id"], STANDARD_LOG_CONTEXT_LINECOUNT, universal_build_number, provider_build_number);
+					get_log_text(row_data["match"]["match_id"], STANDARD_LOG_CONTEXT_LINECOUNT, universal_build_id, provider_build_number);
 				}
 			},
 		},

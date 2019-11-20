@@ -127,7 +127,7 @@ function requery_table(query_args_dict) {
 				$("#full-span-grid-link-placeholder").show();
 			}
 
-			gen_table("good-commits-table", data.payload, 300);
+			gen_table("isolated-failures-table", data.payload, 200);
 
 		} else {
 

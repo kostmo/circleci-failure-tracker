@@ -43,9 +43,7 @@ ul {
 <body onload="main();">
 
 <span style="float: right">[<a href="/">home</a>]</span>
-<h2>Flakiness review</h2>
-
-<h3>Isolated failures in <code>master</code></h3>
+<h2>Flakiness review: Isolated failures in <code>master</code> branch</h2>
 
 <p>
 An <em>isolated failure</em> is a build failure that is neither a member of a contiguous run (multiple consecutive commits failing with the same job) nor a multi job failure (same failure pattern across multiple jobs in a single commit).
@@ -55,6 +53,8 @@ An <em>isolated failure</em> is a build failure that is neither a member of a co
 Such a failure is additionally <em>recognized as flaky</em> if a predefined log-scanning pattern tagged as "flaky" has matched the build console output.
 </p>
 
+
+<div style="float: left; margin-right: 6em;">
 <ul>
 <li>
 <button onclick="bounds_this_week();" title="From the most recent Sunday until today (may not be a full week)">This week</button>
@@ -71,17 +71,23 @@ Such a failure is additionally <em>recognized as flaky</em> if a predefined log-
 <button onclick="go_calendar_span();">Go</button>
 </li>
 </ul>
+</div>
 
-<b>Notes:</b>
+<div>
+
 <ul>
-<li>Dates are based on Git commit timestamp.</li>
-<li>Click on a row to load failure causes.</li>
+<li><b>Note:</b> Dates are based on Git commit timestamp.</li>
 </ul>
+</div>
 
-<div id="full-span-grid-link-placeholder" style="display: none;"></div>
+<br clear="all" />
 
+<div style="float: left">Click on a row to load failure causes.</div>
+<div id="full-span-grid-link-placeholder" style="display: none; float: right"></div>
+
+<br clear="all" />
 <div id="throbber" style="display: none;"><img src="/images/duck.gif"/></div>
-<div id="good-commits-table"></div>
+<div id="isolated-failures-table"></div>
 
 <div id="failure-details-section" style="display: none;">
 	<h3>Failure details for job <code id="selected-job-name-container">XXX</code></h3>

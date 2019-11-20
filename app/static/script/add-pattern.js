@@ -71,14 +71,28 @@ function render_lists() {
 }
 
 
-function submit_pattern() {
+function submit_pattern(submit_button) {
+
+	
 
 	const pattern_data = gather_pattern_data();
 
+	const throbber_id = "#mini-throbber-submit";
+
+	$(submit_button).prop("disabled", true);
+	$(throbber_id).show();
         $.post( {
 		url: "/api/new-pattern-insert",
 		data: add_redirect_path_to_query_parms(pattern_data),
+		error: function( data ) {
+			$(throbber_id).hide();
+			$(submit_button).prop("disabled", false);
+		},
 		success: function( data ) {
+
+			$(throbber_id).hide();
+			$(submit_button).prop("disabled", false);
+
 
 			// TODO consolidate with "handle_submission_response()" in "html-utils.js"
 			if (data.success) {
@@ -148,15 +162,25 @@ function gather_pattern_data() {
 
 function test_pattern() {
 
+	const throbber_id = "#mini-throbber";
+
 	$("#test-match-results-container").html("");
 
 	const pattern_data = gather_pattern_data();
 	pattern_data["build_num"] = $('#test-build-id').val();
 
+
+	$(throbber_id).show();
+
 	$.get( {
 		url: "/api/new-pattern-test",
 		data: pattern_data,
+		error: function( data ) {
+			$(throbber_id).hide();
+		},
 		success: function( data ) {
+
+			$(throbber_id).hide();
 
 			var inner_html = "";
 

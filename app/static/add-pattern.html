@@ -67,12 +67,12 @@ Tags:
 
 
 <h3>Testing</h3>
-<button onclick="test_pattern();">Test on build ID</button> <label>#<input id="test-build-id" type="text" value="1040566"/></label>
+<button onclick="test_pattern();">Test on build ID</button> <label>#<input id="test-build-id" type="text" value="1040566"/></label> <img id="mini-throbber" src="/images/animated-spinner.svg" style="width: 16px; vertical-align: middle; display: none;"/>
 
 <div id="test-match-results-container"></div>
 
 <h3>Submission</h3>
-<button onclick="submit_pattern();">Submit</button>
+<button onclick="submit_pattern(this);">Submit</button> <img id="mini-throbber-submit" src="/images/animated-spinner.svg" style="width: 16px; vertical-align: middle; display: none;"/>
 </form>
 
 
