@@ -381,8 +381,6 @@ getCircleCIFailedBuildInfo scan_resources build_number = do
     sess = ScanRecords.circle_sess $ ScanRecords.fetching scan_resources
 
 
-
-
 -- | This function strips all ANSI escape codes from the console log before storage.
 getAndStoreLog ::
      ScanRecords.ScanCatchupResources

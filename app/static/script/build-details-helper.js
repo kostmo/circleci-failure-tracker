@@ -75,8 +75,11 @@ function gen_builds_table_columns(include_timeout_column) {
 				const row_data = cell.getRow().getData();
 				if (row_data["match"]["pattern_id"] >= 0) {
 
+					const provider_build_number = row_data["build"]["build_record"]["build_id"];
+					const universal_build_number = row_data["build"]["universal_build"]["db_id"];
+
 					const build_id = row_data["build"]["build_id"];
-					get_log_text(row_data["match"]["match_id"], STANDARD_LOG_CONTEXT_LINECOUNT);
+					get_log_text(row_data["match"]["match_id"], STANDARD_LOG_CONTEXT_LINECOUNT, universal_build_number, provider_build_number);
 				}
 			},
 		},

@@ -1020,21 +1020,21 @@ apiTimeoutCommitBuilds (Builds.RawCommit sha1) = do
 
 -- | Obtains subset of console log from database
 readLogSubset ::
-     Builds.UniversalBuildId
+     MatchOccurrences.MatchId
   -> Int -- ^ offset
   -> Int -- ^ limit
   -> DbIO [LT.Text]
-readLogSubset (Builds.UniversalBuildId build_num) offset limit = do
+readLogSubset (MatchOccurrences.MatchId match_id) offset limit = do
   conn <- ask
-  xs <- liftIO $ query conn sql (build_num, offset, limit)
+  xs <- liftIO $ query conn sql (match_id, offset, limit)
   return $ map (\(Only log_text) -> log_text) xs
   where
     sql = MyUtils.qjoin [
-        "SELECT regexp_split_to_table(content, '\n')"
+        "SELECT UNNEST(COALESCE(content_lines, regexp_split_to_array(content, '\n')))"
       , "FROM log_metadata"
-      , "JOIN build_steps"
-      , "ON build_steps.id = log_metadata.step"
-      , "WHERE build_steps.universal_build = ?"
+      , "JOIN matches"
+      , "ON matches.build_step = log_metadata.step"
+      , "WHERE matches.id = ?"
       , "OFFSET ? LIMIT ?;"
       ]
 
@@ -1049,7 +1049,7 @@ readLog (Builds.UniversalBuildId build_num) = do
   return $ (\(Only log_text) -> log_text) <$> Safe.headMay result
   where
     sql = MyUtils.qjoin [
-        "SELECT log_metadata.content"
+        "SELECT COALESCE(array_to_string(content_lines, e'\n'), content)"
       , "FROM log_metadata"
       , "JOIN builds_join_steps"
       , "ON log_metadata.step = builds_join_steps.step_id"
@@ -2098,17 +2098,22 @@ getLastCachedMasterGridRefreshTime = do
 -- fetched via the provider-specific API.
 getMostRecentProviderApiFetchedBuild ::
      Int64 -- ^ provider ID
+  -> Text -- ^ branch name
   -> DbIO (Maybe UTCTime)
-getMostRecentProviderApiFetchedBuild provider_id = do
+getMostRecentProviderApiFetchedBuild provider_id branch_name = do
   conn <- ask
   liftIO $ do
-    xs <- query conn sql $ Only provider_id
+    xs <- query conn sql (provider_id, branch_name)
     return $ Safe.headMay $ map (\(Only x) -> x) xs
   where
     sql = MyUtils.qjoin [
         "SELECT latest_queued_at"
       , "FROM ci_provider_scan_ranges"
-      , "WHERE provider = ?"
+      , "WHERE"
+      , MyUtils.qconjunction [
+          "provider = ?"
+        , "branch_filter = ?"
+        ]
       , "ORDER BY latest_queued_at DESC LIMIT 1;"
       ]
 
@@ -3322,10 +3327,8 @@ getBestBuildMatch ubuild_id@(Builds.UniversalBuildId build_id) = do
 
 
 data LogContext = LogContext {
-    _match_info         :: ScanPatterns.MatchDetails
-  , _log_lines          :: [(Int, LT.Text)]
-  , _build_number       :: Builds.BuildNumber
-  , _universal_build_id :: Builds.UniversalBuildId
+    _match_info :: ScanPatterns.MatchDetails
+  , _log_lines  :: [(Int, LT.Text)]
   } deriving Generic
 
 instance ToJSON LogContext where
@@ -3336,11 +3339,13 @@ hiddenContextLinecount :: Int
 hiddenContextLinecount = 1000
 
 
+-- | TODO: Could shave off a bit more time
+-- by doing the line count arithmetic in Postgres
 logContextFunc ::
      MatchOccurrences.MatchId
   -> Int
   -> DbIO (Either Text LogContext)
-logContextFunc (MatchOccurrences.MatchId match_id) context_linecount = do
+logContextFunc mid@(MatchOccurrences.MatchId match_id) context_linecount = do
   conn <- ask
   liftIO $ do
     xs <- query conn sql $ Only match_id
@@ -3350,9 +3355,8 @@ logContextFunc (MatchOccurrences.MatchId match_id) context_linecount = do
 
       first_row <- except $ maybeToEither errmsg maybe_first_row
 
-      let (build_num, line_number, span_start, span_end, line_text, universal_build) = first_row
+      let (line_number, span_start, span_end, line_text) = first_row
           match_info = ScanPatterns.NewMatchDetails line_text line_number $ DbHelpers.StartEnd span_start span_end
-          wrapped_build_num = Builds.NewBuildNumber build_num
 
           first_context_line = max 0 $ line_number - context_linecount - hiddenContextLinecount
 
@@ -3360,7 +3364,7 @@ logContextFunc (MatchOccurrences.MatchId match_id) context_linecount = do
           retrieval_line_count = last_context_line - first_context_line
 
       log_lines <- liftIO $ runReaderT
-        (SqlRead.readLogSubset universal_build first_context_line retrieval_line_count)
+        (SqlRead.readLogSubset mid first_context_line retrieval_line_count)
         conn
 
       let tuples = zip [first_context_line..] log_lines
@@ -3368,21 +3372,17 @@ logContextFunc (MatchOccurrences.MatchId match_id) context_linecount = do
       return $ LogContext
         match_info
         tuples
-        wrapped_build_num
-        universal_build
 
   where
     sql = MyUtils.qjoin [
         "SELECT"
       , MyUtils.qlist [
-          "build_num"
-        , "line_number"
+          "line_number"
         , "span_start"
         , "span_end"
         , "line_text"
-        , "universal_build"
         ]
-      , "FROM matches_with_log_metadata"
+      , "FROM matches"
       , "WHERE id = ?;"
       ]
 

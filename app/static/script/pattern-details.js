@@ -75,10 +75,15 @@ function gen_matches_table(element_id, data_url) {
 				formatter: function(cell, formatterParams, onRendered) {
 					return gen_error_cell_html(cell);
 				},
-				cellClick: function(e, cell){
+				cellClick: function(e, cell) {
+
 					const row_data = cell.getRow().getData();
 					const match_id = row_data["match_id"];
-					get_log_text(match_id, STANDARD_LOG_CONTEXT_LINECOUNT);
+
+					const provider_build_number = row_data["build_number"];
+					const universal_build_number = row_data["universal_build_id"];
+
+					get_log_text(match_id, STANDARD_LOG_CONTEXT_LINECOUNT, universal_build_number, provider_build_number);
 				},
 			},
 		],

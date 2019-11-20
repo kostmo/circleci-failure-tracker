@@ -135,7 +135,7 @@ doParse scan_resources build_step_id log_download_result = do
       ScanRecords.LogInfo
         byte_count
         (length ansi_stripped_log_lines)
-        ansi_stripped_log
+        ansi_stripped_log_lines
         (ansi_stripped_log /= raw_console_log)
         was_truncated
 

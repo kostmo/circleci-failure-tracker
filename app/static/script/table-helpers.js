@@ -48,7 +48,7 @@ function renderLogLineTableWithOffset(table_items, matched_line_number, context_
 }
 
 
-function get_log_text(match_id, context_linecount) {
+function get_log_text(match_id, context_linecount, universal_build_number, provider_build_number) {
 
 	const current_url_path = get_url_path_for_redirect();
 
@@ -86,8 +86,8 @@ function get_log_text(match_id, context_linecount) {
 
 			const left_corner_links = [
 				render_tag("span", link("+1000 lines", "javascript: revealHiddenLogContext('context-reveal-link-container');"), {"id": "context-reveal-link-container"}),
-				link("Full plaintext log", "/api/view-log-full?build_id=" + data.payload.universal_build_id),
-				link("on CircleCI", "https://circleci.com/gh/pytorch/pytorch/" + data.payload.build_number, true)
+				link("Full plaintext log", "/api/view-log-full?build_id=" + universal_build_number),
+				link("on CircleCI", "https://circleci.com/gh/pytorch/pytorch/" + provider_build_number, true)
 			]
 
 
@@ -103,10 +103,7 @@ function get_log_text(match_id, context_linecount) {
 			$(dialog).html(dialog_content.join(""));
 
 		} else {
-			const proceed = confirm("Need to login first...");
-			if (proceed) {
-				window.location.href = data.error.details.login_url;
-			}
+			alert("ERROR: " + data.error);
 		}
 	});
 }

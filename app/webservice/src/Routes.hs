@@ -450,6 +450,28 @@ scottyApp
   S.post "/api/update-user-opt-out-settings" $
     withAuth $ SqlWrite.updateUserOptOutSettings <$> S.param "enabled"
 
+  get "/api/view-log-context" $ (fmap . fmap) WebApi.toJsonEither $
+    SqlRead.logContextFunc
+      <$> (MatchOccurrences.MatchId <$> S.param "match_id")
+      <*> S.param "context_linecount"
+
+  S.get "/api/view-log-full" $ do
+    build_id <- S.param "build_id"
+
+    let universal_build_id = Builds.UniversalBuildId build_id
+
+    either_log_result <- liftIO $ do
+      conn <- DbHelpers.get_connection connection_data
+
+      maybe_log <- runReaderT (SqlRead.readLog universal_build_id) conn
+      return $ maybeToEither ("log not in database" :: Text) maybe_log
+
+    case either_log_result of
+      Right logs  -> S.text logs
+      Left errors -> S.html $ LT.fromStrict $ JsonUtils._message $ JsonUtils.getDetails errors
+
+
+{-
   S.get "/api/view-log-context" $
     FrontendHelpers.jsonAuthorizedDbInteract connection_data session github_config $
       SqlRead.logContextFunc
@@ -488,6 +510,8 @@ scottyApp
     case either_log_result of
       Right logs  -> S.text logs
       Left errors -> S.html $ LT.fromStrict $ JsonUtils._message $ JsonUtils.getDetails errors
+
+-}
 
   post "/api/pattern-specificity-update" $
     SqlWrite.updatePatternSpecificity

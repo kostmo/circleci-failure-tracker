@@ -560,6 +560,86 @@ CREATE TABLE public.commit_metadata (
 ALTER TABLE public.commit_metadata OWNER TO postgres;
 
 --
+-- Name: github_incoming_status_events; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.github_incoming_status_events (
+    id integer NOT NULL,
+    sha1 character(40),
+    name text,
+    description text,
+    state text,
+    target_url text,
+    context text,
+    created_at timestamp with time zone,
+    inserted_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+ALTER TABLE public.github_incoming_status_events OWNER TO postgres;
+
+--
+-- Name: github_incoming_status_events_derived_circleci_columns; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.github_incoming_status_events_derived_circleci_columns (
+    event_id integer NOT NULL,
+    job_name_extracted text NOT NULL,
+    build_number_extracted integer
+);
+
+
+ALTER TABLE public.github_incoming_status_events_derived_circleci_columns OWNER TO postgres;
+
+--
+-- Name: TABLE github_incoming_status_events_derived_circleci_columns; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.github_incoming_status_events_derived_circleci_columns IS 'TODO: Convert build_number_extracted and job_name_extracted to "derived columns" in Postgres 12';
+
+
+--
+-- Name: github_status_events_circleci; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.github_status_events_circleci WITH (security_barrier='false') AS
+ SELECT github_incoming_status_events.sha1,
+    github_incoming_status_events.created_at,
+    github_incoming_status_events_derived_circleci_columns.job_name_extracted,
+    github_incoming_status_events_derived_circleci_columns.build_number_extracted,
+    github_incoming_status_events.state
+   FROM (public.github_incoming_status_events
+     JOIN public.github_incoming_status_events_derived_circleci_columns ON ((github_incoming_status_events_derived_circleci_columns.event_id = github_incoming_status_events.id)));
+
+
+ALTER TABLE public.github_status_events_circleci OWNER TO postgres;
+
+--
+-- Name: github_status_events_circleci_success; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.github_status_events_circleci_success AS
+ SELECT github_status_events_circleci.sha1,
+    github_status_events_circleci.created_at,
+    github_status_events_circleci.job_name_extracted,
+    github_status_events_circleci.build_number_extracted,
+    github_status_events_circleci.state
+   FROM public.github_status_events_circleci
+  WHERE (github_status_events_circleci.state = 'success'::text);
+
+
+ALTER TABLE public.github_status_events_circleci_success OWNER TO postgres;
+
+--
+-- Name: VIEW github_status_events_circleci_success; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.github_status_events_circleci_success IS 'Filtering by "success" does not require use of the (very slow, from use of DISTINCT ON) "github_circleci_latest_statuses_by_build" view, since the "success" state should always be unique and the last state.
+
+Related: "disjoint_circleci_build_statuses" view for examining which CircleCI builds have been observed as GitHub notifications but not processed any further.';
+
+
+--
 -- Name: master_failure_mode_attributions; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -682,8 +762,8 @@ CREATE VIEW public.master_commit_job_success_completeness WITH (security_barrier
     foobar.committer_date,
     foobar.age_hours,
     foobar.disqualifying_jobs_array,
-    (foobar.not_succeeded_required_job_count - foobar.unbuilt_required_job_count) AS failed_required_job_count,
-    foobar.unbuilt_jobs_array
+    foobar.failed_built_required_job_count AS failed_required_job_count,
+    foobar.unscanned_jobs_array AS unbuilt_jobs_array
    FROM ( SELECT master_commits_basic_metadata.id AS commit_id,
             master_commits_basic_metadata.sha1,
             bar.total_required_commit_job_count,
@@ -692,54 +772,39 @@ CREATE VIEW public.master_commit_job_success_completeness WITH (security_barrier
             bar.disqualifying_jobs_array,
             master_commits_basic_metadata.committer_date,
             (date_part('epoch'::text, (now() - master_commits_basic_metadata.committer_date)) / (3600)::double precision) AS age_hours,
-            bar.unbuilt_jobs_array
+            bar.unscanned_jobs_array,
+            bar.failed_built_required_job_count
            FROM (public.master_commits_basic_metadata
              JOIN ( SELECT foo.joblist_commit_sha1,
                     count(foo.required_job_name) AS total_required_commit_job_count,
                     count(foo.succeeded_build_job_name) AS succeeded_built_required_job_count,
                     count(foo.any_build_job_name) AS all_built_required_job_count,
+                    count(foo.failed_build_job_name) AS failed_built_required_job_count,
                     ARRAY( SELECT unnest(array_agg(foo.required_job_name)) AS unnest
                         EXCEPT
                          SELECT unnest(array_agg(foo.succeeded_build_job_name)) AS unnest) AS disqualifying_jobs_array,
                     ARRAY( SELECT unnest(array_agg(foo.required_job_name)) AS unnest
                         EXCEPT
-                         SELECT unnest(array_agg(foo.any_build_job_name)) AS unnest) AS unbuilt_jobs_array
+                         SELECT unnest(array_agg(foo.any_build_job_name)) AS unnest) AS unscanned_jobs_array,
+                    ARRAY( SELECT unnest(array_agg(foo.required_job_name)) AS unnest
+                        EXCEPT
+                         SELECT unnest(array_agg(foo.failed_build_job_name)) AS unnest) AS failed_jobs_array
                    FROM ( SELECT master_commit_circleci_scheduled_job_discrimination.commit_sha1 AS joblist_commit_sha1,
                             master_commit_circleci_scheduled_job_discrimination.job_name AS required_job_name,
                             succeeded_jobs_table.job_name AS succeeded_build_job_name,
-                            built_jobs_table.job_name AS any_build_job_name
-                           FROM ((public.master_commit_circleci_scheduled_job_discrimination
-                             LEFT JOIN ( SELECT builds_deduped.build_num,
-                                    builds_deduped.vcs_revision,
-                                    builds_deduped.queued_at,
-                                    builds_deduped.job_name,
-                                    builds_deduped.branch,
-                                    builds_deduped.succeeded,
-                                    builds_deduped.started_at,
-                                    builds_deduped.finished_at,
-                                    builds_deduped.rebuild_count,
-                                    builds_deduped.global_build,
-                                    builds_deduped.provider,
-                                    builds_deduped.build_namespace,
-                                    builds_deduped.ci_provider_scan,
-                                    builds_deduped.maybe_is_scheduled
-                                   FROM public.builds_deduped
-                                  WHERE builds_deduped.succeeded) succeeded_jobs_table ON (((succeeded_jobs_table.job_name = master_commit_circleci_scheduled_job_discrimination.job_name) AND (succeeded_jobs_table.vcs_revision = master_commit_circleci_scheduled_job_discrimination.commit_sha1))))
-                             LEFT JOIN ( SELECT builds_deduped.build_num,
-                                    builds_deduped.vcs_revision,
-                                    builds_deduped.queued_at,
-                                    builds_deduped.job_name,
-                                    builds_deduped.branch,
-                                    builds_deduped.succeeded,
-                                    builds_deduped.started_at,
-                                    builds_deduped.finished_at,
-                                    builds_deduped.rebuild_count,
-                                    builds_deduped.global_build,
-                                    builds_deduped.provider,
-                                    builds_deduped.build_namespace,
-                                    builds_deduped.ci_provider_scan,
-                                    builds_deduped.maybe_is_scheduled
+                            built_jobs_table.job_name AS any_build_job_name,
+                            failed_jobs_table.job_name AS failed_build_job_name
+                           FROM (((public.master_commit_circleci_scheduled_job_discrimination
+                             LEFT JOIN ( SELECT github_status_events_circleci_success.job_name_extracted AS job_name,
+                                    github_status_events_circleci_success.sha1
+                                   FROM public.github_status_events_circleci_success) succeeded_jobs_table ON (((succeeded_jobs_table.job_name = master_commit_circleci_scheduled_job_discrimination.job_name) AND (succeeded_jobs_table.sha1 = master_commit_circleci_scheduled_job_discrimination.commit_sha1))))
+                             LEFT JOIN ( SELECT builds_deduped.job_name,
+                                    builds_deduped.vcs_revision
                                    FROM public.builds_deduped) built_jobs_table ON (((built_jobs_table.job_name = master_commit_circleci_scheduled_job_discrimination.job_name) AND (built_jobs_table.vcs_revision = master_commit_circleci_scheduled_job_discrimination.commit_sha1))))
+                             LEFT JOIN ( SELECT builds_deduped.job_name,
+                                    builds_deduped.vcs_revision
+                                   FROM public.builds_deduped
+                                  WHERE (NOT builds_deduped.succeeded)) failed_jobs_table ON (((failed_jobs_table.job_name = master_commit_circleci_scheduled_job_discrimination.job_name) AND (failed_jobs_table.vcs_revision = master_commit_circleci_scheduled_job_discrimination.commit_sha1))))
                           WHERE (NOT master_commit_circleci_scheduled_job_discrimination.is_scheduled)) foo
                   GROUP BY foo.joblist_commit_sha1) bar ON ((master_commits_basic_metadata.sha1 = bar.joblist_commit_sha1)))
           ORDER BY master_commits_basic_metadata.id DESC) foobar;
@@ -751,7 +816,11 @@ ALTER TABLE public.master_commit_job_success_completeness OWNER TO postgres;
 -- Name: VIEW master_commit_job_success_completeness; Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON VIEW public.master_commit_job_success_completeness IS 'See also the "master_required_unbuilt_jobs" view for individual rows per job and commit, which can be aggregated by job.';
+COMMENT ON VIEW public.master_commit_job_success_completeness IS 'TODO: remove "unbuilt_required_job_count" column from this and the mview.
+
+NOTE: Downstream (in a postgres function), we *are* using the "not_succeeded_required_job_count" column, but we are *not* using the "unbuilt_required_job_count" column.
+
+See also the "master_required_unbuilt_jobs" view for individual rows per job and commit, which can be aggregated by job.';
 
 
 --
@@ -937,7 +1006,8 @@ CREATE VIEW public.master_ordered_commits_with_metadata WITH (security_barrier='
     master_commit_job_success_completeness_mview.total_required_commit_job_count,
     master_commit_job_success_completeness_mview.unbuilt_required_job_count,
     master_commit_job_success_completeness_mview.failed_required_job_count,
-    master_commit_job_success_completeness_mview.disqualifying_jobs_array
+    master_commit_job_success_completeness_mview.disqualifying_jobs_array,
+    master_commit_job_success_completeness_mview.not_succeeded_required_job_count
    FROM (((((((public.master_commits_contiguously_indexed
      LEFT JOIN public.master_commits_basic_metadata ON ((master_commits_basic_metadata.id = master_commits_contiguously_indexed.id)))
      LEFT JOIN public.master_commit_message_derived_fields ON ((master_commits_contiguously_indexed.id = master_commit_message_derived_fields.id)))
@@ -952,6 +1022,13 @@ CREATE VIEW public.master_ordered_commits_with_metadata WITH (security_barrier='
 
 
 ALTER TABLE public.master_ordered_commits_with_metadata OWNER TO postgres;
+
+--
+-- Name: VIEW master_ordered_commits_with_metadata; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.master_ordered_commits_with_metadata IS 'TODO: Remove "unbuilt_required_job_count" column';
+
 
 --
 -- Name: code_breakage_spans; Type: VIEW; Schema: public; Owner: postgres
@@ -1389,7 +1466,8 @@ CREATE TABLE public.log_metadata (
     step integer NOT NULL,
     content text,
     modified_by_ansi_stripping boolean,
-    was_truncated_for_size boolean DEFAULT false NOT NULL
+    was_truncated_for_size boolean DEFAULT false NOT NULL,
+    content_lines text[]
 );
 
 
@@ -2336,61 +2414,6 @@ CREATE TABLE public.created_pull_request_comments (
 ALTER TABLE public.created_pull_request_comments OWNER TO postgres;
 
 --
--- Name: github_incoming_status_events; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.github_incoming_status_events (
-    id integer NOT NULL,
-    sha1 character(40),
-    name text,
-    description text,
-    state text,
-    target_url text,
-    context text,
-    created_at timestamp with time zone,
-    inserted_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
-ALTER TABLE public.github_incoming_status_events OWNER TO postgres;
-
---
--- Name: github_incoming_status_events_derived_circleci_columns; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.github_incoming_status_events_derived_circleci_columns (
-    event_id integer NOT NULL,
-    job_name_extracted text NOT NULL,
-    build_number_extracted integer
-);
-
-
-ALTER TABLE public.github_incoming_status_events_derived_circleci_columns OWNER TO postgres;
-
---
--- Name: TABLE github_incoming_status_events_derived_circleci_columns; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON TABLE public.github_incoming_status_events_derived_circleci_columns IS 'TODO: Convert build_number_extracted and job_name_extracted to "derived columns" in Postgres 12';
-
-
---
--- Name: github_status_events_circleci; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.github_status_events_circleci WITH (security_barrier='false') AS
- SELECT github_incoming_status_events.sha1,
-    github_incoming_status_events.created_at,
-    github_incoming_status_events_derived_circleci_columns.job_name_extracted,
-    github_incoming_status_events_derived_circleci_columns.build_number_extracted,
-    github_incoming_status_events.state
-   FROM (public.github_incoming_status_events
-     JOIN public.github_incoming_status_events_derived_circleci_columns ON ((github_incoming_status_events_derived_circleci_columns.event_id = github_incoming_status_events.id)));
-
-
-ALTER TABLE public.github_status_events_circleci OWNER TO postgres;
-
---
 -- Name: github_circleci_latest_statuses_by_build; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -2605,31 +2628,6 @@ ALTER TABLE public.github_status_events_aggregate_circleci_failures OWNER TO pos
 --
 
 COMMENT ON VIEW public.github_status_events_aggregate_circleci_failures IS 'NOTE: It''s possible to receive more than one failure notification for a given job and sha1, so one would need to use DISTINCT to obtain an accurate count of jobs.';
-
-
---
--- Name: github_status_events_circleci_success; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.github_status_events_circleci_success AS
- SELECT github_status_events_circleci.sha1,
-    github_status_events_circleci.created_at,
-    github_status_events_circleci.job_name_extracted,
-    github_status_events_circleci.build_number_extracted,
-    github_status_events_circleci.state
-   FROM public.github_status_events_circleci
-  WHERE (github_status_events_circleci.state = 'success'::text);
-
-
-ALTER TABLE public.github_status_events_circleci_success OWNER TO postgres;
-
---
--- Name: VIEW github_status_events_circleci_success; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON VIEW public.github_status_events_circleci_success IS 'Filtering by "success" does not require use of the (very slow, from use of DISTINCT ON) "github_circleci_latest_statuses_by_build" view, since the "success" state should always be unique and the last state.
-
-Related: "disjoint_circleci_build_statuses" view for examining which CircleCI builds have been observed as GitHub notifications but not processed any further.';
 
 
 --
@@ -6306,6 +6304,37 @@ GRANT ALL ON TABLE public.commit_metadata TO logan;
 
 
 --
+-- Name: TABLE github_incoming_status_events; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.github_incoming_status_events TO logan;
+
+
+--
+-- Name: TABLE github_incoming_status_events_derived_circleci_columns; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.github_incoming_status_events_derived_circleci_columns TO logan;
+GRANT SELECT ON TABLE public.github_incoming_status_events_derived_circleci_columns TO materialized_view_updater;
+
+
+--
+-- Name: TABLE github_status_events_circleci; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.github_status_events_circleci TO logan;
+GRANT SELECT ON TABLE public.github_status_events_circleci TO materialized_view_updater;
+
+
+--
+-- Name: TABLE github_status_events_circleci_success; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.github_status_events_circleci_success TO logan;
+GRANT SELECT ON TABLE public.github_status_events_circleci_success TO materialized_view_updater;
+
+
+--
 -- Name: TABLE master_failure_mode_attributions; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -6819,29 +6848,6 @@ GRANT SELECT ON TABLE public.created_pull_request_comments TO materialized_view_
 
 
 --
--- Name: TABLE github_incoming_status_events; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.github_incoming_status_events TO logan;
-
-
---
--- Name: TABLE github_incoming_status_events_derived_circleci_columns; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.github_incoming_status_events_derived_circleci_columns TO logan;
-GRANT SELECT ON TABLE public.github_incoming_status_events_derived_circleci_columns TO materialized_view_updater;
-
-
---
--- Name: TABLE github_status_events_circleci; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.github_status_events_circleci TO logan;
-GRANT SELECT ON TABLE public.github_status_events_circleci TO materialized_view_updater;
-
-
---
 -- Name: TABLE github_circleci_latest_statuses_by_build; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -6900,14 +6906,6 @@ GRANT ALL ON TABLE public.github_status_events_circleci_failures TO logan;
 --
 
 GRANT ALL ON TABLE public.github_status_events_aggregate_circleci_failures TO logan;
-
-
---
--- Name: TABLE github_status_events_circleci_success; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.github_status_events_circleci_success TO logan;
-GRANT SELECT ON TABLE public.github_status_events_circleci_success TO materialized_view_updater;
 
 
 --

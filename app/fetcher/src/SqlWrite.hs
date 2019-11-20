@@ -29,7 +29,8 @@ import           Data.Traversable                  (for)
 import           Data.Tuple                        (swap)
 import           Database.PostgreSQL.Simple
 import           Database.PostgreSQL.Simple.Errors
-import           Database.PostgreSQL.Simple.Types  (fromPGArray)
+import           Database.PostgreSQL.Simple.Types  (PGArray (PGArray),
+                                                    fromPGArray)
 import           GHC.Int                           (Int64)
 import qualified Network.OAuth.OAuth2              as OAuth2
 import qualified Safe
@@ -1217,7 +1218,15 @@ storeLogInfo
     (Builds.NewBuildStepId step_id)
     (ScanRecords.LogInfo byte_count line_count log_content modified_by_ansi_stripping was_truncated_for_size) =
 
-  execute conn sql (step_id, line_count, byte_count, log_content, modified_by_ansi_stripping, was_truncated_for_size)
+  execute conn sql (
+      step_id
+    , line_count
+    , byte_count
+    , PGArray log_content
+    , modified_by_ansi_stripping
+    , was_truncated_for_size
+    )
+
   where
     sql = MyUtils.qjoin [
         "INSERT INTO log_metadata"
@@ -1225,7 +1234,7 @@ storeLogInfo
           "step"
         , "line_count"
         , "byte_count"
-        , "content"
+        , "content_lines"
         , "modified_by_ansi_stripping"
         , "was_truncated_for_size"
         ]
@@ -1235,7 +1244,7 @@ storeLogInfo
       , MyUtils.qlist [
           "line_count = EXCLUDED.line_count"
         , "byte_count = EXCLUDED.byte_count"
-        , "content = EXCLUDED.content"
+        , "content_lines = EXCLUDED.content_lines"
         , "modified_by_ansi_stripping = EXCLUDED.modified_by_ansi_stripping"
         , "was_truncated_for_size = EXCLUDED.was_truncated_for_size"
         ]
