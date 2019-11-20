@@ -14,10 +14,26 @@ function add_redirect_path_to_query_parms(data_dict) {
 }
 
 
+function populate_nonnull_field_from_url(url_parms, parm_name, field_id) {
+
+	const val = url_parms.get(parm_name);
+	if (val != null) {
+		$("#" + field_id).val(val);
+	}
+
+	return val;
+}
+
+
 function gen_master_timeline_commit_bounds_url(min_commit_idx, max_commit_idx, extra_args) {
 
 	const extra_dict_elements = extra_args || {};
-	const final_query_parms_dict = Object.assign({}, {"min_commit_index": min_commit_idx, "max_commit_index": max_commit_idx}, extra_dict_elements);
+	const base_dict = {
+		"min_commit_index": min_commit_idx,
+		"max_commit_index": max_commit_idx,
+	};
+
+	const final_query_parms_dict = Object.assign({}, base_dict, extra_dict_elements);
 
 	return link_url = "/master-timeline.html?" + $.param(final_query_parms_dict);
 }
@@ -30,7 +46,6 @@ function handle_submission_response(data) {
 	} else {
 
 		if (data.error.details.authentication_failed) {
-//			alert("Not logged in: " + data.error.message);
 			console.log("Not logged in: " + data.error.message);
 			window.location.href = data.error.details.login_url;
 		} else if (data.error.details.database_failed) {

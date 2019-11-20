@@ -1224,31 +1224,11 @@ function populate_form_from_url() {
 
 	const urlParams = new URLSearchParams(window.location.search);
 
-	const offset = urlParams.get('offset');
-	if (offset != null) {
-		$('#offset-input').val(offset);
-	}
-
-	const count = urlParams.get('count');
-	if (count != null) {
-		$('#count-input').val(count);
-	}
-
-
-	const commit_index_min = urlParams.get('min_commit_index');
-	if (commit_index_min != null) {
-		$('#commit-index-min').val(commit_index_min);
-	}
-
-	const commit_index_max = urlParams.get('max_commit_index');
-	if (commit_index_max != null) {
-		$('#commit-index-max').val(commit_index_max);
-	}
-
-	const starting_sha1 = urlParams.get('sha1');
-	if (starting_sha1 != null) {
-		$('#sha1-input').val(starting_sha1);
-	}
+	const offset = populate_nonnull_field_from_url(urlParams, 'offset', "offset-input");
+	const count = populate_nonnull_field_from_url(urlParams, 'count', "count-input");
+	const commit_index_min = populate_nonnull_field_from_url(urlParams, 'min_commit_index', "commit-index-min");
+	const commit_index_max = populate_nonnull_field_from_url(urlParams, 'max_commit_index', "commit-index-max");
+	const starting_sha1 = populate_nonnull_field_from_url(urlParams, 'sha1', "sha1-input");
 
 
 	const should_suppress_scheduled_builds = urlParams.get('should_suppress_scheduled_builds');

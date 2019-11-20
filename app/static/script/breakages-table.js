@@ -67,7 +67,7 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 						var link_url = "/master-timeline.html";
 						if (row_data["end"] != null) {
 							const end_commit_index = row_data["end"]["record"]["payload"]["resolution_commit"]["db_id"];
-							link_url = "/master-timeline.html?min_commit_index=" + start_commit_index + "&max_commit_index=" + end_commit_index;
+							link_url = gen_master_timeline_commit_bounds_url(start_commit_index, end_commit_index, {});
 						}
 
 						return link("<img src='/images/view-icon.png' style='width: 16;'/>", link_url);

@@ -28,7 +28,6 @@ import qualified Web.Scotty.Internal.Types       as ScottyTypes
 
 import qualified Auth
 import qualified AuthConfig
-import qualified AuthStages
 import qualified BuildRetrieval
 import qualified Builds
 import qualified DbHelpers
@@ -462,9 +461,7 @@ scottyApp
 
     either_log_result <- liftIO $ do
       conn <- DbHelpers.get_connection connection_data
-
-      maybe_log <- runReaderT (SqlRead.readLog universal_build_id) conn
-      return $ maybeToEither ("log not in database" :: Text) maybe_log
+      runReaderT (SqlRead.retrieveLogFromBuildId universal_build_id) conn
 
     case either_log_result of
       Right logs  -> S.text logs

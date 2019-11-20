@@ -1041,19 +1041,17 @@ readLogSubset (MatchOccurrences.MatchId match_id) offset limit = do
 
 -- | Obtains the console log from database
 readLog ::
-     Builds.UniversalBuildId
+     Builds.BuildStepId
   -> DbIO (Maybe LT.Text)
-readLog (Builds.UniversalBuildId build_num) = do
+readLog (Builds.NewBuildStepId step_id) = do
   conn <- ask
-  result <- liftIO $ query conn sql $ Only build_num
+  result <- liftIO $ query conn sql $ Only step_id
   return $ (\(Only log_text) -> log_text) <$> Safe.headMay result
   where
     sql = MyUtils.qjoin [
         "SELECT COALESCE(array_to_string(content_lines, e'\n'), content)"
       , "FROM log_metadata"
-      , "JOIN builds_join_steps"
-      , "ON log_metadata.step = builds_join_steps.step_id"
-      , "WHERE builds_join_steps.universal_build = ? LIMIT 1;"
+      , "WHERE step = ? LIMIT 1;"
       ]
 
 
@@ -2862,6 +2860,29 @@ getLatestMasterCommitWithMetadata = do
       ]
 
 
+getStepIdFromUniversalBuild ::
+     Builds.UniversalBuildId
+  -> DbIO (Either Text Builds.BuildStepId)
+getStepIdFromUniversalBuild (Builds.UniversalBuildId ubuild_id) = do
+  conn <- ask
+  liftIO $ do
+    xs <- query conn sql $ Only ubuild_id
+    return $ maybeToEither err_msg $ Safe.headMay $
+      map (\(Only x) -> Builds.NewBuildStepId x) xs
+  where
+    err_msg = T.unwords [
+        "build"
+      , T.pack $ show ubuild_id
+      , "not in database"
+      ]
+
+    sql = MyUtils.qjoin [
+        "SELECT id"
+      , "FROM build_steps"
+      , "WHERE universal_build = ?"
+      ]
+
+
 data ScanTestResponse = ScanTestResponse {
     _total_line_count :: Int
   , _matches          :: [ScanPatterns.ScanMatch]
@@ -2871,26 +2892,30 @@ instance ToJSON ScanTestResponse where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
+retrieveLogFromBuildId ::
+     Builds.UniversalBuildId
+  -> DbIO (Either Text LT.Text)
+retrieveLogFromBuildId universal_build_id = runExceptT $ do
+  step_id <- ExceptT $ getStepIdFromUniversalBuild universal_build_id
+  ExceptT $ do
+    maybe_log <- readLog step_id
+    return $ maybeToEither ("log not in database" :: Text) maybe_log
+
+
+-- TODO consolidate with Scanning.scan_log
 apiNewPatternTest ::
      Builds.UniversalBuildId
   -> ScanPatterns.Pattern
-  -> DbIO (Either String ScanTestResponse)
-apiNewPatternTest universal_build_id new_pattern = do
-  storable_build <- SqlRead.getGlobalBuild universal_build_id
-  let provider_build_number = Builds.build_id $ Builds.build_record storable_build
+  -> DbIO (Either Text ScanTestResponse)
+apiNewPatternTest universal_build_id new_pattern =
 
-  -- TODO consolidate with Scanning.scan_log
-  maybe_console_log <- SqlRead.readLog universal_build_id
+  runExceptT $ do
+    console_log <- ExceptT $ retrieveLogFromBuildId universal_build_id
 
-  return $ case maybe_console_log of
-    Just console_log -> let mylines = LT.lines console_log
-      in Right $ ScanTestResponse (length mylines) $
-           Maybe.mapMaybe apply_pattern $ zip [0::Int ..] $
-             map LT.stripEnd mylines
-    Nothing -> Left $ unwords [
-        "No log found for build number"
-      , show provider_build_number
-      ]
+    let mylines = LT.lines console_log
+    return $ ScanTestResponse (length mylines) $
+      Maybe.mapMaybe apply_pattern $ zip [0::Int ..] $
+        map LT.stripEnd mylines
 
   where
     apply_pattern :: (Int, LT.Text) -> Maybe ScanPatterns.ScanMatch

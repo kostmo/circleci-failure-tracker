@@ -3,7 +3,6 @@ var start_picker;
 var end_picker;
 
 
-
 function gen_failure_details_table(element_id, data_payload, height_string) {
 
 	const table = new Tabulator("#" + element_id, {
@@ -279,6 +278,25 @@ function go_calendar_span() {
 	};
 
 	requery_table(query_args_dict);
+}
+
+
+
+function populate_form_from_url() {
+
+	// TODO
+
+	const url_parms = new URLSearchParams(window.location.search);
+
+	populate_nonnull_field_from_url(url_parms, 'datepicker-start', "datepicker-start");
+	populate_nonnull_field_from_url(url_parms, 'datepicker-end', "datepicker-end");
+}
+
+
+
+function update_url_from_form() {
+
+	// TODO
 }
 
 

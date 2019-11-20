@@ -398,7 +398,7 @@ getAndStoreLog
 
   maybe_console_log <- if overwrite
     then return Nothing
-    else runReaderT (SqlRead.readLog universal_build_id) conn
+    else runReaderT (SqlRead.readLog build_step_id) conn
 
   case maybe_console_log of
     Just console_log -> return $ Right $ LT.lines console_log  -- Log was already fetched

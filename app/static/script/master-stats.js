@@ -47,12 +47,7 @@ function normalized_build_failure_count_highchart(series_list) {
 			pointFormatter: function() {
 				const commit_id_bounds = ranges_by_week[this.x]["commit_id_bound"];
 
-				const parms_string = $.param({
-					"min_commit_index": commit_id_bounds["min_bound"],
-					"max_commit_index": commit_id_bounds["max_bound"],
-				});
-
-				const link_url = "/master-timeline.html?" + parms_string;
+				const link_url = gen_master_timeline_commit_bounds_url(commit_id_bounds["min_bound"], commit_id_bounds["max_bound"], {});
 
 				const y_val = this.series.name == "Commit count" ? this.y : this.y.toFixed(2);
 				const content = y_val + "<br/>" + link("(details)", link_url);
@@ -243,12 +238,7 @@ function separated_causes_timeline_highchart(container_element, series_list, sta
 
 				const unnormalized_val = ranges_by_week[this.x][this.series.name];
 
-				const parms_string = $.param({
-					"min_commit_index": commit_id_bounds["min_bound"],
-					"max_commit_index": commit_id_bounds["max_bound"],
-				});
-
-				const link_url = "/master-timeline.html?" + parms_string;
+				const link_url = gen_master_timeline_commit_bounds_url(commit_id_bounds["min_bound"], commit_id_bounds["max_bound"], {});
 				const content = this.y.toFixed(2) + " (" + unnormalized_val + ")<br/>" + link("(details)", link_url);
 				return content;
 			},
