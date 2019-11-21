@@ -1496,25 +1496,6 @@ apiListSteps = listFlat $ MyUtils.qjoin [
   ]
 
 
-apiAutocompleteBranches :: Text -> DbIO [Text]
-apiAutocompleteBranches = listFlat1X $ MyUtils.qjoin [
-    "SELECT branch FROM global_builds"
-  , "WHERE branch ILIKE CONCAT(?,'%')"
-  , "GROUP BY branch"
-  , "ORDER BY COUNT(*) DESC;"
-  ]
-
-
--- Not used yet
-apiListBranches :: DbIO [Text]
-apiListBranches = listFlat $ MyUtils.qjoin [
-    "SELECT"
-  , "branch, COUNT(*) AS count"
-  , "FROM global_builds"
-  , "WHERE branch != '' GROUP BY branch ORDER BY count DESC;"
-  ]
-
-
 -- | Excludes pattern match aggregate counts since they (for now)
 -- are more expensive to compute
 data BasicRevisionBuildStats = BasicRevisionBuildStats {
@@ -3120,15 +3101,9 @@ apiPatterns = fmap makePatternRecords $ runQuery $ MyUtils.qjoin [
     , "specificity"
     , "CAST((scanned_count * 100 / total_scanned_builds) AS DECIMAL(6, 1)) AS percent_scanned"
     ]
-  , "FROM pattern_frequency_summary"
+  , "FROM pattern_frequency_summary_mview"
   , "ORDER BY most_recent DESC NULLS LAST;"
   ]
-
-
--- | For the purpose of database upgrades
-dumpPresumedStableBranches :: DbIO [Text]
-dumpPresumedStableBranches = listFlat
-  "SELECT branch FROM presumed_stable_branches ORDER BY branch;"
 
 
 -- | For the purpose of database upgrades
@@ -3166,61 +3141,6 @@ dumpPatterns = map f <$> runQuery q
         specificity
         is_retired
         lines_from_end
-
-
--- | Note that this SQL is from decomposing the "pattern_frequency_summary" and "aggregated_build_matches" view
--- to parameterize the latter by branch.
---
--- TODO: Should just pair this with commits from the master branch
--- instead of relying on the branch name (which is not available from
--- GitHub notifications).
---
--- For more signal, "dummy" commits should be created with
--- "git commit --allow-empty" and submitted to CI. These will have
--- the same "tree" SHA1 as master commits, and can be JOINed on that.
-apiPatternsBranchFiltered :: [Text] -> DbIO [PatternRecord]
-apiPatternsBranchFiltered branches = do
-  conn <- ask
-  liftIO $ fmap makePatternRecords $ query conn sql $ Only $ In branches
-
-  where
-    sql = MyUtils.qjoin [
-        "SELECT"
-      , MyUtils.qlist [
-          "patterns_augmented.id"
-        , "patterns_augmented.regex"
-        , "patterns_augmented.expression"
-        , "patterns_augmented.description"
-        , "COALESCE(aggregated_build_matches.matching_build_count, 0::int) AS matching_build_count"
-        , "aggregated_build_matches.most_recent"
-        , "aggregated_build_matches.earliest"
-        , "patterns_augmented.tags"
-        , "patterns_augmented.steps"
-        , "patterns_augmented.specificity"
-        , "CAST((patterns_augmented.scanned_count * 100 / patterns_augmented.total_scanned_builds) AS DECIMAL(6, 1)) AS percent_scanned"
-        ]
-      , "FROM patterns_augmented"
-      , "LEFT JOIN"
-      , "(SELECT best_pattern_match_for_builds.pattern_id AS pat, count(best_pattern_match_for_builds.build) AS matching_build_count, max(global_builds.queued_at) AS most_recent, min(global_builds.queued_at) AS earliest"
-      , "FROM best_pattern_match_for_builds"
-      , "JOIN global_builds ON global_builds.build_number = best_pattern_match_for_builds.build"
-      , "WHERE global_builds.branch IN ?"
-      , "GROUP BY best_pattern_match_for_builds.pattern_id)"
-      , "aggregated_build_matches"
-      , "ON patterns_augmented.id = aggregated_build_matches.pat"
-      , "ORDER BY matching_build_count DESC;"
-      ]
-
-
-getPresumedStableBranches :: DbIO [Text]
-getPresumedStableBranches = listFlat
-  "SELECT branch FROM presumed_stable_branches;"
-
-
-apiPatternsPresumedStableBranches :: DbIO [PatternRecord]
-apiPatternsPresumedStableBranches = do
-  branches <- getPresumedStableBranches
-  apiPatternsBranchFiltered branches
 
 
 data PatternOccurrence = NewPatternOccurrence {

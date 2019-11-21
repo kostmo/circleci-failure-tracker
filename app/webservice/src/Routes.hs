@@ -244,9 +244,6 @@ scottyApp
   get "/api/inferred-scheduled-builds" $
     pure SqlRead.getScheduledJobNames
 
-  get "/api/presumed-stable-branches-dump" $
-    pure SqlRead.dumpPresumedStableBranches
-
   get "/api/step-list" $
     pure SqlRead.apiListSteps
 
@@ -277,17 +274,11 @@ scottyApp
   get "/api/idiopathic-failed-builds" $
     pure SqlRead.apiIdiopathicBuilds
 
-  get "/api/patterns-presumed-stable-branches" $
-    pure SqlRead.apiPatternsPresumedStableBranches
-
   get "/api/code-breakages-annotated-single" $
     SqlRead.apiAnnotatedCodeBreakagesWithImpactSingle <$> S.param "cause_id"
 
   get "/api/code-breakage-mode-single" $
     SqlRead.apiCodeBreakagesModeSingle <$> S.param "cause_id"
-
-  get "/api/patterns-branch-filtered" $
-    SqlRead.apiPatternsBranchFiltered <$> S.param "branches"
 
   get "/api/posted-statuses" $
     SqlRead.apiPostedStatuses <$> S.param "count"
@@ -309,9 +300,6 @@ scottyApp
 
   get "/api/step-suggest" $
     SqlRead.apiAutocompleteSteps <$> S.param "term"
-
-  get "/api/branch-suggest" $
-    SqlRead.apiAutocompleteBranches <$> S.param "term"
 
   get "/api/downstream-impact-weekly" $
     SqlRead.downstreamWeeklyFailureStats <$> S.param "weeks"

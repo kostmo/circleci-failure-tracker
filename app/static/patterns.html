@@ -6,8 +6,7 @@
 
 <link href="/style.css" rel="stylesheet" type="text/css"></link>
 
-<script src="https://code.highcharts.com/7.1/highcharts.js"></script>
-
+<script src="https://code.highcharts.com/highcharts.js"></script>
 <script src="https://code.highcharts.com/modules/exporting.js"></script>
 <script src="https://code.highcharts.com/modules/export-data.js"></script>
 <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
@@ -31,13 +30,6 @@
 <ul>
 <li><a href="/add-pattern.html">Add pattern</a></li>
 </ul>
-
-<form onsubmit="return false;">
-Filter by:<br/>
-<label><input type="radio" name="filter-mode" value="stable-branches"/> "presumed stable" branches</label><br/>
-<label><input type="radio" name="filter-mode" value="single-branch"/> Filter for branch: <input id="branch-name-input" type="text" value=""/></label><br/>
-<label><input type="radio" name="filter-mode" value="none" checked="true"/> no filter</label>
-</form>
 
 <div id="patterns-table"></div>
 

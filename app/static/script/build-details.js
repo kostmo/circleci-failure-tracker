@@ -62,11 +62,8 @@ function populate_build_info(universal_build_id, parent_data) {
 
 	const circleci_build_id = parent_data["umbrella_build"]["build_record"]["build_id"];
 
-
-	const local_logview_item_full = link("View full log", "/api/view-log-full?build_id=" + universal_build_id);
 	const logview_items = render_list([
 		"View log " + link("on CircleCI", "https://circleci.com/gh/pytorch/pytorch/" + circleci_build_id, true),
-		local_logview_item_full,
 	]);
 
 	const full_commit = data["build"]["vcs_revision"];
@@ -165,6 +162,8 @@ function get_build_number() {
 function main() {
 
 	const universal_build_id = get_build_number();
+	const local_logview_item_full = link("View full log", "/api/view-log-full?build_id=" + universal_build_id);
+	$("#full-log-link-container").html(local_logview_item_full);
 
 	get_build_info(universal_build_id);
 	gen_builds_table("best-build-matches-table", "/api/best-build-match?build_id=" + universal_build_id, null, universal_build_id);

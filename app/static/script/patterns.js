@@ -1,37 +1,6 @@
-function setup_autocomplete() {
-
-	$( "#branch-name-input" ).autocomplete({
-		source: function( request, response ) {
-			$.ajax({
-				url: "/api/branch-suggest",
-				dataType: "json",
-				data: {
-					term: request.term
-				},
-				success: function( data ) {
-					response( data );
-				}
-			});
-		},
-		minLength: 1,
-		select: function( event, ui ) {
-			console.log( "Selected: " + ui.item.value + " aka " + ui.item.id );
-			requery_patterns();
-		}
-	});
-}
-
-
 function requery_patterns() {
 
-	const branch_name = $("#branch-name-input").val();
-
-	const checked_radio_value = $("input[name='filter-mode']:checked").val();
-
-	const used_presumed_stable_branches = checked_radio_value == "stable-branches";
-	const branches_list = checked_radio_value == "single-branch" ? [branch_name] : [];
-
-	gen_patterns_table(null, used_presumed_stable_branches, branches_list);
+	gen_patterns_table(null);
 }
 
 
@@ -94,7 +63,6 @@ function main() {
 		requery_patterns();
 	});
 
-	setup_autocomplete();
 	requery_patterns();
 
 	make_tag_histogram("container-tag-builds");

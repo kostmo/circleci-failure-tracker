@@ -50,12 +50,13 @@ An <em>isolated failure</em> is a build failure that is neither a member of a co
 </p>
 
 <p>
-Such a failure is additionally <em>recognized as flaky</em> if a predefined log-scanning pattern tagged as "flaky" has matched the build console output.
+Such a failure is additionally <em>recognized as flaky</em> if a predefined log-scanning pattern tagged as "flaky" has matched the build console output. Failures on the master branch are a "training" dataset that should be used to refine the set of patterns so that they can be used on PR builds.
 </p>
-
 
 <div style="float: left; margin-right: 6em;">
 <ul>
+<li>Group by: <label><input type="radio" name="grouping-mode" value="by-job" checked="true"/>job</label> <label><input type="radio" name="grouping-mode" value="by-pattern"/>pattern</label></li>
+
 <li>
 <button onclick="bounds_this_week();" title="From the most recent Sunday until today (may not be a full week)">This week</button>
 <button onclick="bounds_last_week();" title="Ending at the most recent Sunday, show the 7 preceeding days">Last week</button>
@@ -70,8 +71,6 @@ Such a failure is additionally <em>recognized as flaky</em> if a predefined log-
 <label>until <input type="text" id="datepicker-end"/></label>
 <button onclick="go_calendar_span();">Go</button>
 </li>
-
-<li>Group by: <label><input type="radio" name="grouping-mode" value="by-job" checked="true"/>job</label> <label><input type="radio" name="grouping-mode" value="by-pattern"/>pattern</label></li>
 </ul>
 </div>
 

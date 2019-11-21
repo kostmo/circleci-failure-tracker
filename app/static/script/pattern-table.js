@@ -76,23 +76,6 @@ function gen_patterns_table(pattern_id, used_presumed_stable_branches, filtered_
 	        const ajax_url_query_string = $.param(query_parms);
 		api_endpoint_url = "/api/pattern?" + ajax_url_query_string;
 
-	} else {
-
-		pattern_column["headerFilter"] = "input";
-
-		if (used_presumed_stable_branches) {
-
-			api_endpoint_url = "/api/patterns-presumed-stable-branches"
-
-		} else if (filtered_branches.length > 0) {
-
-			const query_parms = {
-				"branches": filtered_branches,
-			};
-
-			const ajax_url_query_string = $.param(query_parms, true);
-			api_endpoint_url = "/api/patterns-branch-filtered?" + ajax_url_query_string;
-		}
 	}
 
         const height = pattern_id == null ? "400px" : null;

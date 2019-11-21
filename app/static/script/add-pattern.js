@@ -73,8 +73,6 @@ function render_lists() {
 
 function submit_pattern(submit_button) {
 
-	
-
 	const pattern_data = gather_pattern_data();
 
 	const throbber_id = "#mini-throbber-submit";
@@ -157,6 +155,14 @@ function gather_pattern_data() {
 		lines_from_end: $('#input-lines-from-end').val(),
 	};
 }
+
+
+function view_full_log() {
+
+	const universal_build_id = $('#test-build-id').val();
+	window.open("/api/view-log-full?build_id=" + universal_build_id, '_blank');
+}
+
 
 
 function test_pattern() {
