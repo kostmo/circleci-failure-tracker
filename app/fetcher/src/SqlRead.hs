@@ -1421,8 +1421,8 @@ apiTagsHistogram = runQuery $ MyUtils.qjoin [
     , "SUM(matching_build_count)::bigint AS build_matches"
     ]
   , "FROM pattern_tags"
-  , "LEFT JOIN pattern_frequency_summary"
-  , "ON pattern_frequency_summary.id = pattern_tags.pattern"
+  , "LEFT JOIN pattern_frequency_summary_mview"
+  , "ON pattern_frequency_summary_mview.id = pattern_tags.pattern"
   , "GROUP BY tag"
   , "ORDER BY pattern_count DESC, build_matches DESC;"
   ]
@@ -3080,7 +3080,7 @@ apiSinglePattern (ScanPatterns.PatternId pattern_id) = do
         , "specificity"
         , "CAST((scanned_count * 100 / total_scanned_builds) AS DECIMAL(6, 1)) AS percent_scanned"
         ]
-      , "FROM pattern_frequency_summary"
+      , "FROM pattern_frequency_summary_mview"
       , "WHERE id = ?;"
       ]
 
