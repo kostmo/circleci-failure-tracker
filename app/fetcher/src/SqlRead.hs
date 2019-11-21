@@ -2257,7 +2257,13 @@ instance (ToJSON a) => ToJSON (ViableCommitAgeRecord a) where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
-data FailuresReviewCounts = FailuresReviewCounts {
+
+data TimeRange =
+    Bounded (DbHelpers.StartEnd UTCTime)
+  | StartOnly UTCTime
+
+
+data FailuresByJobReviewCounts = FailuresByJobReviewCounts {
     _job                    :: Text
   , _isolated_failure_count :: Int
   , _recognized_flaky_count :: Int
@@ -2269,19 +2275,14 @@ data FailuresReviewCounts = FailuresReviewCounts {
   , _max_commit_number      :: Int
   } deriving (Generic, FromRow)
 
-instance ToJSON FailuresReviewCounts where
+instance ToJSON FailuresByJobReviewCounts where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
-data TimeRange =
-    Bounded (DbHelpers.StartEnd UTCTime)
-  | StartOnly UTCTime
-
-
-apiIsolatedFailuresTimespan ::
+apiIsolatedJobFailuresTimespan ::
      TimeRange
-  -> DbIO (Either Text [FailuresReviewCounts])
-apiIsolatedFailuresTimespan time_bounds = do
+  -> DbIO (Either Text [FailuresByJobReviewCounts])
+apiIsolatedJobFailuresTimespan time_bounds = do
   conn <- ask
   liftIO $ do
     rows <- query conn sql query_parms
@@ -2322,6 +2323,89 @@ apiIsolatedFailuresTimespan time_bounds = do
       ]
 
 
+data FailuresByPatternReviewCounts = FailuresByPatternReviewCounts {
+    _pattern_id             :: Maybe ScanPatterns.PatternId
+  , _expression             :: Maybe Text
+  , _isolated_failure_count :: Int
+  , _recognized_flaky_count :: Int
+  , _matched_count          :: Int
+  , _min_commit_index       :: Int
+  , _max_commit_index       :: Int
+  , _min_commit_number      :: Int
+  , _max_commit_number      :: Int
+  , _has_pattern_match      :: Bool
+  } deriving (Generic, FromRow)
+
+instance ToJSON FailuresByPatternReviewCounts where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+apiIsolatedPatternFailuresTimespan ::
+     TimeRange
+  -> DbIO (Either Text [FailuresByPatternReviewCounts])
+apiIsolatedPatternFailuresTimespan time_bounds = do
+  conn <- ask
+  liftIO $ do
+
+{-    MyUtils.debugList [
+        "SQL:"
+      , show sql
+      , "PARMS:"
+      , show query_parms
+      ]
+-}
+    rows <- query conn sql query_parms
+    return $ Right rows
+  where
+
+    query_parms = case time_bounds of
+      Bounded (DbHelpers.StartEnd start_time end_time) -> (start_time, Just end_time)
+      StartOnly start_time -> (start_time, Nothing)
+
+    inner_sql = MyUtils.qjoin [
+        "SELECT"
+      , MyUtils.qlist [
+          "pattern_id AS pid"
+        , "SUM(master_failures_raw_causes_mview.is_serially_isolated::int) AS isolated_count"
+        , "SUM(master_failures_raw_causes_mview.is_flaky::int) AS recognized_flaky_count"
+        , "SUM(master_failures_raw_causes_mview.is_matched::int) AS matched_count"
+        , "MIN(master_failures_raw_causes_mview.commit_index) AS min_commit_index"
+        , "MAX(master_failures_raw_causes_mview.commit_index) AS max_commit_index"
+        , "MIN(master_ordered_commits_with_metadata_mview.commit_number) AS min_commit_number"
+        , "MAX(master_ordered_commits_with_metadata_mview.commit_number) AS max_commit_number"
+        ]
+      , "FROM master_failures_raw_causes_mview"
+      , "JOIN master_ordered_commits_with_metadata_mview"
+      , "ON master_failures_raw_causes_mview.commit_index = master_ordered_commits_with_metadata_mview.id"
+      , "WHERE master_failures_raw_causes_mview.is_serially_isolated"
+      , "AND NOT master_failures_raw_causes_mview.succeeded"
+      , "AND tstzrange(?::timestamp, ?::timestamp) @> master_ordered_commits_with_metadata_mview.committer_date"
+      , "GROUP BY master_failures_raw_causes_mview.pattern_id"
+      ]
+
+    sql = MyUtils.qjoin [
+        "SELECT"
+      , MyUtils.qlist [
+          "patterns_rich.id AS pattern_id"
+        , "patterns_rich.expression"
+        , "isolated_count"
+        , "recognized_flaky_count"
+        , "matched_count"
+        , "min_commit_index"
+        , "max_commit_index"
+        , "min_commit_number"
+        , "max_commit_number"
+        , "patterns_rich.id IS NOT NULL AS has_pattern_match"
+        ]
+      , "FROM"
+      , MyUtils.qparens inner_sql
+      , "foo"
+      , "LEFT JOIN patterns_rich"
+      , "ON patterns_rich.id = foo.pid"
+      , "ORDER BY has_pattern_match, isolated_count DESC, pattern_id DESC"
+      ]
+
+
 apiJobFailuresInTimespan ::
      Text -- ^ job name
   -> DbHelpers.InclusiveNumericBounds Int64
@@ -2332,10 +2416,12 @@ apiJobFailuresInTimespan job_name (DbHelpers.InclusiveNumericBounds lower_commit
     rows <- query conn sql query_parms
     return $ Right rows
   where
+    sql = genMasterFailureDetailsQuery "master_failures_raw_causes_mview.job_name = ?"
+    query_parms = (lower_commit_id, upper_commit_id, job_name)
 
-    query_parms = (job_name, lower_commit_id, upper_commit_id)
 
-    sql = MyUtils.qjoin [
+genMasterFailureDetailsQuery extra_where_condition =
+  MyUtils.qjoin [
         "SELECT"
       , MyUtils.qlist [
           "master_failures_raw_causes_mview.step_name"
@@ -2369,10 +2455,27 @@ apiJobFailuresInTimespan job_name (DbHelpers.InclusiveNumericBounds lower_commit
       , MyUtils.qconjunction [
           "master_failures_raw_causes_mview.is_serially_isolated"
         , "NOT master_failures_raw_causes_mview.succeeded"
-        , "master_failures_raw_causes_mview.job_name = ?"
         , "int8range(?, ?, '[]') @> master_failures_raw_causes_mview.commit_index::int8"
+        , extra_where_condition
         ]
       ]
+
+
+apiPatternFailuresInTimespan ::
+     ScanPatterns.PatternId
+  -> DbHelpers.InclusiveNumericBounds Int64
+  -> DbIO (Either Text [CommitBuilds.CommitBuild])
+apiPatternFailuresInTimespan
+    (ScanPatterns.PatternId pattern_id)
+    (DbHelpers.InclusiveNumericBounds lower_commit_id upper_commit_id) = do
+
+  conn <- ask
+  liftIO $ do
+    rows <- query conn sql query_parms
+    return $ Right rows
+  where
+    sql = genMasterFailureDetailsQuery "master_failures_raw_causes_mview.pattern_id = ?"
+    query_parms = (lower_commit_id, upper_commit_id, pattern_id)
 
 
 -- | Note list reversal for the sake of Highcharts

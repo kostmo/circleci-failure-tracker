@@ -93,7 +93,6 @@ function submit_pattern(submit_button) {
 			$(throbber_id).hide();
 			$(submit_button).prop("disabled", false);
 
-
 			// TODO consolidate with "handle_submission_response()" in "html-utils.js"
 			if (data.success) {
 				alert("submitted pattern with ID: " + data.payload);

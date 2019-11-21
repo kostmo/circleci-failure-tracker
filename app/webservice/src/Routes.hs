@@ -9,7 +9,6 @@ import           Control.Monad.Trans.Except      (ExceptT (ExceptT), except,
 import           Control.Monad.Trans.Reader      (runReaderT)
 import           Data.Aeson                      (ToJSON)
 import           Data.Default                    (def)
-import           Data.Either.Utils               (maybeToEither)
 import           Data.String                     (fromString)
 import           Data.Text                       (Text)
 import qualified Data.Text.Lazy                  as LT
@@ -398,11 +397,18 @@ scottyApp
 
     S.json $ WebApi.toJsonEither json_result
 
-  get "/api/isolated-failures-timespan" $ fmap WebApi.toJsonEither . SqlRead.apiIsolatedFailuresTimespan
+  get "/api/isolated-failures-timespan-by-job" $ fmap WebApi.toJsonEither . SqlRead.apiIsolatedJobFailuresTimespan
+      <$> parseTimeRangeParms
+
+  get "/api/isolated-failures-timespan-by-pattern" $ fmap WebApi.toJsonEither . SqlRead.apiIsolatedPatternFailuresTimespan
       <$> parseTimeRangeParms
 
   get "/api/master-job-failures-in-timespan" $ (fmap . fmap) WebApi.toJsonEither $ SqlRead.apiJobFailuresInTimespan
       <$> S.param "job"
+      <*> (DbHelpers.InclusiveNumericBounds <$> S.param "commit-id-min" <*> S.param "commit-id-max")
+
+  get "/api/master-pattern-failures-in-timespan" $ (fmap . fmap) WebApi.toJsonEither $ SqlRead.apiPatternFailuresInTimespan
+      <$> (ScanPatterns.PatternId <$> S.param "pattern")
       <*> (DbHelpers.InclusiveNumericBounds <$> S.param "commit-id-min" <*> S.param "commit-id-max")
 
   get "/api/latest-viable-master-commits" $
@@ -466,49 +472,6 @@ scottyApp
     case either_log_result of
       Right logs  -> S.text logs
       Left errors -> S.html $ LT.fromStrict $ JsonUtils._message $ JsonUtils.getDetails errors
-
-
-{-
-  S.get "/api/view-log-context" $
-    FrontendHelpers.jsonAuthorizedDbInteract connection_data session github_config $
-      SqlRead.logContextFunc
-        <$> (MatchOccurrences.MatchId <$> S.param "match_id")
-        <*> S.param "context_linecount"
-
-
-  S.get "/api/view-log-full" $ do
-    build_id <- S.param "build_id"
-
-    -- TODO
-    let login_redirect_path = "/"
---    login_redirect_path <- S.param "login_redirect_path"
-
-
-    let callback_func :: AuthStages.Username -> IO (Either Text LT.Text)
-
-        universal_build_id = Builds.UniversalBuildId build_id
-
-        callback_func _user_alias = do
-          conn <- DbHelpers.get_connection connection_data
-
-          storable_build <- runReaderT (SqlRead.getGlobalBuild universal_build_id) conn
-
-          maybe_log <- runReaderT (SqlRead.readLog $ Builds.UniversalBuildId $ DbHelpers.db_id $ Builds.universal_build storable_build) conn
-          return $ maybeToEither "log not in database" maybe_log
-
-    rq <- S.request
-    either_log_result <- liftIO $ Auth.getAuthenticatedUser
-      login_redirect_path
-      rq
-      session
-      github_config
-      callback_func
-
-    case either_log_result of
-      Right logs  -> S.text logs
-      Left errors -> S.html $ LT.fromStrict $ JsonUtils._message $ JsonUtils.getDetails errors
-
--}
 
   post "/api/pattern-specificity-update" $
     SqlWrite.updatePatternSpecificity

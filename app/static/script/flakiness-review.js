@@ -15,9 +15,37 @@ function gen_failure_details_table(element_id, data_payload, height_string) {
 }
 
 
-function load_failure_details(job_name, commit_id_min, commit_id_max) {
+function load_pattern_failure_details(pattern_id, commit_id_min, commit_id_max) {
 
-	$("#selected-job-name-container").html(job_name);
+	$("#selected-details-row-title-container").html("pattern " + pattern_id);
+	
+	const query_args_dict = {
+		"pattern": pattern_id,
+		"commit-id-min": commit_id_min,
+		"commit-id-max": commit_id_max,
+	};
+
+	$("#failure-details-section").show();
+
+	$("#failure-details-table").hide();
+	getJsonWithThrobber("#throbber-details-by-job-table", "/api/master-pattern-failures-in-timespan", query_args_dict, function (data) {
+
+		if (data.success) {
+
+			$("#failure-details-table").show();
+			gen_failure_details_table("failure-details-table", data.payload, 300)
+
+		} else {
+
+			alert("error");
+		}
+	});
+}
+
+
+function load_job_failure_details(job_name, commit_id_min, commit_id_max) {
+
+	$("#selected-details-row-title-container").html("job " + job_name);
 	
 	const query_args_dict = {
 		"job": job_name,
@@ -28,7 +56,7 @@ function load_failure_details(job_name, commit_id_min, commit_id_max) {
 	$("#failure-details-section").show();
 
 	$("#failure-details-table").hide();
-	getJsonWithThrobber("#throbber2", "/api/master-job-failures-in-timespan", query_args_dict, function (data) {
+	getJsonWithThrobber("#throbber-details-by-job-table", "/api/master-job-failures-in-timespan", query_args_dict, function (data) {
 
 		if (data.success) {
 
@@ -36,17 +64,71 @@ function load_failure_details(job_name, commit_id_min, commit_id_max) {
 			gen_failure_details_table("failure-details-table", data.payload, 300)
 
 		} else {
-
-			// TODO consolidate this error handling with "handle_submission_response()" from "html-utils.js"
-			if (data.error.details.authentication_failed) {
-				window.location.href = data.error.details.login_url;
-			}
+			alert("error");
 		}
 	});
 }
 
 
-function gen_table(element_id, data_payload, height_string) {
+function gen_patterns_table(element_id, data_payload, height_string) {
+
+	const column_list = [
+		{title: "Pattern expression", field: "expression", width: 500, 
+			formatter: function(cell, formatterParams, onRendered) {
+				if (cell.getValue() != null) {
+					return cell.getValue();
+				} else {
+					return "<span style='font-style: italic; color: #7cb5ec;'>&lt;no pattern match&gt;</span>";
+				}
+			},
+		},
+		{title: "Isolated failures", field: "isolated_failure_count", width: 150,
+		},
+		{title: "Recognized as flaky", field: "recognized_flaky_count", width: 200,
+		},
+		{title: "Timeline Span", field: "min_commit_index",
+			formatter: function(cell, formatterParams, onRendered) {
+				const row_data = cell.getRow().getData();
+
+				const extra_args = {
+					"max_columns_suppress_successful": 35,
+					"should_suppress_scheduled_builds": true,
+					"should_suppress_fully_successful_columns": true,
+					"highlight_job": row_data.job,
+				};
+
+				const commit_count = row_data["max_commit_number"] - row_data["min_commit_number"] + 1;
+
+				return link(pluralize(commit_count, "commit"), gen_master_timeline_commit_bounds_url(row_data.min_commit_index, row_data.max_commit_index, extra_args));
+			},
+		},
+	];
+
+	const table = new Tabulator("#" + element_id, {
+		height: height_string,
+		layout: "fitColumns",
+		placeholder: "No Data Set",
+		columns: column_list,
+		data: data_payload,
+		rowClick:function(e, row) {
+			const row_data = row.getData()
+			const pattern_id = row_data["pattern_id"];
+
+			console.log("Clicked pattern:", pattern_id);
+
+			const commit_id_min = row_data["min_commit_index"];
+			const commit_id_max = row_data["max_commit_index"];
+
+			if (pattern_id != null) {
+				load_pattern_failure_details(pattern_id, commit_id_min, commit_id_max);
+			} else {
+				console.log("Null pattern");
+			}
+		},
+	});
+}
+
+function gen_jobs_table(element_id, data_payload, height_string) {
 
 	const column_list = [
 		{title: "Job", field: "job", width: 500,
@@ -92,16 +174,16 @@ function gen_table(element_id, data_payload, height_string) {
 			const commit_id_min = row_data["min_commit_index"];
 			const commit_id_max = row_data["max_commit_index"];
 
-			load_failure_details(job_name, commit_id_min, commit_id_max);
+			load_job_failure_details(job_name, commit_id_min, commit_id_max);
 		},
 	});
 }
 
 
-function requery_table(query_args_dict) {
+function requery_by_pattern_table(query_args_dict) {
 
-	$("#full-span-grid-link-placeholder").hide();
-	getJsonWithThrobber("#throbber", "/api/isolated-failures-timespan", query_args_dict, function (data) {
+//	$("#full-span-grid-link-placeholder-by-job").hide();
+	getJsonWithThrobber("#throbber-by-pattern", "/api/isolated-failures-timespan-by-pattern", query_args_dict, function (data) {
 
 		if (data.success) {
 
@@ -111,6 +193,40 @@ function requery_table(query_args_dict) {
 
 				console.log("commit index span:", min_commit_idx, max_commit_idx);
 
+
+				const min_commit_number = Math.min(...data.payload.map(x => x.min_commit_number));
+				const max_commit_number = Math.max(...data.payload.map(x => x.max_commit_number));
+
+				console.log("commit number span:", min_commit_number, max_commit_number);
+				const commit_count = max_commit_number - min_commit_number + 1;
+
+
+			}
+
+			gen_patterns_table("isolated-failures-by-pattern-table", data.payload, 200);
+
+		} else {
+
+			alert("Error");
+		}
+	});
+}
+
+
+function requery_by_job_table(query_args_dict) {
+
+	const full_span_grid_link_element = $("#full-span-grid-link-placeholder-by-job");
+
+	full_span_grid_link_element.hide();
+	getJsonWithThrobber("#throbber-by-job", "/api/isolated-failures-timespan-by-job", query_args_dict, function (data) {
+
+		if (data.success) {
+
+			if (data.payload.length) {
+				const min_commit_idx = Math.min(...data.payload.map(x => x.min_commit_index));
+				const max_commit_idx = Math.max(...data.payload.map(x => x.max_commit_index));
+
+				console.log("commit index span:", min_commit_idx, max_commit_idx);
 
 
 				const min_commit_number = Math.min(...data.payload.map(x => x.min_commit_number));
@@ -122,21 +238,38 @@ function requery_table(query_args_dict) {
 
 
 				const link_url = gen_master_timeline_commit_bounds_url(min_commit_idx, max_commit_idx);
-				$("#full-span-grid-link-placeholder").html(link("View " + commit_count + "-commit span on master timeline", link_url));
+				full_span_grid_link_element.html(link("View " + commit_count + "-commit span on master timeline", link_url));
 
-				$("#full-span-grid-link-placeholder").show();
+				full_span_grid_link_element.show();
 			}
 
-			gen_table("isolated-failures-table", data.payload, 200);
+			gen_jobs_table("isolated-failures-by-job-table", data.payload, 200);
 
 		} else {
-
-			// TODO consolidate this error handling with "handle_submission_response()" from "html-utils.js"
-			if (data.error.details.authentication_failed) {
-				window.location.href = data.error.details.login_url;
-			}
+			alert("Error");
 		}
 	});
+}
+
+
+function requery_tables(query_args_dict) {
+
+	const grouping_mode = document.querySelector('input[name="grouping-mode"]:checked').value;
+
+	if (grouping_mode == "by-job") {
+
+		$("#by-pattern-container").hide();
+		$("#by-job-container").show();
+
+		requery_by_job_table(query_args_dict);
+	} else {
+		$("#by-job-container").hide();
+		$("#by-pattern-container").show();
+
+		requery_by_pattern_table(query_args_dict);
+	}
+
+	$("#failure-details-section").hide();
 
 	return false;
 }
@@ -154,7 +287,7 @@ function bounds_this_week() {
 		"start-timestamp": start_timestamp,
 	};
 
-	requery_table(query_args_dict);
+	requery_tables(query_args_dict);
 }
 
 
@@ -174,7 +307,7 @@ function bounds_last_week() {
 		"end-timestamp": end_timestamp,
 	};
 
-	requery_table(query_args_dict);
+	requery_tables(query_args_dict);
 }
 
 
@@ -193,7 +326,7 @@ function bounds_today() {
 	};
 
 
-	requery_table(query_args_dict);
+	requery_tables(query_args_dict);
 }
 
 
@@ -211,7 +344,7 @@ function bounds_yesterday() {
 		"end-timestamp": end_timestamp,
 	};
 
-	requery_table(query_args_dict);
+	requery_tables(query_args_dict);
 }
 
 
@@ -263,7 +396,7 @@ function go_trailing_days() {
 		"start-timestamp": start_timestamp,
 	};
 
-	requery_table(query_args_dict);
+	requery_tables(query_args_dict);
 }
 
 
@@ -277,7 +410,7 @@ function go_calendar_span() {
 		"end-timestamp": end_timestamp,
 	};
 
-	requery_table(query_args_dict);
+	requery_tables(query_args_dict);
 }
 
 

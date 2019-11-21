@@ -70,6 +70,8 @@ Such a failure is additionally <em>recognized as flaky</em> if a predefined log-
 <label>until <input type="text" id="datepicker-end"/></label>
 <button onclick="go_calendar_span();">Go</button>
 </li>
+
+<li>Group by: <label><input type="radio" name="grouping-mode" value="by-job" checked="true"/>job</label> <label><input type="radio" name="grouping-mode" value="by-pattern"/>pattern</label></li>
 </ul>
 </div>
 
@@ -82,17 +84,32 @@ Such a failure is additionally <em>recognized as flaky</em> if a predefined log-
 
 <br clear="all" />
 
+<div id="by-pattern-container">
+
+<h3>Failures by pattern</h3>
+<div id="throbber-by-pattern" style="display: none;"><img src="/images/duck.gif"/></div>
+<div id="isolated-failures-by-pattern-table"></div>
+
+</div>
+
+<div id="by-job-container">
+<h3>Failures by job</h3>
+<div id="throbber-by-job" style="display: none;"><img src="/images/duck.gif"/></div>
+
+
 <div style="float: left">Click on a row to load failure causes.</div>
-<div id="full-span-grid-link-placeholder" style="display: none; float: right"></div>
+<div id="full-span-grid-link-placeholder-by-job" style="display: none; float: right"></div>
 
 <br clear="all" />
-<div id="throbber" style="display: none;"><img src="/images/duck.gif"/></div>
-<div id="isolated-failures-table"></div>
+<div id="isolated-failures-by-job-table"></div>
+
+</div>
+
 
 <div id="failure-details-section" style="display: none;">
-	<h3>Failure details for job <code id="selected-job-name-container">XXX</code></h3>
+	<h3>Failure details for <span id="selected-details-row-title-container">...</span></h3>
 
-	<div id="throbber2" style="display: none;"><img src="/images/duck.gif"/></div>
+	<div id="throbber-details-by-job-table" style="display: none;"><img src="/images/duck.gif"/></div>
 
 	<div id="failure-details-table"></div>
 </div>
