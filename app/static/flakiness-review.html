@@ -50,7 +50,7 @@ An <em>isolated failure</em> is a build failure that is neither a member of a co
 </p>
 
 <p>
-Such a failure is additionally <em>recognized as flaky</em> if a predefined log-scanning pattern tagged as "flaky" has matched the build console output. Failures on the master branch are a "training" dataset that should be used to refine the set of patterns so that they can be used on PR builds.
+Such a failure is additionally <em>recognized as flaky</em> if a predefined log-scanning pattern tagged as "flaky" has matched the build console output. Failures on the master branch are a "training" dataset that should be used to refine the set of flaky patterns to be used on PR builds.
 </p>
 
 <div style="float: left; margin-right: 6em;">

@@ -76,6 +76,8 @@ function gen_patterns_table(pattern_id, used_presumed_stable_branches, filtered_
 	        const ajax_url_query_string = $.param(query_parms);
 		api_endpoint_url = "/api/pattern?" + ajax_url_query_string;
 
+	} else {
+		pattern_column["headerFilter"] = "input";
 	}
 
         const height = pattern_id == null ? "400px" : null;

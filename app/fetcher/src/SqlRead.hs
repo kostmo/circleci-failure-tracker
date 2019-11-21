@@ -1421,8 +1421,8 @@ apiTagsHistogram = runQuery $ MyUtils.qjoin [
     , "SUM(matching_build_count)::bigint AS build_matches"
     ]
   , "FROM pattern_tags"
-  , "LEFT JOIN pattern_frequency_summary_mview"
-  , "ON pattern_frequency_summary_mview.id = pattern_tags.pattern"
+  , "LEFT JOIN pattern_frequency_summary_partially_cached"
+  , "ON pattern_frequency_summary_partially_cached.id = pattern_tags.pattern"
   , "GROUP BY tag"
   , "ORDER BY pattern_count DESC, build_matches DESC;"
   ]
@@ -3080,7 +3080,7 @@ apiSinglePattern (ScanPatterns.PatternId pattern_id) = do
         , "specificity"
         , "CAST((scanned_count * 100 / total_scanned_builds) AS DECIMAL(6, 1)) AS percent_scanned"
         ]
-      , "FROM pattern_frequency_summary_mview"
+      , "FROM pattern_frequency_summary_partially_cached"
       , "WHERE id = ?;"
       ]
 
@@ -3101,7 +3101,7 @@ apiPatterns = fmap makePatternRecords $ runQuery $ MyUtils.qjoin [
     , "specificity"
     , "CAST((scanned_count * 100 / total_scanned_builds) AS DECIMAL(6, 1)) AS percent_scanned"
     ]
-  , "FROM pattern_frequency_summary_mview"
+  , "FROM pattern_frequency_summary_partially_cached"
   , "ORDER BY most_recent DESC NULLS LAST;"
   ]
 
