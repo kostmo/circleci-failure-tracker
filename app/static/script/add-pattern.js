@@ -187,32 +187,36 @@ function test_pattern() {
 
 			$(throbber_id).hide();
 
-			var inner_html = "";
+			if (data.success) {
+				var inner_html = "";
 
-			const matches_list = data.payload.matches;
-			if (matches_list.length > 0) {
+				const matches_list = data.payload.matches;
+				if (matches_list.length > 0) {
 
-				var last_one_based_line_number = 1;
+					var last_one_based_line_number = 1;
 
-				const table_rows = [];
-				for (var i=0; i<matches_list.length; i++) {
-					const match_details = matches_list[i]["match_details"];
-					const one_based_line_number = match_details["line_number"] + 1;
-					table_rows.push(["Line " + one_based_line_number + ":", match_details["line_text"]]);
+					const table_rows = [];
+					for (var i=0; i<matches_list.length; i++) {
+						const match_details = matches_list[i]["match_details"];
+						const one_based_line_number = match_details["line_number"] + 1;
+						table_rows.push(["Line " + one_based_line_number + ":", match_details["line_text"]]);
 
-					last_one_based_line_number = Math.max(one_based_line_number, last_one_based_line_number)
+						last_one_based_line_number = Math.max(one_based_line_number, last_one_based_line_number)
+					}
+
+					inner_html += render_table(table_rows, {}, null, false);
+
+					const lines_from_end = data.payload.total_line_count - last_one_based_line_number;
+					$('#input-lines-from-end').val( lines_from_end );
+
+				} else {
+					inner_html += "<span style='color: red;'>No matches</span>";
 				}
 
-				inner_html += render_table(table_rows, {}, null, false);
-
-				const lines_from_end = data.payload.total_line_count - last_one_based_line_number;
-				$('#input-lines-from-end').val( lines_from_end );
-
+				$("#test-match-results-container").html(inner_html);
 			} else {
-				inner_html += "<span style='color: red;'>No matches</span>";
+				alert(data.error.message);
 			}
-
-			$("#test-match-results-container").html(inner_html);
 		}
 	});
 }
