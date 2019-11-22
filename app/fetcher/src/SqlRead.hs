@@ -5,7 +5,7 @@
 
 module SqlRead where
 
-import           Control.Monad                        (forM)
+import           Control.Monad                        (forM, unless)
 import           Control.Monad.IO.Class               (liftIO)
 import           Control.Monad.Trans.Except           (ExceptT (ExceptT),
                                                        except, runExceptT)
@@ -2281,6 +2281,65 @@ instance ToJSON FailuresByJobReviewCounts where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
+queryParmsFromTimeRange :: TimeRange -> (UTCTime, Maybe UTCTime)
+queryParmsFromTimeRange time_bounds =
+  case time_bounds of
+    Bounded (DbHelpers.StartEnd start_time end_time) -> (start_time, Just end_time)
+    StartOnly start_time -> (start_time, Nothing)
+
+
+apiCoarseBinsIsolatedJobFailuresTimespan ::
+     TimeRange
+  -> DbIO (Either Text [WebApi.PieSliceApiRecord])
+apiCoarseBinsIsolatedJobFailuresTimespan time_bounds = do
+  conn <- ask
+  liftIO $ do
+    rows <- query conn sql query_parms
+    runExceptT $ do
+      (timeout_count, network_count, other_count, sanity_check_consistent_total) <- except $ maybeToEither "No rows" $ Safe.headMay rows
+      unless sanity_check_consistent_total $
+        except $ Left "Inconsisent build counts!"
+      return [
+          (WebApi.PieSliceApiRecord "Timeout" timeout_count)
+        , (WebApi.PieSliceApiRecord "Network" network_count)
+        , (WebApi.PieSliceApiRecord "Other" other_count)
+        ]
+  where
+    query_parms = queryParmsFromTimeRange time_bounds
+
+    sql = MyUtils.qjoin [
+        "SELECT"
+      , MyUtils.qlist [
+          "timeout_count"
+        , "network_count"
+        , "other_count"
+        , "timeout_count + network_count + other_count = total_count AS sanity_check_consistent_total"
+        ]
+      , "FROM"
+      , MyUtils.qparens inner_sql
+      , "foo"
+      ]
+
+    inner_sql = MyUtils.qjoin [
+        "SELECT"
+      , MyUtils.qlist [
+          "SUM(is_timeout::int) AS timeout_count"
+        , "SUM(is_network::int) AS network_count"
+        , "SUM((NOT (is_network OR is_timeout))::int) AS other_count"
+        , "COUNT(*) AS total_count"
+        ]
+      , "FROM master_failures_raw_causes_mview"
+      , "JOIN master_ordered_commits_with_metadata_mview"
+      , "ON master_failures_raw_causes_mview.commit_index = master_ordered_commits_with_metadata_mview.id"
+      , "WHERE"
+      , MyUtils.qconjunction [
+          "is_serially_isolated"
+        , "NOT succeeded"
+        , "tstzrange(?::timestamp, ?::timestamp) @> committer_date"
+        ]
+      ]
+
+
 apiIsolatedJobFailuresTimespan ::
      TimeRange
   -> DbIO (Either Text [FailuresByJobReviewCounts])
@@ -2291,9 +2350,7 @@ apiIsolatedJobFailuresTimespan time_bounds = do
     return $ Right rows
   where
 
-    query_parms = case time_bounds of
-      Bounded (DbHelpers.StartEnd start_time end_time) -> (start_time, Just end_time)
-      StartOnly start_time -> (start_time, Nothing)
+    query_parms = queryParmsFromTimeRange time_bounds
 
     sql = MyUtils.qjoin [
         "SELECT"

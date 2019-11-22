@@ -37,7 +37,7 @@ function load_pattern_failure_details(pattern_id, commit_id_min, commit_id_max) 
 
 		} else {
 
-			alert("error");
+			alert("error: " + data.error);
 		}
 	});
 }
@@ -94,6 +94,59 @@ function make_timeline_chart(element_id, rows) {
 }
 
 
+function make_coarse_cause_pie(container_id, data) {
+
+      Highcharts.chart(container_id, {
+        chart: {
+            plotBackgroundColor: null,
+            plotBorderWidth: null,
+            plotShadow: false,
+            type: 'pie'
+        },
+        title: {
+            text: 'Failure causes',
+        },
+        plotOptions: {
+            pie: {
+                allowPointSelect: true,
+                cursor: 'pointer',
+                dataLabels: {
+                    enabled: true,
+                    format: '<b>{point.name}</b>: {point.percentage:.1f} %',
+                    style: {
+                        color: (Highcharts.theme && Highcharts.theme.contrastTextColor) || 'black'
+                    }
+                }
+            }
+        },
+        credits: {
+            enabled: false
+        },
+        series: [{
+            name: "Blah",
+            colorByPoint: true,
+            data: data,
+         }]
+      });
+
+}
+
+
+function load_coarse_cause_bins(query_args) {
+
+	getJsonWithThrobber("#throbber-coarse-cause-bins", "/api/isolated-failures-timespan-coarse-bins", query_args, function (data) {
+
+		if (data.success) {
+
+			make_coarse_cause_pie("container-coarse-cause-piechart", data.payload);
+
+		} else {
+			alert("error: " + data.error);
+		}
+	});
+}
+
+
 function load_day_highchart() {
 
 	getJsonWithThrobber("#throbber-isolated-failures-timeline-by-day", "/api/isolated-master-failures-by-day", {"age-days": 30}, function (data) {
@@ -112,10 +165,9 @@ function load_day_highchart() {
 			make_timeline_chart("container-isolated-failures-timeline-by-day", rows);
 
 		} else {
-			alert("error");
+			alert("error: " + data.error);
 		}
 	});
-
 }
 
 
@@ -140,7 +192,7 @@ function load_job_failure_details(job_name, commit_id_min, commit_id_max) {
 			gen_failure_details_table("failure-details-table", data.payload, 300)
 
 		} else {
-			alert("error");
+			alert("error: " + data.error);
 		}
 	});
 }
@@ -283,7 +335,7 @@ function requery_by_pattern_table(query_args_dict) {
 
 		} else {
 
-			alert("Error");
+			alert("error: " + data.error);
 		}
 	});
 }
@@ -322,7 +374,7 @@ function requery_by_job_table(query_args_dict) {
 			gen_jobs_table("isolated-failures-by-job-table", data.payload, 200);
 
 		} else {
-			alert("Error");
+			alert("error: " + data.error);
 		}
 	});
 }
@@ -346,6 +398,8 @@ function requery_tables(query_args_dict) {
 	}
 
 	$("#failure-details-section").hide();
+
+	load_coarse_cause_bins(query_args_dict);
 
 	load_day_highchart();
 
