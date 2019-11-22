@@ -12,6 +12,7 @@
 
 <script src="/script/js-utils.js"></script>
 <script src="/script/html-utils.js"></script>
+<script src="/script/unattributed-failures-helper.js"></script>
 <script src="/script/unattributed-failures.js"></script>
 </head>
 
@@ -23,7 +24,7 @@
 
 <p>These are logs for which no pattern has matched yet.</p>
 <p id="unattributed-builds-count-container"></p>
-<div id="container-unattributed-failures" style="min-width: 300px; height: 400px; max-width: 400; margin: 0 auto"></div>
+<div id="container-unattributed-failures" style="400px;"></div>
 
 <h2>Failed builds with no specifically failing steps</h2>
 <p>This happens when CircleCI restarts a job; it's reported as failure to GitHub while the restarted job is running.</p>

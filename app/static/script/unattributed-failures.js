@@ -22,8 +22,20 @@ function gen_build_list(api_endpoint, div_id) {
 					urlPrefix: "/build-details.html?build_id="
 				}
 			},
-			{title:"Branch", field:"branch", formatter: "string"},
+			{title:"Branch", field:"branch"},
 		],
+		ajaxURL: api_endpoint,
+	});
+}
+
+
+function gen_unmatched_build_list(api_endpoint, div_id) {
+
+	var table = new Tabulator("#" + div_id, {
+		height:"200px",
+		layout:"fitColumns",
+		placeholder:"No Data Set",
+		columns: get_unmatched_build_columns(),
 		ajaxURL: api_endpoint,
 	});
 }
@@ -32,7 +44,7 @@ function gen_build_list(api_endpoint, div_id) {
 function main() {
 
 	gen_build_list("/api/idiopathic-failed-builds", "container-idiopathic-failures");
-	gen_build_list("/api/unmatched-builds", "container-unattributed-failures");
+	gen_unmatched_build_list("/api/unmatched-builds", "container-unattributed-failures");
 
 	display_stats();
 }

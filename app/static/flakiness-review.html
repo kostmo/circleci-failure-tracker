@@ -25,6 +25,7 @@
 <script src="/script/html-utils.js"></script>
 <script src="/script/table-helpers.js"></script>
 <script src="/script/build-details-helper.js"></script>
+<script src="/script/unattributed-failures-helper.js"></script>
 <script src="/script/flakiness-review.js"></script>
 
 <style>
@@ -58,10 +59,15 @@ Such a failure is additionally <em>recognized as flaky</em> if a predefined log-
 <li>Group by: <label><input type="radio" name="grouping-mode" value="by-job" checked="true"/>job</label> <label><input type="radio" name="grouping-mode" value="by-pattern"/>pattern</label></li>
 
 <li>
+<span style="margin-right: 1em;">
 <button onclick="bounds_this_week();" title="From the most recent Sunday until today (may not be a full week)">This week</button>
 <button onclick="bounds_last_week();" title="Ending at the most recent Sunday, show the 7 preceeding days">Last week</button>
+</span>
+
+<span>
 <button onclick="bounds_today();" title="May not show a full day">Today</button>
 <button onclick="bounds_yesterday();" title="Shows a full day">Yesterday</button>
+</span>
 </li>
 
 <li><label>Last <input id="trailing-days-input" type="number" value="3" min="1" size="2"/> days</label> <button onclick="go_trailing_days();">Go</button></li>
@@ -109,10 +115,12 @@ Such a failure is additionally <em>recognized as flaky</em> if a predefined log-
 <div id="failure-details-section" style="display: none;">
 	<h3>Failure details for <span id="selected-details-row-title-container">...</span></h3>
 
-	<div id="throbber-details-by-job-table" style="display: none;"><img src="/images/duck.gif"/></div>
+	<div id="throbber-details-table" style="display: none;"><img src="/images/duck.gif"/></div>
+
 
 	<div id="failure-details-table"></div>
 </div>
+
 
 
 <h3>Stats</h3>

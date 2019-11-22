@@ -390,6 +390,9 @@ scottyApp
   get "/api/isolated-failures-timespan-coarse-bins" $ fmap WebApi.toJsonEither . SqlRead.apiCoarseBinsIsolatedJobFailuresTimespan
       <$> parseTimeRangeParms
 
+  get "/api/isolated-unmatched-failed-builds-master-commit-range" $ (fmap . fmap) WebApi.toJsonEither $
+    SqlRead.apiIsolatedUnmatchedBuildsMasterCommitRange <$> (DbHelpers.InclusiveNumericBounds <$> S.param "commit-id-min" <*> S.param "commit-id-max")
+
   get "/api/isolated-failures-timespan-by-job" $ fmap WebApi.toJsonEither . SqlRead.apiIsolatedJobFailuresTimespan
       <$> parseTimeRangeParms
 

@@ -70,6 +70,18 @@ instance ToJSON BuildBranchRecord where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
+data BuildBranchDateRecord = BuildBranchDateRecord {
+    _universal_build_id :: Builds.UniversalBuildId
+  , _step_name          :: Text
+  , _job_name           :: Text
+  , _sha1               :: Builds.RawCommit
+  , _timestamp          :: UTCTime
+  } deriving (Generic, FromRow)
+
+instance ToJSON BuildBranchDateRecord where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
 data JobApiRecord = JobApiRecord {
     _name :: Text
   , _data :: [Int]

@@ -835,7 +835,6 @@ function define_commit_age_column() {
 
 				cell.getElement().style.borderLeft = "4px solid " + hex_string;
 
-
 				return link(moment(commit_date).fromNow(true), "/week-in-review.html?commit-id=" + cell.getRow().getData()["commit_index"])
 			}
 

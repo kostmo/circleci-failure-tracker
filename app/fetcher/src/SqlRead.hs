@@ -941,12 +941,19 @@ listBuilds sql = do
   liftIO $ query_ conn sql
 
 
-apiUnmatchedBuilds :: DbIO [WebApi.BuildBranchRecord]
-apiUnmatchedBuilds = listBuilds $ MyUtils.qjoin [
+apiUnmatchedBuilds :: DbIO [WebApi.BuildBranchDateRecord]
+apiUnmatchedBuilds = runQuery $ MyUtils.qjoin [
     "SELECT"
-  , "branch, global_build"
+  , MyUtils.qlist [
+      "global_build"
+    , "step_name"
+    , "job_name"
+    , "vcs_revision"
+    , "queued_at"
+    ]
   , "FROM unattributed_failed_builds"
-  , "ORDER BY global_build DESC;"
+  , "ORDER BY queued_at DESC"
+  , "LIMIT 1000"
   ]
 
 
@@ -2340,6 +2347,43 @@ apiCoarseBinsIsolatedJobFailuresTimespan time_bounds = do
       ]
 
 
+apiIsolatedUnmatchedBuildsMasterCommitRange ::
+     DbHelpers.InclusiveNumericBounds Int64
+  -> DbIO (Either Text [WebApi.BuildBranchDateRecord])
+apiIsolatedUnmatchedBuildsMasterCommitRange
+    (DbHelpers.InclusiveNumericBounds lower_commit_id upper_commit_id) = do
+
+  conn <- ask
+  liftIO $ do
+    rows <- query conn sql query_parms
+    return $ Right rows
+  where
+    query_parms = (lower_commit_id, upper_commit_id)
+
+    sql = MyUtils.qjoin [
+        "SELECT"
+      , MyUtils.qlist [
+          "master_failures_raw_causes_mview.global_build"
+        , "master_failures_raw_causes_mview.step_name"
+        , "master_failures_raw_causes_mview.job_name"
+        , "master_failures_raw_causes_mview.sha1"
+        , "master_failures_raw_causes_mview.queued_at"
+        ]
+      , "FROM master_failures_raw_causes_mview"
+      , "JOIN ci_providers"
+      , "ON ci_providers.id = master_failures_raw_causes_mview.provider"
+      , "WHERE"
+      , MyUtils.qconjunction [
+          "master_failures_raw_causes_mview.is_serially_isolated"
+        , "NOT master_failures_raw_causes_mview.succeeded"
+        , "NOT master_failures_raw_causes_mview.is_timeout"
+        , "NOT master_failures_raw_causes_mview.is_idiopathic"
+        , "master_failures_raw_causes_mview.pattern_id < 0"
+        , "int8range(?, ?, '[]') @> master_failures_raw_causes_mview.commit_index::int8"
+        ]
+      ]
+
+
 apiIsolatedJobFailuresTimespan ::
      TimeRange
   -> DbIO (Either Text [FailuresByJobReviewCounts])
@@ -2406,13 +2450,6 @@ apiIsolatedPatternFailuresTimespan time_bounds = do
   conn <- ask
   liftIO $ do
 
-{-    MyUtils.debugList [
-        "SQL:"
-      , show sql
-      , "PARMS:"
-      , show query_parms
-      ]
--}
     rows <- query conn sql query_parms
     return $ Right rows
   where
@@ -2420,27 +2457,6 @@ apiIsolatedPatternFailuresTimespan time_bounds = do
     query_parms = case time_bounds of
       Bounded (DbHelpers.StartEnd start_time end_time) -> (start_time, Just end_time)
       StartOnly start_time -> (start_time, Nothing)
-
-    inner_sql = MyUtils.qjoin [
-        "SELECT"
-      , MyUtils.qlist [
-          "pattern_id AS pid"
-        , "SUM(master_failures_raw_causes_mview.is_serially_isolated::int) AS isolated_count"
-        , "SUM(master_failures_raw_causes_mview.is_flaky::int) AS recognized_flaky_count"
-        , "SUM(master_failures_raw_causes_mview.is_matched::int) AS matched_count"
-        , "MIN(master_failures_raw_causes_mview.commit_index) AS min_commit_index"
-        , "MAX(master_failures_raw_causes_mview.commit_index) AS max_commit_index"
-        , "MIN(master_ordered_commits_with_metadata_mview.commit_number) AS min_commit_number"
-        , "MAX(master_ordered_commits_with_metadata_mview.commit_number) AS max_commit_number"
-        ]
-      , "FROM master_failures_raw_causes_mview"
-      , "JOIN master_ordered_commits_with_metadata_mview"
-      , "ON master_failures_raw_causes_mview.commit_index = master_ordered_commits_with_metadata_mview.id"
-      , "WHERE master_failures_raw_causes_mview.is_serially_isolated"
-      , "AND NOT master_failures_raw_causes_mview.succeeded"
-      , "AND tstzrange(?::timestamp, ?::timestamp) @> master_ordered_commits_with_metadata_mview.committer_date"
-      , "GROUP BY master_failures_raw_causes_mview.pattern_id"
-      ]
 
     sql = MyUtils.qjoin [
         "SELECT"
@@ -2462,6 +2478,32 @@ apiIsolatedPatternFailuresTimespan time_bounds = do
       , "LEFT JOIN patterns_rich"
       , "ON patterns_rich.id = foo.pid"
       , "ORDER BY has_pattern_match, isolated_count DESC, pattern_id DESC"
+      ]
+
+    inner_sql = MyUtils.qjoin [
+        "SELECT"
+      , MyUtils.qlist [
+          "pattern_id AS pid"
+        , "SUM(master_failures_raw_causes_mview.is_serially_isolated::int) AS isolated_count"
+        , "SUM(master_failures_raw_causes_mview.is_flaky::int) AS recognized_flaky_count"
+        , "SUM(master_failures_raw_causes_mview.is_matched::int) AS matched_count"
+        , "MIN(master_failures_raw_causes_mview.commit_index) AS min_commit_index"
+        , "MAX(master_failures_raw_causes_mview.commit_index) AS max_commit_index"
+        , "MIN(master_ordered_commits_with_metadata_mview.commit_number) AS min_commit_number"
+        , "MAX(master_ordered_commits_with_metadata_mview.commit_number) AS max_commit_number"
+        ]
+      , "FROM master_failures_raw_causes_mview"
+      , "JOIN master_ordered_commits_with_metadata_mview"
+      , "ON master_failures_raw_causes_mview.commit_index = master_ordered_commits_with_metadata_mview.id"
+      , "WHERE"
+      , MyUtils.qconjunction [
+          "master_failures_raw_causes_mview.is_serially_isolated"
+        , "NOT master_failures_raw_causes_mview.succeeded"
+        , "NOT master_failures_raw_causes_mview.is_idiopathic"
+        , "NOT master_failures_raw_causes_mview.is_timeout"
+        , "tstzrange(?::timestamp, ?::timestamp) @> master_ordered_commits_with_metadata_mview.committer_date"
+        ]
+      , "GROUP BY master_failures_raw_causes_mview.pattern_id"
       ]
 
 
@@ -3156,7 +3198,7 @@ apiSinglePattern (ScanPatterns.PatternId pattern_id) = do
         , "tags"
         , "steps"
         , "specificity"
-        , "CAST((scanned_count * 100 / total_scanned_builds) AS DECIMAL(6, 1)) AS percent_scanned"
+        , "CASE total_scanned_builds WHEN 0 THEN 0 ELSE CAST((scanned_count * 100 / total_scanned_builds) AS DECIMAL(6, 1)) END AS percent_scanned"
         ]
       , "FROM pattern_frequency_summary_partially_cached"
       , "WHERE id = ?;"
@@ -3177,7 +3219,7 @@ apiPatterns = fmap makePatternRecords $ runQuery $ MyUtils.qjoin [
     , "tags"
     , "steps"
     , "specificity"
-    , "CAST((scanned_count * 100 / total_scanned_builds) AS DECIMAL(6, 1)) AS percent_scanned"
+    , "CASE total_scanned_builds WHEN 0 THEN 0 ELSE CAST((scanned_count * 100 / total_scanned_builds) AS DECIMAL(6, 1)) END AS percent_scanned"
     ]
   , "FROM pattern_frequency_summary_partially_cached"
   , "ORDER BY most_recent DESC NULLS LAST;"

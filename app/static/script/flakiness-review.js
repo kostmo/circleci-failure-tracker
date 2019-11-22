@@ -28,12 +28,12 @@ function load_pattern_failure_details(pattern_id, commit_id_min, commit_id_max) 
 	$("#failure-details-section").show();
 
 	$("#failure-details-table").hide();
-	getJsonWithThrobber("#throbber-details-by-job-table", "/api/master-pattern-failures-in-timespan", query_args_dict, function (data) {
+	getJsonWithThrobber("#throbber-details-table", "/api/master-pattern-failures-in-timespan", query_args_dict, function (data) {
 
 		if (data.success) {
 
 			$("#failure-details-table").show();
-			gen_failure_details_table("failure-details-table", data.payload, 300)
+			gen_failure_details_table("failure-details-table", data.payload, 300);
 
 		} else {
 
@@ -184,7 +184,7 @@ function load_job_failure_details(job_name, commit_id_min, commit_id_max) {
 	$("#failure-details-section").show();
 
 	$("#failure-details-table").hide();
-	getJsonWithThrobber("#throbber-details-by-job-table", "/api/master-job-failures-in-timespan", query_args_dict, function (data) {
+	getJsonWithThrobber("#throbber-details-table", "/api/master-job-failures-in-timespan", query_args_dict, function (data) {
 
 		if (data.success) {
 
@@ -251,10 +251,41 @@ function gen_patterns_table(element_id, data_payload, height_string) {
 				load_pattern_failure_details(pattern_id, commit_id_min, commit_id_max);
 			} else {
 				console.log("Null pattern");
+
+				const query_args_dict = {
+					"commit-id-min": commit_id_min,
+					"commit-id-max": commit_id_max,
+				};
+
+				gen_unmatched_failures_table(query_args_dict);
 			}
 		},
 	});
 }
+
+
+function gen_unmatched_failures_table(query_args_dict) {
+
+	getJsonWithThrobber("#throbber-details-table", "/api/isolated-unmatched-failed-builds-master-commit-range", query_args_dict, function (data) {
+
+		if (data.success) {
+
+			$("#selected-details-row-title-container").html("unmatched logs");
+
+			var table = new Tabulator("#failure-details-table", {
+				height:"200px",
+				layout:"fitColumns",
+				placeholder:"No Data Set",
+				columns: get_unmatched_build_columns(),
+				data: data.payload,
+			});
+
+			$("#failure-details-section").show();
+		}
+	});
+}
+
+
 
 function gen_jobs_table(element_id, data_payload, height_string) {
 
