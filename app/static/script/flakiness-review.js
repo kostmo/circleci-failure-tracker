@@ -43,6 +43,82 @@ function load_pattern_failure_details(pattern_id, commit_id_min, commit_id_max) 
 }
 
 
+function make_timeline_chart(element_id, rows) {
+
+
+      Highcharts.chart(element_id, {
+
+           chart: {
+                type: 'line'
+            },
+            title: {
+                text: 'Isolated failures by day'
+            },
+            xAxis: {
+                type: 'datetime',
+                dateTimeLabelFormats: { // don't display the dummy year
+                    month: '%e. %b',
+                    year: '%b'
+                },
+                title: {
+                    text: 'Date'
+                }
+            },
+            yAxis: {
+                title: {
+                    text: 'Isolated failures fraction'
+                },
+                min: 0
+            },
+            tooltip: {
+                headerFormat: '<b>{series.name}</b><br>',
+                pointFormat: '{point.x:%e. %b}: {point.y:.2f} m'
+            },
+
+            plotOptions: {
+                line: {
+                    marker: {
+                        enabled: true
+                    }
+                }
+            },
+
+        credits: {
+            enabled: false
+        },
+        series: [{
+            name: "Isolated failures fraction",
+            data: rows,
+            }],
+      });
+}
+
+
+function load_day_highchart() {
+
+	getJsonWithThrobber("#throbber-isolated-failures-timeline-by-day", "/api/isolated-master-failures-by-day", {"age-days": 30}, function (data) {
+
+		if (data.success) {
+
+			console.log("hello");
+
+
+			const rows = [];
+			$.each(data.payload, function( index, value ) {
+
+				rows.push([Date.parse(value[0]), value[1]]);
+			});
+
+			make_timeline_chart("container-isolated-failures-timeline-by-day", rows);
+
+		} else {
+			alert("error");
+		}
+	});
+
+}
+
+
 function load_job_failure_details(job_name, commit_id_min, commit_id_max) {
 
 	$("#selected-details-row-title-container").html("job " + job_name);
@@ -270,6 +346,8 @@ function requery_tables(query_args_dict) {
 	}
 
 	$("#failure-details-section").hide();
+
+	load_day_highchart();
 
 	return false;
 }

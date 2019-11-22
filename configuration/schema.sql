@@ -1665,7 +1665,8 @@ CREATE VIEW public.build_failure_standalone_causes WITH (security_barrier='false
     builds_deduped.build_namespace,
     builds_deduped.started_at,
     builds_deduped.finished_at,
-    builds_deduped.maybe_is_scheduled
+    builds_deduped.maybe_is_scheduled,
+    COALESCE(best_pattern_match_for_builds.is_network, false) AS is_network
    FROM ((public.builds_deduped
      LEFT JOIN public.build_steps_deduped_mitigation ON ((build_steps_deduped_mitigation.universal_build = builds_deduped.global_build)))
      LEFT JOIN public.best_pattern_match_for_builds ON ((best_pattern_match_for_builds.universal_build = builds_deduped.global_build)));
@@ -1738,7 +1739,8 @@ CREATE VIEW public.build_failure_causes WITH (security_barrier='false') AS
     build_failure_standalone_causes.started_at,
     build_failure_standalone_causes.finished_at,
     known_broken_builds.cause_count,
-    build_failure_standalone_causes.maybe_is_scheduled
+    build_failure_standalone_causes.maybe_is_scheduled,
+    build_failure_standalone_causes.is_network
    FROM (public.build_failure_standalone_causes
      LEFT JOIN public.known_broken_builds ON ((known_broken_builds.universal_build = build_failure_standalone_causes.global_build)));
 
@@ -3347,6 +3349,170 @@ COMMENT ON VIEW public.master_detected_adjacent_breakages IS 'Detects longitudin
 
 
 --
+-- Name: master_failures_raw_causes; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_failures_raw_causes WITH (security_barrier='false') AS
+ SELECT ordered_master_commits.sha1,
+    build_failure_causes.succeeded,
+    build_failure_causes.is_idiopathic,
+    build_failure_causes.is_flaky,
+    build_failure_causes.is_timeout,
+    build_failure_causes.is_matched,
+    build_failure_causes.is_known_broken,
+    build_failure_causes.build_num,
+    build_failure_causes.queued_at,
+    build_failure_causes.job_name,
+    build_failure_causes.branch,
+    COALESCE(build_failure_causes.step_name, ''::text) AS step_name,
+    COALESCE(build_failure_causes.pattern_id, '-1'::integer) AS pattern_id,
+    COALESCE(best_pattern_match_augmented_builds.match_id, '-1'::integer) AS match_id,
+    COALESCE(best_pattern_match_augmented_builds.line_number, '-1'::integer) AS line_number,
+    COALESCE(best_pattern_match_augmented_builds.line_count, '-1'::integer) AS line_count,
+    COALESCE(best_pattern_match_augmented_builds.line_text, ''::text) AS line_text,
+    COALESCE(best_pattern_match_augmented_builds.span_start, '-1'::integer) AS span_start,
+    COALESCE(best_pattern_match_augmented_builds.span_end, '-1'::integer) AS span_end,
+    COALESCE(best_pattern_match_augmented_builds.specificity, '-1'::integer) AS specificity,
+    (master_detected_adjacent_breakages.universal_build IS NULL) AS is_serially_isolated,
+    master_detected_adjacent_breakages.contiguous_length AS contiguous_run_count,
+    master_detected_adjacent_breakages.contiguous_group_index,
+    master_detected_adjacent_breakages.contiguous_start_commit_index,
+    master_detected_adjacent_breakages.contiguous_end_commit_index,
+    ordered_master_commits.id AS commit_index,
+    master_detected_adjacent_breakages.contiguous_length,
+    build_failure_causes.global_build,
+    build_failure_causes.provider,
+    build_failure_causes.build_namespace,
+    master_detected_adjacent_breakages.cluster_id,
+    master_detected_adjacent_breakages.cluster_member_count,
+    build_failure_causes.started_at,
+    build_failure_causes.finished_at,
+    build_failure_causes.maybe_is_scheduled,
+    build_failure_causes.is_network
+   FROM (((public.ordered_master_commits
+     JOIN public.build_failure_causes ON ((build_failure_causes.vcs_revision = ordered_master_commits.sha1)))
+     LEFT JOIN public.best_pattern_match_augmented_builds ON ((build_failure_causes.global_build = best_pattern_match_augmented_builds.universal_build)))
+     LEFT JOIN public.master_detected_adjacent_breakages ON ((build_failure_causes.global_build = master_detected_adjacent_breakages.universal_build)));
+
+
+ALTER TABLE public.master_failures_raw_causes OWNER TO postgres;
+
+--
+-- Name: VIEW master_failures_raw_causes; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.master_failures_raw_causes IS 'This uses the raw "build_failure_causes" table rather than the disjoint causes table.';
+
+
+--
+-- Name: master_failures_raw_causes_mview; Type: MATERIALIZED VIEW; Schema: public; Owner: materialized_view_updater
+--
+
+CREATE MATERIALIZED VIEW public.master_failures_raw_causes_mview AS
+ SELECT master_failures_raw_causes.sha1,
+    master_failures_raw_causes.succeeded,
+    master_failures_raw_causes.is_idiopathic,
+    master_failures_raw_causes.is_flaky,
+    master_failures_raw_causes.is_timeout,
+    master_failures_raw_causes.is_matched,
+    master_failures_raw_causes.is_known_broken,
+    master_failures_raw_causes.build_num,
+    master_failures_raw_causes.queued_at,
+    master_failures_raw_causes.job_name,
+    master_failures_raw_causes.branch,
+    master_failures_raw_causes.step_name,
+    master_failures_raw_causes.pattern_id,
+    master_failures_raw_causes.match_id,
+    master_failures_raw_causes.line_number,
+    master_failures_raw_causes.line_count,
+    master_failures_raw_causes.line_text,
+    master_failures_raw_causes.span_start,
+    master_failures_raw_causes.span_end,
+    master_failures_raw_causes.specificity,
+    master_failures_raw_causes.is_serially_isolated,
+    master_failures_raw_causes.contiguous_run_count,
+    master_failures_raw_causes.contiguous_group_index,
+    master_failures_raw_causes.contiguous_start_commit_index,
+    master_failures_raw_causes.contiguous_end_commit_index,
+    master_failures_raw_causes.commit_index,
+    master_failures_raw_causes.contiguous_length,
+    master_failures_raw_causes.global_build,
+    master_failures_raw_causes.provider,
+    master_failures_raw_causes.build_namespace,
+    master_failures_raw_causes.cluster_id,
+    master_failures_raw_causes.cluster_member_count,
+    master_failures_raw_causes.started_at,
+    master_failures_raw_causes.finished_at,
+    master_failures_raw_causes.maybe_is_scheduled
+   FROM public.master_failures_raw_causes
+  WITH NO DATA;
+
+
+ALTER TABLE public.master_failures_raw_causes_mview OWNER TO materialized_view_updater;
+
+--
+-- Name: master_ordered_commits_with_metadata_mview; Type: MATERIALIZED VIEW; Schema: public; Owner: materialized_view_updater
+--
+
+CREATE MATERIALIZED VIEW public.master_ordered_commits_with_metadata_mview AS
+ SELECT master_ordered_commits_with_metadata.id,
+    master_ordered_commits_with_metadata.sha1,
+    master_ordered_commits_with_metadata.message,
+    master_ordered_commits_with_metadata.tree_sha1,
+    master_ordered_commits_with_metadata.author_name,
+    master_ordered_commits_with_metadata.author_email,
+    master_ordered_commits_with_metadata.author_date,
+    master_ordered_commits_with_metadata.committer_name,
+    master_ordered_commits_with_metadata.committer_email,
+    master_ordered_commits_with_metadata.committer_date,
+    master_ordered_commits_with_metadata.github_pr_number,
+    master_ordered_commits_with_metadata.fb_differential_revision,
+    master_ordered_commits_with_metadata.fb_pulled_by,
+    master_ordered_commits_with_metadata.fb_reviewed_by,
+    master_ordered_commits_with_metadata.fb_shipit_source_id,
+    master_ordered_commits_with_metadata.fb_ghstack_source_id,
+    master_ordered_commits_with_metadata.commit_number,
+    master_ordered_commits_with_metadata.representative_commit_id,
+    master_ordered_commits_with_metadata.was_built
+   FROM public.master_ordered_commits_with_metadata
+  WITH NO DATA;
+
+
+ALTER TABLE public.master_ordered_commits_with_metadata_mview OWNER TO materialized_view_updater;
+
+--
+-- Name: master_daily_isolated_failures_cached; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_daily_isolated_failures_cached WITH (security_barrier='false') AS
+ SELECT foo.date_california_time,
+    foo.isolated_failure_count,
+    foo.total_build_count,
+        CASE foo.total_build_count
+            WHEN 0 THEN (0)::double precision
+            ELSE ((foo.isolated_failure_count)::double precision / (foo.total_build_count)::double precision)
+        END AS isolated_failure_fraction
+   FROM ( SELECT (timezone('America/Los_Angeles'::text, master_ordered_commits_with_metadata_mview.committer_date))::date AS date_california_time,
+            sum(((master_failures_raw_causes_mview.is_serially_isolated AND (NOT master_failures_raw_causes_mview.succeeded)))::integer) AS isolated_failure_count,
+            count(*) AS total_build_count
+           FROM (public.master_failures_raw_causes_mview
+             JOIN public.master_ordered_commits_with_metadata_mview ON ((master_failures_raw_causes_mview.commit_index = master_ordered_commits_with_metadata_mview.id)))
+          WHERE (master_ordered_commits_with_metadata_mview.committer_date IS NOT NULL)
+          GROUP BY ((timezone('America/Los_Angeles'::text, master_ordered_commits_with_metadata_mview.committer_date))::date)) foo
+  ORDER BY foo.date_california_time DESC
+ OFFSET 1;
+
+
+ALTER TABLE public.master_daily_isolated_failures_cached OWNER TO postgres;
+
+--
+-- Name: VIEW master_daily_isolated_failures_cached; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.master_daily_isolated_failures_cached IS 'Query is backed by a materialized view and excludes the current (incomplete) day.';
+
+
+--
 -- Name: master_detected_breakages_without_annotations; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -3450,65 +3616,10 @@ CREATE VIEW public.master_failures_by_commit WITH (security_barrier='false') AS
 ALTER TABLE public.master_failures_by_commit OWNER TO postgres;
 
 --
--- Name: master_failures_raw_causes; Type: VIEW; Schema: public; Owner: postgres
+-- Name: master_failures_raw_causes_mview2; Type: MATERIALIZED VIEW; Schema: public; Owner: materialized_view_updater
 --
 
-CREATE VIEW public.master_failures_raw_causes WITH (security_barrier='false') AS
- SELECT ordered_master_commits.sha1,
-    build_failure_causes.succeeded,
-    build_failure_causes.is_idiopathic,
-    build_failure_causes.is_flaky,
-    build_failure_causes.is_timeout,
-    build_failure_causes.is_matched,
-    build_failure_causes.is_known_broken,
-    build_failure_causes.build_num,
-    build_failure_causes.queued_at,
-    build_failure_causes.job_name,
-    build_failure_causes.branch,
-    COALESCE(build_failure_causes.step_name, ''::text) AS step_name,
-    COALESCE(build_failure_causes.pattern_id, '-1'::integer) AS pattern_id,
-    COALESCE(best_pattern_match_augmented_builds.match_id, '-1'::integer) AS match_id,
-    COALESCE(best_pattern_match_augmented_builds.line_number, '-1'::integer) AS line_number,
-    COALESCE(best_pattern_match_augmented_builds.line_count, '-1'::integer) AS line_count,
-    COALESCE(best_pattern_match_augmented_builds.line_text, ''::text) AS line_text,
-    COALESCE(best_pattern_match_augmented_builds.span_start, '-1'::integer) AS span_start,
-    COALESCE(best_pattern_match_augmented_builds.span_end, '-1'::integer) AS span_end,
-    COALESCE(best_pattern_match_augmented_builds.specificity, '-1'::integer) AS specificity,
-    (master_detected_adjacent_breakages.universal_build IS NULL) AS is_serially_isolated,
-    master_detected_adjacent_breakages.contiguous_length AS contiguous_run_count,
-    master_detected_adjacent_breakages.contiguous_group_index,
-    master_detected_adjacent_breakages.contiguous_start_commit_index,
-    master_detected_adjacent_breakages.contiguous_end_commit_index,
-    ordered_master_commits.id AS commit_index,
-    master_detected_adjacent_breakages.contiguous_length,
-    build_failure_causes.global_build,
-    build_failure_causes.provider,
-    build_failure_causes.build_namespace,
-    master_detected_adjacent_breakages.cluster_id,
-    master_detected_adjacent_breakages.cluster_member_count,
-    build_failure_causes.started_at,
-    build_failure_causes.finished_at,
-    build_failure_causes.maybe_is_scheduled
-   FROM (((public.ordered_master_commits
-     JOIN public.build_failure_causes ON ((build_failure_causes.vcs_revision = ordered_master_commits.sha1)))
-     LEFT JOIN public.best_pattern_match_augmented_builds ON ((build_failure_causes.global_build = best_pattern_match_augmented_builds.universal_build)))
-     LEFT JOIN public.master_detected_adjacent_breakages ON ((build_failure_causes.global_build = master_detected_adjacent_breakages.universal_build)));
-
-
-ALTER TABLE public.master_failures_raw_causes OWNER TO postgres;
-
---
--- Name: VIEW master_failures_raw_causes; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON VIEW public.master_failures_raw_causes IS 'This uses the raw "build_failure_causes" table rather than the disjoint causes table.';
-
-
---
--- Name: master_failures_raw_causes_mview; Type: MATERIALIZED VIEW; Schema: public; Owner: materialized_view_updater
---
-
-CREATE MATERIALIZED VIEW public.master_failures_raw_causes_mview AS
+CREATE MATERIALIZED VIEW public.master_failures_raw_causes_mview2 AS
  SELECT master_failures_raw_causes.sha1,
     master_failures_raw_causes.succeeded,
     master_failures_raw_causes.is_idiopathic,
@@ -3543,12 +3654,13 @@ CREATE MATERIALIZED VIEW public.master_failures_raw_causes_mview AS
     master_failures_raw_causes.cluster_member_count,
     master_failures_raw_causes.started_at,
     master_failures_raw_causes.finished_at,
-    master_failures_raw_causes.maybe_is_scheduled
+    master_failures_raw_causes.maybe_is_scheduled,
+    master_failures_raw_causes.is_network
    FROM public.master_failures_raw_causes
   WITH NO DATA;
 
 
-ALTER TABLE public.master_failures_raw_causes_mview OWNER TO materialized_view_updater;
+ALTER TABLE public.master_failures_raw_causes_mview2 OWNER TO materialized_view_updater;
 
 --
 -- Name: master_failures_weekly_aggregation; Type: VIEW; Schema: public; Owner: postgres
@@ -3816,36 +3928,6 @@ CREATE MATERIALIZED VIEW public.master_job_failure_spans_mview AS
 
 
 ALTER TABLE public.master_job_failure_spans_mview OWNER TO materialized_view_updater;
-
---
--- Name: master_ordered_commits_with_metadata_mview; Type: MATERIALIZED VIEW; Schema: public; Owner: materialized_view_updater
---
-
-CREATE MATERIALIZED VIEW public.master_ordered_commits_with_metadata_mview AS
- SELECT master_ordered_commits_with_metadata.id,
-    master_ordered_commits_with_metadata.sha1,
-    master_ordered_commits_with_metadata.message,
-    master_ordered_commits_with_metadata.tree_sha1,
-    master_ordered_commits_with_metadata.author_name,
-    master_ordered_commits_with_metadata.author_email,
-    master_ordered_commits_with_metadata.author_date,
-    master_ordered_commits_with_metadata.committer_name,
-    master_ordered_commits_with_metadata.committer_email,
-    master_ordered_commits_with_metadata.committer_date,
-    master_ordered_commits_with_metadata.github_pr_number,
-    master_ordered_commits_with_metadata.fb_differential_revision,
-    master_ordered_commits_with_metadata.fb_pulled_by,
-    master_ordered_commits_with_metadata.fb_reviewed_by,
-    master_ordered_commits_with_metadata.fb_shipit_source_id,
-    master_ordered_commits_with_metadata.fb_ghstack_source_id,
-    master_ordered_commits_with_metadata.commit_number,
-    master_ordered_commits_with_metadata.representative_commit_id,
-    master_ordered_commits_with_metadata.was_built
-   FROM public.master_ordered_commits_with_metadata
-  WITH NO DATA;
-
-
-ALTER TABLE public.master_ordered_commits_with_metadata_mview OWNER TO materialized_view_updater;
 
 --
 -- Name: master_required_unbuilt_jobs; Type: VIEW; Schema: public; Owner: postgres
@@ -4242,6 +4324,65 @@ CREATE VIEW public.pattern_frequency_summary WITH (security_barrier='false') AS
 
 
 ALTER TABLE public.pattern_frequency_summary OWNER TO postgres;
+
+--
+-- Name: pattern_frequency_summary_mview; Type: MATERIALIZED VIEW; Schema: public; Owner: materialized_view_updater
+--
+
+CREATE MATERIALIZED VIEW public.pattern_frequency_summary_mview AS
+ SELECT pattern_frequency_summary.expression,
+    pattern_frequency_summary.description,
+    pattern_frequency_summary.matching_build_count,
+    pattern_frequency_summary.most_recent,
+    pattern_frequency_summary.earliest,
+    pattern_frequency_summary.id,
+    pattern_frequency_summary.regex,
+    pattern_frequency_summary.specificity,
+    pattern_frequency_summary.tags,
+    pattern_frequency_summary.steps,
+    pattern_frequency_summary.scanned_count,
+    pattern_frequency_summary.total_scanned_builds,
+    pattern_frequency_summary.usually_last_line,
+    pattern_frequency_summary.position_likelihood,
+    pattern_frequency_summary.has_nondeterministic_values
+   FROM public.pattern_frequency_summary
+  WITH NO DATA;
+
+
+ALTER TABLE public.pattern_frequency_summary_mview OWNER TO materialized_view_updater;
+
+--
+-- Name: pattern_frequency_summary_partially_cached; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.pattern_frequency_summary_partially_cached AS
+ SELECT pattern_frequency_summary.expression,
+    pattern_frequency_summary.description,
+    pattern_frequency_summary_mview.matching_build_count,
+    pattern_frequency_summary_mview.most_recent,
+    pattern_frequency_summary_mview.earliest,
+    pattern_frequency_summary.id,
+    pattern_frequency_summary.regex,
+    pattern_frequency_summary.specificity,
+    pattern_frequency_summary.tags,
+    pattern_frequency_summary.steps,
+    pattern_frequency_summary_mview.scanned_count,
+    pattern_frequency_summary_mview.total_scanned_builds,
+    pattern_frequency_summary_mview.usually_last_line,
+    pattern_frequency_summary_mview.position_likelihood,
+    pattern_frequency_summary.has_nondeterministic_values
+   FROM (public.pattern_frequency_summary
+     JOIN public.pattern_frequency_summary_mview ON ((pattern_frequency_summary.id = pattern_frequency_summary_mview.id)));
+
+
+ALTER TABLE public.pattern_frequency_summary_partially_cached OWNER TO postgres;
+
+--
+-- Name: VIEW pattern_frequency_summary_partially_cached; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.pattern_frequency_summary_partially_cached IS 'Draws statistics from the materialized view, but uses raw VIEW for live pattern data that might be updated in the UI.';
+
 
 --
 -- Name: pattern_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
@@ -5740,6 +5881,13 @@ CREATE UNIQUE INDEX idx_master_required_unbuilt_jobs_mview ON public.master_requ
 
 
 --
+-- Name: idx_patterns; Type: INDEX; Schema: public; Owner: materialized_view_updater
+--
+
+CREATE UNIQUE INDEX idx_patterns ON public.pattern_frequency_summary_mview USING btree (id);
+
+
+--
 -- Name: idx_pr_merge_time_failing_builds_by_week_mview_week; Type: INDEX; Schema: public; Owner: materialized_view_updater
 --
 
@@ -5803,6 +5951,13 @@ CREATE UNIQUE INDEX idx_unique_mview_global_build ON public.master_failures_raw_
 
 
 --
+-- Name: idx_unique_mview_global_build2; Type: INDEX; Schema: public; Owner: materialized_view_updater
+--
+
+CREATE UNIQUE INDEX idx_unique_mview_global_build2 ON public.master_failures_raw_causes_mview2 USING btree (global_build DESC NULLS LAST);
+
+
+--
 -- Name: idx_universal_builds_sha1; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -5828,6 +5983,13 @@ CREATE UNIQUE INDEX idx_upsteream_breakages_weekly_week ON public.upstream_break
 --
 
 CREATE INDEX mview_commit_index ON public.master_failures_raw_causes_mview USING btree (commit_index);
+
+
+--
+-- Name: mview_commit_index2; Type: INDEX; Schema: public; Owner: materialized_view_updater
+--
+
+CREATE INDEX mview_commit_index2 ON public.master_failures_raw_causes_mview2 USING btree (commit_index);
 
 
 --
@@ -7089,6 +7251,38 @@ GRANT ALL ON TABLE public.master_detected_adjacent_breakages TO logan;
 
 
 --
+-- Name: TABLE master_failures_raw_causes; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_failures_raw_causes TO logan;
+GRANT SELECT ON TABLE public.master_failures_raw_causes TO materialized_view_updater;
+
+
+--
+-- Name: TABLE master_failures_raw_causes_mview; Type: ACL; Schema: public; Owner: materialized_view_updater
+--
+
+GRANT SELECT ON TABLE public.master_failures_raw_causes_mview TO logan;
+GRANT SELECT ON TABLE public.master_failures_raw_causes_mview TO postgres;
+
+
+--
+-- Name: TABLE master_ordered_commits_with_metadata_mview; Type: ACL; Schema: public; Owner: materialized_view_updater
+--
+
+GRANT SELECT ON TABLE public.master_ordered_commits_with_metadata_mview TO logan;
+GRANT SELECT ON TABLE public.master_ordered_commits_with_metadata_mview TO postgres;
+
+
+--
+-- Name: TABLE master_daily_isolated_failures_cached; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_daily_isolated_failures_cached TO logan;
+GRANT SELECT ON TABLE public.master_daily_isolated_failures_cached TO materialized_view_updater;
+
+
+--
 -- Name: TABLE master_detected_breakages_without_annotations; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -7124,19 +7318,11 @@ GRANT ALL ON TABLE public.master_failures_by_commit TO logan;
 
 
 --
--- Name: TABLE master_failures_raw_causes; Type: ACL; Schema: public; Owner: postgres
+-- Name: TABLE master_failures_raw_causes_mview2; Type: ACL; Schema: public; Owner: materialized_view_updater
 --
 
-GRANT ALL ON TABLE public.master_failures_raw_causes TO logan;
-GRANT SELECT ON TABLE public.master_failures_raw_causes TO materialized_view_updater;
-
-
---
--- Name: TABLE master_failures_raw_causes_mview; Type: ACL; Schema: public; Owner: materialized_view_updater
---
-
-GRANT SELECT ON TABLE public.master_failures_raw_causes_mview TO logan;
-GRANT SELECT ON TABLE public.master_failures_raw_causes_mview TO postgres;
+GRANT SELECT ON TABLE public.master_failures_raw_causes_mview2 TO logan;
+GRANT SELECT ON TABLE public.master_failures_raw_causes_mview2 TO postgres;
 
 
 --
@@ -7189,14 +7375,6 @@ GRANT SELECT ON TABLE public.master_job_failure_spans TO materialized_view_updat
 
 GRANT SELECT ON TABLE public.master_job_failure_spans_mview TO logan;
 GRANT SELECT ON TABLE public.master_job_failure_spans_mview TO postgres;
-
-
---
--- Name: TABLE master_ordered_commits_with_metadata_mview; Type: ACL; Schema: public; Owner: materialized_view_updater
---
-
-GRANT SELECT ON TABLE public.master_ordered_commits_with_metadata_mview TO logan;
-GRANT SELECT ON TABLE public.master_ordered_commits_with_metadata_mview TO postgres;
 
 
 --
@@ -7304,6 +7482,23 @@ GRANT ALL ON TABLE public.patterns_augmented TO logan;
 --
 
 GRANT ALL ON TABLE public.pattern_frequency_summary TO logan;
+GRANT SELECT ON TABLE public.pattern_frequency_summary TO materialized_view_updater;
+
+
+--
+-- Name: TABLE pattern_frequency_summary_mview; Type: ACL; Schema: public; Owner: materialized_view_updater
+--
+
+GRANT SELECT ON TABLE public.pattern_frequency_summary_mview TO logan;
+GRANT SELECT ON TABLE public.pattern_frequency_summary_mview TO postgres;
+
+
+--
+-- Name: TABLE pattern_frequency_summary_partially_cached; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.pattern_frequency_summary_partially_cached TO logan;
+GRANT SELECT ON TABLE public.pattern_frequency_summary_partially_cached TO materialized_view_updater;
 
 
 --

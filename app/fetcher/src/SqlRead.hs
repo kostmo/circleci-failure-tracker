@@ -748,8 +748,8 @@ apiCommitJobs (Builds.RawCommit sha1) = do
         , "provider"
         , "1"
         ]
-      , "FROM build_failure_causes"
-      , "WHERE vcs_revision = ? AND NOT succeeded"
+      , "FROM master_failures_raw_causes_mview"
+      , "WHERE sha1 = ? AND NOT succeeded"
       , "ORDER BY job_name;"
       ]
 
@@ -875,6 +875,27 @@ apiStatusNotificationsByHour hours = do
     , "GROUP BY hour ORDER BY hour DESC"
     , "OFFSET 1"
     , "LIMIT ?"
+    ]
+
+
+-- | Note that Highcharts expects the dates to be in ascending order
+apiIsolatedMasterFailuresByDay :: Int -> DbIO (Either Text [(Day, Double)])
+apiIsolatedMasterFailuresByDay day_count = do
+  conn <- ask
+  liftIO $ do
+    xs <- query conn sql $ Only day_count
+    return $ Right $ reverse xs
+  where
+  sql = MyUtils.qjoin [
+      "SELECT"
+    , MyUtils.qlist [
+        "date_california_time"
+      , "isolated_failure_fraction"
+      ]
+      -- This view already exludes the current (incomplete) day
+    , "FROM master_daily_isolated_failures_cached"
+    , "WHERE date_california_time > (now() - interval '? days')"
+    , "ORDER BY date_california_time DESC"
     ]
 
 

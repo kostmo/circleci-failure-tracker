@@ -2,7 +2,7 @@ function main() {
 
    $.getJSON('/api/failed-commits-by-day', function (data) {
 
-        var rows = [];
+        const rows = [];
 
         $.each(data.rows, function( index, value ) {
 

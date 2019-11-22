@@ -385,6 +385,8 @@ scottyApp
 
     S.json $ WebApi.toJsonEither json_result
 
+  get "/api/isolated-master-failures-by-day" $ fmap WebApi.toJsonEither . SqlRead.apiIsolatedMasterFailuresByDay <$> S.param "age-days"
+
   get "/api/isolated-failures-timespan-by-job" $ fmap WebApi.toJsonEither . SqlRead.apiIsolatedJobFailuresTimespan
       <$> parseTimeRangeParms
 
