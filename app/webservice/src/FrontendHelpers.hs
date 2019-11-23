@@ -35,7 +35,6 @@ import qualified SqlRead
 import qualified SqlWrite
 import qualified StatusUpdate
 import qualified WebApi
-import qualified WeeklyStats
 
 
 checkboxIsTrue :: Text -> Bool

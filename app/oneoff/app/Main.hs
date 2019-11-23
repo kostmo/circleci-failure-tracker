@@ -60,12 +60,15 @@ mainAppCode args = do
   let commit_sha1_text = "1c6d7505adf51db267a0b27724028fb0c73ecbdd"
       raw_commit = Builds.RawCommit commit_sha1_text
       validated_sha1 = fromRight (error "BAD") $ GitRev.validateSha1 commit_sha1_text
-  DbHelpers.BenchmarkedResponse _ revision_builds <- runReaderT (SqlRead.getRevisionBuilds validated_sha1) conn
+
+  blah <- runReaderT (SqlRead.getRevisionBuilds validated_sha1) conn
+  let DbHelpers.BenchmarkedResponse _ revision_builds = fromRight (error "BAD2") blah
 
   commit_page_info <- liftIO $
     runReaderT (StatusUpdate.fetchCommitPageInfo raw_commit validated_sha1) conn
 
-  putStrLn $ T.unpack $ T.unlines $ StatusUpdate.genBuildFailuresTable commit_page_info
+  putStrLn $ T.unpack $ T.unlines $ StatusUpdate.genBuildFailuresTable $
+    fromRight (error "BAD3") commit_page_info
 
 
 

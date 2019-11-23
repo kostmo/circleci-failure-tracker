@@ -41,13 +41,25 @@ import qualified SqlRead
 import qualified SqlWrite
 
 
+-- | This is short so we don't
+-- clog up the database with backed up requests
+scanningStatementTimeoutSeconds :: Integer
+scanningStatementTimeoutSeconds = 30
+
+
+data RevisitationMode = NoRevisit | RevisitScanned
+
+
+data LogRefetchMode = NoRefetchLog | RefetchLog
+
+
 -- | Stores scan results to database and returns them.
 scanBuilds ::
      ScanRecords.ScanCatchupResources
-  -> Bool
+  -> RevisitationMode
      -- ^ revisit builds that may have been
      -- scanned before new patterns were introduced
-  -> Bool
+  -> LogRefetchMode
      -- ^ refetch logs
   -> Either (Set Builds.UniversalBuildId) Int
   -> IO [(DbHelpers.WithId Builds.UniversalBuild, [ScanPatterns.ScanMatch])]
@@ -57,8 +69,8 @@ scanBuilds
     refetch_logs
     whitelisted_builds_or_fetch_count = do
 
-  rescan_matches <- if revisit
-    then do
+  rescan_matches <- case revisit of
+    RevisitScanned -> do
       visited_builds_list <- case whitelisted_builds_or_fetch_count of
         Left whitelisted_build_ids -> SqlRead.getRevisitableWhitelistedBuilds
           conn
@@ -70,7 +82,7 @@ scanBuilds
         refetch_logs
         whitelisted_visited
 
-    else do
+    NoRevisit -> do
       putStrLn "NOT rescanning previously-visited builds!"
       return []
 
@@ -102,7 +114,19 @@ rescanSingleBuildWrapped build_to_scan = do
   return $ Right "Build rescan complete."
 
 
--- | Does not re-download the log from AWS
+apiRescanBuilds conn maybe_initiator scannable_build_numbers = do
+  scan_resources <- prepareScanResources conn maybe_initiator
+  DbHelpers.setSessionStatementTimeout conn scanningStatementTimeoutSeconds
+
+  scanBuilds
+    scan_resources
+    RevisitScanned
+    NoRefetchLog
+    (Left $ Set.fromList scannable_build_numbers)
+
+
+-- | Does not re-download the log from AWS.
+-- However, does re-fetch build info from CircleCI.
 rescanSingleBuild ::
      Connection
   -> AuthStages.Username
@@ -137,8 +161,8 @@ rescanSingleBuild conn initiator build_to_scan = do
 
       scan_matches <- scanBuilds
         scan_resources
-        True
-        False -- Do not re-download log
+        RevisitScanned
+        NoRefetchLog
         (Left $ Set.singleton build_to_scan)
 
       let total_match_count = sum $ map (length . snd) scan_matches
@@ -209,7 +233,7 @@ getPatternObjects scan_resources =
 -- to any step.
 catchupScan ::
      ScanRecords.ScanCatchupResources
-  -> Bool -- ^ should overwrite log
+  -> LogRefetchMode
   -> Builds.BuildStepId
   -> T.Text -- ^ step name
   -> (DbHelpers.WithId Builds.UniversalBuild, Maybe Builds.BuildFailureOutput)
@@ -271,7 +295,7 @@ catchupScan
 
 rescanVisitedBuilds ::
      ScanRecords.ScanCatchupResources
-  -> Bool -- ^ refetch logs
+  -> LogRefetchMode
   -> [(Builds.BuildStepId, T.Text, DbHelpers.WithId Builds.UniversalBuild, [Int64])]
   -> IO [(DbHelpers.WithId Builds.UniversalBuild, [ScanPatterns.ScanMatch])]
 rescanVisitedBuilds scan_resources should_refetch_logs visited_builds_list =
@@ -328,7 +352,7 @@ processUnvisitedBuilds scan_resources unvisited_builds_list =
         Builds.BuildTimeoutFailure             -> return $ Right []
         Builds.ScannableFailure failure_output -> catchupScan
           scan_resources
-          True -- Re-download parameter is irrelevant, since this is the first time visiting the build
+          RefetchLog -- Re-download parameter is irrelevant, since this is the first time visiting the build
           build_step_id
           step_name
           (universal_build_obj, Just failure_output) $
@@ -384,7 +408,7 @@ getCircleCIFailedBuildInfo scan_resources build_number = do
 -- | This function strips all ANSI escape codes from the console log before storage.
 getAndStoreLog ::
      ScanRecords.ScanCatchupResources
-  -> Bool -- ^ overwrite existing log
+  -> LogRefetchMode
   -> DbHelpers.WithId Builds.UniversalBuild
   -> Builds.BuildStepId
   -> Maybe Builds.BuildFailureOutput
@@ -396,9 +420,9 @@ getAndStoreLog
     build_step_id
     maybe_failed_build_output = do
 
-  maybe_console_log <- if overwrite
-    then return Nothing
-    else runReaderT (SqlRead.readLog build_step_id) conn
+  maybe_console_log <- case overwrite of
+    RefetchLog   -> return Nothing
+    NoRefetchLog -> runReaderT (SqlRead.readLog build_step_id) conn
 
   case maybe_console_log of
     Just console_log -> return $ Right $ LT.lines console_log  -- Log was already fetched

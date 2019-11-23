@@ -55,6 +55,7 @@ library:
     - http-types
     - json-stream
     - data-ordlist
+    - attoparsec
 
 executables:
   run-scanner:

@@ -49,14 +49,6 @@ mainAppCode args = do
 
   conn <- DbPreparation.prepareDatabase connection_data $ wipeDatabase args
 
-
-  -- Experimental
-  {-
-  my_scan_result <- Scanning.getCircleCIFailedBuildInfo scan_resources $ Builds.NewBuildNumber 2102088
-  putStrLn $ "My scan result: " ++ show my_scan_result
-  -}
-
-
   BuildRetrieval.updateCircleCIBuildsList
     conn
     Nothing
@@ -70,8 +62,8 @@ mainAppCode args = do
 
   build_matches <- Scanning.scanBuilds
     scan_resources
-    (rescanVisited args)
-    False -- Do not re-download log
+    (if rescanVisited args then Scanning.RevisitScanned else Scanning.NoRevisit)
+    Scanning.NoRefetchLog
     (Right fetch_count)
 
   putStrLn $ unwords [

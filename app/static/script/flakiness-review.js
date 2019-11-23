@@ -286,7 +286,6 @@ function gen_unmatched_failures_table(query_args_dict) {
 }
 
 
-
 function gen_jobs_table(element_id, data_payload, height_string) {
 
 	const column_list = [

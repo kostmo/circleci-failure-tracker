@@ -129,6 +129,13 @@ scottyApp
 
     S.json $ WebApi.toJsonEither result
 
+{-
+  S.post "/api/rescan-multiple-builds" $
+    withAuth $
+      Scanning.apiRescanBuilds
+        <$> (Builds.UniversalBuildId <$> S.param "build")
+-}
+
   S.post "/api/rescan-build" $
     withAuth $
       Scanning.rescanSingleBuildWrapped
@@ -144,22 +151,6 @@ scottyApp
 
   S.post "/api/populate-master-commit-metadata" $
     FrontendHelpers.requireAdminToken connection_data github_config SqlWrite.storeCommitMetadata
-
-
-    -- TODO FINISH ME
-    {-
-    S.post "/api/new-pattern-replace" $ do
-
-      new_pattern <- patternFromParms
-      let callback_func user_alias = do
-            conn <- DbHelpers.get_connection connection_data
-            SqlWrite.copy_pattern xxx
-
-      rq <- S.request
-      insertion_result <- liftIO $ Auth.getAuthenticatedUser rq session github_config callback_func
-      S.json $ DbInsertion.toInsertionResponse github_config insertion_result
-    -}
-
 
   S.post "/api/new-pattern-insert" $
     withAuth $
@@ -318,13 +309,13 @@ scottyApp
       <$> S.param "weeks"
 
   get "/api/unmatched-builds-for-commit" $
-    SqlRead.apiUnmatchedCommitBuilds . Builds.RawCommit <$> S.param "sha1"
+    fmap WebApi.toJsonEither . SqlRead.apiUnmatchedCommitBuilds . Builds.RawCommit <$> S.param "sha1"
 
   get "/api/idiopathic-failed-builds-for-commit" $
-    SqlRead.apiIdiopathicCommitBuilds . Builds.RawCommit <$> S.param "sha1"
+    fmap WebApi.toJsonEither . SqlRead.apiIdiopathicCommitBuilds . Builds.RawCommit <$> S.param "sha1"
 
   get "/api/timed-out-builds-for-commit" $
-    SqlRead.apiTimeoutCommitBuilds . Builds.RawCommit <$> S.param "sha1"
+    fmap WebApi.toJsonEither . SqlRead.apiTimeoutCommitBuilds . Builds.RawCommit <$> S.param "sha1"
 
   get "/api/pattern-step-occurrences" $
     SqlRead.patternBuildStepOccurrences . ScanPatterns.PatternId <$> S.param "pattern_id"
@@ -429,9 +420,10 @@ scottyApp
     commit_sha1_text <- S.param "sha1"
     json_result <- runExceptT $ do
       sha1 <- except $ GitRev.validateSha1 commit_sha1_text
-      liftIO $ do
+      either_result <- liftIO $ do
         conn <- DbHelpers.get_connection connection_data
         runReaderT (SqlRead.getRevisionBuilds sha1) conn
+      except either_result
 
     S.json $ WebApi.toJsonEither json_result
 

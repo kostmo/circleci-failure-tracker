@@ -5,12 +5,14 @@
 
 module SqlRead where
 
+import           Control.Exception                    (throwIO)
 import           Control.Monad                        (forM, unless)
 import           Control.Monad.IO.Class               (liftIO)
 import           Control.Monad.Trans.Except           (ExceptT (ExceptT),
                                                        except, runExceptT)
 import           Control.Monad.Trans.Reader           (ReaderT, ask, runReaderT)
 import           Data.Aeson
+import qualified Data.ByteString.Char8                as BS
 import           Data.Either.Utils                    (maybeToEither)
 import           Data.List                            (partition, sort, sortOn)
 import           Data.List.Split                      (splitOn)
@@ -45,6 +47,7 @@ import qualified MatchOccurrences
 import qualified MyUtils
 import qualified Pagination
 import qualified PostedStatuses
+import qualified PostgresHelpers
 import qualified ScanPatterns
 import qualified ScanUtils
 import qualified WebApi
@@ -966,36 +969,44 @@ apiIdiopathicBuilds = listBuilds $ MyUtils.qjoin [
   ]
 
 
-apiUnmatchedCommitBuilds :: Builds.RawCommit -> DbIO [WebApi.UnmatchedBuild]
+apiUnmatchedCommitBuilds ::
+     Builds.RawCommit
+  -> DbIO (Either Text [WebApi.UnmatchedBuild])
 apiUnmatchedCommitBuilds (Builds.RawCommit sha1) = do
   conn <- ask
-  liftIO $ query conn sql $ Only sha1
+  liftIO $ PostgresHelpers.catchDatabaseError catcher $ do
+    xs <- query conn sql $ Only sha1
+    return $ Right xs
   where
+
+    catcher _ (PostgresHelpers.QueryCancelled some_error) = return $ Left $ "Query error in apiUnmatchedCommitBuilds: " <> T.pack (BS.unpack some_error)
+    catcher e _                                  = throwIO e
+
     sql = MyUtils.qjoin [
         "SELECT"
       , MyUtils.qlist [
-          "build_num"
-        , "step_name"
-        , "queued_at"
-        , "job_name"
+          "unattributed_failed_builds.build_number"
+        , "unattributed_failed_builds.step_name"
+        , "unattributed_failed_builds.queued_at"
+        , "unattributed_failed_builds.job_name"
         , "unattributed_failed_builds.branch"
-        , "builds_join_steps.universal_build"
+        , "unattributed_failed_builds.global_build"
         , "ci_providers.icon_url"
         , "ci_providers.label"
         ]
       , "FROM unattributed_failed_builds"
-      , "JOIN builds_join_steps"
-      , "ON unattributed_failed_builds.global_build = builds_join_steps.universal_build"
       , "JOIN ci_providers"
-      , "ON builds_join_steps.provider = ci_providers.id"
-      , "WHERE vcs_revision = ?;"
+      , "ON unattributed_failed_builds.provider = ci_providers.id"
+      , "WHERE unattributed_failed_builds.vcs_revision = ?;"
       ]
 
 
-apiIdiopathicCommitBuilds :: Builds.RawCommit -> DbIO [WebApi.UnmatchedBuild]
+apiIdiopathicCommitBuilds ::
+     Builds.RawCommit
+  -> DbIO (Either Text [WebApi.UnmatchedBuild])
 apiIdiopathicCommitBuilds (Builds.RawCommit sha1) = do
   conn <- ask
-  liftIO $ map f <$> query conn sql (Only sha1)
+  liftIO $ Right . map f <$> query conn sql (Only sha1)
   where
     f (build, step_name, queued_at, job_name, branch, universal_build_id, provider_icon_url, provider_label) =
       WebApi.UnmatchedBuild
@@ -1031,10 +1042,10 @@ apiIdiopathicCommitBuilds (Builds.RawCommit sha1) = do
 
 apiTimeoutCommitBuilds ::
      Builds.RawCommit
-  -> DbIO [WebApi.UnmatchedBuild]
+  -> DbIO (Either Text [WebApi.UnmatchedBuild])
 apiTimeoutCommitBuilds (Builds.RawCommit sha1) = do
   conn <- ask
-  liftIO $ query conn sql $ Only sha1
+  liftIO $ fmap Right $ query conn sql $ Only sha1
   where
     sql = MyUtils.qjoin [
         "SELECT"
@@ -1694,10 +1705,19 @@ getBuildsParameterized sql_parms sql_where_conditions = do
 -- | For commit-details page
 getRevisionBuilds ::
      GitRev.GitSha1
-  -> DbIO (DbHelpers.BenchmarkedResponse Float [CommitBuilds.CommitBuild])
-getRevisionBuilds git_revision =
-  getBuildsParameterized sql_parms sql_where_conditions
+  -> DbIO (Either Text (DbHelpers.BenchmarkedResponse Float [CommitBuilds.CommitBuild]))
+getRevisionBuilds git_revision = do
+  conn <- ask
+  liftIO $ PostgresHelpers.catchDatabaseError catcher $ do
+    x <- runReaderT (getBuildsParameterized sql_parms sql_where_conditions) conn
+    return $ Right x
+
   where
+
+    catcher _ (PostgresHelpers.QueryCancelled some_error) = return $ Left $ "Query error in getRevisionBuilds: " <> T.pack (BS.unpack some_error)
+    catcher e _                                  = throwIO e
+
+
     sql_parms = Only $ GitRev.sha1 git_revision
     sql_where_conditions = [
         "vcs_revision = ?"
@@ -3415,7 +3435,9 @@ getPostedGithubStatus
 
   conn <- ask
   liftIO $ do
+    putStrLn "Inside getPostedGithubStatus..."
     xs <- query conn sql (sha1, project, repo)
+    putStrLn "Finishing getPostedGithubStatus..."
     return $ Safe.headMay xs
 
   where

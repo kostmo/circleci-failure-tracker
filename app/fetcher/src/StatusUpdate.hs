@@ -88,12 +88,6 @@ buildStatusHandlerTimeoutMicroseconds :: Int
 buildStatusHandlerTimeoutMicroseconds = 1000000 * 60 * 3
 
 
--- | This is short so we don't
--- clog up the database with backed up requests
-scanningStatementTimeoutSeconds :: Integer
-scanningStatementTimeoutSeconds = 20
-
-
 fullMasterRefName :: Text
 fullMasterRefName = "refs/heads/" <> Constants.masterName
 
@@ -329,12 +323,12 @@ scanAndPost
   scan_matches <- liftIO $ do
 
     scan_resources <- Scanning.prepareScanResources conn maybe_initiator
-    DbHelpers.setSessionStatementTimeout conn scanningStatementTimeoutSeconds
+    DbHelpers.setSessionStatementTimeout conn Scanning.scanningStatementTimeoutSeconds
 
     Scanning.scanBuilds
       scan_resources
-      False -- do not attempt to revisit previously scanned builds for new patterns
-      False -- do not re-download log
+      Scanning.NoRevisit
+      Scanning.NoRefetchLog
       (Left $ Set.fromList scannable_build_numbers)
 
 
@@ -354,10 +348,21 @@ data CommitPageInfo = CommitPageInfo {
   }
 
 
-fetchCommitPageInfo sha1 validated_sha1 = do
-  DbHelpers.BenchmarkedResponse _ revision_builds <- SqlRead.getRevisionBuilds validated_sha1
+fetchCommitPageInfo ::
+     Builds.RawCommit
+  -> GitRev.GitSha1
+  -> SqlRead.DbIO (Either Text CommitPageInfo)
+fetchCommitPageInfo sha1 validated_sha1 = runExceptT $ do
 
-  unmatched_builds <- SqlRead.apiUnmatchedCommitBuilds sha1
+  liftIO $ MyUtils.debugStr "Fetching revision builds"
+  DbHelpers.BenchmarkedResponse _ revision_builds <- ExceptT $ SqlRead.getRevisionBuilds validated_sha1
+
+  liftIO $ MyUtils.debugStr "Fetching unmatched commit builds..."
+
+  unmatched_builds <- ExceptT $ SqlRead.apiUnmatchedCommitBuilds sha1
+
+  liftIO $ MyUtils.debugStr "Finishing fetchCommitPageInfo."
+
   return $ CommitPageInfo revision_builds unmatched_builds
 
 
@@ -375,11 +380,15 @@ postCommitSummaryStatus
     sha1@(Builds.RawCommit commit_sha1_text)
     scan_matches = do
 
+  liftIO $ MyUtils.debugStr "Checkpoint A"
+
   -- TODO This should return the actual jobs that failed, rather than
   -- just the count
   basic_revision_stats <- ExceptT $ runReaderT (SqlRead.getNonPatternMatchRevisionStats sha1) conn
 
   let (SqlRead.BasicRevisionBuildStats _ _ _ _ _ circleci_failcount) = basic_revision_stats
+
+  liftIO $ MyUtils.debugStr "Checkpoint B"
 
   -- TODO WIP!!!
   upstream_breakages_info <- ExceptT $
@@ -389,12 +398,18 @@ postCommitSummaryStatus
       owned_repo
       sha1
 
+  liftIO $ MyUtils.debugStr "Checkpoint C"
+
   validated_sha1 <- except $ first LT.fromStrict $ GitRev.validateSha1 commit_sha1_text
 
-  commit_page_info <- liftIO $
+  liftIO $ MyUtils.debugStr "Checkpoint D"
+
+  commit_page_info <- ExceptT $ first LT.fromStrict <$>
     runReaderT (fetchCommitPageInfo sha1 validated_sha1) conn
 
-  postCommitSummaryStatusInner
+  liftIO $ MyUtils.debugStr "Checkpoint E"
+
+  x <- postCommitSummaryStatusInner
     (replicate circleci_failcount "xxx") -- TODO FIXME
     upstream_breakages_info
     commit_page_info
@@ -403,6 +418,10 @@ postCommitSummaryStatus
     owned_repo
     sha1
     scan_matches
+
+  liftIO $ MyUtils.debugStr "Checkpoint Z"
+
+  return x
 
 
 fetchAndCachePrAuthor conn access_token pr_number = do
@@ -432,14 +451,20 @@ postCommitSummaryStatusInner
     sha1
     scan_matches = do
 
+  liftIO $ MyUtils.debugStr "Checkpoint F"
+
   maybe_previously_posted_status <- liftIO $
     runReaderT (SqlRead.getPostedGithubStatus owned_repo sha1) conn
+
+  liftIO $ MyUtils.debugStr "Checkpoint G"
 
   case maybe_previously_posted_status of
     Nothing -> when (circleci_failcount > 0) post_and_store
     Just previous_state_description_tuple ->
       when (previous_state_description_tuple /= new_state_description_tuple)
         post_and_store
+
+  liftIO $ MyUtils.debugStr "Checkpoint H"
 
   post_pr_comment_and_store
 

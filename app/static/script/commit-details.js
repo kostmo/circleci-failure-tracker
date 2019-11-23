@@ -118,49 +118,56 @@ function gen_builds_table(element_id, data_url) {
 
 function gen_unmatched_build_list(api_endpoint, div_id) {
 
-	$.getJSON(api_endpoint, function (data) {
+	$.getJSON(api_endpoint, function (data_wrapper) {
 
-		if (data.length == 0) {
-			return;
+		if (data_wrapper.success) {
+			const data = data_wrapper.payload;
+
+			if (data.length == 0) {
+				return;
+			}
+
+			$("#" + div_id + "-parent").show();
+
+
+			const table = new Tabulator("#" + div_id, {
+				height:"200px",
+				layout:"fitColumns",
+				placeholder:"No Data Set",
+				columns:[
+					{title:"Build number", field: "build",
+
+						formatter: function(cell, formatterParams, onRendered) {
+
+							const row_data = cell.getRow().getData();
+
+							const provider_build_number = cell.getValue();
+							const universal_build_number = row_data["universal_build_number"];
+
+							return render_build_link_cell(universal_build_number, row_data["provider_icon_url"], provider_build_number);
+						},
+						tooltip: function(cell) {
+							const row_data = cell.getRow().getData();
+							return row_data["provider_label"];
+						},
+						width: 90,
+					},
+					{title:"Step", field:"step_name", width: 200},
+					{title:"Job", field:"job_name", width: 200},
+					{title:"Time", field:"queued_at", width: 150,
+						formatter: function(cell, formatterParams, onRendered) {
+							const val = cell.getValue();
+							return moment(val).fromNow();
+						},
+					},
+					{title:"Branch", field:"branch", width: 150},
+				],
+				data: data,
+			});
+		} else {
+
+			alert("Error: " + data_wrapper.error);
 		}
-
-		$("#" + div_id + "-parent").show();
-
-
-		const table = new Tabulator("#" + div_id, {
-			height:"200px",
-			layout:"fitColumns",
-			placeholder:"No Data Set",
-			columns:[
-				{title:"Build number", field: "build",
-
-					formatter: function(cell, formatterParams, onRendered) {
-
-						const row_data = cell.getRow().getData();
-
-						const provider_build_number = cell.getValue();
-						const universal_build_number = row_data["universal_build_number"];
-
-						return render_build_link_cell(universal_build_number, row_data["provider_icon_url"], provider_build_number);
-					},
-					tooltip: function(cell) {
-						const row_data = cell.getRow().getData();
-						return row_data["provider_label"];
-					},
-					width: 90,
-				},
-				{title:"Step", field:"step_name", width: 200},
-				{title:"Job", field:"job_name", width: 200},
-				{title:"Time", field:"queued_at", width: 150,
-					formatter: function(cell, formatterParams, onRendered) {
-						const val = cell.getValue();
-						return moment(val).fromNow();
-					},
-				},
-				{title:"Branch", field:"branch", width: 150},
-			],
-			data: data,
-		});
 	});
 }
 
@@ -192,7 +199,7 @@ function rescan_commit(button) {
 }
 
 
-// XXX hack around HUD URL-generation logic which appends "/console"
+// XXX hacks around HUD URL-generation logic which appends "/console"
 function get_scrubbed_sha1() {
 
 	const urlParams = new URLSearchParams(window.location.search);
