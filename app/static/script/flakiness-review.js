@@ -3,6 +3,8 @@ var start_picker;
 var end_picker;
 
 
+var global_unmatched_failure_details_table = null;
+
 function gen_failure_details_table(element_id, data_payload, height_string) {
 
 	const table = new Tabulator("#" + element_id, {
@@ -39,6 +41,41 @@ function load_pattern_failure_details(pattern_id, commit_id_min, commit_id_max) 
 
 			alert("error: " + data.error);
 		}
+	});
+}
+
+
+function rescan_selected_builds(button) {
+
+	$(button).prop("disabled", true);
+
+	const selected_data = global_unmatched_failure_details_table.getSelectedData();
+
+	console.log("Will scan", selected_data.length, "rows...");
+
+
+	const build_ids = selected_data.map(x => x["universal_build_id"]);
+
+	console.log("Build IDs:", build_ids);
+
+	const throbber_id = "#mini-throbber";
+	$(throbber_id).show();
+
+	$.ajax("/api/rescan-multiple-builds?login_redirect_path=" + get_url_path_for_redirect(), {
+		'data': JSON.stringify(build_ids),
+		'type': 'POST',
+		'processData': false,
+		'contentType': 'application/json',
+		'success': function(data) {
+			$(throbber_id).hide();
+			$(button).prop("disabled", false);
+			alert("Finished scanning.");
+		},
+		'error': function(data) {
+			$(throbber_id).hide();
+			$(button).prop("disabled", false);
+			alert("FAILED: " + data);
+		},
 	});
 }
 
@@ -153,9 +190,6 @@ function load_day_highchart() {
 
 		if (data.success) {
 
-			console.log("hello");
-
-
 			const rows = [];
 			$.each(data.payload, function( index, value ) {
 
@@ -248,9 +282,9 @@ function gen_patterns_table(element_id, data_payload, height_string) {
 			const commit_id_max = row_data["max_commit_index"];
 
 			if (pattern_id != null) {
+				$("#rescan-failures-button").hide();
 				load_pattern_failure_details(pattern_id, commit_id_min, commit_id_max);
 			} else {
-				console.log("Null pattern");
 
 				const query_args_dict = {
 					"commit-id-min": commit_id_min,
@@ -272,14 +306,16 @@ function gen_unmatched_failures_table(query_args_dict) {
 
 			$("#selected-details-row-title-container").html("unmatched logs");
 
-			var table = new Tabulator("#failure-details-table", {
+			global_unmatched_failure_details_table = new Tabulator("#failure-details-table", {
 				height:"200px",
 				layout:"fitColumns",
 				placeholder:"No Data Set",
+				selectable: true,
 				columns: get_unmatched_build_columns(),
 				data: data.payload,
 			});
 
+			$("#rescan-failures-button").show();
 			$("#failure-details-section").show();
 		}
 	});
@@ -453,6 +489,27 @@ function bounds_this_week() {
 }
 
 
+
+function bounds_go_back_one_week() {
+
+	const end_picker_initial_date = start_picker.getDate();
+	setSpanDaysBackward(end_picker_initial_date, 7);
+
+
+	const start_timestamp = start_picker.getDate().toISOString();
+	const end_timestamp = end_picker.getDate().toISOString();
+
+	const query_args_dict = {
+		"start-timestamp": start_timestamp,
+		"end-timestamp": end_timestamp,
+	};
+
+	requery_tables(query_args_dict);
+}
+
+
+
+
 // Ending at the most recent Sunday, show the 7 preceeding days
 function bounds_last_week() {
 
@@ -601,6 +658,10 @@ function main() {
 	start_picker = new Pikaday({ field: document.getElementById('datepicker-start') });
 	end_picker = new Pikaday({ field: document.getElementById('datepicker-end') });
 
+	const radios = $('input:radio[name=grouping-mode]')
+	radios.on('change', function(e) {
+		go_calendar_span();
+	});
 
 	bounds_this_week();
 }

@@ -99,7 +99,6 @@ function gen_upstream_breakages_table(element_id, data_url) {
 }
 
 
-
 function gen_builds_table(element_id, data_url) {
 
 	const table = new Tabulator("#" + element_id, {

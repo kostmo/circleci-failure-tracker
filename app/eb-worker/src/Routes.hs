@@ -107,7 +107,7 @@ scottyApp ::
   -> ScottyTypes.ScottyT LT.Text IO ()
 scottyApp
     _logger
-    (SetupData static_base github_config connection_data mview_connection_data) = do
+    (SetupData _static_base github_config connection_data _mview_connection_data) = do
 
 
   S.post "/worker/scheduled-work" $ do
@@ -133,7 +133,7 @@ scottyApp
       S.json ["hello-post" :: Text]
 
 
-  S.post "/worker/update-pr-associations" $ do
+  S.post "/worker/update-pr-associations" $
 
     wrapWithDbDurationRecords connection_data $ \_eb_worker_event_id -> do
 

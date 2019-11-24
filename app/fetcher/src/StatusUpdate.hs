@@ -3,10 +3,11 @@
 module StatusUpdate (
     githubEventEndpoint
   , readGitHubStatusesAndScanAndPostSummaryForCommit
-  , getBuildsFromGithub
   , postCommitSummaryStatus
   , genBuildFailuresTable
   , fetchCommitPageInfo
+  , SuccessRecordStorageMode (..)
+  , ScanLogsMode (..)
   ) where
 
 import           Control.Concurrent            (forkIO)
@@ -230,7 +231,7 @@ getBuildsFromGithub ::
      Connection
   -> OAuth2.AccessToken
   -> DbHelpers.OwnerAndRepo
-  -> Bool
+  -> SuccessRecordStorageMode
   -> Builds.RawCommit
   -> ExceptT LT.Text IO ([Builds.UniversalBuildId], Int)
 getBuildsFromGithub
@@ -238,7 +239,7 @@ getBuildsFromGithub
     access_token
     owned_repo
     store_provider_specific_success_records
-    sha1  = do
+    sha1 = do
 
   build_statuses_list_any_source <- ExceptT $ GithubApiFetch.getBuildStatuses
     access_token
@@ -278,9 +279,9 @@ getBuildsFromGithub
       -- function, which is manually invoked.
       circleci_successful_builds = map fst $ filter_by_status gitHubStatusSuccessString circleci_builds_and_statuses
 
-      second_level_storable_builds = if store_provider_specific_success_records
-        then circleci_failed_builds ++ circleci_successful_builds
-        else circleci_failed_builds
+      second_level_storable_builds = case store_provider_specific_success_records of
+        StatusUpdate.ShouldStoreDetailedSuccessRecords -> circleci_failed_builds ++ circleci_successful_builds
+        StatusUpdate.NoStoreDetailedSuccessRecords -> circleci_failed_builds
 
       scannable_build_numbers = map (Builds.UniversalBuildId . DbHelpers.db_id . Builds.universal_build) circleci_failed_builds
 
@@ -308,6 +309,7 @@ scanAndPost ::
      Connection
   -> OAuth2.AccessToken
   -> Maybe AuthStages.Username -- ^ scan initiator
+  -> Scanning.RevisitationMode
   -> [Builds.UniversalBuildId]
   -> DbHelpers.OwnerAndRepo
   -> Builds.RawCommit
@@ -316,6 +318,7 @@ scanAndPost
     conn
     access_token
     maybe_initiator
+    scan_revisitation_mode
     scannable_build_numbers
     owned_repo
     sha1 = do
@@ -327,7 +330,7 @@ scanAndPost
 
     Scanning.scanBuilds
       scan_resources
-      Scanning.NoRevisit
+      scan_revisitation_mode
       Scanning.NoRefetchLog
       (Left $ Set.fromList scannable_build_numbers)
 
@@ -705,6 +708,17 @@ generateCommentMarkdown
     opt_out_url = dr_ci_base_url <> "/admin/comments-opt-out.html"
 
 
+-- | whether to store second-level build records for "success" status
+data SuccessRecordStorageMode =
+    ShouldStoreDetailedSuccessRecords
+  | NoStoreDetailedSuccessRecords
+
+
+data ScanLogsMode =
+    ShouldScanLogs
+  | NoScanLogs
+
+
 -- | Operations:
 -- * Filter out the CircleCI builds
 -- * Check if the builds have been scanned yet.
@@ -715,9 +729,10 @@ readGitHubStatusesAndScanAndPostSummaryForCommit ::
   -> OAuth2.AccessToken
   -> Maybe AuthStages.Username -- ^ scan initiator
   -> DbHelpers.OwnerAndRepo
-  -> Bool -- ^ should store second-level build records for "success" status
+  -> SuccessRecordStorageMode
   -> Builds.RawCommit
-  -> Bool
+  -> ScanLogsMode
+  -> Scanning.RevisitationMode
   -> ExceptT LT.Text IO ()
 readGitHubStatusesAndScanAndPostSummaryForCommit
     conn
@@ -726,7 +741,8 @@ readGitHubStatusesAndScanAndPostSummaryForCommit
     owned_repo
     should_store_second_level_success_records
     sha1
-    should_scan = do
+    should_scan
+    should_revisit_scanned = do
 
   liftIO $ do
     current_time <- Clock.getCurrentTime
@@ -742,16 +758,19 @@ readGitHubStatusesAndScanAndPostSummaryForCommit
   liftIO $ MyUtils.debugList ["Finished getBuildsFromGithub"]
 
 
-  when should_scan $ do
-    liftIO $ MyUtils.debugList ["About to enter scanAndPost"]
+  case should_scan of
+    ShouldScanLogs -> do
+      liftIO $ MyUtils.debugList ["About to enter scanAndPost"]
 
-    scanAndPost
-      conn
-      access_token
-      maybe_initiator
-      scannable_build_numbers
-      owned_repo
-      sha1
+      scanAndPost
+        conn
+        access_token
+        maybe_initiator
+        should_revisit_scanned
+        scannable_build_numbers
+        owned_repo
+        sha1
+    NoScanLogs -> return ()
 
 
 handlePushWebhook ::
@@ -856,10 +875,11 @@ handleStatusWebhook
               access_token
               maybe_initiator
               owned_repo
-              is_master_commit
+              (if is_master_commit then StatusUpdate.ShouldStoreDetailedSuccessRecords else StatusUpdate.NoStoreDetailedSuccessRecords)
               sha1
-              -- FIXME Disabled for now due to load issues
-              False
+--              ShouldScanLogs
+              NoScanLogs -- TODO Does it matter if this is disabled?
+              Scanning.NoRevisit
 
           return ()
 

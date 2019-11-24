@@ -30,6 +30,7 @@ import qualified DbInsertion
 import qualified GitRev
 import qualified MyUtils
 import qualified Pagination
+import qualified Scanning
 import qualified ScanPatterns
 import qualified SqlRead
 import qualified SqlWrite
@@ -427,9 +428,10 @@ rescanCommitCallback github_config commit = do
         (AuthConfig.personal_access_token github_config)
         (Just user_alias)
         owned_repo
-        True  -- ^ store success records too
+        StatusUpdate.ShouldStoreDetailedSuccessRecords
         commit
-        True
+        StatusUpdate.ShouldScanLogs
+        Scanning.RevisitScanned
 
     return $ first LT.toStrict $ run_result $> "Commit rescan complete."
 

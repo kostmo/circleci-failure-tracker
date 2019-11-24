@@ -229,12 +229,12 @@ function shipOff(event) {
 	const parsed_json_from_file = JSON.parse( result );
 
 	$.ajax("/api/patterns-restore?login_redirect_path=" + get_url_path_for_redirect(), {
-	    'data': JSON.stringify(parsed_json_from_file),
-	    'type': 'POST',
-	    'processData': false,
-	    'contentType': 'application/json',
-            'success': continueSubmission,
-            'error': showUploadFailure,
+		'data': JSON.stringify(parsed_json_from_file),
+		'type': 'POST',
+		'processData': false,
+		'contentType': 'application/json',
+		'success': continueSubmission,
+		'error': showUploadFailure,
 	});
 }
 

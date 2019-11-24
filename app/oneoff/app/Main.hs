@@ -3,7 +3,6 @@
 import           Control.Monad.IO.Class     (liftIO)
 import           Control.Monad.Trans.Reader (runReaderT)
 import           Data.Either                (fromRight)
-import qualified Data.List.NonEmpty         as NE
 import           Data.Text                  (Text)
 import qualified Data.Text                  as T
 import qualified Network.OAuth.OAuth2       as OAuth2
@@ -118,14 +117,6 @@ mainAppCode args = do
 
   SqlWrite.getAllPullRequestHeadCommits conn git_repo_dir
 
-
-  -- ===========================================
-  {-
-  pr_head_commits <- runReaderT SqlRead.getAllMergedPullRequestHeadCommits conn
-  stuff <- for (zip [1..] pr_head_commits) $ \(idx, head_commit) -> do
-    putStrLn $ unwords ["Progress:", show idx, "/", show $ length pr_head_commits, MyUtils.parens $ "HEAD commit " <> show head_commit]
-    runExceptT $ StatusUpdate.getBuildsFromGithub conn oauth_access_token owned_repo head_commit
-  -}
 
 
   return ()

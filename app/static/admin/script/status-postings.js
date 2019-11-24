@@ -56,7 +56,6 @@ function gen_time_plot(container_id, api_path, title, time_unit) {
       });
    });
 }
-xxx
 
 
 function gen_aggregate_postings_table(element_id, data_url) {
@@ -83,6 +82,8 @@ function gen_aggregate_postings_table(element_id, data_url) {
 
 
 function main() {
+
+	gen_comment_postings_table("comment-postings-table", "/api/posted-pr-comments?count=50", "400px");
 
 	gen_postings_table("status-postings-table", "/api/posted-statuses?count=50", "400px");
 	gen_aggregate_postings_table("aggregate-status-postings-table", "/api/aggregate-posted-statuses?count=50");

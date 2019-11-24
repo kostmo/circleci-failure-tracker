@@ -47,9 +47,12 @@ scanningStatementTimeoutSeconds :: Integer
 scanningStatementTimeoutSeconds = 30
 
 
+-- | revisit builds that may have been
+-- scanned before new patterns were introduced
 data RevisitationMode = NoRevisit | RevisitScanned
 
 
+-- | refetch logs even if they've already been stored in the DB
 data LogRefetchMode = NoRefetchLog | RefetchLog
 
 
@@ -57,10 +60,7 @@ data LogRefetchMode = NoRefetchLog | RefetchLog
 scanBuilds ::
      ScanRecords.ScanCatchupResources
   -> RevisitationMode
-     -- ^ revisit builds that may have been
-     -- scanned before new patterns were introduced
   -> LogRefetchMode
-     -- ^ refetch logs
   -> Either (Set Builds.UniversalBuildId) Int
   -> IO [(DbHelpers.WithId Builds.UniversalBuild, [ScanPatterns.ScanMatch])]
 scanBuilds
@@ -114,15 +114,22 @@ rescanSingleBuildWrapped build_to_scan = do
   return $ Right "Build rescan complete."
 
 
-apiRescanBuilds conn maybe_initiator scannable_build_numbers = do
-  scan_resources <- prepareScanResources conn maybe_initiator
-  DbHelpers.setSessionStatementTimeout conn scanningStatementTimeoutSeconds
+apiRescanBuilds ::
+     [Builds.UniversalBuildId]
+  -> SqlRead.AuthDbIO (Either T.Text Int)
+apiRescanBuilds scannable_build_numbers = do
+  SqlRead.AuthConnection conn user <- ask
+  matches <- liftIO $ do
+    scan_resources <- prepareScanResources conn $ Just user
+    DbHelpers.setSessionStatementTimeout conn scanningStatementTimeoutSeconds
 
-  scanBuilds
-    scan_resources
-    RevisitScanned
-    NoRefetchLog
-    (Left $ Set.fromList scannable_build_numbers)
+    scanBuilds
+      scan_resources
+      RevisitScanned
+      NoRefetchLog
+      (Left $ Set.fromList scannable_build_numbers)
+
+  return $ Right $ length matches
 
 
 -- | Does not re-download the log from AWS.

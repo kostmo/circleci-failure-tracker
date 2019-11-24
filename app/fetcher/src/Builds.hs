@@ -56,6 +56,7 @@ newtype UniversalBuildId = UniversalBuildId Int64
   deriving (Show, Generic, Eq, Ord)
 
 instance ToJSON UniversalBuildId
+instance FromJSON UniversalBuildId
 
 -- TODO do error handling: http://hackage.haskell.org/package/postgresql-simple-0.6.2/docs/Database-PostgreSQL-Simple-FromField.html
 instance FromField UniversalBuildId where

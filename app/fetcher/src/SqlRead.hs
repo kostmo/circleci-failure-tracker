@@ -46,6 +46,7 @@ import qualified JsonUtils
 import qualified MatchOccurrences
 import qualified MyUtils
 import qualified Pagination
+import qualified PostedComments
 import qualified PostedStatuses
 import qualified PostgresHelpers
 import qualified ScanPatterns
@@ -457,14 +458,45 @@ getLatestPatternId conn =
     sql = "SELECT id FROM patterns ORDER BY id DESC LIMIT 1;"
 
 
-apiPostedStatuses :: Int -> DbIO [PostedStatuses.PostedStatus]
+apiPostedPRComments ::
+     Int
+  -> DbIO [PostedComments.PostedComment]
+apiPostedPRComments count = do
+  conn <- ask
+  liftIO $ query conn sql $ Only count
+  where
+    sql = MyUtils.qjoin [
+        "SELECT"
+      , MyUtils.qlist [
+          "pr_number"
+        , "sha1"
+        , "github_user_login"
+        , "body"
+        , "created_at"
+        , "updated_at"
+        , "revision_count"
+        ]
+      , "FROM latest_created_pull_request_comment_revision"
+      , "ORDER BY updated_at DESC"
+      , "LIMIT ?;"
+      ]
+
+
+apiPostedStatuses ::
+     Int
+  -> DbIO [PostedStatuses.PostedStatus]
 apiPostedStatuses count = do
   conn <- ask
   liftIO $ query conn sql $ Only count
   where
     sql = MyUtils.qjoin [
         "SELECT"
-      , "sha1, description, state, created_at"
+      , MyUtils.qlist [
+          "sha1"
+        , "description"
+        , "state"
+        , "created_at"
+        ]
       , "FROM created_github_statuses"
       , "ORDER BY created_at DESC"
       , "LIMIT ?;"
@@ -2350,9 +2382,9 @@ apiCoarseBinsIsolatedJobFailuresTimespan time_bounds = do
     inner_sql = MyUtils.qjoin [
         "SELECT"
       , MyUtils.qlist [
-          "SUM(is_timeout::int) AS timeout_count"
-        , "SUM(is_network::int) AS network_count"
-        , "SUM((NOT (is_network OR is_timeout))::int) AS other_count"
+          "COALESCE(SUM(is_timeout::int), 0) AS timeout_count"
+        , "COALESCE(SUM(is_network::int), 0) AS network_count"
+        , "COALESCE(SUM((NOT (is_network OR is_timeout))::int), 0) AS other_count"
         , "COUNT(*) AS total_count"
         ]
       , "FROM master_failures_raw_causes_mview"

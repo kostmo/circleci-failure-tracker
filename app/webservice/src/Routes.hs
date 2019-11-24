@@ -129,12 +129,11 @@ scottyApp
 
     S.json $ WebApi.toJsonEither result
 
-{-
+
   S.post "/api/rescan-multiple-builds" $
     withAuth $
       Scanning.apiRescanBuilds
-        <$> (Builds.UniversalBuildId <$> S.param "build")
--}
+        <$> S.jsonData
 
   S.post "/api/rescan-build" $
     withAuth $
@@ -270,6 +269,9 @@ scottyApp
 
   get "/api/code-breakage-mode-single" $
     SqlRead.apiCodeBreakagesModeSingle <$> S.param "cause_id"
+
+  get "/api/posted-pr-comments" $
+    SqlRead.apiPostedPRComments <$> S.param "count"
 
   get "/api/posted-statuses" $
     SqlRead.apiPostedStatuses <$> S.param "count"
