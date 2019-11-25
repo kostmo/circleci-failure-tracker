@@ -1031,6 +1031,36 @@ COMMENT ON VIEW public.master_ordered_commits_with_metadata IS 'TODO: Remove "un
 
 
 --
+-- Name: master_ordered_commits_with_metadata_mview; Type: MATERIALIZED VIEW; Schema: public; Owner: materialized_view_updater
+--
+
+CREATE MATERIALIZED VIEW public.master_ordered_commits_with_metadata_mview AS
+ SELECT master_ordered_commits_with_metadata.id,
+    master_ordered_commits_with_metadata.sha1,
+    master_ordered_commits_with_metadata.message,
+    master_ordered_commits_with_metadata.tree_sha1,
+    master_ordered_commits_with_metadata.author_name,
+    master_ordered_commits_with_metadata.author_email,
+    master_ordered_commits_with_metadata.author_date,
+    master_ordered_commits_with_metadata.committer_name,
+    master_ordered_commits_with_metadata.committer_email,
+    master_ordered_commits_with_metadata.committer_date,
+    master_ordered_commits_with_metadata.github_pr_number,
+    master_ordered_commits_with_metadata.fb_differential_revision,
+    master_ordered_commits_with_metadata.fb_pulled_by,
+    master_ordered_commits_with_metadata.fb_reviewed_by,
+    master_ordered_commits_with_metadata.fb_shipit_source_id,
+    master_ordered_commits_with_metadata.fb_ghstack_source_id,
+    master_ordered_commits_with_metadata.commit_number,
+    master_ordered_commits_with_metadata.representative_commit_id,
+    master_ordered_commits_with_metadata.was_built
+   FROM public.master_ordered_commits_with_metadata
+  WITH NO DATA;
+
+
+ALTER TABLE public.master_ordered_commits_with_metadata_mview OWNER TO materialized_view_updater;
+
+--
 -- Name: code_breakage_spans; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -1072,7 +1102,7 @@ CREATE VIEW public.code_breakage_spans WITH (security_barrier='false') AS
            FROM (public.code_breakage_resolution
              JOIN public.master_commits_contiguously_indexed ON ((master_commits_contiguously_indexed.sha1 = code_breakage_resolution.sha1)))) bar ON ((foo.cause_id = bar.cause_id)))
      LEFT JOIN public.latest_master_failure_mode_attributions ON ((foo.cause_id = latest_master_failure_mode_attributions.cause_id)))
-     LEFT JOIN public.master_ordered_commits_with_metadata meta1 ON ((meta1.id = foo.commit_id)))
+     LEFT JOIN public.master_ordered_commits_with_metadata_mview meta1 ON ((meta1.id = foo.commit_id)))
   ORDER BY foo.cause_id, bar.resolution_id DESC;
 
 
@@ -3452,36 +3482,6 @@ CREATE MATERIALIZED VIEW public.master_failures_raw_causes_mview AS
 ALTER TABLE public.master_failures_raw_causes_mview OWNER TO materialized_view_updater;
 
 --
--- Name: master_ordered_commits_with_metadata_mview; Type: MATERIALIZED VIEW; Schema: public; Owner: materialized_view_updater
---
-
-CREATE MATERIALIZED VIEW public.master_ordered_commits_with_metadata_mview AS
- SELECT master_ordered_commits_with_metadata.id,
-    master_ordered_commits_with_metadata.sha1,
-    master_ordered_commits_with_metadata.message,
-    master_ordered_commits_with_metadata.tree_sha1,
-    master_ordered_commits_with_metadata.author_name,
-    master_ordered_commits_with_metadata.author_email,
-    master_ordered_commits_with_metadata.author_date,
-    master_ordered_commits_with_metadata.committer_name,
-    master_ordered_commits_with_metadata.committer_email,
-    master_ordered_commits_with_metadata.committer_date,
-    master_ordered_commits_with_metadata.github_pr_number,
-    master_ordered_commits_with_metadata.fb_differential_revision,
-    master_ordered_commits_with_metadata.fb_pulled_by,
-    master_ordered_commits_with_metadata.fb_reviewed_by,
-    master_ordered_commits_with_metadata.fb_shipit_source_id,
-    master_ordered_commits_with_metadata.fb_ghstack_source_id,
-    master_ordered_commits_with_metadata.commit_number,
-    master_ordered_commits_with_metadata.representative_commit_id,
-    master_ordered_commits_with_metadata.was_built
-   FROM public.master_ordered_commits_with_metadata
-  WITH NO DATA;
-
-
-ALTER TABLE public.master_ordered_commits_with_metadata_mview OWNER TO materialized_view_updater;
-
---
 -- Name: master_daily_isolated_failures_cached; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -4803,7 +4803,9 @@ CREATE VIEW public.unattributed_failed_builds WITH (security_barrier='false') AS
     global_builds.queued_at,
     global_builds.job_name,
     global_builds.vcs_revision,
-    foo.step_name
+    foo.step_name,
+    global_builds.provider,
+    global_builds.build_number
    FROM (( SELECT build_steps_deduped_mitigation.universal_build,
             build_steps_deduped_mitigation.name AS step_name
            FROM (public.build_steps_deduped_mitigation
@@ -6548,6 +6550,14 @@ GRANT SELECT ON TABLE public.master_ordered_commits_with_metadata TO materialize
 
 
 --
+-- Name: TABLE master_ordered_commits_with_metadata_mview; Type: ACL; Schema: public; Owner: materialized_view_updater
+--
+
+GRANT SELECT ON TABLE public.master_ordered_commits_with_metadata_mview TO logan;
+GRANT SELECT ON TABLE public.master_ordered_commits_with_metadata_mview TO postgres;
+
+
+--
 -- Name: TABLE code_breakage_spans; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -7212,14 +7222,6 @@ GRANT SELECT ON TABLE public.master_failures_raw_causes_mview TO postgres;
 
 
 --
--- Name: TABLE master_ordered_commits_with_metadata_mview; Type: ACL; Schema: public; Owner: materialized_view_updater
---
-
-GRANT SELECT ON TABLE public.master_ordered_commits_with_metadata_mview TO logan;
-GRANT SELECT ON TABLE public.master_ordered_commits_with_metadata_mview TO postgres;
-
-
---
 -- Name: TABLE master_daily_isolated_failures_cached; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -7275,6 +7277,7 @@ GRANT SELECT ON TABLE public.master_failures_weekly_aggregation TO materialized_
 --
 
 GRANT SELECT ON TABLE public.master_failures_weekly_aggregation_mview TO logan;
+GRANT SELECT ON TABLE public.master_failures_weekly_aggregation_mview TO postgres;
 
 
 --
@@ -7515,6 +7518,7 @@ GRANT SELECT ON TABLE public.pr_merge_time_failing_builds_by_week TO materialize
 --
 
 GRANT SELECT ON TABLE public.pr_merge_time_failing_builds_by_week_mview TO logan;
+GRANT SELECT ON TABLE public.pr_merge_time_failing_builds_by_week_mview TO postgres;
 
 
 --

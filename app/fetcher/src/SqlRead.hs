@@ -557,14 +557,23 @@ instance ToJSON WeeklyFailingMergedPullRequests where
 -- | Note the offset 1 so we only obtain full weeks of data
 --
 -- Note also the list order reversal for Highcharts
-getMergeTimeFailingPullRequestBuildsByWeek :: Int -> DbIO [DbHelpers.TimestampedDatum WeeklyFailingMergedPullRequests]
+getMergeTimeFailingPullRequestBuildsByWeek ::
+     Int
+  -> DbIO [DbHelpers.TimestampedDatum WeeklyFailingMergedPullRequests]
 getMergeTimeFailingPullRequestBuildsByWeek week_count = do
   conn <- ask
   liftIO $ fmap reverse $ query conn sql $ Only week_count
   where
     sql = Q.qjoin [
         "SELECT"
-      , "week, total_pr_count, failing_pr_count, total_build_count, total_failed_build_count, foreshadowed_breakage_count"
+      , Q.list [
+          "week"
+        , "total_pr_count"
+        , "failing_pr_count"
+        , "total_build_count"
+        , "total_failed_build_count"
+        , "foreshadowed_breakage_count"
+        ]
       , "FROM pr_merge_time_failing_builds_by_week_mview"
       , "WHERE failing_pr_count IS NOT NULL"
       , "ORDER BY week DESC OFFSET 1 LIMIT ?;"
@@ -2787,20 +2796,22 @@ apiMasterBuilds timeline_parms = do
     (commits_list_time, (commit_id_bounds, master_commits)) <- MyUtils.timeThisFloat $
       ExceptT $ getMasterCommits conn $ Pagination.offset_mode timeline_parms
 
+    let commit_bounds_tuple = DbHelpers.boundsAsTuple commit_id_bounds
+
     (code_breakages_time, code_breakage_ranges) <- MyUtils.timeThisFloat $ liftIO $
       runReaderT (apiAnnotatedCodeBreakages commit_id_bounds) conn
 
     (builds_list_time, completed_builds) <- MyUtils.timeThisFloat $
-      liftIO $ query conn builds_list_sql $ DbHelpers.boundsAsTuple commit_id_bounds
+      liftIO $ query conn builds_list_sql commit_bounds_tuple
 
     (reversion_spans_time, reversion_spans) <- MyUtils.timeThisFloat $
-      liftIO $ query conn reversion_spans_sql $ DbHelpers.boundsAsTuple commit_id_bounds
+      liftIO $ query conn reversion_spans_sql commit_bounds_tuple
 
     (job_failure_spans_time, job_failure_spans) <- MyUtils.timeThisFloat $
       liftIO $ getBreakageSpans conn commit_id_bounds
 
     (disjoint_statuses_time, disjoint_statuses) <- MyUtils.timeThisFloat $
-      liftIO $ query conn disjoint_statuses_sql $ DbHelpers.boundsAsTuple commit_id_bounds
+      liftIO $ query conn disjoint_statuses_sql commit_bounds_tuple
 
     let (successful_builds, failed_builds) = partition
           (BuildResults.isSuccess . BuildResults._failure_mode)
@@ -2857,19 +2868,30 @@ apiMasterBuilds timeline_parms = do
       ]
 
 
+    -- FIXME - the query of "disjoint_circleci_build_statuses" is too slow,
+    -- so we only look at "successes".
     disjoint_statuses_sql = Q.qjoin [
         "SELECT"
       , Q.list [
-          "commit_id"
-        , "sha1"
+          "ordered_master_commits.id AS commit_id"
+        , "ordered_master_commits.sha1"
         , "created_at"
         , "job_name_extracted"
         , "build_number_extracted"
         , "state"
         ]
+      , "FROM github_status_events_circleci_success"
+      , "JOIN ordered_master_commits"
+      , "ON ordered_master_commits.sha1 = github_status_events_circleci_success.sha1"
+      , "WHERE int8range(?, ?, '[]') @> ordered_master_commits.id::int8"
+      ]
+
+    {-
       , "FROM disjoint_circleci_build_statuses"
       , "WHERE int8range(?, ?, '[]') @> commit_id::int8"
       ]
+    -}
+
 
 
     filtered_statement_parts = MyUtils.applyIf
@@ -3077,7 +3099,16 @@ apiAnnotatedCodeBreakages ::
   -> DbIO [BuildResults.BreakageSpan Text ()]
 apiAnnotatedCodeBreakages commit_id_bounds = do
   conn <- ask
-  liftIO $ query conn sql $ DbHelpers.boundsAsTuple commit_id_bounds
+  liftIO $ do
+    {-
+    MyUtils.debugList [
+        "SQL:"
+      , show sql
+      , "PARMS:"
+      , show commit_id_bounds
+      ]
+    -}
+    query conn sql $ DbHelpers.boundsAsTuple commit_id_bounds
   where
     sql = Q.qjoin [
         "SELECT"

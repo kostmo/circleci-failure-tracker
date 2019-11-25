@@ -517,7 +517,6 @@ function bounds_last_week() {
 	setSpanDaysBackward(end_picker_initial_date, 7);
 
 
-
 	const start_timestamp = start_picker.getDate().toISOString();
 	const end_timestamp = end_picker.getDate().toISOString();
 
@@ -543,7 +542,6 @@ function bounds_today() {
 	const query_args_dict = {
 		"start-timestamp": start_timestamp,
 	};
-
 
 	requery_tables(query_args_dict);
 }
