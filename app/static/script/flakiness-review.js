@@ -133,38 +133,40 @@ function make_timeline_chart(element_id, rows) {
 
 function make_coarse_cause_pie(container_id, data) {
 
-      Highcharts.chart(container_id, {
-        chart: {
-            plotBackgroundColor: null,
-            plotBorderWidth: null,
-            plotShadow: false,
-            type: 'pie'
-        },
-        title: {
-            text: 'Failure causes',
-        },
-        plotOptions: {
-            pie: {
-                allowPointSelect: true,
-                cursor: 'pointer',
-                dataLabels: {
-                    enabled: true,
-                    format: '<b>{point.name}</b>: {point.percentage:.1f} %',
-                    style: {
-                        color: (Highcharts.theme && Highcharts.theme.contrastTextColor) || 'black'
-                    }
-                }
-            }
-        },
-        credits: {
-            enabled: false
-        },
-        series: [{
-            name: "Cout",
-            colorByPoint: true,
-            data: data,
-         }]
-      });
+	const filtered_data = data.filter(d => d.y > 0);
+
+	Highcharts.chart(container_id, {
+		chart: {
+			plotBackgroundColor: null,
+			plotBorderWidth: null,
+			plotShadow: false,
+			type: 'pie'
+		},
+		title: {
+			text: 'Failure causes',
+		},
+			plotOptions: {
+				pie: {
+					allowPointSelect: true,
+					cursor: 'pointer',
+					dataLabels: {
+					enabled: true,
+					format: '<b>{point.name}</b>: {point.percentage:.1f} %',
+					style: {
+						color: (Highcharts.theme && Highcharts.theme.contrastTextColor) || 'black'
+					}
+				}
+			}
+		},
+		credits: {
+			enabled: false
+		},
+		series: [{
+			name: "Count",
+			colorByPoint: true,
+			data: filtered_data,
+		}],
+	});
 
 }
 
@@ -174,9 +176,7 @@ function load_coarse_cause_bins(query_args) {
 	getJsonWithThrobber("#throbber-coarse-cause-bins", "/api/isolated-failures-timespan-coarse-bins", query_args, function (data) {
 
 		if (data.success) {
-
 			make_coarse_cause_pie("container-coarse-cause-piechart", data.payload);
-
 		} else {
 			alert("error: " + data.error);
 		}
@@ -445,6 +445,8 @@ function requery_tables(query_args_dict) {
 
 	const grouping_mode = document.querySelector('input[name="grouping-mode"]:checked').value;
 
+	update_url_from_form(grouping_mode, query_args_dict);
+
 	if (grouping_mode == "by-job") {
 
 		$("#by-pattern-container").hide();
@@ -487,9 +489,14 @@ function bounds_this_week() {
 
 function bounds_go_back_one_week() {
 
-	const end_picker_initial_date = start_picker.getDate();
-	setSpanDaysBackward(end_picker_initial_date, 7);
 
+	const end_picker_initial_date = start_picker.getDate();
+
+
+	console.log("Setting", 7, "days backwards from end date:", end_picker_initial_date);
+
+
+	setSpanDaysBackward(end_picker_initial_date, 7);
 
 	const start_timestamp = start_picker.getDate().toISOString();
 	const end_timestamp = end_picker.getDate().toISOString();
@@ -501,8 +508,6 @@ function bounds_go_back_one_week() {
 
 	requery_tables(query_args_dict);
 }
-
-
 
 
 // Ending at the most recent Sunday, show the 7 preceeding days
@@ -575,10 +580,7 @@ function setSpanDaysForward(start_picker_initial_date, day_count) {
 
 	start_picker.setDate(start_picker_initial_date);
 
-
-	const end_picker_initial_date = new Date();
-	end_picker_initial_date.setDate(start_picker_initial_date.getDate() + day_count);
-
+	const end_picker_initial_date = moment(start_picker_initial_date).add(day_count, 'days').toDate();
 	end_picker.setDate(end_picker_initial_date);
 }
 
@@ -587,18 +589,14 @@ function setSpanDaysBackward(end_picker_initial_date, day_count) {
 
 	end_picker.setDate(end_picker_initial_date);
 
-	const start_picker_initial_date = new Date();
-	start_picker_initial_date.setDate(end_picker_initial_date.getDate() - day_count);
-
+	const start_picker_initial_date = moment(end_picker_initial_date).subtract(day_count, 'days').toDate();
 	start_picker.setDate(start_picker_initial_date);
 }
 
 
 function go_trailing_days() {
 
-
 	const trailing_days_count = $("#trailing-days-input").val();
-	console.log("Thing:", trailing_days_count);
 
 	const end_picker_initial_date = new Date();
 	setSpanDaysBackward(end_picker_initial_date, trailing_days_count);
@@ -635,15 +633,21 @@ function populate_form_from_url() {
 
 	const url_parms = new URLSearchParams(window.location.search);
 
-	populate_nonnull_field_from_url(url_parms, 'datepicker-start', "datepicker-start");
-	populate_nonnull_field_from_url(url_parms, 'datepicker-end', "datepicker-end");
+	populate_nonnull_field_from_url(url_parms, 'start-timestamp', "datepicker-start");
+	populate_nonnull_field_from_url(url_parms, 'end-timestamp', "datepicker-end");
 }
 
 
 
-function update_url_from_form() {
+function update_url_from_form(grouping_mode, query_args_dict) {
 
-	// TODO
+	const extra_dict_elements = {
+		"grouping-mode": grouping_mode,
+	};
+
+	const url_parms_dict = Object.assign({}, query_args_dict, extra_dict_elements);
+
+	history.pushState(url_parms_dict, "Flakiness review...", "?" + $.param( url_parms_dict ));
 }
 
 

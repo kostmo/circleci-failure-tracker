@@ -2,9 +2,8 @@ var tags_list = [];
 var steps_list = [];
 
 
-function add_tag() {
+function add_tag_val(tag_val) {
 
-	const tag_val = $('#pattern-tag-input').val();
 	const trimmed_val = tag_val.trim();
 	if (trimmed_val) {
 		tags_list.push(trimmed_val);
@@ -12,6 +11,14 @@ function add_tag() {
 		render_lists();
 	}
 }
+
+
+function add_tag() {
+
+	const tag_val = $('#pattern-tag-input').val();
+	add_tag_val(tag_val);
+}
+
 
 function add_build_step() {
 
@@ -135,7 +142,8 @@ function setup_autocomplete() {
 		},
 		minLength: 1,
 		select: function( event, ui ) {
-			console.log( "Selected: " + ui.item.value + " aka " + ui.item.id );
+			console.log("Selected: " + ui.item.value + " aka " + ui.item.id);
+			add_tag_val(ui.item.value);
 		}
 	});
 }
