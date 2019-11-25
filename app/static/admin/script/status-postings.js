@@ -81,6 +81,15 @@ function gen_aggregate_postings_table(element_id, data_url) {
 }
 
 
+function regen_status_notifications_timeline() {
+
+	const hours_count = $("#hours-input").val();
+	gen_time_plot('container-status-notifications-by-hour', '/api/status-notifications-by-hour?hours=' + hours_count, "Status notifications", "hour");
+
+	return false;
+}
+
+
 function main() {
 
 	gen_comment_postings_table("comment-postings-table", "/api/posted-pr-comments?count=50", "400px");
@@ -91,7 +100,7 @@ function main() {
 	gen_time_plot('container-status-commits-by-day', '/api/status-posted-commits-by-day', "Unique commits annotated", "day");
 	gen_time_plot('container-status-postings-by-day', '/api/status-postings-by-day', "Status postings", "day");
 
-	const hours_count = 48;
-	gen_time_plot('container-status-notifications-by-hour', '/api/status-notifications-by-hour?hours=' + hours_count, "Status notifications", "hour");
+
+	regen_status_notifications_timeline();
 }
 

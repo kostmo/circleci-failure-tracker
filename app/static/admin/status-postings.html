@@ -26,6 +26,11 @@
 <h2>Ingested status notifications</h2>
 
 
+<form onsubmit="return regen_status_notifications_timeline();">
+<label>
+Hours:
+<input id="hours-input" type="number" value="96" min="1" size="3"/>
+</label> <input type="submit" value="Go"/>
 <div id="container-status-notifications-by-hour" style="min-width: 500px; height: 400px; max-width: 800; margin: 0 auto"></div>
 
 

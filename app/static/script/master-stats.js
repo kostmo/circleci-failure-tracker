@@ -265,9 +265,12 @@ function render_master_stats(weeks_count) {
 
 	getJsonWithThrobber(".scan-throbbers", "/api/master-weekly-failure-stats", {"weeks": weeks_count}, function (data) {
 
-		plot_undifferentiated_master_failures(data);
-
-		plot_differentiated_master_failures(data);
+		if (data.success) {
+			plot_undifferentiated_master_failures(data.payload);
+			plot_differentiated_master_failures(data.payload);
+		} else {
+			alert("ERROR: " + data.error);
+		}
 	});
 }
 

@@ -186,16 +186,11 @@ function load_coarse_cause_bins(query_args) {
 
 function load_day_highchart() {
 
-	getJsonWithThrobber("#throbber-isolated-failures-timeline-by-day", "/api/isolated-master-failures-by-day", {"age-days": 30}, function (data) {
+	getJsonWithThrobber("#throbber-isolated-failures-timeline-by-day", "/api/isolated-master-failures-by-day", {"age-days": 60}, function (data) {
 
 		if (data.success) {
 
-			const rows = [];
-			$.each(data.payload, function( index, value ) {
-
-				rows.push([Date.parse(value[0]), value[1]]);
-			});
-
+			const rows = data.payload.map(v => [Date.parse(v[0]), v[1]]);
 			make_timeline_chart("container-isolated-failures-timeline-by-day", rows);
 
 		} else {

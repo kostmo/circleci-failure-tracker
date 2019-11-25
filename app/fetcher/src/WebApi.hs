@@ -94,7 +94,7 @@ instance ToJSON JobApiRecord where
 data PieSliceApiRecord = PieSliceApiRecord {
     _name :: Text
   , _y    :: Integer
-  } deriving (Generic, FromRow)
+  } deriving (Show, Generic, FromRow)
 
 instance ToJSON PieSliceApiRecord where
   toJSON = genericToJSON JsonUtils.dropUnderscore

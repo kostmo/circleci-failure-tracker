@@ -1158,14 +1158,19 @@ masterBuildFailureStats = fmap head $ runQuery $ MyUtils.qjoin [
 
 
 -- | Uses OFFSET 1 so we only ever show full weeks
-masterWeeklyFailureStats :: Int -> DbIO WeeklyStats.MasterStatsBundle
+masterWeeklyFailureStats ::
+     Int
+  -> DbIO (Either Text WeeklyStats.MasterStatsBundle)
 masterWeeklyFailureStats week_count = do
 
   conn <- ask
   xs <- liftIO $ query conn sql $ Only week_count
-  return $ WeeklyStats.MasterStatsBundle
-    WeeklyStats.buildCountColors
-    (reverse $ map f xs)
+  return $ do
+    checked_rows <- mapM f xs
+    return $ WeeklyStats.MasterStatsBundle
+      WeeklyStats.buildCountColors
+      (reverse checked_rows)
+
   where
     sql = MyUtils.qjoin [
         "SELECT"
@@ -1187,17 +1192,49 @@ masterWeeklyFailureStats week_count = do
         , "earliest_commit_index"
         , "latest_commit_index"
         , "week"
+        , "sanity_check_is_failure_count_equal"
+        , "sanity_check_total_is_successes_plus_failures"
         ]
       , "FROM master_failures_weekly_aggregation_mview"
       , "ORDER BY week DESC LIMIT ? OFFSET 1;"
       ]
 
-    f (commit_count, had_failure, had_idiopathic, had_timeout, had_known_broken, had_pattern_matched, had_flaky, failure_count, idiopathic_count, timeout_count, known_broken_count, pattern_matched_count, pattern_unmatched_count, flaky_count, earliest_commit_index, latest_commit_index, week) =
-      WeeklyStats.MasterWeeklyStats
+    f (
+        commit_count
+      , had_failure
+      , had_idiopathic
+      , had_timeout
+      , had_known_broken
+      , had_pattern_matched
+      , had_flaky
+      , failure_count
+      , idiopathic_count
+      , timeout_count
+      , known_broken_count
+      , pattern_matched_count
+      , pattern_unmatched_count
+      , flaky_count
+      , earliest_commit_index
+      , latest_commit_index
+      , week
+      , sanity_check_is_failure_count_equal
+      , sanity_check_total_is_successes_plus_failures
+      ) = do
+
+      unless sanity_check_is_failure_count_equal $
+        Left $ "Sanity check failed: sanity_check_is_failure_count_equal"
+
+      unless sanity_check_total_is_successes_plus_failures $
+        Left $ "Sanity check failed: sanity_check_total_is_successes_plus_failures"
+
+      return $ WeeklyStats.MasterWeeklyStats
         commit_count
         agg_commit_counts
         agg_build_counts
-        week $ DbHelpers.InclusiveNumericBounds earliest_commit_index latest_commit_index
+        week $ DbHelpers.InclusiveNumericBounds
+          earliest_commit_index
+          latest_commit_index
+
       where
         agg_commit_counts :: WeeklyStats.AggregateCommitCounts Int
         agg_commit_counts = WeeklyStats.AggregateCommitCounts
@@ -2355,24 +2392,38 @@ apiCoarseBinsIsolatedJobFailuresTimespan time_bounds = do
   liftIO $ do
     rows <- query conn sql query_parms
     runExceptT $ do
-      (timeout_count, network_count, other_count, sanity_check_consistent_total) <- except $ maybeToEither "No rows" $ Safe.headMay rows
+      (timeout_count, network_count, other_count, unmatched_count, sanity_check_consistent_total) <- except $ maybeToEither "No rows" $ Safe.headMay rows
+
+      let result = [
+              (WebApi.PieSliceApiRecord "Timeout" timeout_count)
+            , (WebApi.PieSliceApiRecord "Network" network_count)
+            , (WebApi.PieSliceApiRecord "Unmatched" unmatched_count)
+            , (WebApi.PieSliceApiRecord "Other" other_count)
+            ]
+
       unless sanity_check_consistent_total $
-        except $ Left "Inconsisent build counts!"
-      return [
-          (WebApi.PieSliceApiRecord "Timeout" timeout_count)
-        , (WebApi.PieSliceApiRecord "Network" network_count)
-        , (WebApi.PieSliceApiRecord "Other" other_count)
+        except $ Left $ T.unwords [
+          "Inconsisent build counts;"
+        , T.pack $ show result
         ]
+
+      return result
+
   where
     query_parms = queryParmsFromTimeRange time_bounds
 
+    -- Compare to "build_failure_causes_disjoint" view for logic
+    -- of categorizing mutually-exclusive failure modes
+    --
+    -- TODO: Account for idiopathic (no logs) builds
     sql = MyUtils.qjoin [
         "SELECT"
       , MyUtils.qlist [
           "timeout_count"
         , "network_count"
         , "other_count"
-        , "timeout_count + network_count + other_count = total_count AS sanity_check_consistent_total"
+        , "unmatched_count"
+        , "timeout_count + network_count + other_count + unmatched_count = total_count AS sanity_check_consistent_total"
         ]
       , "FROM"
       , MyUtils.qparens inner_sql
@@ -2384,7 +2435,9 @@ apiCoarseBinsIsolatedJobFailuresTimespan time_bounds = do
       , MyUtils.qlist [
           "COALESCE(SUM(is_timeout::int), 0) AS timeout_count"
         , "COALESCE(SUM(is_network::int), 0) AS network_count"
-        , "COALESCE(SUM((NOT (is_network OR is_timeout))::int), 0) AS other_count"
+        , "COALESCE(SUM((is_matched AND (NOT (is_network OR is_timeout)))::int), 0) AS other_count"
+--        , "COALESCE(SUM(is_idiopathic::int), 0) AS no_logs_count"
+        , "COALESCE(SUM((NOT (is_timeout OR is_matched))::int), 0) AS unmatched_count"
         , "COUNT(*) AS total_count"
         ]
       , "FROM master_failures_raw_causes_mview"

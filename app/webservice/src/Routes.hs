@@ -129,7 +129,6 @@ scottyApp
 
     S.json $ WebApi.toJsonEither result
 
-
   S.post "/api/rescan-multiple-builds" $
     withAuth $
       Scanning.apiRescanBuilds
@@ -301,7 +300,7 @@ scottyApp
     pure SqlRead.masterBreakageMonthlyStats
 
   get "/api/master-weekly-failure-stats" $
-    SqlRead.masterWeeklyFailureStats <$> S.param "weeks"
+    fmap WebApi.toJsonEither . SqlRead.masterWeeklyFailureStats <$> S.param "weeks"
 
   get "/api/master-pr-merge-time-weekly-failure-stats" $
     SqlRead.getMergeTimeFailingPullRequestBuildsByWeek <$> S.param "weeks"
