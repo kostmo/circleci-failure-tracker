@@ -1922,7 +1922,7 @@ getMasterCommits conn parent_offset_mode =
           , "failed_required_job_count"
           , "disqualifying_jobs_array"
           ]
-      , "FROM master_ordered_commits_with_metadata"
+      , "FROM master_ordered_commits_with_metadata_mview"
       ]
 
     sql_commit_id_and_offset = Q.qjoin [

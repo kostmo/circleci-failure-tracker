@@ -1053,7 +1053,15 @@ CREATE MATERIALIZED VIEW public.master_ordered_commits_with_metadata_mview AS
     master_ordered_commits_with_metadata.fb_ghstack_source_id,
     master_ordered_commits_with_metadata.commit_number,
     master_ordered_commits_with_metadata.representative_commit_id,
-    master_ordered_commits_with_metadata.was_built
+    master_ordered_commits_with_metadata.was_built,
+    master_ordered_commits_with_metadata.populated_config_yaml,
+    master_ordered_commits_with_metadata.downstream_commit_count,
+    master_ordered_commits_with_metadata.reverted_sha1,
+    master_ordered_commits_with_metadata.total_required_commit_job_count,
+    master_ordered_commits_with_metadata.unbuilt_required_job_count,
+    master_ordered_commits_with_metadata.failed_required_job_count,
+    master_ordered_commits_with_metadata.disqualifying_jobs_array,
+    master_ordered_commits_with_metadata.not_succeeded_required_job_count
    FROM public.master_ordered_commits_with_metadata
   WITH NO DATA;
 
@@ -3493,13 +3501,13 @@ CREATE VIEW public.master_daily_isolated_failures_cached WITH (security_barrier=
             WHEN 0 THEN (0)::double precision
             ELSE ((foo.isolated_failure_count)::double precision / (foo.total_build_count)::double precision)
         END AS isolated_failure_fraction
-   FROM ( SELECT (timezone('America/Los_Angeles'::text, master_ordered_commits_with_metadata_mview.committer_date))::date AS date_california_time,
+   FROM ( SELECT (timezone('America/Los_Angeles'::text, m2.committer_date))::date AS date_california_time,
             sum(((master_failures_raw_causes_mview.is_serially_isolated AND (NOT master_failures_raw_causes_mview.succeeded)))::integer) AS isolated_failure_count,
             count(*) AS total_build_count
            FROM (public.master_failures_raw_causes_mview
-             JOIN public.master_ordered_commits_with_metadata_mview ON ((master_failures_raw_causes_mview.commit_index = master_ordered_commits_with_metadata_mview.id)))
-          WHERE (master_ordered_commits_with_metadata_mview.committer_date IS NOT NULL)
-          GROUP BY ((timezone('America/Los_Angeles'::text, master_ordered_commits_with_metadata_mview.committer_date))::date)) foo
+             JOIN public.master_ordered_commits_with_metadata_mview m2 ON ((master_failures_raw_causes_mview.commit_index = m2.id)))
+          WHERE (m2.committer_date IS NOT NULL)
+          GROUP BY ((timezone('America/Los_Angeles'::text, m2.committer_date))::date)) foo
   ORDER BY foo.date_california_time DESC
  OFFSET 1;
 
@@ -5709,10 +5717,10 @@ CREATE INDEX fki_idx_comment_id ON public.created_pull_request_comment_revisions
 
 
 --
--- Name: id_github_pr_number_master_commits; Type: INDEX; Schema: public; Owner: materialized_view_updater
+-- Name: id_github_pr_number_master_commits2; Type: INDEX; Schema: public; Owner: materialized_view_updater
 --
 
-CREATE INDEX id_github_pr_number_master_commits ON public.master_ordered_commits_with_metadata_mview USING btree (github_pr_number);
+CREATE INDEX id_github_pr_number_master_commits2 ON public.master_ordered_commits_with_metadata_mview USING btree (github_pr_number);
 
 
 --
@@ -5828,10 +5836,10 @@ CREATE UNIQUE INDEX idx_master_job_failure_spans_conservative ON public.master_j
 
 
 --
--- Name: idx_master_ordered_commits_with_metadata_mview_commit_id; Type: INDEX; Schema: public; Owner: materialized_view_updater
+-- Name: idx_master_ordered_commits_with_metadata_mview_commit_id2; Type: INDEX; Schema: public; Owner: materialized_view_updater
 --
 
-CREATE UNIQUE INDEX idx_master_ordered_commits_with_metadata_mview_commit_id ON public.master_ordered_commits_with_metadata_mview USING btree (id);
+CREATE UNIQUE INDEX idx_master_ordered_commits_with_metadata_mview_commit_id2 ON public.master_ordered_commits_with_metadata_mview USING btree (id);
 
 
 --
@@ -5877,10 +5885,10 @@ CREATE UNIQUE INDEX idx_reversion_span ON public.master_commit_reversion_spans_m
 
 
 --
--- Name: idx_shipit_source_id; Type: INDEX; Schema: public; Owner: materialized_view_updater
+-- Name: idx_shipit_source_id2; Type: INDEX; Schema: public; Owner: materialized_view_updater
 --
 
-CREATE UNIQUE INDEX idx_shipit_source_id ON public.master_ordered_commits_with_metadata_mview USING btree (fb_shipit_source_id);
+CREATE UNIQUE INDEX idx_shipit_source_id2 ON public.master_ordered_commits_with_metadata_mview USING btree (fb_shipit_source_id);
 
 
 --
