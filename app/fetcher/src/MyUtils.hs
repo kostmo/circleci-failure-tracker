@@ -2,14 +2,12 @@
 
 module MyUtils where
 
-import           Control.Monad              (join, when)
-import           Control.Monad.IO.Class     (MonadIO, liftIO)
+import           Control.Monad          (join, when)
+import           Control.Monad.IO.Class (MonadIO, liftIO)
 
-import           Data.Hashable              (Hashable)
-import           Data.HashMap.Strict        (HashMap)
-import qualified Data.HashMap.Strict        as HashMap
-import           Data.List                  (intersperse)
-import           Database.PostgreSQL.Simple (Query)
+import           Data.Hashable          (Hashable)
+import           Data.HashMap.Strict    (HashMap)
+import qualified Data.HashMap.Strict    as HashMap
 import           Formatting
 import           Formatting.Clock
 import           System.Clock

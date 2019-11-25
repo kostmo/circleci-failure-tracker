@@ -28,6 +28,7 @@ import qualified MergeBase
 import qualified MyUtils
 import qualified SqlRead
 import qualified SqlWrite
+import qualified QueryUtils as Q
 
 
 pytorchRepoOwner :: DbHelpers.OwnerAndRepo
@@ -152,7 +153,7 @@ getBuildInfo access_token build@(Builds.UniversalBuildId build_id) = do
           started_at
           finished_at
 
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch, started_at, finished_at"
       , "FROM builds_join_steps"
       , "WHERE universal_build = ?;"
@@ -221,9 +222,9 @@ countRevisionBuilds access_token git_revision = do
     sha1 = GitRev.sha1 git_revision
     only_commit = Only sha1
 
-    aggregate_causes_sql = MyUtils.qjoin [
+    aggregate_causes_sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "total"
         , "idiopathic"
         , "timeout"
@@ -293,7 +294,7 @@ diagnoseCommitsBatch maybe_local_repo_path conn access_token owned_repo =
 
   where
     -- Excludes commits from the master branch and commits that are already cached
-    commit_list_sql = MyUtils.qjoin [
+    commit_list_sql = Q.qjoin [
         "SELECT DISTINCT vcs_revision"
       , "FROM builds_join_steps"
       , "LEFT JOIN ordered_master_commits"

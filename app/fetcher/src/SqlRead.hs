@@ -49,6 +49,7 @@ import qualified Pagination
 import qualified PostedComments
 import qualified PostedStatuses
 import qualified PostgresHelpers
+import qualified QueryUtils                           as Q
 import qualified ScanPatterns
 import qualified ScanUtils
 import qualified WebApi
@@ -118,9 +119,9 @@ getPatterns conn = do
     return $ wrapPattern pattern_id is_regex pattern_text has_nondeterministic_values description tags_list steps_list specificity is_retired lines_from_end
 
   where
-    patterns_sql = MyUtils.qjoin [
+    patterns_sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "id"
         , "regex"
         , "expression"
@@ -156,9 +157,9 @@ getUnvisitedBuildIds conn maybe_limit = do
       succeeded
       (Builds.RawCommit sha1)
 
-    unlimited_sql = MyUtils.qjoin [
+    unlimited_sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "universal_build_id"
         , "build_num"
         , "provider"
@@ -192,9 +193,9 @@ getUnvisitedBuildsForSha1 (Builds.RawCommit sha1) = do
       (Builds.RawCommit sha1)
 
 
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "universal_build_id"
         , "build_num"
         , "provider"
@@ -219,9 +220,9 @@ lookupUniversalBuildFromProviderBuild conn (Builds.NewBuildNumber build_num) = d
   rows <- query conn sql $ Only build_num
   return $ Safe.headMay rows
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "global_build_num"
         , "build_number"
         , "provider"
@@ -248,9 +249,9 @@ getCachedPullRequestAuthor (Builds.PullRequestNumber pr_number) = do
     xs <- query conn sql $ Only pr_number
     return $ Safe.headMay $ map (\(Only x) -> AuthStages.Username x) xs
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "github_user_login"
         ]
       , "FROM pull_request_static_metadata"
@@ -266,9 +267,9 @@ lookupUniversalBuild (Builds.UniversalBuildId universal_build_num) = do
   conn <- ask
   liftIO $ head <$> query conn sql (Only universal_build_num)
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "id"
         , "build_number"
         , "provider"
@@ -288,9 +289,9 @@ getUniversalBuilds (Builds.UniversalBuildId oldest_universal_build_num) limit = 
   conn <- ask
   liftIO $ query conn sql (oldest_universal_build_num, limit)
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "id"
         , "build_number"
         , "provider"
@@ -312,9 +313,9 @@ getGlobalBuild (Builds.UniversalBuildId global_build_num) = do
   [x] <- liftIO $ query conn sql $ Only global_build_num
   return x
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "global_build_num"
         , "build_number"
         , "provider"
@@ -373,7 +374,7 @@ canPostPullRequestComments conn (AuthStages.Username author) = do
   [Only is_disabled] <- query conn sql $ Only author
   return $ Right $ not is_disabled
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT COALESCE(disabled, FALSE) AS disabled"
       , "FROM (SELECT ? AS myname) foo"
       , "LEFT JOIN pr_comment_posting_opt_outs"
@@ -388,9 +389,9 @@ userOptOutSettings = do
   xs <- liftIO $ query conn sql $ Only author
   return $ Right $ UserWrapper user $ Safe.headMay xs
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "username"
         , "disabled"
         , "modification_count"
@@ -410,9 +411,9 @@ getRevisitableWhitelistedBuilds conn universal_build_ids = do
   map common_xform <$> query conn sql
     (Only $ In $ map (\(Builds.UniversalBuildId x) -> x) universal_build_ids)
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "unscanned_patterns_delimited"
         , "step_id"
         , "step_name"
@@ -433,9 +434,9 @@ getRevisitableBuilds ::
 getRevisitableBuilds conn =
   map common_xform <$> query_ conn sql
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "unscanned_patterns_delimited"
         , "step_id"
         , "step_name"
@@ -465,9 +466,9 @@ apiPostedPRComments count = do
   conn <- ask
   liftIO $ query conn sql $ Only count
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "pr_number"
         , "sha1"
         , "github_user_login"
@@ -489,9 +490,9 @@ apiPostedStatuses count = do
   conn <- ask
   liftIO $ query conn sql $ Only count
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "sha1"
         , "description"
         , "state"
@@ -510,9 +511,9 @@ apiPostedStatusesByCommit (Builds.RawCommit sha1) = do
   conn <- ask
   liftIO $ query conn sql $ Only sha1
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "sha1"
         , "description"
         , "state"
@@ -529,9 +530,9 @@ apiAggregatePostedStatuses count = do
   conn <- ask
   liftIO $ query conn sql $ Only count
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "sha1"
         , "count"
         , "last_time"
@@ -561,7 +562,7 @@ getMergeTimeFailingPullRequestBuildsByWeek week_count = do
   conn <- ask
   liftIO $ fmap reverse $ query conn sql $ Only week_count
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
       , "week, total_pr_count, failing_pr_count, total_build_count, total_failed_build_count, foreshadowed_breakage_count"
       , "FROM pr_merge_time_failing_builds_by_week_mview"
@@ -588,9 +589,9 @@ getPageViewsByWeek _week_count = do
 --  liftIO $ fmap reverse $ query conn sql $ Only week_count
   liftIO $ fmap reverse $ query_ conn sql
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "week"
         , "url"
         , "request_count"
@@ -631,9 +632,9 @@ apiPatternOccurrenceTimeline = do
     let filtered_patterns = sortOn (negate . _frequency) $ filter ((> 0) . _frequency) patterns
     return $ PatternsTimeline filtered_patterns points
   where
-    timeline_sql = MyUtils.qjoin [
+    timeline_sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "pattern_id"
         , "COUNT(*) AS occurrences"
         , "date_trunc('week', queued_at) AS week"
@@ -690,9 +691,9 @@ patternBuildStepOccurrences (ScanPatterns.PatternId patt) = do
   conn <- ask
   liftIO $ query conn sql $ Only patt
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "name"
         , "occurrence_count"
         ]
@@ -708,9 +709,9 @@ patternBuildJobOccurrences (ScanPatterns.PatternId patt) = do
   conn <- ask
   liftIO $ query conn sql $ Only patt
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "job_name"
         , "occurrence_count"
         ]
@@ -724,9 +725,9 @@ apiLineCountHistogram :: DbIO [(Text, Int)]
 apiLineCountHistogram = map (swap . f) <$> runQuery sql
   where
     f = fmap $ \size -> T.pack $ show (size :: Int)
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "count(*) AS qty"
         , "pow(10, floor(ln(line_count) / ln(10)))::numeric::integer AS bin"
         ]
@@ -739,9 +740,9 @@ apiByteCountHistogram :: DbIO [(Text, Int)]
 apiByteCountHistogram = map (swap . f) <$> runQuery sql
   where
     f = fmap $ \size -> T.pack $ show (size :: Int)
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "COUNT(*) AS qty"
         , "pow(10, floor(ln(byte_count) / ln(10)))::numeric::integer AS bin"
         ]
@@ -772,9 +773,9 @@ apiCommitJobs (Builds.RawCommit sha1) = do
   conn <- ask
   liftIO $ query conn sql $ Only sha1
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "job_name"
         , "build_num"
         , "is_flaky"
@@ -803,9 +804,9 @@ apiCommitRangeJobs (InclusiveSpan first_index last_index) = do
   conn <- ask
   liftIO $ query conn sql (first_index, last_index)
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT DISTINCT ON (job_name)"
-      , MyUtils.qlist [
+      , Q.list [
           "job_name"
         , "build_num"
         , "is_flaky"
@@ -831,7 +832,7 @@ getNextMasterCommit conn (Builds.RawCommit current_git_revision) = do
   let mapped_rows = map (\(Only x) -> Builds.RawCommit x) rows
   return $ maybeToEither ("There are no commits that come after " <> current_git_revision) $ Safe.headMay mapped_rows
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT sha1 FROM ordered_master_commits"
       , "WHERE id > (SELECT id FROM ordered_master_commits WHERE sha1 = ?)"
       , "ORDER BY id ASC LIMIT 1;"
@@ -848,9 +849,9 @@ apiJobs = WebApi.ApiResponse . map f <$> runQuery
 apiStep :: DbIO (WebApi.ApiResponse WebApi.PieSliceApiRecord)
 apiStep = WebApi.ApiResponse <$> runQuery q
   where
-  q = MyUtils.qjoin [
+  q = Q.qjoin [
       "SELECT"
-    , MyUtils.qlist [
+    , Q.list [
         "step_name"
       , "COUNT(*) AS freq"
       ]
@@ -863,9 +864,9 @@ apiStep = WebApi.ApiResponse <$> runQuery q
 apiDeterministicFailureModes :: DbIO (WebApi.ApiResponse WebApi.PieSliceApiRecord)
 apiDeterministicFailureModes = WebApi.ApiResponse <$> runQuery q
   where
-  q = MyUtils.qjoin [
+  q = Q.qjoin [
       "SELECT"
-    , MyUtils.qlist [
+    , Q.list [
         "master_failure_modes.label"
       , "freq"
       ]
@@ -889,7 +890,7 @@ apiMasterDownstreamCommits (Builds.RawCommit sha1) = do
   conn <- ask
   liftIO $ query conn sql $ Only sha1
   where
-  sql = MyUtils.qjoin [
+  sql = Q.qjoin [
       "SELECT branch_commit, distance"
     , "FROM pr_merge_bases"
     , "WHERE master_commit = ?"
@@ -903,7 +904,7 @@ apiStatusNotificationsByHour hours = do
   conn <- ask
   liftIO $ WebApi.ApiResponse . reverse <$> query conn sql (Only hours)
   where
-  sql = MyUtils.qjoin [
+  sql = Q.qjoin [
       "SELECT"
     , "date_trunc('hour', created_at) AS hour, COUNT(*)"
     , "FROM github_incoming_status_events"
@@ -921,9 +922,9 @@ apiIsolatedMasterFailuresByDay day_count = do
     xs <- query conn sql $ Only day_count
     return $ Right $ reverse xs
   where
-  sql = MyUtils.qjoin [
+  sql = Q.qjoin [
       "SELECT"
-    , MyUtils.qlist [
+    , Q.list [
         "date_california_time"
       , "isolated_failure_fraction"
       ]
@@ -938,7 +939,7 @@ apiIsolatedMasterFailuresByDay day_count = do
 apiFailedCommitsByDay :: DbIO (WebApi.ApiResponse (Day, Int))
 apiFailedCommitsByDay = WebApi.ApiResponse <$> runQuery q
   where
-  q = MyUtils.qjoin [
+  q = Q.qjoin [
       "SELECT"
     , "queued_at::date AS date, COUNT(*)"
     , "FROM (SELECT vcs_revision, MAX(queued_at) queued_at FROM global_builds GROUP BY vcs_revision) foo"
@@ -950,7 +951,7 @@ apiFailedCommitsByDay = WebApi.ApiResponse <$> runQuery q
 apiStatusPostedCommitsByDay :: DbIO (WebApi.ApiResponse (Day, Int))
 apiStatusPostedCommitsByDay = WebApi.ApiResponse . reverse <$> runQuery q
   where
-  q = MyUtils.qjoin [
+  q = Q.qjoin [
       "SELECT"
     , "last_time::date AS date, COUNT(*)"
     , "FROM aggregated_github_status_postings"
@@ -962,7 +963,7 @@ apiStatusPostedCommitsByDay = WebApi.ApiResponse . reverse <$> runQuery q
 apiStatusPostingsByDay :: DbIO (WebApi.ApiResponse (Day, Int))
 apiStatusPostingsByDay = WebApi.ApiResponse . reverse <$> runQuery q
   where
-  q = MyUtils.qjoin [
+  q = Q.qjoin [
       "SELECT"
     , "created_at::date AS date, COUNT(*)"
     , "FROM created_github_statuses"
@@ -977,9 +978,9 @@ listBuilds sql = do
 
 
 apiUnmatchedBuilds :: DbIO [WebApi.BuildBranchDateRecord]
-apiUnmatchedBuilds = runQuery $ MyUtils.qjoin [
+apiUnmatchedBuilds = runQuery $ Q.qjoin [
     "SELECT"
-  , MyUtils.qlist [
+  , Q.list [
       "global_build"
     , "step_name"
     , "job_name"
@@ -993,7 +994,7 @@ apiUnmatchedBuilds = runQuery $ MyUtils.qjoin [
 
 
 apiIdiopathicBuilds :: DbIO [WebApi.BuildBranchRecord]
-apiIdiopathicBuilds = listBuilds $ MyUtils.qjoin [
+apiIdiopathicBuilds = listBuilds $ Q.qjoin [
     "SELECT"
   , "branch, global_build_num"
   , "FROM idiopathic_build_failures"
@@ -1014,9 +1015,9 @@ apiUnmatchedCommitBuilds (Builds.RawCommit sha1) = do
     catcher _ (PostgresHelpers.QueryCancelled some_error) = return $ Left $ "Query error in apiUnmatchedCommitBuilds: " <> T.pack (BS.unpack some_error)
     catcher e _                                  = throwIO e
 
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "unattributed_failed_builds.build_number"
         , "unattributed_failed_builds.step_name"
         , "unattributed_failed_builds.queued_at"
@@ -1051,9 +1052,9 @@ apiIdiopathicCommitBuilds (Builds.RawCommit sha1) = do
         provider_icon_url
         provider_label
 
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "build_num"
         , "step_name"
         , "queued_at"
@@ -1079,7 +1080,7 @@ apiTimeoutCommitBuilds (Builds.RawCommit sha1) = do
   conn <- ask
   liftIO $ fmap Right $ query conn sql $ Only sha1
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
       , "build_num, step_name, queued_at, job_name, branch, universal_build, ci_providers.icon_url, ci_providers.label"
       , "FROM builds_join_steps"
@@ -1100,7 +1101,7 @@ readLogSubset (MatchOccurrences.MatchId match_id) offset limit = do
   xs <- liftIO $ query conn sql (match_id, offset, limit)
   return $ map (\(Only log_text) -> log_text) xs
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT UNNEST(COALESCE(content_lines, regexp_split_to_array(content, '\n')))"
       , "FROM log_metadata"
       , "JOIN matches"
@@ -1119,7 +1120,7 @@ readLog (Builds.NewBuildStepId step_id) = do
   result <- liftIO $ query conn sql $ Only step_id
   return $ (\(Only log_text) -> log_text) <$> Safe.headMay result
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT COALESCE(array_to_string(content_lines, e'\n'), content)"
       , "FROM log_metadata"
       , "WHERE step = ? LIMIT 1;"
@@ -1141,9 +1142,9 @@ instance ToJSON MasterBuildStats where
 
 -- | TODO head is partial
 masterBuildFailureStats :: DbIO MasterBuildStats
-masterBuildFailureStats = fmap head $ runQuery $ MyUtils.qjoin [
+masterBuildFailureStats = fmap head $ runQuery $ Q.qjoin [
     "SELECT"
-  , MyUtils.qlist [
+  , Q.list [
       "count(*) AS total"
     , "sum(is_idiopathic::int) AS idiopathic"
     , "sum(is_timeout::int) AS timeout"
@@ -1172,9 +1173,9 @@ masterWeeklyFailureStats week_count = do
       (reverse checked_rows)
 
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "commit_count"
         , "had_failure"
         , "had_idiopathic"
@@ -1276,7 +1277,7 @@ masterBreakageMonthlyStats = do
   xs <- liftIO $ query_ conn sql
   return $ reverse xs
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
       , "month, distinct_breakages, avoidable_count"
       , "FROM code_breakage_monthly_aggregation"
@@ -1306,9 +1307,9 @@ downstreamWeeklyFailureStats week_count = do
           unavoidable_downstream_broken_commit_count
           unavoidable_downstream_broken_build_count
 
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "week"
         , "distinct_breakages"
         , "downstream_broken_commit_count"
@@ -1327,7 +1328,7 @@ getLatestKnownMasterCommit conn = do
   rows <- query_ conn sql
   return $ Safe.headMay $ map (\(Only x) -> x) rows
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT sha1 FROM ordered_master_commits"
       , "ORDER BY id DESC LIMIT 1;"
       ]
@@ -1381,7 +1382,7 @@ knownBreakageAffectedJobs cause_id = do
   liftIO $ map f <$> query conn sql (Only cause_id)
   where
     f (reporter, reported_at, job) = DbHelpers.WithAuthorship reporter reported_at job
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
       , "reporter, reported_at, job"
       , "FROM code_breakage_affected_jobs"
@@ -1418,9 +1419,9 @@ getInferredSpanningBrokenJobsBetter (Builds.RawCommit branch_sha1) = do
   conn <- ask
   liftIO $ query conn sql $ Only branch_sha1
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "job_name"
         , "open_date"
         , "closed_date"
@@ -1454,24 +1455,24 @@ getSpanningBreakages conn sha1 =
       CodeBreakage (Builds.RawCommit sha1) description $ Set.fromList $
         map T.pack $ DbHelpers.splitAggText jobs
 
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "code_breakage_cause.sha1"
         , "code_breakage_cause.description"
         , "cause_id"
         , "COALESCE(jobs, ''::text) AS jobs"
         ]
       , "FROM"
-      , MyUtils.qparens inner_q
+      , Q.parens inner_q
       , "foo"
       , "JOIN code_breakage_cause"
       , "ON foo.cause_id = code_breakage_cause.id;"
       ]
 
-    inner_q = MyUtils.qjoin [
+    inner_q = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "code_breakage_spans.cause_id"
         , "string_agg((code_breakage_affected_jobs.job)::text, ';'::text) AS jobs"
         ]
@@ -1521,9 +1522,9 @@ instance ToJSON TagUsage where
 
 
 apiTagsHistogram :: DbIO [TagUsage]
-apiTagsHistogram = runQuery $ MyUtils.qjoin [
+apiTagsHistogram = runQuery $ Q.qjoin [
     "SELECT"
-  , MyUtils.qlist [
+  , Q.list [
       "tag"
     , "COUNT(*) AS pattern_count"
     , "SUM(matching_build_count)::bigint AS build_matches"
@@ -1546,7 +1547,7 @@ instance ToJSON MasterCommitAndSourcePr where
 
 
 getAllMergedPullRequestHeadCommits :: DbIO [Builds.RawCommit]
-getAllMergedPullRequestHeadCommits = runQuery $ MyUtils.qjoin [
+getAllMergedPullRequestHeadCommits = runQuery $ Q.qjoin [
     "SELECT pr_head_commit"
   , "FROM pr_merge_time_build_stats_by_master_commit"
   , "ORDER BY commit_number DESC;"
@@ -1554,7 +1555,7 @@ getAllMergedPullRequestHeadCommits = runQuery $ MyUtils.qjoin [
 
 
 getAllMasterCommitPullRequests :: DbIO [MasterCommitAndSourcePr]
-getAllMasterCommitPullRequests = runQuery $ MyUtils.qjoin [
+getAllMasterCommitPullRequests = runQuery $ Q.qjoin [
     "SELECT"
   , "sha1, github_pr_number"
   , "FROM master_ordered_commits_with_metadata"
@@ -1566,7 +1567,7 @@ getAllMasterCommitPullRequests = runQuery $ MyUtils.qjoin [
 -- | Gets Pull Request numbers of the commits that have been
 -- implicated in master branch breakages
 getImplicatedMasterCommitPullRequests :: DbIO [MasterCommitAndSourcePr]
-getImplicatedMasterCommitPullRequests = runQuery $ MyUtils.qjoin [
+getImplicatedMasterCommitPullRequests = runQuery $ Q.qjoin [
     "SELECT"
   , "cause_sha1, github_pr_number"
   , "FROM known_breakage_summaries_sans_impact"
@@ -1576,7 +1577,7 @@ getImplicatedMasterCommitPullRequests = runQuery $ MyUtils.qjoin [
 
 
 apiAutocompleteTags :: Text -> DbIO [Text]
-apiAutocompleteTags = listFlat1X $ MyUtils.qjoin [
+apiAutocompleteTags = listFlat1X $ Q.qjoin [
     "SELECT tag FROM"
   , "(SELECT tag, COUNT(*) AS freq"
   , "FROM pattern_tags"
@@ -1586,7 +1587,7 @@ apiAutocompleteTags = listFlat1X $ MyUtils.qjoin [
 
 
 apiAutocompleteSteps :: Text -> DbIO [Text]
-apiAutocompleteSteps = listFlat1X $ MyUtils.qjoin [
+apiAutocompleteSteps = listFlat1X $ Q.qjoin [
     "SELECT name FROM"
   , "(SELECT name, COUNT(*) AS freq FROM"
   , "build_steps_deduped_mitigation WHERE name IS NOT NULL"
@@ -1596,7 +1597,7 @@ apiAutocompleteSteps = listFlat1X $ MyUtils.qjoin [
 
 
 apiListSteps :: DbIO [Text]
-apiListSteps = listFlat $ MyUtils.qjoin [
+apiListSteps = listFlat $ Q.qjoin [
     "SELECT name FROM build_steps_deduped_mitigation"
   , "WHERE name IS NOT NULL"
   , "GROUP BY name"
@@ -1630,9 +1631,9 @@ getNonPatternMatchRevisionStats (Builds.RawCommit sha1) = do
       , LT.fromStrict sha1
       ]
 
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "count(build_failure_causes_disjoint.vcs_revision) AS total"
         , "COALESCE(sum(build_failure_causes_disjoint.is_idiopathic::integer), 0::bigint) AS idiopathic"
         , "COALESCE(sum(build_failure_causes_disjoint.is_timeout::integer), 0::bigint) AS timeout"
@@ -1666,9 +1667,9 @@ getBuildsParameterized sql_parms sql_where_conditions = do
     -- if the logic is updated in the VIEW definition on the database side.
     --
     -- See Github Issue #52
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "build_steps.name AS step_name"
         , "match_id"
         , "build"
@@ -1694,7 +1695,7 @@ getBuildsParameterized sql_parms sql_where_conditions = do
         , "FALSE as is_timeout"
         ]
       , "FROM"
-      , MyUtils.qparens best_match_subquery_sql
+      , Q.parens best_match_subquery_sql
       , "best_pattern_match_for_builds"
       , "JOIN matches ON matches.id = best_pattern_match_for_builds.match_id"
       , "JOIN log_metadata ON log_metadata.step = best_pattern_match_for_builds.step_id"
@@ -1705,9 +1706,9 @@ getBuildsParameterized sql_parms sql_where_conditions = do
       ]
 
 
-    best_match_subquery_sql = MyUtils.qjoin [
+    best_match_subquery_sql = Q.qjoin [
         "SELECT DISTINCT ON (matches_for_build.universal_build)"
-      , MyUtils.qlist [
+      , Q.list [
           "matches_for_build.build"
         , "matches_for_build.pat AS pattern_id"
         , "patterns_rich.expression"
@@ -1722,10 +1723,10 @@ getBuildsParameterized sql_parms sql_where_conditions = do
       , "FROM matches_for_build"
       , "JOIN patterns_rich ON matches_for_build.pat = patterns_rich.id"
       , "WHERE"
-      , MyUtils.qconjunction sql_where_conditions
+      , Q.qconjunction sql_where_conditions
         -- BEWARE OF DIVERGENCE OF THIS LOGIC!
       , "ORDER BY"
-      , MyUtils.qlist [
+      , Q.list [
           "matches_for_build.universal_build"
         , "patterns_rich.specificity DESC"
         , "patterns_rich.is_retired"
@@ -1738,9 +1739,9 @@ getBuildsParameterized sql_parms sql_where_conditions = do
 
     -- THIS is not used for now; it is perserved so that at some point
     -- we can go back to this simpler query.
-    _sql_unoptimized = MyUtils.qjoin [
+    _sql_unoptimized = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "step_name"
         , "match_id"
         , "build"
@@ -1888,9 +1889,9 @@ getMasterCommits conn parent_offset_mode =
     sql_first_commit_id = "SELECT id FROM ordered_master_commits ORDER BY id DESC LIMIT 1 OFFSET ?;"
     sql_associated_commit_id = "SELECT id FROM ordered_master_commits WHERE sha1 = ?;"
 
-    commits_query_prefix = MyUtils.qjoin [
+    commits_query_prefix = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
             "id"
           , "sha1"
           , "commit_number"
@@ -1915,14 +1916,14 @@ getMasterCommits conn parent_offset_mode =
       , "FROM master_ordered_commits_with_metadata"
       ]
 
-    sql_commit_id_and_offset = MyUtils.qjoin [
+    sql_commit_id_and_offset = Q.qjoin [
         commits_query_prefix
       , "WHERE id <= ?"
       , "ORDER BY id DESC"
       , "LIMIT ?;"
       ]
 
-    sql_commit_id_bounds = MyUtils.qjoin [
+    sql_commit_id_bounds = Q.qjoin [
         commits_query_prefix
       , "WHERE id >= ? AND id <= ?"
       , "ORDER BY id DESC;"
@@ -1993,9 +1994,9 @@ instance ToJSON ScanQueueEntry where
 apiScanCommitsQueue :: DbIO [ScanQueueEntry]
 apiScanCommitsQueue = runQuery sql
   where
-  sql = MyUtils.qjoin [
+  sql = Q.qjoin [
       "SELECT"
-    , MyUtils.qlist [
+    , Q.list [
         "sha1"
       , "inserted_at"
       ]
@@ -2007,9 +2008,9 @@ apiScanCommitsQueue = runQuery sql
 apiMissingRequiredBuilds :: DbIO [MissingJobStats]
 apiMissingRequiredBuilds = runQuery sql
   where
-  sql = MyUtils.qjoin [
+  sql = Q.qjoin [
       "SELECT"
-    , MyUtils.qlist [
+    , Q.list [
         "job_name"
       , "COUNT(*) AS count"
       , "MAX(master_commits_basic_metadata.committer_date) AS latest_absence_at"
@@ -2026,16 +2027,16 @@ apiMissingRequiredBuilds = runQuery sql
 
 
 apiLeftoverCodeBreakagesByCommit :: DbIO [CommitBreakageRegionCounts]
-apiLeftoverCodeBreakagesByCommit = runQuery $ MyUtils.qjoin [
+apiLeftoverCodeBreakagesByCommit = runQuery $ Q.qjoin [
     "SELECT id, vcs_revision, only_longitudinal_breakages, only_lateral_breakages, both_breakages"
   , "FROM master_unmarked_breakage_regions_by_commit;"
   ]
 
 
 apiLeftoverDetectedCodeBreakages :: DbIO [NonannotatedBuildBreakages]
-apiLeftoverDetectedCodeBreakages = runQuery $ MyUtils.qjoin [
+apiLeftoverDetectedCodeBreakages = runQuery $ Q.qjoin [
     "SELECT"
-  , MyUtils.qlist [
+  , Q.list [
       "master_detected_breakages_without_annotations.contiguous_group_position"
     , "master_detected_breakages_without_annotations.contiguous_group_index"
     , "master_detected_breakages_without_annotations.contiguous_start_commit_index"
@@ -2182,7 +2183,7 @@ getLastCachedMasterGridRefreshTime = do
     [tuple] <- query conn sql (Only ("master_failures_raw_causes_mview" :: String))
     return tuple
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT timestamp, event_source"
       , "FROM lambda_logging.materialized_view_refresh_events"
       , "WHERE view_name = ?"
@@ -2202,11 +2203,11 @@ getMostRecentProviderApiFetchedBuild provider_id branch_name = do
     xs <- query conn sql (provider_id, branch_name)
     return $ Safe.headMay $ map (\(Only x) -> x) xs
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT latest_queued_at"
       , "FROM ci_provider_scan_ranges"
       , "WHERE"
-      , MyUtils.qconjunction [
+      , Q.qconjunction [
           "provider = ?"
         , "branch_filter = ?"
         ]
@@ -2234,9 +2235,9 @@ getPostedCommentForPR (Builds.PullRequestNumber pr_number) = do
     xs <- query conn sql $ Only pr_number
     return $ Safe.headMay xs
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "pr_number"
         , "comment_id"
         , "id"
@@ -2266,9 +2267,9 @@ instance ToJSON MaterializedViewRefreshInfo where
 apiMaterializedViewRefreshes :: DbIO [MaterializedViewRefreshInfo]
 apiMaterializedViewRefreshes = runQuery sql
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
           "SELECT"
-        , MyUtils.qlist [
+        , Q.list [
             "view_name"
           , "latest"
           , "average_execution_time"
@@ -2288,7 +2289,7 @@ apiMaterializedViewRefreshes = runQuery sql
 getScheduledJobNames :: DbIO [Text]
 getScheduledJobNames = listFlat sql
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
       , "job_name FROM job_schedule_discriminated_mview"
       , "WHERE inferred_scheduled"
@@ -2319,9 +2320,9 @@ apiCleanestMasterCommits missing_threshold failing_threshold = do
   conn <- ask
   liftIO $ query conn sql (missing_threshold, failing_threshold)
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "commit_id"
         , "sha1"
         , "total_required_commit_job_count"
@@ -2335,7 +2336,7 @@ apiCleanestMasterCommits missing_threshold failing_threshold = do
       , "WHERE not_succeeded_required_job_count <= ?"
       , "AND failed_required_job_count <= ?"
       , "ORDER BY"
-      , MyUtils.qlist [
+      , Q.list [
           "commit_id DESC"
         ]
       , "LIMIT 100"
@@ -2392,13 +2393,22 @@ apiCoarseBinsIsolatedJobFailuresTimespan time_bounds = do
   liftIO $ do
     rows <- query conn sql query_parms
     runExceptT $ do
-      (timeout_count, network_count, other_count, unmatched_count, sanity_check_consistent_total) <- except $ maybeToEither "No rows" $ Safe.headMay rows
+      (
+          timeout_count
+        , no_logs_count
+        , network_count
+        , other_count
+        , unmatched_count
+        , sanity_check_consistent_total
+        ) <- except $ maybeToEither "No rows" $ Safe.headMay rows
 
       let result = [
               (WebApi.PieSliceApiRecord "Timeout" timeout_count)
+            , (WebApi.PieSliceApiRecord "No logs" no_logs_count)
             , (WebApi.PieSliceApiRecord "Network" network_count)
+            , (WebApi.PieSliceApiRecord "Other match" other_count)
             , (WebApi.PieSliceApiRecord "Unmatched" unmatched_count)
-            , (WebApi.PieSliceApiRecord "Other" other_count)
+
             ]
 
       unless sanity_check_consistent_total $
@@ -2414,37 +2424,36 @@ apiCoarseBinsIsolatedJobFailuresTimespan time_bounds = do
 
     -- Compare to "build_failure_causes_disjoint" view for logic
     -- of categorizing mutually-exclusive failure modes
-    --
-    -- TODO: Account for idiopathic (no logs) builds
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "timeout_count"
+        , "no_logs_count"
         , "network_count"
         , "other_count"
         , "unmatched_count"
-        , "timeout_count + network_count + other_count + unmatched_count = total_count AS sanity_check_consistent_total"
+        , "timeout_count + no_logs_count + network_count + other_count + unmatched_count = total_count AS sanity_check_consistent_total"
         ]
       , "FROM"
-      , MyUtils.qparens inner_sql
+      , Q.parens inner_sql
       , "foo"
       ]
 
-    inner_sql = MyUtils.qjoin [
+    inner_sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "COALESCE(SUM(is_timeout::int), 0) AS timeout_count"
+        , "COALESCE(SUM(is_idiopathic::int), 0) AS no_logs_count"
         , "COALESCE(SUM(is_network::int), 0) AS network_count"
         , "COALESCE(SUM((is_matched AND (NOT (is_network OR is_timeout)))::int), 0) AS other_count"
---        , "COALESCE(SUM(is_idiopathic::int), 0) AS no_logs_count"
-        , "COALESCE(SUM((NOT (is_timeout OR is_matched))::int), 0) AS unmatched_count"
+        , "COALESCE(SUM((NOT (is_timeout OR is_matched OR is_idiopathic))::int), 0) AS unmatched_count"
         , "COUNT(*) AS total_count"
         ]
       , "FROM master_failures_raw_causes_mview"
       , "JOIN master_ordered_commits_with_metadata_mview"
       , "ON master_failures_raw_causes_mview.commit_index = master_ordered_commits_with_metadata_mview.id"
       , "WHERE"
-      , MyUtils.qconjunction [
+      , Q.qconjunction [
           "is_serially_isolated"
         , "NOT succeeded"
         , "tstzrange(?::timestamp, ?::timestamp) @> committer_date"
@@ -2465,9 +2474,9 @@ apiIsolatedUnmatchedBuildsMasterCommitRange
   where
     query_parms = (lower_commit_id, upper_commit_id)
 
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "master_failures_raw_causes_mview.global_build"
         , "master_failures_raw_causes_mview.step_name"
         , "master_failures_raw_causes_mview.job_name"
@@ -2478,7 +2487,7 @@ apiIsolatedUnmatchedBuildsMasterCommitRange
       , "JOIN ci_providers"
       , "ON ci_providers.id = master_failures_raw_causes_mview.provider"
       , "WHERE"
-      , MyUtils.qconjunction [
+      , Q.qconjunction [
           "master_failures_raw_causes_mview.is_serially_isolated"
         , "NOT master_failures_raw_causes_mview.succeeded"
         , "NOT master_failures_raw_causes_mview.is_timeout"
@@ -2501,9 +2510,9 @@ apiIsolatedJobFailuresTimespan time_bounds = do
 
     query_parms = queryParmsFromTimeRange time_bounds
 
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "job_name"
         , "SUM(is_serially_isolated::int) AS isolated_count"
         , "SUM(is_flaky::int) AS recognized_flaky_count"
@@ -2518,10 +2527,10 @@ apiIsolatedJobFailuresTimespan time_bounds = do
       , "JOIN master_ordered_commits_with_metadata_mview"
       , "ON master_failures_raw_causes_mview.commit_index = master_ordered_commits_with_metadata_mview.id"
       , "WHERE"
-      , MyUtils.qconjunction [
+      , Q.qconjunction [
           "is_serially_isolated"
         , "NOT succeeded"
-        , MyUtils.qjoin [
+        , Q.qjoin [
             "tstzrange(?::timestamp, ?::timestamp)"
           , "@> master_ordered_commits_with_metadata_mview.committer_date"
           ]
@@ -2563,9 +2572,9 @@ apiIsolatedPatternFailuresTimespan time_bounds = do
       Bounded (DbHelpers.StartEnd start_time end_time) -> (start_time, Just end_time)
       StartOnly start_time -> (start_time, Nothing)
 
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "patterns_rich.id AS pattern_id"
         , "patterns_rich.expression"
         , "isolated_count"
@@ -2578,16 +2587,16 @@ apiIsolatedPatternFailuresTimespan time_bounds = do
         , "patterns_rich.id IS NOT NULL AS has_pattern_match"
         ]
       , "FROM"
-      , MyUtils.qparens inner_sql
+      , Q.parens inner_sql
       , "foo"
       , "LEFT JOIN patterns_rich"
       , "ON patterns_rich.id = foo.pid"
       , "ORDER BY has_pattern_match, isolated_count DESC, pattern_id DESC"
       ]
 
-    inner_sql = MyUtils.qjoin [
+    inner_sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "pattern_id AS pid"
         , "SUM(master_failures_raw_causes_mview.is_serially_isolated::int) AS isolated_count"
         , "SUM(master_failures_raw_causes_mview.is_flaky::int) AS recognized_flaky_count"
@@ -2601,7 +2610,7 @@ apiIsolatedPatternFailuresTimespan time_bounds = do
       , "JOIN master_ordered_commits_with_metadata_mview"
       , "ON master_failures_raw_causes_mview.commit_index = master_ordered_commits_with_metadata_mview.id"
       , "WHERE"
-      , MyUtils.qconjunction [
+      , Q.qconjunction [
           "master_failures_raw_causes_mview.is_serially_isolated"
         , "NOT master_failures_raw_causes_mview.succeeded"
         , "NOT master_failures_raw_causes_mview.is_idiopathic"
@@ -2627,9 +2636,9 @@ apiJobFailuresInTimespan job_name (DbHelpers.InclusiveNumericBounds lower_commit
 
 
 genMasterFailureDetailsQuery extra_where_condition =
-  MyUtils.qjoin [
+  Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "master_failures_raw_causes_mview.step_name"
         , "master_failures_raw_causes_mview.match_id"
         , "master_failures_raw_causes_mview.build_num"
@@ -2658,7 +2667,7 @@ genMasterFailureDetailsQuery extra_where_condition =
       , "JOIN ci_providers"
       , "ON ci_providers.id = master_failures_raw_causes_mview.provider"
       , "WHERE"
-      , MyUtils.qconjunction [
+      , Q.qconjunction [
           "master_failures_raw_causes_mview.is_serially_isolated"
         , "NOT master_failures_raw_causes_mview.succeeded"
         , "int8range(?, ?, '[]') @> master_failures_raw_causes_mview.commit_index::int8"
@@ -2693,9 +2702,9 @@ apiLatestViableMasterCommitAgeHistory weeks_count end_time = do
   conn <- ask
   liftIO $ reverse <$> query conn sql (end_time, weeks_count, end_time)
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "inserted_at"
         , "failed_required_job_count_threshold"
         , "unbuilt_or_failed_required_job_count_threshold"
@@ -2722,9 +2731,9 @@ apiLatestViableMasterCommitLagCountHistory weeks_count end_time = do
   conn <- ask
   liftIO $ reverse <$> query conn sql (end_time, weeks_count)
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "inserted_at"
         , "failed_required_job_count_threshold"
         , "unbuilt_or_failed_required_job_count_threshold"
@@ -2748,9 +2757,9 @@ getBreakageSpans conn commit_id_bounds =
     bounds_tuple = DbHelpers.boundsAsTuple commit_id_bounds
     parms_tuple = (fst bounds_tuple, snd bounds_tuple, fst bounds_tuple, snd bounds_tuple)
 
-    job_failure_spans_sql = MyUtils.qjoin [
+    job_failure_spans_sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "job_name"
         , "int8range(?, ?, '[]') * failure_commit_id_range"
         , "span_length"
@@ -2836,9 +2845,9 @@ apiMasterBuilds timeline_parms = do
       Pagination.column_filtering timeline_parms
 
 
-    reversion_spans_sql = MyUtils.qjoin [
+    reversion_spans_sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "reverted_commit_id"
         , "reversion_commit_id"
         ]
@@ -2848,9 +2857,9 @@ apiMasterBuilds timeline_parms = do
       ]
 
 
-    disjoint_statuses_sql = MyUtils.qjoin [
+    disjoint_statuses_sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "commit_id"
         , "sha1"
         , "created_at"
@@ -2868,11 +2877,11 @@ apiMasterBuilds timeline_parms = do
       (++ ["AND NOT COALESCE(maybe_is_scheduled, FALSE)"])
       statement_parts
 
-    builds_list_sql = MyUtils.qjoin filtered_statement_parts
+    builds_list_sql = Q.qjoin filtered_statement_parts
 
     statement_parts = [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "sha1"
         , "succeeded"
         , "is_idiopathic"
@@ -2955,13 +2964,13 @@ instance ToJSON ExplorableBreakageSpans where
 
 masterCommitsGranular :: DbIO ExplorableBreakageSpans
 masterCommitsGranular = do
-  annotated_master_spans <- runQuery $ MyUtils.qjoin [
+  annotated_master_spans <- runQuery $ Q.qjoin [
       "SELECT"
     , "github_pr_number, foreshadowed_by_pr_failures, start_date, end_date"
     , "FROM code_breakage_nonoverlapping_spans_dated;"
     ]
 
-  dirty_master_spans <- runQuery $ MyUtils.qjoin [
+  dirty_master_spans <- runQuery $ Q.qjoin [
       "SELECT"
     , "group_index, breakage_start, breakage_end"
     , "FROM master_indiscriminate_failure_spans"
@@ -2986,9 +2995,9 @@ instance ToJSON JobScheduleStats where
 
 
 apiJobScheduleStats :: DbIO [JobScheduleStats]
-apiJobScheduleStats = runQuery $ MyUtils.qjoin [
+apiJobScheduleStats = runQuery $ Q.qjoin [
     "SELECT"
-  , MyUtils.qlist [
+  , Q.list [
       "job_name"
     , "commit_to_build_latency_coefficient_of_variation"
     , "build_interval_coefficient_of_variation"
@@ -3001,9 +3010,9 @@ apiJobScheduleStats = runQuery $ MyUtils.qjoin [
 
 
 apiDetectedCodeBreakages :: DbIO [BuildResults.DetectedBreakageSpan]
-apiDetectedCodeBreakages = runQuery $ MyUtils.qjoin [
+apiDetectedCodeBreakages = runQuery $ Q.qjoin [
     "SELECT"
-  , MyUtils.qlist [
+  , Q.list [
       "first_commit_id"
     , "jobs"
     , "job_count"
@@ -3024,9 +3033,9 @@ apiDetectedCodeBreakages = runQuery $ MyUtils.qjoin [
 
 
 apiListFailureModes :: DbIO [DbHelpers.WithId BuildResults.MasterFailureModeDetails]
-apiListFailureModes = runQuery $ MyUtils.qjoin [
+apiListFailureModes = runQuery $ Q.qjoin [
     "SELECT"
-  , MyUtils.qlist [
+  , Q.list [
       "id"
     , "label"
     , "revertible"
@@ -3070,18 +3079,18 @@ apiAnnotatedCodeBreakages commit_id_bounds = do
   conn <- ask
   liftIO $ query conn sql $ DbHelpers.boundsAsTuple commit_id_bounds
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist annoatedCodeBreakagesFields
+      , Q.list annoatedCodeBreakagesFields
       , "FROM known_breakage_summaries_sans_impact"
       , "WHERE int8range(?, ?, '[]') && int8range(cause_commit_index, resolved_commit_index)"
       , "ORDER BY cause_commit_index DESC;"
       ]
 
 
-sqlPrefixAnnotatedCodeBreakagesWithImpact = MyUtils.qjoin [
+sqlPrefixAnnotatedCodeBreakagesWithImpact = Q.qjoin [
     "SELECT"
-  , MyUtils.qlist $ annoatedCodeBreakagesFields ++ [
+  , Q.list $ annoatedCodeBreakagesFields ++ [
       "downstream_broken_commit_count"
     , "failed_downstream_build_count"
     , "github_pr_number"
@@ -3093,7 +3102,7 @@ sqlPrefixAnnotatedCodeBreakagesWithImpact = MyUtils.qjoin [
 
 
 apiAnnotatedCodeBreakagesWithImpact :: DbIO [BuildResults.BreakageSpan Text BuildResults.BreakageImpactStats]
-apiAnnotatedCodeBreakagesWithImpact = runQuery $ MyUtils.qjoin [
+apiAnnotatedCodeBreakagesWithImpact = runQuery $ Q.qjoin [
     sqlPrefixAnnotatedCodeBreakagesWithImpact
   , "ORDER BY cause_commit_index DESC;"
   ]
@@ -3110,7 +3119,7 @@ apiCodeBreakagesModeSingle cause_id = do
     return mode_id
 
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
       , "mode_id"
       , "FROM latest_master_failure_mode_attributions"
@@ -3125,16 +3134,16 @@ apiAnnotatedCodeBreakagesWithImpactSingle cause_id = do
   conn <- ask
   liftIO $ query conn sql $ Only cause_id
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         sqlPrefixAnnotatedCodeBreakagesWithImpact
       , "WHERE cause_id = ?;"
       ]
 
 
 apiBreakageAuthorStats :: DbIO [BuildResults.BreakageAuthorStats]
-apiBreakageAuthorStats = runQuery $ MyUtils.qjoin [
+apiBreakageAuthorStats = runQuery $ Q.qjoin [
     "SELECT"
-  , MyUtils.qlist [
+  , Q.list [
       "breakage_commit_author"
     , "distinct_breakage_count"
     , "cumulative_breakage_duration_seconds"
@@ -3158,7 +3167,7 @@ getLatestMasterCommitWithMetadata = do
     rows <- query_ conn sql
     return $ maybeToEither "No commit has metdata" $ Safe.headMay $ map (\(Only x) -> Builds.RawCommit x) rows
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT ordered_master_commits.sha1"
       , "FROM ordered_master_commits"
       , "LEFT JOIN commit_metadata"
@@ -3185,7 +3194,7 @@ getStepIdFromUniversalBuild (Builds.UniversalBuildId ubuild_id) = do
       , "not in database"
       ]
 
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT id"
       , "FROM build_steps"
       , "WHERE universal_build = ?"
@@ -3290,9 +3299,9 @@ apiSinglePattern (ScanPatterns.PatternId pattern_id) = do
   conn <- ask
   liftIO $ fmap makePatternRecords $ query conn sql $ Only pattern_id
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "id"
         , "regex"
         , "expression"
@@ -3311,9 +3320,9 @@ apiSinglePattern (ScanPatterns.PatternId pattern_id) = do
 
 
 apiPatterns :: DbIO [PatternRecord]
-apiPatterns = fmap makePatternRecords $ runQuery $ MyUtils.qjoin [
+apiPatterns = fmap makePatternRecords $ runQuery $ Q.qjoin [
     "SELECT"
-  , MyUtils.qlist [
+  , Q.list [
       "id"
     , "regex"
     , "expression"
@@ -3336,9 +3345,9 @@ dumpPatterns :: DbIO [DbHelpers.WithAuthorship ScanPatterns.DbPattern]
 dumpPatterns = map f <$> runQuery q
 
   where
-    q = MyUtils.qjoin [
+    q = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "author"
         , "created"
         , "id"
@@ -3397,9 +3406,9 @@ getBuildPatternMatches (Builds.UniversalBuildId build_id) = do
   (timing, result) <- MyUtils.timeThisFloat $ liftIO $ query conn sql $ Only build_id
   return $ DbHelpers.BenchmarkedResponse timing result
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "step_name"
         , "pattern"
         , "matches_with_log_metadata.id"
@@ -3432,9 +3441,9 @@ instance ToJSON StorageStats where
 
 -- | FIXME partial head
 apiStorageStats :: DbIO StorageStats
-apiStorageStats = fmap head $ runQuery $ MyUtils.qjoin [
+apiStorageStats = fmap head $ runQuery $ Q.qjoin [
     "SELECT"
-  , MyUtils.qlist [
+  , Q.list [
       "SUM(line_count) AS total_lines"
     , "SUM(byte_count) AS total_bytes"
     , "COUNT(*) log_count"
@@ -3464,9 +3473,9 @@ patternOccurrenceTxForm pattern_id = f
 
 
 commonQueryPrefixPatternMatches :: Query
-commonQueryPrefixPatternMatches = MyUtils.qjoin [
+commonQueryPrefixPatternMatches = Q.qjoin [
     "SELECT"
-  , MyUtils.qlist [
+  , Q.list [
       "build"
     , "step_name"
     , "match_id"
@@ -3493,7 +3502,7 @@ getBestPatternMatches pat@(ScanPatterns.PatternId pattern_id) = do
   liftIO $ map (patternOccurrenceTxForm pat) <$> query conn sql (Only pattern_id)
 
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         commonQueryPrefixPatternMatches
       , "LIMIT 100;"
       ]
@@ -3504,7 +3513,7 @@ getBestPatternMatchesWhitelistedBranches pat@(ScanPatterns.PatternId pattern_id)
   conn <- ask
   liftIO $ map (patternOccurrenceTxForm pat) <$> query conn sql (Only pattern_id)
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         commonQueryPrefixPatternMatches
       , "AND branch IN (SELECT branch from presumed_stable_branches);"
       ]
@@ -3526,7 +3535,7 @@ getPostedGithubStatus
     return $ Safe.headMay xs
 
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
       , "state, description"
       , "FROM created_github_statuses"
@@ -3579,9 +3588,9 @@ getBestBuildMatch ubuild_id@(Builds.UniversalBuildId build_id) = do
         , branch
         , ubuild_id)
 
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "pattern_id"
         , "build"
         , "step_name"
@@ -3649,9 +3658,9 @@ logContextFunc mid@(MatchOccurrences.MatchId match_id) context_linecount = do
         tuples
 
   where
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "line_number"
         , "span_start"
         , "span_end"
@@ -3733,9 +3742,9 @@ getPatternOccurrenceRows (ScanPatterns.PatternId pattern_id) = do
           line_number $
             DbHelpers.StartEnd span_start span_end
 
-    sql = MyUtils.qjoin [
+    sql = Q.qjoin [
         "SELECT"
-      , MyUtils.qlist [
+      , Q.list [
           "global_builds.build_number"
         , "step_name"
         , "matches_with_log_metadata.id"

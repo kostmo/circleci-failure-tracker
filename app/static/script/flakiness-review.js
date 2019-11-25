@@ -160,7 +160,7 @@ function make_coarse_cause_pie(container_id, data) {
             enabled: false
         },
         series: [{
-            name: "Blah",
+            name: "Cout",
             colorByPoint: true,
             data: data,
          }]
