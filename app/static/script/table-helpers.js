@@ -78,28 +78,31 @@ function get_log_text(match_id, context_linecount, universal_build_number, provi
 					formatted_line_text = line_text;
 				}
 
+				const row = [
+					zero_based_line_number,
+					render_tag("code", formatted_line_text, {"display": "inline-block"}),
+				];
 
-				const row = [zero_based_line_number, render_tag("code", formatted_line_text)]
 				table_items.push(row);
 			}
-
 
 			const left_corner_links = [
 				render_tag("span", link("+1000 lines", "javascript: revealHiddenLogContext('context-reveal-link-container');"), {"id": "context-reveal-link-container"}),
 				link("Full plaintext log", "/api/view-log-full?build_id=" + universal_build_number),
 				link("on CircleCI", "https://circleci.com/gh/pytorch/pytorch/" + provider_build_number, true)
-			]
-
-
-			const dialog_content = [
-				render_tag("div", link(
-					"Press " + render_tag("i", "Esc") + " to close",
-					"javascript: document.getElementById('myDialog').close();"
-				), {"style": "color: gray; text-align: right; float: right;"}),
-				render_tag("div", left_corner_links.join(" | ")),
-				render_tag("div", renderLogLineTableWithOffset(table_items, data.payload.match_info.line_number, context_linecount)),
 			];
 
+			const dialog_close_link = link("Press " + render_tag("i", "Esc") + " to close", "javascript: document.getElementById('myDialog').close();");
+			const dialog_close_control = render_tag("div", dialog_close_link, {"style": "color: gray; text-align: right; float: right;"});
+
+			const dialog_content = [
+				dialog_close_control,
+				render_tag("div", left_corner_links.join(" | ")),
+				"<br clear='all'/>",
+				render_tag("div", renderLogLineTableWithOffset(table_items, data.payload.match_info.line_number, context_linecount), {"class": "modal-guts"}),
+			];
+
+//			$(dialog).html(render_tag("div", dialog_content.join(""), {"class": "dialog-inside"}));
 			$(dialog).html(dialog_content.join(""));
 
 		} else {
@@ -112,17 +115,27 @@ function get_log_text(match_id, context_linecount, universal_build_number, provi
 function displayDialog() {
 
 	const dialog = document.getElementById("myDialog");
+
+
+	dialog.addEventListener('close', (event) => {
+		$(dialog).css("visibility", "hidden");
+	});
+
+
+	// Close the dialog if the user clicks outside of it
 	dialog.addEventListener('click',
 		function (event) {
 			const rect = dialog.getBoundingClientRect();
 			const isInDialog = (rect.top <= event.clientY && event.clientY <= rect.top + rect.height
 				&& rect.left <= event.clientX && event.clientX <= rect.left + rect.width);
 			if (!isInDialog) {
-			dialog.close();
+				dialog.close();
+			}
 		}
-	});
+	);
 
 	dialog.showModal();
+	$(dialog).css("visibility", "visible");
 	return dialog;
 }
 

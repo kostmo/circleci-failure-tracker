@@ -1563,6 +1563,26 @@ getAllMergedPullRequestHeadCommits = runQuery $ Q.qjoin [
   ]
 
 
+getPullRequestsWithMissingHeads :: DbIO [Builds.PullRequestNumber]
+getPullRequestsWithMissingHeads = do
+  xs <- runQuery sql
+  return $ map (\(Only x) -> Builds.PullRequestNumber x) xs
+  where
+    sql = Q.qjoin [
+        "SELECT"
+      , "mv.github_pr_number"
+      , "FROM master_ordered_commits_with_metadata_mview mv"
+      , "LEFT JOIN pull_request_heads"
+      , "ON pull_request_heads.pr_number = mv.github_pr_number"
+      , "WHERE"
+      , Q.qconjunction [
+          "github_pr_number IS NOT NULL"
+        , "pull_request_heads.pr_number IS NULL"
+        ]
+      , "ORDER BY mv.id DESC"
+      ]
+
+
 getAllMasterCommitPullRequests :: DbIO [MasterCommitAndSourcePr]
 getAllMasterCommitPullRequests = runQuery $ Q.qjoin [
     "SELECT"
@@ -2560,6 +2580,7 @@ data FailuresByPatternReviewCounts = FailuresByPatternReviewCounts {
   , _min_commit_number      :: Int
   , _max_commit_number      :: Int
   , _has_pattern_match      :: Bool
+  , _is_network             :: Bool
   } deriving (Generic, FromRow)
 
 instance ToJSON FailuresByPatternReviewCounts where
@@ -2594,6 +2615,7 @@ apiIsolatedPatternFailuresTimespan time_bounds = do
         , "min_commit_number"
         , "max_commit_number"
         , "patterns_rich.id IS NOT NULL AS has_pattern_match"
+        , "patterns_rich.is_network"
         ]
       , "FROM"
       , Q.parens inner_sql

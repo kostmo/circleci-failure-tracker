@@ -11,6 +11,7 @@ import           Data.Text                  (Text)
 import qualified Data.Text                  as T
 import qualified Data.Text.Lazy             as LT
 import           Data.Time                  (parseTimeM)
+import qualified Data.Time.Clock            as Clock
 import           Data.Time.Format           (defaultTimeLocale,
                                              iso8601DateFormat)
 import           GHC.Generics               (Generic)
@@ -116,11 +117,11 @@ scottyApp
 
       liftIO $ do
 
-        putStrLn "Starting CircleCI build retrieval..."
+        MyUtils.debugStr "Starting CircleCI build retrieval..."
 
         conn <- DbHelpers.getConnectionWithStatementTimeout connection_data statementTimeoutSeconds
 
-        BuildRetrieval.updateCircleCIBuildsList
+        insertion_count <- BuildRetrieval.updateCircleCIBuildsList
           conn
           (Just eb_worker_event_id)
           BuildRetrieval.Completed
@@ -128,7 +129,12 @@ scottyApp
           ["master"]
           100000
 
-        putStrLn "Finished CircleCI build retrieval."
+        MyUtils.debugList [
+            "Finished CircleCI build retrieval."
+          , "Inserted"
+          , show insertion_count
+          , "records."
+          ]
 
       S.json ["hello-post" :: Text]
 
@@ -138,13 +144,27 @@ scottyApp
     wrapWithDbDurationRecords connection_data $ \_eb_worker_event_id -> do
 
       liftIO $ do
-
-        putStrLn "Starting PR association retrieval..."
+        current_time <- Clock.getCurrentTime
+        MyUtils.debugList [
+            "Starting PR association retrieval at"
+          , show current_time
+          ]
 
         conn <- DbHelpers.getConnectionWithStatementTimeout connection_data statementTimeoutSeconds
-        putStrLn "TODO: Doing nothing because we don't have a Git repo!"
 
-        putStrLn "Finished association retrieval."
+        either_result <- SqlWrite.updateMergedPullRequestHeadCommits conn
+        case either_result of
+          Right association_list -> MyUtils.debugList [
+              "Retrieved"
+            , show $ length association_list
+            , "associations"
+            ]
+          Left msg -> MyUtils.debugList [
+              "Failed retrieving PR assciations:"
+            , T.unpack msg
+            ]
+
+        MyUtils.debugStr "Finished association retrieval."
 
 
       S.json ["hello-post" :: Text]

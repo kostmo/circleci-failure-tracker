@@ -30,22 +30,23 @@ data GadgitResponse a = GadgitResponse {
     _result  :: Maybe a
   , _success :: Bool
   , _error   :: Maybe String
-  } deriving Generic
+  } deriving (Show, Generic)
 
 instance (FromJSON a) => FromJSON (GadgitResponse a) where
   parseJSON = genericParseJSON JsonUtils.dropUnderscore
 
 
-data PullRequestHeadAssociation = PullRequestHeadAssociation {
-    _head_commit :: Builds.RawCommit
-  , _pr_number   :: Builds.PullRequestNumber
+
+data PullRequestHeadAssociationInnerResponse = PullRequestHeadAssociationInnerResponse {
+    _pr_number :: Builds.PullRequestNumber
+  , _output    :: GadgitResponse Builds.RawCommit
   } deriving (Show, Generic)
 
-instance FromJSON PullRequestHeadAssociation where
+instance FromJSON PullRequestHeadAssociationInnerResponse where
   parseJSON = genericParseJSON JsonUtils.dropUnderscore
 
 
---processResult :: a -> Either String b
+processResult :: (a -> w) -> GadgitResponse a -> Either String w
 processResult f decoded_json = if _success decoded_json
     then maybeToEither "API indicates success but has no result!" $ f <$> _result decoded_json
     else Left $ unwords [
@@ -54,17 +55,19 @@ processResult f decoded_json = if _success decoded_json
       ]
 
 
--- | TODO: Handle errors on individual items
+-- | Handles errors on individual items
 getPullRequestHeadCommitsBulk ::
      [Builds.PullRequestNumber]
-  -> IO (Either String [PullRequestHeadAssociation])
+  -> IO (Either String [(Builds.PullRequestNumber, Either String Builds.RawCommit)])
 getPullRequestHeadCommitsBulk pr_numbers = runExceptT $ do
   response <- ExceptT $ liftIO $ FetchHelpers.safeGetUrl $
     NW.post url_string $ toJSON pr_numbers
 
   decoded_json <- except $ eitherDecode $ NC.responseBody response
-  except $ processResult id decoded_json
+  outer_response <- except $ processResult id decoded_json
+  return $ map f outer_response
   where
+    f (PullRequestHeadAssociationInnerResponse p out) = (p, processResult id out)
     url_string = gadgitUrlPrefix <> "/bulk-pull-request-heads"
 
 

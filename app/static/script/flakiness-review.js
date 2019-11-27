@@ -137,19 +137,27 @@ function make_coarse_cause_pie(container_id, data) {
 
 	Highcharts.chart(container_id, {
 		chart: {
+			type: 'pie',
+
 			plotBackgroundColor: null,
 			plotBorderWidth: null,
 			plotShadow: false,
-			type: 'pie'
+
+			margin: [0, 0, 0, 0],
+			spacingTop: 0,
+			spacingBottom: 0,
+			spacingLeft: 0,
+			spacingRight: 0,
 		},
 		title: {
-			text: 'Failure causes',
+//			text: 'Failure causes',
+			text: null,
 		},
-			plotOptions: {
-				pie: {
-					allowPointSelect: true,
-					cursor: 'pointer',
-					dataLabels: {
+		plotOptions: {
+			pie: {
+				allowPointSelect: true,
+				cursor: 'pointer',
+				dataLabels: {
 					enabled: true,
 					format: '<b>{point.name}</b>: {point.percentage:.1f} %',
 					style: {
@@ -230,7 +238,7 @@ function load_job_failure_details(job_name, commit_id_min, commit_id_max) {
 function gen_patterns_table(element_id, data_payload, height_string) {
 
 	const column_list = [
-		{title: "Pattern expression", field: "expression", width: 500, 
+		{title: "Pattern expression", field: "expression", 
 			formatter: function(cell, formatterParams, onRendered) {
 				if (cell.getValue() != null) {
 					return cell.getValue();
@@ -238,6 +246,13 @@ function gen_patterns_table(element_id, data_payload, height_string) {
 					return "<span style='font-style: italic; color: #7cb5ec;'>&lt;no pattern match&gt;</span>";
 				}
 			},
+		},
+		{title: "Network", field: "is_network", formatter: "tickCross", width: 100,
+			align: "center",
+			formatterParams: {
+				allowEmpty:true,
+				crossElement: false,
+			}
 		},
 		{title: "Isolated failures", field: "isolated_failure_count", width: 150,
 		},
@@ -388,14 +403,11 @@ function requery_by_pattern_table(query_args_dict) {
 
 				console.log("commit number span:", min_commit_number, max_commit_number);
 				const commit_count = max_commit_number - min_commit_number + 1;
-
-
 			}
 
 			gen_patterns_table("isolated-failures-by-pattern-table", data.payload, 200);
 
 		} else {
-
 			alert("error: " + data.error);
 		}
 	});

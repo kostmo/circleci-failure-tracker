@@ -42,15 +42,16 @@ import qualified Builds
 import qualified Commits
 import qualified Constants
 import qualified DbHelpers
+import qualified GadgitFetch
 import qualified GithubApiFetch
 import qualified GitHubRecords
 import qualified MergeBase
 import qualified MyUtils
+import qualified QueryUtils                        as Q
 import qualified ScanPatterns
 import qualified ScanRecords
 import qualified SqlRead
 import qualified Webhooks
-import qualified QueryUtils as Q
 
 
 sqlInsertUniversalBuild :: Query
@@ -227,49 +228,38 @@ findMasterAncestor = findMasterAncestorWithPrecomputation Nothing
 
 
 -- | Also populates pull_request_heads table
-getAllPullRequestHeadCommits ::
+updateMergedPullRequestHeadCommits ::
      Connection
-  -> FilePath -- ^ repo git dir
   -> IO (Either T.Text [(Builds.PullRequestNumber, Builds.RawCommit)])
-getAllPullRequestHeadCommits conn git_dir = do
+updateMergedPullRequestHeadCommits conn = do
+  unmatched_pr_numbers <- runReaderT SqlRead.getPullRequestsWithMissingHeads conn
 
-  -- This can take over 10 minutes when fetching all PR refs
-  MergeBase.fetchRefs git_dir
+  runExceptT $ do
+    pr_associations <- ExceptT $ first T.pack <$> GadgitFetch.getPullRequestHeadCommitsBulk unmatched_pr_numbers
 
---  pr_associations <- runReaderT SqlRead.getImplicatedMasterCommitPullRequests conn
-  pr_associations <- runReaderT SqlRead.getAllMasterCommitPullRequests conn
+    let pr_head_eithers = map (first T.pack . sequenceA) pr_associations
+        (unretrieved_pr_heads, retrieved_pr_heads) = partitionEithers pr_head_eithers
 
-  let pr_numbers = map (\(SqlRead.MasterCommitAndSourcePr _ pr_num) -> pr_num) pr_associations
+    liftIO $ MyUtils.debugList [
+        "Retrieved"
+      , show $ length retrieved_pr_heads
+      , "out of"
+      , show $ length unmatched_pr_numbers
+      , "unassociated PR HEAD commits."
+      , show $ length unretrieved_pr_heads
+      , "were not available."
+      ]
 
-  -- TODO Bulk retrieval lacks per-item error reporting
---  pr_associations <- GadgitFetch.getPullRequestHeadCommitsBulk pr_numbers
---  let pr_head_commits = map GadgitFetch._head_commit pr_associations
+    let deduped_insertion_records = nubSort $ map (\(Builds.PullRequestNumber x, Builds.RawCommit y) -> (x, y)) retrieved_pr_heads
+    inserted_count <- liftIO $ executeMany conn insertion_sql deduped_insertion_records
 
-  pr_head_commits <- mapM (MergeBase.getPullRequestHeadCommitLocal git_dir) pr_numbers
+    liftIO $ MyUtils.debugList [
+        "Inserted"
+      , show inserted_count
+      , "new rows into pull_request_heads table"
+      ]
 
-  let pr_head_eithers = zipWith (curry sequenceA) pr_numbers pr_head_commits
-      (unretrieved_pr_heads, retrieved_pr_heads) = partitionEithers pr_head_eithers
-
-  MyUtils.debugList [
-      "Retrieved"
-    , show $ length retrieved_pr_heads
-    , "out of"
-    , show $ length pr_numbers
-    , "PR HEAD commits."
-    , show $ length unretrieved_pr_heads
-    , "were not available."
-    ]
-
-  let deduped_insertion_records = nubSort $ map (\(Builds.PullRequestNumber x, Builds.RawCommit y) -> (x, y)) retrieved_pr_heads
-  inserted_count <- executeMany conn insertion_sql deduped_insertion_records
-
-  MyUtils.debugList [
-      "Inserted"
-    , show inserted_count
-    , "new rows into pull_request_heads table"
-    ]
-
-  return $ Right retrieved_pr_heads
+    return retrieved_pr_heads
   where
     insertion_sql = Q.qjoin [
         "INSERT INTO pull_request_heads"

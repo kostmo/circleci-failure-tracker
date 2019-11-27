@@ -57,6 +57,10 @@ link :: Text -> Text -> Text
 link label url = bracket label <> parens url
 
 
+image :: Text -> Text -> Text
+image tooltip url = "!" <> link tooltip url
+
+
 delimitColumns :: [Text] -> Text
 delimitColumns cols = T.concat padded_cols
   where

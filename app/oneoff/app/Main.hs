@@ -54,7 +54,7 @@ mainAppCode args = do
 
   conn <- DbPreparation.prepareDatabase connection_data False
 
-
+  {-
 
   let commit_sha1_text = "1c6d7505adf51db267a0b27724028fb0c73ecbdd"
       raw_commit = Builds.RawCommit commit_sha1_text
@@ -69,7 +69,7 @@ mainAppCode args = do
   putStrLn $ T.unpack $ T.unlines $ StatusUpdate.genBuildFailuresTable $
     fromRight (error "BAD3") commit_page_info
 
-
+  -}
 
   putStrLn "============================="
 
@@ -88,7 +88,7 @@ mainAppCode args = do
 
 
   -- | TODO move these to unit tests
-  result3 <- GadgitFetch.getPullRequestHeadCommitsBulk $ map Builds.PullRequestNumber [22201, 23463]
+  result3 <- GadgitFetch.getPullRequestHeadCommitsBulk $ map Builds.PullRequestNumber [22201, 23463, 9999999]
   MyUtils.debugList [
       "result3:"
     , show result3
@@ -97,6 +97,8 @@ mainAppCode args = do
 
   putStrLn "============================="
 
+
+  {-
 
   batch_diagnosis_result <- SqlUpdate.diagnoseCommitsBatch
     (Just git_repo_dir)
@@ -115,9 +117,9 @@ mainAppCode args = do
       "Populating merge base head commits..."
     ]
 
-  SqlWrite.getAllPullRequestHeadCommits conn git_repo_dir
+  SqlWrite.updateMergedPullRequestHeadCommits conn
 
-
+  -}
 
   return ()
 
