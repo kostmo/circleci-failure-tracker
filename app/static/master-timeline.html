@@ -85,6 +85,8 @@ ul.commit-range-selector > li {
 <button onclick="refresh_cache();">Refresh cache</button>
 <br/>
 <i>last refresh: <span id="last-cache-update-time-container">...</span></i>
+<br/>
+<label><input type="checkbox" id="checkbox-use-uncached-annotations"/> Use uncached annotations</label>
 </div>
 
 <form onsubmit="return false;" style="float: left;">
@@ -120,7 +122,8 @@ count:
 </ul>
 
 <p>
-<label><input id="checkbox-suppress-scheduled-builds" type="checkbox" onchange="update_url_from_form();"/> Suppress scheduled builds</label><br/>
+<label><input id="checkbox-suppress-scheduled-builds" type="checkbox" onchange="update_url_from_form();"/> Suppress scheduled builds</label>
+<br/>
 <label><input id="checkbox-suppress-fully-successful-columns" type="checkbox" onchange="update_url_from_form();"/> Suppress fully-successful columns when table width exceeds</label> <label><input id="max-columns-suppress-successful" type="number" min="0" size="3" value="50"/> jobs</label>
 </p>
 </form>

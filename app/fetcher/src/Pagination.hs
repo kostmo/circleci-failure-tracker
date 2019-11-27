@@ -13,8 +13,9 @@ data ColumnFilteringOptions = ColumnFilteringOptions {
 
 
 data TimelineParms = TimelineParms {
-    column_filtering :: ColumnFilteringOptions
-  , offset_mode      :: ParentOffsetMode
+    column_filtering                :: ColumnFilteringOptions
+  , should_use_uncached_annotations :: Bool
+  , offset_mode                     :: ParentOffsetMode
   }
 
 

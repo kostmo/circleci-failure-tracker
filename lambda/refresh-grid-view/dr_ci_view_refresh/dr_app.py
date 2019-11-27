@@ -68,6 +68,7 @@ WHITELISTED_VIEW_NAMES = {
     "master_commit_reversion_spans_mview",
     "master_required_unbuilt_jobs_mview",
     "pattern_frequency_summary_mview",
+    "known_breakage_summaries_sans_impact_mview",
 }
 
 
@@ -119,7 +120,7 @@ if __name__ == "__main__":
 #        "job_schedule_discriminated_mview",
 #        "master_ordered_commits_with_metadata_mview",
 #       "master_commit_reversion_spans_mview",
-       "pattern_frequency_summary_mview",
+       "known_breakage_summaries_sans_impact_mview",
     ]
 
     payload = update_multiple_views(view_names, "test")

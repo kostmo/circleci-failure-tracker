@@ -634,24 +634,25 @@ genBuildFailuresTable (CommitPageInfo revision_builds unmatched_builds) =
 
     pattern_matched_section = if null revision_builds
       then mempty
-      else pure (T.unwords ["###", T.pack $ show $ length revision_builds, "failures recognized by patterns:"])
+      else pure (Markdown.heading 3 $ T.unwords [T.pack $ show $ length revision_builds, "failures recognized by patterns:"])
         <> concatMap gen_matched_build_section revision_builds
 
     pattern_unmatched_section = if null unmatched_builds
       then mempty
-      else pure (T.unwords ["###", T.pack $ show $ length unmatched_builds, "failures *not* recognized by patterns:"])
+      else pure (Markdown.heading 3 $ T.unwords [T.pack $ show $ length unmatched_builds, "failures *not* recognized by patterns:"])
         <> NE.toList (genUnmatchedBuildsTable unmatched_builds)
 
     gen_matched_build_section (CommitBuilds.NewCommitBuild (Builds.StorableBuild (DbHelpers.WithId _ubuild_id universal_build) build_obj) match_obj _ _) = [
-        T.unwords [
-            "####"
-          , Markdown.link (Markdown.image "See CircleCI build" "https://avatars0.githubusercontent.com/ml/7?s=12") ("https://circleci.com/gh/pytorch/pytorch/" <> T.pack (show provider_build_number))
+        Markdown.heading 4 $ T.unwords [
+            circleci_image_link
           , Builds.job_name build_obj
           ]
       , T.unwords [Markdown.bold "Step:", MatchOccurrences._build_step match_obj]
       ] <> (NE.toList $ Markdown.codeBlock $ pure $ MatchOccurrences._line_text match_obj)
       where
         (Builds.NewBuildNumber provider_build_number) = Builds.provider_buildnum universal_build
+        circleci_icon = Markdown.image "See CircleCI build" "https://avatars0.githubusercontent.com/ml/7?s=12"
+        circleci_image_link = Markdown.link circleci_icon $ "https://circleci.com/gh/pytorch/pytorch/" <> T.pack (show provider_build_number)
 
 
 generateCommentMarkdown

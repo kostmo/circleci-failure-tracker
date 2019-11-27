@@ -15,31 +15,42 @@ import qualified HTMLEntities.Builder   as HEB
 import           Data.Text.Lazy.Builder (toLazyText)
 
 
+surround :: [Text] -> Text -> Text
+surround brackets = mconcat . (`intersperse` brackets)
+
+
 italic :: Text -> Text
-italic x = mconcat ["*", x, "*"]
+italic = surround ["*", "*"]
 
 
 bold :: Text -> Text
-bold x = mconcat ["**", x, "**"]
-
-
-sup :: Text -> Text
-sup x = mconcat ["<sup>", x, "</sup>"]
-
-
-supTitle :: Text -> Text -> Text
-supTitle title x = mconcat ["<sup title=\"" <> escaped_title <> "\">", x, "</sup>"]
-  where
-    escaped_title = LT.toStrict $ toLazyText $ HEB.text title
-
+bold = surround ["**", "**"]
 
 
 codeInline :: Text -> Text
-codeInline x = mconcat ["`", x, "`"]
+codeInline = surround ["`", "`"]
+
+
+sup :: Text -> Text
+sup = surround ["<sup>", "</sup>"]
 
 
 parens :: Text -> Text
-parens x = "(" <> x <> ")"
+parens = surround ["(", ")"]
+
+
+bracket :: Text -> Text
+bracket = surround ["[", "]"]
+
+
+supTitle :: Text -> Text -> Text
+supTitle title = surround brackets
+  where
+    brackets = [
+        "<sup title=\"" <> escaped_title <> "\">"
+      , "</sup>"
+      ]
+    escaped_title = LT.toStrict $ toLazyText $ HEB.text title
 
 
 heading :: Int -> Text -> Text
@@ -47,10 +58,6 @@ heading level title = T.unwords [
     mconcat $ replicate level "#"
   , title
   ]
-
-
-bracket :: Text -> Text
-bracket x = "[" <> x <> "]"
 
 
 link :: Text -> Text -> Text
@@ -109,7 +116,7 @@ bulletTree :: Forest (NonEmpty Text) -> Text
 bulletTree = T.unlines . concatMap (NE.toList . uncurry bulletize) . flattenWithDepth 0
 
 
--- | Generally call with 0 as the first argument
+-- | Typically should call this with 0 as the first argument
 flattenWithDepth :: Int -> Forest a -> [(Int, a)]
 flattenWithDepth depth = concatMap go
   where

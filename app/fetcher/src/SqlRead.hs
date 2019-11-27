@@ -2615,7 +2615,7 @@ apiIsolatedPatternFailuresTimespan time_bounds = do
         , "min_commit_number"
         , "max_commit_number"
         , "patterns_rich.id IS NOT NULL AS has_pattern_match"
-        , "patterns_rich.is_network"
+        , "COALESCE(patterns_rich.is_network, FALSE)"
         ]
       , "FROM"
       , Q.parens inner_sql
@@ -2809,7 +2809,6 @@ apiMasterBuilds ::
   -> DbIO (Either Text (DbHelpers.BenchmarkedResponse BuildResults.DbMasterBuildsBenchmarks BuildResults.MasterBuildsResponse))
 apiMasterBuilds timeline_parms = do
 
-
   last_update_time <- getLastCachedMasterGridRefreshTime
 
   conn <- ask
@@ -2821,7 +2820,7 @@ apiMasterBuilds timeline_parms = do
     let commit_bounds_tuple = DbHelpers.boundsAsTuple commit_id_bounds
 
     (code_breakages_time, code_breakage_ranges) <- MyUtils.timeThisFloat $ liftIO $
-      runReaderT (apiAnnotatedCodeBreakages commit_id_bounds) conn
+      runReaderT (apiAnnotatedCodeBreakages should_use_uncached_annotations commit_id_bounds) conn
 
     (builds_list_time, completed_builds) <- MyUtils.timeThisFloat $
       liftIO $ query conn builds_list_sql commit_bounds_tuple
@@ -2877,6 +2876,7 @@ apiMasterBuilds timeline_parms = do
     suppress_scheduled_builds = Pagination.should_suppress_scheduled_builds $
       Pagination.column_filtering timeline_parms
 
+    should_use_uncached_annotations = Pagination.should_use_uncached_annotations timeline_parms
 
     reversion_spans_sql = Q.qjoin [
         "SELECT"
@@ -3117,26 +3117,24 @@ annoatedCodeBreakagesFields = [
 
 -- | Filters by commit id range
 apiAnnotatedCodeBreakages ::
-     DbHelpers.InclusiveNumericBounds Int64
+     Bool
+  -> DbHelpers.InclusiveNumericBounds Int64
   -> DbIO [BuildResults.BreakageSpan Text ()]
-apiAnnotatedCodeBreakages commit_id_bounds = do
+apiAnnotatedCodeBreakages should_use_uncached_annotations commit_id_bounds = do
   conn <- ask
-  liftIO $ do
-    {-
-    MyUtils.debugList [
-        "SQL:"
-      , show sql
-      , "PARMS:"
-      , show commit_id_bounds
-      ]
-    -}
-    query conn sql $ DbHelpers.boundsAsTuple commit_id_bounds
+  liftIO $ query conn sql $ DbHelpers.boundsAsTuple commit_id_bounds
   where
+
+    source_table = if should_use_uncached_annotations
+      then "known_breakage_summaries_sans_impact"
+      else "known_breakage_summaries_sans_impact_mview"
+
     sql = Q.qjoin [
         "SELECT"
       , Q.list annoatedCodeBreakagesFields
-      , "FROM known_breakage_summaries_sans_impact"
-      , "WHERE int8range(?, ?, '[]') && int8range(cause_commit_index, resolved_commit_index)"
+      , "FROM"
+      , source_table
+      , "WHERE int8range(?, ?, '[]') && commit_index_span"
       , "ORDER BY cause_commit_index DESC;"
       ]
 
