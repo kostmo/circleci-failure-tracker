@@ -1,6 +1,5 @@
-{-# LANGUAGE DeriveAnyClass        #-}
-{-# LANGUAGE DeriveGeneric         #-}
-{-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric  #-}
 
 module PostedComments where
 
@@ -21,7 +20,7 @@ data PostedComment = PostedComment {
   , _github_user_login :: AuthStages.Username
   , _body              :: Text
   , _created_at        :: UTCTime
-  , _created_at        :: UTCTime
+  , _updated_at        :: UTCTime
   , _revision_count    :: Int
   } deriving (Generic, FromRow)
 

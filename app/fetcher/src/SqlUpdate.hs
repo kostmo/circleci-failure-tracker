@@ -24,11 +24,10 @@ import qualified Constants
 import qualified DbHelpers
 import qualified GitRev
 import qualified JsonUtils
-import qualified MergeBase
 import qualified MyUtils
+import qualified QueryUtils                 as Q
 import qualified SqlRead
 import qualified SqlWrite
-import qualified QueryUtils as Q
 
 
 pytorchRepoOwner :: DbHelpers.OwnerAndRepo
@@ -154,7 +153,18 @@ getBuildInfo access_token build@(Builds.UniversalBuildId build_id) = do
           finished_at
 
     sql = Q.qjoin [
-        "SELECT step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch, started_at, finished_at"
+        "SELECT"
+      , Q.list [
+          "step_id"
+        , "step_name"
+        , "build_num"
+        , "vcs_revision"
+        , "queued_at"
+        , "job_name"
+        , "branch"
+        , "started_at"
+        , "finished_at"
+        ]
       , "FROM builds_join_steps"
       , "WHERE universal_build = ?;"
       ]
@@ -178,10 +188,7 @@ countRevisionBuilds access_token git_revision = do
 
   (row_retrieval_time, rows) <- MyUtils.timeThisFloat $ liftIO $ query conn aggregate_causes_sql only_commit
 
-  liftIO $ do
-
-   runExceptT $ do
-
+  liftIO $ runExceptT $ do
 
     let err = T.pack $ unwords [
             "No entries in"
@@ -242,12 +249,11 @@ countRevisionBuilds access_token git_revision = do
 
 -- TODO This is not finished!
 diagnoseCommitsBatch ::
-     Maybe FilePath
-  -> Connection
+     Connection
   -> OAuth2.AccessToken
   -> DbHelpers.OwnerAndRepo
   -> IO (Either Text ())
-diagnoseCommitsBatch maybe_local_repo_path conn access_token owned_repo =
+diagnoseCommitsBatch conn access_token owned_repo =
 
   runExceptT $ do
 
@@ -256,26 +262,6 @@ diagnoseCommitsBatch maybe_local_repo_path conn access_token owned_repo =
     ExceptT $ SqlWrite.populateLatestMasterCommits conn access_token owned_repo
 
     non_master_uncached_failed_commits <- liftIO $ query_ conn commit_list_sql
-
-    unprocessed_commits <- ExceptT $ case maybe_local_repo_path of
-      Just repo_git_dir -> runExceptT $ do
-        (unprocessed, computed_commits) <- liftIO $ MergeBase.computeMergeBasesLocally
-          repo_git_dir
-          non_master_uncached_failed_commits
-
-        liftIO $ MyUtils.debugList [
-            "Computed"
-          , show $ length computed_commits
-          , "merge bases locally, with"
-          , show $ length unprocessed
-          , "left over."
-          ]
-
-        ExceptT $ SqlWrite.storeCachedMergeBases conn computed_commits
-
-        return unprocessed
-
-      Nothing -> return $ return non_master_uncached_failed_commits
 
 
     all_master_commits <- liftIO $ SqlRead.getAllMasterCommits conn
@@ -288,7 +274,8 @@ diagnoseCommitsBatch maybe_local_repo_path conn access_token owned_repo =
       all_master_commits
       access_token
       owned_repo
-      unprocessed_commits
+      non_master_uncached_failed_commits
+
 
 --    mapM_ (ExceptT . findKnownBuildBreakages conn access_token owned_repo) sha1_list
 

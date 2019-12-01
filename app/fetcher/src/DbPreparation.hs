@@ -42,16 +42,25 @@ allTableTruncations :: [Query]
 allTableTruncations = scanTruncations ++ buildDataTruncations
 
 
-prepareDatabase :: DbHelpers.DbConnectionData -> Bool -> IO Connection
+-- | Not currently used
+wipeAndRepopulateDb :: Connection -> IO ()
+wipeAndRepopulateDb conn = do
+  scrubTables conn
+  runReaderT PatternsFetch.populatePatterns conn
+  SqlWrite.populatePresumedStableBranches conn Constants.presumedGoodBranches
+  return ()
+
+
+prepareDatabase ::
+  DbHelpers.DbConnectionData
+  -> Bool -> IO Connection
 prepareDatabase conn_data wipe = do
 
   conn <- DbHelpers.get_connection conn_data
 
-  when wipe $ do
-    scrubTables conn
-    runReaderT PatternsFetch.populatePatterns conn
-    SqlWrite.populatePresumedStableBranches conn Constants.presumedGoodBranches
-    return ()
+  when wipe $
+    putStrLn "Wiping not supported."
+
   return conn
 
 

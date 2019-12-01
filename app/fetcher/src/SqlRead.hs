@@ -1016,9 +1016,17 @@ apiUnmatchedCommitBuilds ::
   -> DbIO (Either Text [WebApi.UnmatchedBuild])
 apiUnmatchedCommitBuilds (Builds.RawCommit sha1) = do
   conn <- ask
-  liftIO $ PostgresHelpers.catchDatabaseError catcher $ do
-    xs <- query conn sql $ Only sha1
-    return $ Right xs
+  liftIO $ do
+    MyUtils.debugList [
+        "SQL:"
+      , show sql
+      , "ARGS:"
+      , show sha1
+      ]
+
+    PostgresHelpers.catchDatabaseError catcher $ do
+      xs <- query conn sql $ Only sha1
+      return $ Right xs
   where
 
     catcher _ (PostgresHelpers.QueryCancelled some_error) = return $ Left $ "Query error in apiUnmatchedCommitBuilds: " <> T.pack (BS.unpack some_error)
@@ -1619,7 +1627,7 @@ apiAutocompleteSteps :: Text -> DbIO [Text]
 apiAutocompleteSteps = listFlat1X $ Q.qjoin [
     "SELECT name FROM"
   , "(SELECT name, COUNT(*) AS freq FROM"
-  , "build_steps_deduped_mitigation WHERE name IS NOT NULL"
+  , "build_steps WHERE name IS NOT NULL"
   , "GROUP BY name ORDER BY freq DESC, name ASC) foo"
   , "WHERE name ILIKE CONCAT(?,'%');"
   ]
@@ -1627,7 +1635,7 @@ apiAutocompleteSteps = listFlat1X $ Q.qjoin [
 
 apiListSteps :: DbIO [Text]
 apiListSteps = listFlat $ Q.qjoin [
-    "SELECT name FROM build_steps_deduped_mitigation"
+    "SELECT name FROM build_steps"
   , "WHERE name IS NOT NULL"
   , "GROUP BY name"
   , "ORDER BY COUNT(*) DESC, name ASC;"
@@ -3312,9 +3320,9 @@ apiSummaryStats = do
  conn <- ask
  liftIO $ do
   [Only build_count] <- query_ conn "SELECT COUNT(*) FROM global_builds"
-  [Only visited_count] <- query_ conn "SELECT COUNT(*) FROM build_steps_deduped_mitigation"
-  [Only explained_count] <- query_ conn "SELECT COUNT(*) FROM build_steps_deduped_mitigation WHERE name IS NOT NULL"
-  [Only timeout_count] <- query_ conn "SELECT COUNT(*) FROM build_steps_deduped_mitigation WHERE is_timeout"
+  [Only visited_count] <- query_ conn "SELECT COUNT(*) FROM build_steps"
+  [Only explained_count] <- query_ conn "SELECT COUNT(*) FROM build_steps WHERE name IS NOT NULL"
+  [Only timeout_count] <- query_ conn "SELECT COUNT(*) FROM build_steps WHERE is_timeout"
   [Only matched_steps_count] <- query_ conn "SELECT COUNT(*) FROM (SELECT build_step FROM public.matches_distinct GROUP BY build_step) x"
   [Only unattributed_failed_builds] <- query_ conn "SELECT COUNT(*) FROM unattributed_failed_builds"
   [Only idiopathic_build_failures] <- query_ conn "SELECT COUNT(*) FROM idiopathic_build_failures"
@@ -3471,11 +3479,11 @@ getBuildPatternMatches (Builds.UniversalBuildId build_id) = do
         , "specificity"
         ]
       , "FROM matches_with_log_metadata"
-      , "JOIN build_steps_deduped_mitigation"
-      , "ON matches_with_log_metadata.build_step = build_steps_deduped_mitigation.id"
+      , "JOIN build_steps"
+      , "ON matches_with_log_metadata.build_step = build_steps.id"
       , "JOIN patterns_augmented"
       , "ON patterns_augmented.id = matches_with_log_metadata.pattern"
-      , "WHERE build_steps_deduped_mitigation.universal_build = ?"
+      , "WHERE build_steps.universal_build = ?"
       , "ORDER BY specificity DESC, patterns_augmented.id ASC, line_number ASC;"
       ]
 

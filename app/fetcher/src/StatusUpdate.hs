@@ -387,7 +387,9 @@ postCommitSummaryStatus
 
   -- TODO This should return the actual jobs that failed, rather than
   -- just the count
-  basic_revision_stats <- ExceptT $ runReaderT (SqlRead.getNonPatternMatchRevisionStats sha1) conn
+  -- TODO This query also tends to be slow
+  let f = SqlRead.getNonPatternMatchRevisionStats sha1
+  basic_revision_stats <- ExceptT $ runReaderT f conn
 
   let (SqlRead.BasicRevisionBuildStats _ _ _ _ _ circleci_failcount) = basic_revision_stats
 
