@@ -416,9 +416,16 @@ insertSingleUniversalBuild ::
      Connection
   -> Builds.UniversalBuild
   -> IO (DbHelpers.WithId Builds.UniversalBuild)
-insertSingleUniversalBuild conn uni_build@(Builds.UniversalBuild (Builds.NewBuildNumber provider_buildnum) provider_id build_namespace succeeded (Builds.RawCommit sha1)) = do
-  [Only new_id] <- query conn sqlInsertUniversalBuild (provider_id, provider_buildnum, build_namespace, succeeded, sha1)
+insertSingleUniversalBuild
+    conn
+    uni_build = do
+
+  [Only new_id] <- query conn sqlInsertUniversalBuild tup
   return $ DbHelpers.WithId new_id uni_build
+
+  where
+    tup = (provider_id, provider_buildnum, build_namespace, succeeded, sha1)
+    Builds.UniversalBuild (Builds.NewBuildNumber provider_buildnum) provider_id build_namespace succeeded (Builds.RawCommit sha1) = uni_build
 
 
 -- | We handle de-duplication of provider-build records

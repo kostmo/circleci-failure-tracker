@@ -1,3 +1,19 @@
+function gen_analysis_text(counts_obj) {
+
+	if (counts_obj["failed_build_count"] == 0) {
+		return render_tag("span", "No CircleCI builds failed.", {"style": "color: green;"});
+
+	} else if (counts_obj["failed_build_count"] == counts_obj["flaky_build_count"]) {
+		return render_tag("span", "All of the CircleCI build failures were due to intermittent causes. Consider rerunning them.", {"style": "color: green;"});
+
+	} else if (counts_obj["failed_build_count"] == counts_obj["total_matched_build_count"]) {
+		return "All of the CircleCI build failures matched with predefined patterns.";
+	} else {
+		return "Some of the build failure causes weren't determined. Please investigate below.";
+	}
+}
+
+
 function populate_commit_info(commit_sha1, data) {
 
 	const github_link = link("View on GitHub", "https://github.com/pytorch/pytorch/commits/" + commit_sha1);
@@ -17,20 +33,7 @@ function populate_commit_info(commit_sha1, data) {
 
 	const stats_table = render_table_vertical_headers(items);
 
-	var analysis_text;
-
-	if (counts_obj["failed_build_count"] == 0) {
-		analysis_text = render_tag("span", "No CircleCI builds failed.", {"style": "color: green;"});
-
-	} else if (counts_obj["failed_build_count"] == counts_obj["flaky_build_count"]) {
-		analysis_text = render_tag("span", "All of the CircleCI build failures were due to intermittent causes. Consider rerunning them.", {"style": "color: green;"});
-
-	} else if (counts_obj["failed_build_count"] == counts_obj["total_matched_build_count"]) {
-		analysis_text = "All of the CircleCI build failures matched with predefined patterns.";
-	} else {
-		analysis_text = "Some of the build failure causes weren't determined. Please investigate below.";
-	}
-
+	const analysis_text = gen_analysis_text(counts_obj);
 	const analysis_summary_items = [
 		render_tag("h3", "Analysis"),
 		render_tag("p", analysis_text),
@@ -216,7 +219,13 @@ function main() {
 
 	const commit_sha1 = get_scrubbed_sha1();
 
-	fetch_commit_info(commit_sha1);
+//	fetch_commit_info(commit_sha1);
+
+	// TODO Remove this, re-enable above
+	const github_link = link("View on GitHub", "https://github.com/pytorch/pytorch/commits/" + commit_sha1);
+        $("#commit-info-box").html(github_link);
+
+
 	gen_builds_table("builds-table", "/api/commit-builds?sha1=" + commit_sha1);
 
 	gen_unmatched_build_list("/api/unmatched-builds-for-commit?sha1=" + commit_sha1, "container-unattributed-failures");

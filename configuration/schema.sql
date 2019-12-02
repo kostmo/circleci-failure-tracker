@@ -578,7 +578,8 @@ CREATE VIEW public.global_builds WITH (security_barrier='false') AS
     universal_builds.x_ci_provider_scan AS ci_provider_scan,
     master_commit_circleci_scheduled_job_discrimination.is_scheduled AS maybe_is_scheduled
    FROM (public.universal_builds
-     LEFT JOIN public.master_commit_circleci_scheduled_job_discrimination ON (((universal_builds.x_job_name = master_commit_circleci_scheduled_job_discrimination.job_name) AND (universal_builds.commit_sha1 = master_commit_circleci_scheduled_job_discrimination.commit_sha1))));
+     LEFT JOIN public.master_commit_circleci_scheduled_job_discrimination ON (((universal_builds.x_job_name = master_commit_circleci_scheduled_job_discrimination.job_name) AND (universal_builds.commit_sha1 = master_commit_circleci_scheduled_job_discrimination.commit_sha1))))
+  WHERE (universal_builds.x_job_name IS NOT NULL);
 
 
 ALTER TABLE public.global_builds OWNER TO postgres;
@@ -1628,7 +1629,7 @@ CREATE VIEW public.build_failure_standalone_causes WITH (security_barrier='false
     COALESCE(best_pattern_match_for_builds.is_network, false) AS is_network
    FROM ((public.global_builds
      LEFT JOIN public.build_steps ON ((build_steps.universal_build = global_builds.global_build_num)))
-     LEFT JOIN public.best_pattern_match_for_builds ON ((best_pattern_match_for_builds.universal_build = global_builds.global_build_num)));
+     LEFT JOIN public.best_pattern_match_for_builds ON (((NOT global_builds.succeeded) AND (best_pattern_match_for_builds.universal_build = global_builds.global_build_num))));
 
 
 ALTER TABLE public.build_failure_standalone_causes OWNER TO postgres;

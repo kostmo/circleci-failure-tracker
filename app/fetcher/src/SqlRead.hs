@@ -1686,17 +1686,13 @@ getNonPatternMatchRevisionStats (Builds.RawCommit sha1) = do
       ]
 
 
-getBuildsParameterized :: ToRow q =>
-     q
+genBestBuildMatchQuery ::
+     [Query]
   -> [Query]
-  -> DbIO (DbHelpers.BenchmarkedResponse Float [CommitBuilds.CommitBuild])
-getBuildsParameterized sql_parms sql_where_conditions = do
-  conn <- ask
-
-  (timing, content) <- MyUtils.timeThisFloat $ liftIO $ query conn sql sql_parms
-  return $ DbHelpers.BenchmarkedResponse timing content
+  -> Query
+genBestBuildMatchQuery fields_to_fetch sql_where_conditions =
+  sql
   where
-
     -- TODO FIXME
     -- This is copying the logic from multiple nested views so that
     -- a query for a single git revision is optimized.
@@ -1706,34 +1702,9 @@ getBuildsParameterized sql_parms sql_where_conditions = do
     -- See Github Issue #52
     sql = Q.qjoin [
         "SELECT"
-      , Q.list [
-          "build_steps.name AS step_name"
-        , "match_id"
-        , "build"
-        , "global_builds.vcs_revision"
-        , "queued_at"
-        , "job_name"
-        , "branch"
-        , "pattern_id"
-        , "line_number"
-        , "line_count"
-        , "line_text"
-        , "span_start"
-        , "span_end"
-        , "specificity"
-        , "global_builds.global_build_num AS universal_build"
-        , "provider"
-        , "build_namespace"
-        , "succeeded"
-        , "label"
-        , "icon_url"
-        , "started_at"
-        , "finished_at"
-        , "FALSE as is_timeout"
-        ]
+      , Q.list fields_to_fetch
       , "FROM"
-      , Q.parens best_match_subquery_sql
-      , "best_pattern_match_for_builds"
+      , Q.aliasedSubquery best_match_subquery_sql "best_pattern_match_for_builds"
       , "JOIN matches ON matches.id = best_pattern_match_for_builds.match_id"
       , "JOIN log_metadata ON log_metadata.step = best_pattern_match_for_builds.step_id"
       , "JOIN global_builds ON global_builds.global_build_num = best_pattern_match_for_builds.universal_build"
@@ -1742,71 +1713,98 @@ getBuildsParameterized sql_parms sql_where_conditions = do
       , "ON ci_providers.id = global_builds.provider"
       ]
 
+    best_match_subquery_sql = genBestMatchesSubquery sql_where_conditions
 
-    best_match_subquery_sql = Q.qjoin [
-        "SELECT DISTINCT ON (matches_for_build.universal_build)"
-      , Q.list [
-          "matches_for_build.build"
-        , "matches_for_build.pat AS pattern_id"
-        , "patterns_rich.expression"
-        , "patterns_rich.regex"
-        , "patterns_rich.is_retired"
-        , "patterns_rich.specificity"
-        , "matches_for_build.universal_build"
-        , "matches_for_build.match_id"
-        , "matches_for_build.step_id"
-        , "matches_for_build.vcs_revision"
-        ]
-      , "FROM matches_for_build"
-      , "JOIN patterns_rich ON matches_for_build.pat = patterns_rich.id"
-      , "WHERE"
-      , Q.qconjunction sql_where_conditions
-        -- BEWARE OF DIVERGENCE OF THIS LOGIC!
-      , "ORDER BY"
-      , Q.list [
-          "matches_for_build.universal_build"
-        , "patterns_rich.specificity DESC"
-        , "patterns_rich.is_retired"
-        , "patterns_rich.regex"
-        , "patterns_rich.id DESC"
-        , "matches_for_build.match_id DESC"
-        ]
+
+getBuildsParameterized :: ToRow q =>
+     [Query]
+  -> q
+  -> [Query]
+  -> DbIO (DbHelpers.BenchmarkedResponse Float [CommitBuilds.CommitBuild])
+getBuildsParameterized fields_to_fetch sql_parms sql_where_conditions = do
+  conn <- ask
+
+  (timing, content) <- MyUtils.timeThisFloat $ liftIO $ query conn sql sql_parms
+  return $ DbHelpers.BenchmarkedResponse timing content
+  where
+    sql = genBestBuildMatchQuery fields_to_fetch sql_where_conditions
+
+
+genBestMatchesSubquery :: [Query] -> Query
+genBestMatchesSubquery sql_where_conditions = Q.qjoin [
+    "SELECT DISTINCT ON"
+  , Q.parens "inner_matches_for_build.universal_build"
+  , Q.list [
+      "build_num AS build"
+    , "pattern AS pattern_id"
+    , "expression"
+    , "regex"
+    , "is_retired"
+    , "specificity"
+    , "universal_build"
+    , "match_id"
+    , "step_id"
+    , "vcs_revision"
+    ]
+  , "FROM"
+  , Q.aliasedSubquery build_matches_subquery "inner_matches_for_build"
+  , "JOIN patterns"
+  , "ON inner_matches_for_build.pattern = patterns.id"
+  , "ORDER BY"
+  , Q.list [
+      "inner_matches_for_build.universal_build"
+    , "patterns.specificity DESC"
+    , "patterns.is_retired"
+    , "patterns.regex"
+    , "patterns.id DESC"
+    , "inner_matches_for_build.match_id DESC"
+    ]
+  ]
+
+  where
+    build_matches_subquery = genAllBuildMatchesSubquery sql_where_conditions
+
+
+genAllBuildMatchesSubquery :: [Query] -> Query
+genAllBuildMatchesSubquery sql_where_conditions = Q.qjoin [
+      "SELECT DISTINCT ON"
+    , Q.parens $ Q.list [
+        "step_id"
+      , "pattern"
+      , "line_number"
       ]
-
-
-    -- THIS is not used for now; it is perserved so that at some point
-    -- we can go back to this simpler query.
-    _sql_unoptimized = Q.qjoin [
-        "SELECT"
-      , Q.list [
-          "step_name"
-        , "match_id"
-        , "build"
-        , "vcs_revision"
-        , "queued_at"
-        , "job_name"
-        , "branch"
-        , "pattern_id"
-        , "line_number"
-        , "line_count"
-        , "line_text"
-        , "span_start"
-        , "span_end"
-        , "specificity"
-        , "universal_build"
-        , "provider"
-        , "build_namespace"
-        , "succeeded"
-        , "label"
-        , "icon_url"
-        , "started_at"
-        , "finished_at"
-        ]
-      , "FROM best_pattern_match_augmented_builds"
-      , "JOIN ci_providers"
-      , "ON ci_providers.id = best_pattern_match_augmented_builds.provider"
-      , "WHERE vcs_revision = ?;"
+    , "*"
+    , "FROM"
+    , Q.aliasedSubquery filtered_matches_subquery "filtered_matches"
+    , "ORDER BY"
+    , Q.list [
+        "step_id"
+      , "pattern"
+      , "line_number"
+      , "match_id DESC"
       ]
+    ]
+  where
+  filtered_matches_subquery = Q.parens $ Q.qjoin [
+      "SELECT"
+    , Q.list [
+        "matches.pattern"
+      , "builds_join_steps.build_num"
+      , "builds_join_steps.step_name"
+      , "builds_join_steps.universal_build"
+      , "matches.id AS match_id"
+      , "matches.build_step AS step_id"
+      , "matches.line_number"
+      , "matches.line_text"
+      , "matches.span_start"
+      , "matches.span_end"
+      , "builds_join_steps.vcs_revision"
+      ]
+    , "FROM matches"
+    , "JOIN builds_join_steps ON matches.build_step = builds_join_steps.step_id"
+    , "WHERE"
+    , Q.qconjunction sql_where_conditions
+    ]
 
 
 -- | For commit-details page
@@ -1816,11 +1814,10 @@ getRevisionBuilds ::
 getRevisionBuilds git_revision = do
   conn <- ask
   liftIO $ PostgresHelpers.catchDatabaseError catcher $ do
-    x <- runReaderT (getBuildsParameterized sql_parms sql_where_conditions) conn
+    x <- runReaderT (getBuildsParameterized fields_to_fetch sql_parms sql_where_conditions) conn
     return $ Right x
 
   where
-
     catcher _ (PostgresHelpers.QueryCancelled some_error) = return $ Left $ "Query error in getRevisionBuilds: " <> T.pack (BS.unpack some_error)
     catcher e _                                  = throwIO e
 
@@ -1828,6 +1825,32 @@ getRevisionBuilds git_revision = do
     sql_parms = Only $ GitRev.sha1 git_revision
     sql_where_conditions = [
         "vcs_revision = ?"
+      ]
+
+    fields_to_fetch = [
+        "build_steps.name AS step_name"
+      , "match_id"
+      , "build"
+      , "global_builds.vcs_revision"
+      , "queued_at"
+      , "job_name"
+      , "branch"
+      , "pattern_id"
+      , "line_number"
+      , "line_count"
+      , "line_text"
+      , "span_start"
+      , "span_end"
+      , "specificity"
+      , "global_builds.global_build_num AS universal_build"
+      , "provider"
+      , "build_namespace"
+      , "succeeded"
+      , "label"
+      , "icon_url"
+      , "started_at"
+      , "finished_at"
+      , "FALSE as is_timeout"
       ]
 
 
@@ -2822,25 +2845,38 @@ apiMasterBuilds timeline_parms = do
   conn <- ask
   liftIO $ runExceptT $ do
 
+    liftIO $ putStrLn "FOO A"
     (commits_list_time, (commit_id_bounds, master_commits)) <- MyUtils.timeThisFloat $
       ExceptT $ getMasterCommits conn $ Pagination.offset_mode timeline_parms
+
+    liftIO $ putStrLn "FOO B"
 
     let commit_bounds_tuple = DbHelpers.boundsAsTuple commit_id_bounds
 
     (code_breakages_time, code_breakage_ranges) <- MyUtils.timeThisFloat $ liftIO $
       runReaderT (apiAnnotatedCodeBreakages should_use_uncached_annotations commit_id_bounds) conn
 
+    liftIO $ putStrLn "FOO C"
+
     (builds_list_time, completed_builds) <- MyUtils.timeThisFloat $
       liftIO $ query conn builds_list_sql commit_bounds_tuple
+
+    liftIO $ putStrLn "FOO D"
 
     (reversion_spans_time, reversion_spans) <- MyUtils.timeThisFloat $
       liftIO $ query conn reversion_spans_sql commit_bounds_tuple
 
+    liftIO $ putStrLn "FOO E"
+
     (job_failure_spans_time, job_failure_spans) <- MyUtils.timeThisFloat $
       liftIO $ getBreakageSpans conn commit_id_bounds
 
+    liftIO $ putStrLn "FOO F"
+
     (disjoint_statuses_time, disjoint_statuses) <- MyUtils.timeThisFloat $
       liftIO $ query conn disjoint_statuses_sql commit_bounds_tuple
+
+    liftIO $ putStrLn "FOO G"
 
     let (successful_builds, failed_builds) = partition
           (BuildResults.isSuccess . BuildResults._failure_mode)
@@ -2915,13 +2951,6 @@ apiMasterBuilds timeline_parms = do
       , "ON ordered_master_commits.sha1 = github_status_events_circleci_success.sha1"
       , "WHERE int8range(?, ?, '[]') @> ordered_master_commits.id::int8"
       ]
-
-    {-
-      , "FROM disjoint_circleci_build_statuses"
-      , "WHERE int8range(?, ?, '[]') @> commit_id::int8"
-      ]
-    -}
-
 
 
     filtered_statement_parts = MyUtils.applyIf
@@ -3096,7 +3125,7 @@ apiListFailureModes = runQuery $ Q.qjoin [
   ]
 
 
-annoatedCodeBreakagesFields = [
+annotatedCodeBreakagesFields = [
     "cause_id"
   , "cause_commit_index"
   , "cause_sha1"
@@ -3139,7 +3168,7 @@ apiAnnotatedCodeBreakages should_use_uncached_annotations commit_id_bounds = do
 
     sql = Q.qjoin [
         "SELECT"
-      , Q.list annoatedCodeBreakagesFields
+      , Q.list annotatedCodeBreakagesFields
       , "FROM"
       , source_table
       , "WHERE int8range(?, ?, '[]') && commit_index_span"
@@ -3149,7 +3178,7 @@ apiAnnotatedCodeBreakages should_use_uncached_annotations commit_id_bounds = do
 
 sqlPrefixAnnotatedCodeBreakagesWithImpact = Q.qjoin [
     "SELECT"
-  , Q.list $ annoatedCodeBreakagesFields ++ [
+  , Q.list $ annotatedCodeBreakagesFields ++ [
       "downstream_broken_commit_count"
     , "failed_downstream_build_count"
     , "github_pr_number"
@@ -3427,8 +3456,24 @@ dumpPatterns = map f <$> runQuery q
 
     split_texts = sort . map T.pack . DbHelpers.splitAggText
 
-    f (author, created, pattern_id, is_regex, expression, has_nondeterministic_values, description, tags, steps, specificity, is_retired, lines_from_end) =
-      DbHelpers.WithAuthorship author created $ wrapPattern pattern_id is_regex expression has_nondeterministic_values description
+    f ( author
+      , created
+      , pattern_id
+      , is_regex
+      , expression
+      , has_nondeterministic_values
+      , description
+      , tags
+      , steps
+      , specificity
+      , is_retired
+      , lines_from_end
+      ) = DbHelpers.WithAuthorship author created $ wrapPattern
+        pattern_id
+        is_regex
+        expression
+        has_nondeterministic_values
+        description
         (split_texts tags)
         (split_texts steps)
         specificity
@@ -3462,15 +3507,16 @@ getBuildPatternMatches ::
   -> DbIO (DbHelpers.BenchmarkedResponse Float [MatchOccurrences.MatchOccurrencesForBuild])
 getBuildPatternMatches (Builds.UniversalBuildId build_id) = do
   conn <- ask
+
   (timing, result) <- MyUtils.timeThisFloat $ liftIO $ query conn sql $ Only build_id
   return $ DbHelpers.BenchmarkedResponse timing result
   where
     sql = Q.qjoin [
         "SELECT"
       , Q.list [
-          "step_name"
+          "build_steps.name AS step_name"
         , "pattern"
-        , "matches_with_log_metadata.id"
+        , "match_id"
         , "line_number"
         , "line_count"
         , "line_text"
@@ -3478,14 +3524,19 @@ getBuildPatternMatches (Builds.UniversalBuildId build_id) = do
         , "span_end"
         , "specificity"
         ]
-      , "FROM matches_with_log_metadata"
+      , "FROM"
+      , Q.aliasedSubquery build_matches_subquery "all_build_matches"
       , "JOIN build_steps"
-      , "ON matches_with_log_metadata.build_step = build_steps.id"
-      , "JOIN patterns_augmented"
-      , "ON patterns_augmented.id = matches_with_log_metadata.pattern"
-      , "WHERE build_steps.universal_build = ?"
-      , "ORDER BY specificity DESC, patterns_augmented.id ASC, line_number ASC;"
+      , "ON all_build_matches.step_id = build_steps.id"
+      , "JOIN log_metadata"
+      , "ON log_metadata.step = build_steps.id"
+      , "JOIN patterns"
+      , "ON all_build_matches.pattern = patterns.id"
+      , "ORDER BY specificity DESC, pattern ASC, line_number ASC"
       ]
+
+    sql_where_conditions = ["universal_build = ?"]
+    build_matches_subquery = genAllBuildMatchesSubquery sql_where_conditions
 
 
 data StorageStats = StorageStats {
@@ -3645,28 +3696,27 @@ getBestBuildMatch ubuild_id@(Builds.UniversalBuildId build_id) = do
         , queued_at
         , job_name
         , branch
-        , ubuild_id)
+        , ubuild_id
+        )
 
-    sql = Q.qjoin [
-        "SELECT"
-      , Q.list [
-          "pattern_id"
-        , "build"
-        , "step_name"
-        , "match_id"
-        , "line_number"
-        , "line_count"
-        , "line_text"
-        , "span_start"
-        , "span_end"
-        , "vcs_revision"
-        , "queued_at"
-        , "job_name"
-        , "branch"
-        ]
-      , "FROM best_pattern_match_augmented_builds"
-      , "WHERE universal_build = ?;"
+    fields_to_fetch = [
+        "pattern_id"
+      , "build"
+      , "build_steps.name AS step_name"
+      , "match_id"
+      , "line_number"
+      , "line_count"
+      , "line_text"
+      , "span_start"
+      , "span_end"
+      , "global_builds.vcs_revision"
+      , "queued_at"
+      , "job_name"
+      , "branch"
       ]
+
+    sql_where_conditions = ["universal_build = ?"]
+    sql = genBestBuildMatchQuery fields_to_fetch sql_where_conditions
 
 
 data LogContext = LogContext {

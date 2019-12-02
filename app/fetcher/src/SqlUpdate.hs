@@ -135,7 +135,17 @@ getBuildInfo access_token build@(Builds.UniversalBuildId build_id) = do
         storable_build
 
   where
-    f multi_match_count (step_id, step_name, build_num, vcs_revision, queued_at, job_name, branch, started_at, finished_at) = (multi_match_count, step_container)
+    f multi_match_count (
+        step_id
+      , step_name
+      , build_num
+      , vcs_revision
+      , queued_at
+      , job_name
+      , branch
+      , started_at
+      , finished_at
+      ) = (multi_match_count, step_container)
       where
         step_container = BuildSteps.NewBuildStep
           step_name
@@ -186,6 +196,12 @@ countRevisionBuilds ::
 countRevisionBuilds access_token git_revision = do
   conn <- ask
 
+  liftIO $ MyUtils.debugList [
+      "SQL query for countRevisionBuilds:"
+    , show aggregate_causes_sql
+    , "PARMS:"
+    , show only_commit
+    ]
   (row_retrieval_time, rows) <- MyUtils.timeThisFloat $ liftIO $ query conn aggregate_causes_sql only_commit
 
   liftIO $ runExceptT $ do
@@ -197,8 +213,7 @@ countRevisionBuilds access_token git_revision = do
           , T.unpack $ GitRev.sha1 git_revision
           ]
 
-    (
-        total
+    (   total
       , idiopathic
       , timeout
       , known_broken

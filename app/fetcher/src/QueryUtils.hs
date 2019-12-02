@@ -25,6 +25,13 @@ parens :: Query -> Query
 parens = mconcat . (`intersperse` ["(", ")"])
 
 
+aliasedSubquery :: Query -> Query -> Query
+aliasedSubquery subquery alias = qjoin [
+    parens subquery
+  , alias
+  ]
+
+
 -- | Counts the number of fields to ensure
 -- the correct number of question marks
 insertionValues :: [Query] -> Query
