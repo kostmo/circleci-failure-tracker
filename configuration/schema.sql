@@ -256,30 +256,28 @@ CREATE VIEW lambda_logging.materialized_view_refresh_event_stats WITH (security_
 ALTER TABLE lambda_logging.materialized_view_refresh_event_stats OWNER TO postgres;
 
 --
--- Name: builds; Type: TABLE; Schema: public; Owner: postgres
+-- Name: cached_master_merge_base; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE TABLE public.builds (
-    queued_at timestamp with time zone,
-    job_name text NOT NULL,
-    branch character varying,
-    succeeded boolean,
-    started_at timestamp with time zone,
-    finished_at timestamp with time zone,
-    global_build_num integer NOT NULL,
-    ci_provider_scan integer
+CREATE TABLE public.cached_master_merge_base (
+    branch_commit character(40) NOT NULL,
+    master_commit character(40) NOT NULL,
+    computation_timestamp timestamp without time zone DEFAULT now() NOT NULL,
+    distance integer NOT NULL
 );
 
 
-ALTER TABLE public.builds OWNER TO postgres;
+ALTER TABLE public.cached_master_merge_base OWNER TO postgres;
 
 --
--- Name: TABLE builds; Type: COMMENT; Schema: public; Owner: postgres
+-- Name: TABLE cached_master_merge_base; Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON TABLE public.builds IS 'In contrast with the "universal_builds" table, this is information that may be fetched using a provider-specific API and may be populated asynchronously from the "universal_builds" info which is available from the GitHub status notification.
+COMMENT ON TABLE public.cached_master_merge_base IS 'Caches the computed "merge base" of a PR commit with the master branch.
 
-The "ci_provider_scan" field is optional; it can link a build record back to the CI provider-specific scan from which it was obtained.';
+In general, it would be possible for the merge base to change over time if the master branch is advanced to a more recent ancestor (up to and including the HEAD) of the PR branch.  In practice, however, this will not happen in the Facebook mirrored repo configuration, as a novel commit is produced for every change to the master branch.
+
+Therefore, this cache of merge bases never needs to be invalidated.';
 
 
 --
@@ -361,153 +359,6 @@ ALTER TABLE public.circleci_workflows_by_yaml_file OWNER TO postgres;
 --
 
 COMMENT ON TABLE public.circleci_workflows_by_yaml_file IS 'CircleCI config.yml files are identified uniquely by the SHA1 of their contents in the Git repo.';
-
-
---
--- Name: master_commit_circleci_scheduled_job_discrimination; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.master_commit_circleci_scheduled_job_discrimination WITH (security_barrier='false') AS
- SELECT foo.job_name,
-    foo.commit_sha1,
-    bool_and(foo.is_scheduled) AS is_scheduled,
-    count(*) AS count
-   FROM ( SELECT circleci_workflow_jobs.job_name,
-            circleci_expanded_config_yaml_hashes_by_commit.commit_sha1,
-            ((circleci_workflow_schedules.cron_schedule IS NOT NULL) OR COALESCE(bar.not_run_on_master, false)) AS is_scheduled
-           FROM ((((public.circleci_workflow_jobs
-             JOIN public.circleci_workflows_by_yaml_file ON ((circleci_workflows_by_yaml_file.id = circleci_workflow_jobs.workflow)))
-             JOIN public.circleci_expanded_config_yaml_hashes_by_commit ON ((circleci_expanded_config_yaml_hashes_by_commit.repo_yaml_sha1 = circleci_workflows_by_yaml_file.yaml_content_sha1)))
-             LEFT JOIN public.circleci_workflow_schedules ON ((circleci_workflows_by_yaml_file.id = circleci_workflow_schedules.workflow)))
-             LEFT JOIN ( SELECT foo_1.workflow,
-                    foo_1.job_name,
-                    (NOT bool_or(foo_1.include_master_branch)) AS not_run_on_master
-                   FROM ( SELECT circleci_job_branch_filters.workflow,
-                            circleci_job_branch_filters.job_name,
-                            circleci_job_branch_filters.branch,
-                            ((circleci_job_branch_filters.branch = 'master'::text) AND circleci_job_branch_filters.filter_include) AS include_master_branch
-                           FROM public.circleci_job_branch_filters) foo_1
-                  GROUP BY foo_1.workflow, foo_1.job_name) bar ON (((circleci_workflows_by_yaml_file.id = bar.workflow) AND (circleci_workflow_jobs.job_name = bar.job_name))))) foo
-  GROUP BY foo.job_name, foo.commit_sha1;
-
-
-ALTER TABLE public.master_commit_circleci_scheduled_job_discrimination OWNER TO postgres;
-
---
--- Name: VIEW master_commit_circleci_scheduled_job_discrimination; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON VIEW public.master_commit_circleci_scheduled_job_discrimination IS 'NOTE:
-A job name may appear more than once in the config.yml file (once per workflow).
-The "is_scheduled" column means that *all* of the occurrences of that workflow are scheduled.';
-
-
---
--- Name: universal_builds; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.universal_builds (
-    id integer NOT NULL,
-    build_number integer,
-    build_namespace text,
-    provider integer,
-    commit_sha1 character(40) NOT NULL,
-    succeeded boolean NOT NULL,
-    stored_at timestamp with time zone DEFAULT now()
-);
-
-
-ALTER TABLE public.universal_builds OWNER TO postgres;
-
---
--- Name: TABLE universal_builds; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON TABLE public.universal_builds IS 'Currently, these records are stored even if the build succeeds.';
-
-
---
--- Name: global_builds; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.global_builds WITH (security_barrier='false') AS
- SELECT builds.global_build_num,
-    universal_builds.succeeded,
-    universal_builds.commit_sha1 AS vcs_revision,
-    builds.job_name,
-    builds.branch,
-    universal_builds.build_number,
-    universal_builds.build_namespace,
-    builds.queued_at,
-    builds.started_at,
-    builds.finished_at,
-    universal_builds.provider,
-    builds.ci_provider_scan,
-    master_commit_circleci_scheduled_job_discrimination.is_scheduled AS maybe_is_scheduled
-   FROM ((public.universal_builds
-     JOIN public.builds ON ((builds.global_build_num = universal_builds.id)))
-     LEFT JOIN public.master_commit_circleci_scheduled_job_discrimination ON (((builds.job_name = master_commit_circleci_scheduled_job_discrimination.job_name) AND (universal_builds.commit_sha1 = master_commit_circleci_scheduled_job_discrimination.commit_sha1))));
-
-
-ALTER TABLE public.global_builds OWNER TO postgres;
-
---
--- Name: builds_deduped; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.builds_deduped WITH (security_barrier='false') AS
- SELECT DISTINCT ON (global_builds.provider, global_builds.job_name, global_builds.vcs_revision) global_builds.build_number AS build_num,
-    global_builds.vcs_revision,
-    global_builds.queued_at,
-    global_builds.job_name,
-    global_builds.branch,
-    global_builds.succeeded,
-    global_builds.started_at,
-    global_builds.finished_at,
-    count(*) OVER (PARTITION BY global_builds.provider, global_builds.job_name, global_builds.vcs_revision) AS rebuild_count,
-    global_builds.global_build_num AS global_build,
-    global_builds.provider,
-    global_builds.build_namespace,
-    global_builds.ci_provider_scan,
-    global_builds.maybe_is_scheduled
-   FROM public.global_builds
-  ORDER BY global_builds.provider, global_builds.job_name, global_builds.vcs_revision, global_builds.global_build_num DESC;
-
-
-ALTER TABLE public.builds_deduped OWNER TO postgres;
-
---
--- Name: VIEW builds_deduped; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON VIEW public.builds_deduped IS 'NOTE: Using "GROUP BY" on the unique columns plus a JOIN on the original table is more efficient than DISTINCT ON the unique columns for computing the *complete* list of builds.
-
-However, for downstream queries (which do not use the complete list of builds, e.g. "matches_for_build" and ""best_pattern_match_for_builds for a specific revision), DISTINCT ON seems to have an advantage.';
-
-
---
--- Name: cached_master_merge_base; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.cached_master_merge_base (
-    branch_commit character(40) NOT NULL,
-    master_commit character(40) NOT NULL,
-    computation_timestamp timestamp without time zone DEFAULT now() NOT NULL,
-    distance integer NOT NULL
-);
-
-
-ALTER TABLE public.cached_master_merge_base OWNER TO postgres;
-
---
--- Name: TABLE cached_master_merge_base; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON TABLE public.cached_master_merge_base IS 'Caches the computed "merge base" of a PR commit with the master branch.
-
-In general, it would be possible for the merge base to change over time if the master branch is advanced to a more recent ancestor (up to and including the HEAD) of the PR branch.  In practice, however, this will not happen in the Facebook mirrored repo configuration, as a novel commit is produced for every change to the master branch.
-
-Therefore, this cache of merge bases never needs to be invalidated.';
 
 
 --
@@ -638,6 +489,99 @@ COMMENT ON VIEW public.github_status_events_circleci_success IS 'Filtering by "s
 
 Related: "disjoint_circleci_build_statuses" view for examining which CircleCI builds have been observed as GitHub notifications but not processed any further.';
 
+
+--
+-- Name: master_commit_circleci_scheduled_job_discrimination; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_commit_circleci_scheduled_job_discrimination WITH (security_barrier='false') AS
+ SELECT foo.job_name,
+    foo.commit_sha1,
+    bool_and(foo.is_scheduled) AS is_scheduled,
+    count(*) AS count
+   FROM ( SELECT circleci_workflow_jobs.job_name,
+            circleci_expanded_config_yaml_hashes_by_commit.commit_sha1,
+            ((circleci_workflow_schedules.cron_schedule IS NOT NULL) OR COALESCE(bar.not_run_on_master, false)) AS is_scheduled
+           FROM ((((public.circleci_workflow_jobs
+             JOIN public.circleci_workflows_by_yaml_file ON ((circleci_workflows_by_yaml_file.id = circleci_workflow_jobs.workflow)))
+             JOIN public.circleci_expanded_config_yaml_hashes_by_commit ON ((circleci_expanded_config_yaml_hashes_by_commit.repo_yaml_sha1 = circleci_workflows_by_yaml_file.yaml_content_sha1)))
+             LEFT JOIN public.circleci_workflow_schedules ON ((circleci_workflows_by_yaml_file.id = circleci_workflow_schedules.workflow)))
+             LEFT JOIN ( SELECT foo_1.workflow,
+                    foo_1.job_name,
+                    (NOT bool_or(foo_1.include_master_branch)) AS not_run_on_master
+                   FROM ( SELECT circleci_job_branch_filters.workflow,
+                            circleci_job_branch_filters.job_name,
+                            circleci_job_branch_filters.branch,
+                            ((circleci_job_branch_filters.branch = 'master'::text) AND circleci_job_branch_filters.filter_include) AS include_master_branch
+                           FROM public.circleci_job_branch_filters) foo_1
+                  GROUP BY foo_1.workflow, foo_1.job_name) bar ON (((circleci_workflows_by_yaml_file.id = bar.workflow) AND (circleci_workflow_jobs.job_name = bar.job_name))))) foo
+  GROUP BY foo.job_name, foo.commit_sha1;
+
+
+ALTER TABLE public.master_commit_circleci_scheduled_job_discrimination OWNER TO postgres;
+
+--
+-- Name: VIEW master_commit_circleci_scheduled_job_discrimination; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.master_commit_circleci_scheduled_job_discrimination IS 'NOTE:
+A job name may appear more than once in the config.yml file (once per workflow).
+The "is_scheduled" column means that *all* of the occurrences of that workflow are scheduled.';
+
+
+--
+-- Name: universal_builds; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.universal_builds (
+    id integer NOT NULL,
+    build_number integer,
+    build_namespace text,
+    provider integer,
+    commit_sha1 character(40) NOT NULL,
+    succeeded boolean NOT NULL,
+    stored_at timestamp with time zone DEFAULT now(),
+    x_queued_at timestamp with time zone,
+    x_job_name text,
+    x_branch text,
+    x_started_at timestamp with time zone,
+    x_finished_at timestamp with time zone,
+    x_ci_provider_scan integer
+);
+
+
+ALTER TABLE public.universal_builds OWNER TO postgres;
+
+--
+-- Name: TABLE universal_builds; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.universal_builds IS 'Currently, these records are stored even if the build succeeds.';
+
+
+--
+-- Name: global_builds; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.global_builds WITH (security_barrier='false') AS
+ SELECT universal_builds.id AS global_build_num,
+    universal_builds.succeeded,
+    universal_builds.commit_sha1 AS vcs_revision,
+    universal_builds.x_job_name AS job_name,
+    (universal_builds.x_branch)::character varying AS branch,
+    universal_builds.build_number,
+    universal_builds.build_namespace,
+    universal_builds.x_queued_at AS queued_at,
+    universal_builds.x_started_at AS started_at,
+    universal_builds.x_finished_at AS finished_at,
+    universal_builds.provider,
+    universal_builds.x_ci_provider_scan AS ci_provider_scan,
+    master_commit_circleci_scheduled_job_discrimination.is_scheduled AS maybe_is_scheduled
+   FROM (public.universal_builds
+     LEFT JOIN public.master_commit_circleci_scheduled_job_discrimination ON (((universal_builds.x_job_name = master_commit_circleci_scheduled_job_discrimination.job_name) AND (universal_builds.commit_sha1 = master_commit_circleci_scheduled_job_discrimination.commit_sha1))));
+
+
+ALTER TABLE public.global_builds OWNER TO postgres;
 
 --
 -- Name: master_failure_mode_attributions; Type: TABLE; Schema: public; Owner: postgres
@@ -798,13 +742,13 @@ CREATE VIEW public.master_commit_job_success_completeness WITH (security_barrier
                              LEFT JOIN ( SELECT github_status_events_circleci_success.job_name_extracted AS job_name,
                                     github_status_events_circleci_success.sha1
                                    FROM public.github_status_events_circleci_success) succeeded_jobs_table ON (((succeeded_jobs_table.job_name = master_commit_circleci_scheduled_job_discrimination.job_name) AND (succeeded_jobs_table.sha1 = master_commit_circleci_scheduled_job_discrimination.commit_sha1))))
-                             LEFT JOIN ( SELECT builds_deduped.job_name,
-                                    builds_deduped.vcs_revision
-                                   FROM public.builds_deduped) built_jobs_table ON (((built_jobs_table.job_name = master_commit_circleci_scheduled_job_discrimination.job_name) AND (built_jobs_table.vcs_revision = master_commit_circleci_scheduled_job_discrimination.commit_sha1))))
-                             LEFT JOIN ( SELECT builds_deduped.job_name,
-                                    builds_deduped.vcs_revision
-                                   FROM public.builds_deduped
-                                  WHERE (NOT builds_deduped.succeeded)) failed_jobs_table ON (((failed_jobs_table.job_name = master_commit_circleci_scheduled_job_discrimination.job_name) AND (failed_jobs_table.vcs_revision = master_commit_circleci_scheduled_job_discrimination.commit_sha1))))
+                             LEFT JOIN ( SELECT global_builds.job_name,
+                                    global_builds.vcs_revision
+                                   FROM public.global_builds) built_jobs_table ON (((built_jobs_table.job_name = master_commit_circleci_scheduled_job_discrimination.job_name) AND (built_jobs_table.vcs_revision = master_commit_circleci_scheduled_job_discrimination.commit_sha1))))
+                             LEFT JOIN ( SELECT global_builds.job_name,
+                                    global_builds.vcs_revision
+                                   FROM public.global_builds
+                                  WHERE (NOT global_builds.succeeded)) failed_jobs_table ON (((failed_jobs_table.job_name = master_commit_circleci_scheduled_job_discrimination.job_name) AND (failed_jobs_table.vcs_revision = master_commit_circleci_scheduled_job_discrimination.commit_sha1))))
                           WHERE (NOT master_commit_circleci_scheduled_job_discrimination.is_scheduled)) foo
                   GROUP BY foo.joblist_commit_sha1) bar ON ((master_commits_basic_metadata.sha1 = bar.joblist_commit_sha1)))
           ORDER BY master_commits_basic_metadata.id DESC) foobar;
@@ -1202,20 +1146,20 @@ COMMENT ON COLUMN public.build_steps.step_index IS 'Note that this numbering of 
 CREATE VIEW public.builds_join_steps WITH (security_barrier='false') AS
  SELECT build_steps.id AS step_id,
     build_steps.name AS step_name,
-    builds_deduped.build_num,
-    builds_deduped.vcs_revision,
-    builds_deduped.queued_at,
-    builds_deduped.job_name,
-    builds_deduped.branch,
+    global_builds.build_number AS build_num,
+    global_builds.vcs_revision,
+    global_builds.queued_at,
+    global_builds.job_name,
+    global_builds.branch,
     build_steps.is_timeout,
     build_steps.universal_build,
-    builds_deduped.provider,
-    builds_deduped.succeeded,
-    builds_deduped.build_namespace,
-    builds_deduped.started_at,
-    builds_deduped.finished_at
+    global_builds.provider,
+    global_builds.succeeded,
+    global_builds.build_namespace,
+    global_builds.started_at,
+    global_builds.finished_at
    FROM (public.build_steps
-     JOIN public.builds_deduped ON ((build_steps.universal_build = builds_deduped.global_build)));
+     JOIN public.global_builds ON ((build_steps.universal_build = global_builds.global_build_num)));
 
 
 ALTER TABLE public.builds_join_steps OWNER TO postgres;
@@ -1660,31 +1604,31 @@ ALTER TABLE public.broken_revisions_id_seq OWNER TO postgres;
 --
 
 CREATE VIEW public.build_failure_standalone_causes WITH (security_barrier='false') AS
- SELECT builds_deduped.build_num,
-    builds_deduped.vcs_revision,
-    builds_deduped.queued_at,
-    builds_deduped.job_name,
-    builds_deduped.branch,
-    builds_deduped.succeeded,
-    ((build_steps.universal_build IS NULL) AND (NOT builds_deduped.succeeded)) AS is_idiopathic,
+ SELECT global_builds.build_number AS build_num,
+    global_builds.vcs_revision,
+    global_builds.queued_at,
+    global_builds.job_name,
+    global_builds.branch,
+    global_builds.succeeded,
+    ((build_steps.universal_build IS NULL) AND (NOT global_builds.succeeded)) AS is_idiopathic,
     build_steps.id AS step_id,
     build_steps.name AS step_name,
     COALESCE(build_steps.is_timeout, false) AS is_timeout,
-    ((best_pattern_match_for_builds.pattern_id IS NULL) AND (NOT builds_deduped.succeeded)) AS is_unmatched,
+    ((best_pattern_match_for_builds.pattern_id IS NULL) AND (NOT global_builds.succeeded)) AS is_unmatched,
     best_pattern_match_for_builds.pattern_id,
     COALESCE(best_pattern_match_for_builds.is_flaky, false) AS is_flaky,
     (best_pattern_match_for_builds.pattern_id IS NOT NULL) AS is_matched,
-    builds_deduped.rebuild_count,
-    builds_deduped.global_build,
-    builds_deduped.provider,
-    builds_deduped.build_namespace,
-    builds_deduped.started_at,
-    builds_deduped.finished_at,
-    builds_deduped.maybe_is_scheduled,
+    (1)::bigint AS rebuild_count,
+    global_builds.global_build_num AS global_build,
+    global_builds.provider,
+    global_builds.build_namespace,
+    global_builds.started_at,
+    global_builds.finished_at,
+    global_builds.maybe_is_scheduled,
     COALESCE(best_pattern_match_for_builds.is_network, false) AS is_network
-   FROM ((public.builds_deduped
-     LEFT JOIN public.build_steps ON ((build_steps.universal_build = builds_deduped.global_build)))
-     LEFT JOIN public.best_pattern_match_for_builds ON ((best_pattern_match_for_builds.universal_build = builds_deduped.global_build)));
+   FROM ((public.global_builds
+     LEFT JOIN public.build_steps ON ((build_steps.universal_build = global_builds.global_build_num)))
+     LEFT JOIN public.best_pattern_match_for_builds ON ((best_pattern_match_for_builds.universal_build = global_builds.global_build_num)));
 
 
 ALTER TABLE public.build_failure_standalone_causes OWNER TO postgres;
@@ -1845,6 +1789,33 @@ ALTER SEQUENCE public.build_steps_id_seq OWNED BY public.build_steps.id;
 
 
 --
+-- Name: builds; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.builds (
+    queued_at timestamp with time zone,
+    job_name text NOT NULL,
+    branch character varying,
+    succeeded boolean,
+    started_at timestamp with time zone,
+    finished_at timestamp with time zone,
+    global_build_num integer NOT NULL,
+    ci_provider_scan integer
+);
+
+
+ALTER TABLE public.builds OWNER TO postgres;
+
+--
+-- Name: TABLE builds; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.builds IS 'In contrast with the "universal_builds" table, this is information that may be fetched using a provider-specific API and may be populated asynchronously from the "universal_builds" info which is available from the GitHub status notification.
+
+The "ci_provider_scan" field is optional; it can link a build record back to the CI provider-specific scan from which it was obtained.';
+
+
+--
 -- Name: ci_provider_build_scans; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -1895,7 +1866,7 @@ ALTER SEQUENCE public.ci_provider_build_scans_id_seq OWNED BY public.ci_provider
 -- Name: ci_provider_scan_ranges; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.ci_provider_scan_ranges AS
+CREATE VIEW public.ci_provider_scan_ranges WITH (security_barrier='false') AS
  SELECT ci_provider_build_scans.id,
     ci_provider_build_scans.initiated_at,
     ci_provider_build_scans.provider,
@@ -1904,13 +1875,13 @@ CREATE VIEW public.ci_provider_scan_ranges AS
     foo.count,
     foo.earliest_queued_at,
     foo.latest_queued_at
-   FROM (( SELECT builds_deduped.ci_provider_scan,
+   FROM (( SELECT global_builds.ci_provider_scan,
             count(*) AS count,
-            min(builds_deduped.queued_at) AS earliest_queued_at,
-            max(builds_deduped.queued_at) AS latest_queued_at
-           FROM public.builds_deduped
-          WHERE (builds_deduped.ci_provider_scan IS NOT NULL)
-          GROUP BY builds_deduped.ci_provider_scan) foo
+            min(global_builds.queued_at) AS earliest_queued_at,
+            max(global_builds.queued_at) AS latest_queued_at
+           FROM public.global_builds
+          WHERE (global_builds.ci_provider_scan IS NOT NULL)
+          GROUP BY global_builds.ci_provider_scan) foo
      JOIN public.ci_provider_build_scans ON ((foo.ci_provider_scan = ci_provider_build_scans.id)));
 
 
@@ -2519,13 +2490,13 @@ CREATE VIEW public.master_job_failure_spans_conservative WITH (security_barrier=
                    FROM ( SELECT master_commits_contiguously_indexed.id,
                             master_commits_contiguously_indexed.sha1,
                             master_commits_contiguously_indexed.commit_number,
-                            builds_deduped.job_name,
-                            builds_deduped.succeeded,
-                            (builds_deduped.succeeded <> lag(builds_deduped.succeeded) OVER (PARTITION BY builds_deduped.job_name ORDER BY master_commits_contiguously_indexed.id)) AS forward_edge_transition,
-                            (builds_deduped.succeeded <> lead(builds_deduped.succeeded) OVER (PARTITION BY builds_deduped.job_name ORDER BY master_commits_contiguously_indexed.id)) AS backward_edge_transition
-                           FROM (public.builds_deduped
-                             JOIN public.master_commits_contiguously_indexed ON ((builds_deduped.vcs_revision = master_commits_contiguously_indexed.sha1)))
-                          ORDER BY master_commits_contiguously_indexed.id, builds_deduped.job_name) foo
+                            global_builds.job_name,
+                            global_builds.succeeded,
+                            (global_builds.succeeded <> lag(global_builds.succeeded) OVER (PARTITION BY global_builds.job_name ORDER BY master_commits_contiguously_indexed.id)) AS forward_edge_transition,
+                            (global_builds.succeeded <> lead(global_builds.succeeded) OVER (PARTITION BY global_builds.job_name ORDER BY master_commits_contiguously_indexed.id)) AS backward_edge_transition
+                           FROM (public.global_builds
+                             JOIN public.master_commits_contiguously_indexed ON ((global_builds.vcs_revision = master_commits_contiguously_indexed.sha1)))
+                          ORDER BY master_commits_contiguously_indexed.id, global_builds.job_name) foo
                   WHERE (foo.forward_edge_transition OR foo.backward_edge_transition)) bar
           WHERE (NOT bar.succeeded)) blah
   WHERE blah.forward_edge_transition;
@@ -2710,19 +2681,19 @@ ALTER TABLE public.job_failure_frequencies OWNER TO postgres;
 -- Name: job_runs_3day_bins; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.job_runs_3day_bins AS
+CREATE VIEW public.job_runs_3day_bins WITH (security_barrier='false') AS
  SELECT foo.job_name,
     foo.on_master,
     foo.bin_three_days,
     min(foo.queued_at) AS earliest_queued_at,
     count(*) AS build_count
-   FROM ( SELECT builds_deduped.global_build,
-            builds_deduped.job_name,
-            builds_deduped.queued_at,
+   FROM ( SELECT global_builds.global_build_num,
+            global_builds.job_name,
+            global_builds.queued_at,
             (ordered_master_commits.sha1 IS NOT NULL) AS on_master,
-            to_timestamp(((((((floor((date_part('epoch'::text, builds_deduped.queued_at) / ((((60 * 60) * 24) * 3))::double precision)))::integer * 60) * 60) * 24) * 3))::double precision) AS bin_three_days
-           FROM (public.builds_deduped
-             LEFT JOIN public.ordered_master_commits ON ((builds_deduped.vcs_revision = ordered_master_commits.sha1)))) foo
+            to_timestamp(((((((floor((date_part('epoch'::text, global_builds.queued_at) / ((((60 * 60) * 24) * 3))::double precision)))::integer * 60) * 60) * 24) * 3))::double precision) AS bin_three_days
+           FROM (public.global_builds
+             LEFT JOIN public.ordered_master_commits ON ((global_builds.vcs_revision = ordered_master_commits.sha1)))) foo
   GROUP BY foo.job_name, foo.on_master, foo.bin_three_days;
 
 
@@ -2788,22 +2759,22 @@ CREATE VIEW public.job_schedule_statistics WITH (security_barrier='false') AS
                     stddev(date_part('epoch'::text, bar.commit_to_build_latency)) AS commit_to_build_latency_stddev
                    FROM ( SELECT (foo.queued_at - foo.prev_queued_at) AS build_interval,
                             (foo.queued_at)::time without time zone AS time_of_day,
-                            foo.global_build,
+                            foo.global_build_num AS global_build,
                             foo.job_name,
                             foo.queued_at,
                             foo.committer_date,
                             foo.commit_to_build_latency,
                             foo.sha1,
                             foo.prev_queued_at
-                           FROM ( SELECT builds_deduped.global_build,
-                                    builds_deduped.job_name,
-                                    builds_deduped.queued_at,
+                           FROM ( SELECT global_builds.global_build_num,
+                                    global_builds.job_name,
+                                    global_builds.queued_at,
                                     master_ordered_commits_with_metadata.committer_date,
-                                    (builds_deduped.queued_at - master_ordered_commits_with_metadata.committer_date) AS commit_to_build_latency,
+                                    (global_builds.queued_at - master_ordered_commits_with_metadata.committer_date) AS commit_to_build_latency,
                                     master_ordered_commits_with_metadata.sha1,
-                                    lag(builds_deduped.queued_at) OVER (PARTITION BY builds_deduped.job_name ORDER BY builds_deduped.queued_at) AS prev_queued_at
-                                   FROM (public.builds_deduped
-                                     JOIN public.master_ordered_commits_with_metadata ON ((builds_deduped.vcs_revision = master_ordered_commits_with_metadata.sha1)))) foo) bar
+                                    lag(global_builds.queued_at) OVER (PARTITION BY global_builds.job_name ORDER BY global_builds.queued_at) AS prev_queued_at
+                                   FROM (public.global_builds
+                                     JOIN public.master_ordered_commits_with_metadata ON ((global_builds.vcs_revision = master_ordered_commits_with_metadata.sha1)))) foo) bar
                   GROUP BY bar.job_name
                   ORDER BY bar.job_name DESC) baz) blarg
   ORDER BY blarg.job_name;
@@ -2982,7 +2953,7 @@ COMMENT ON VIEW public.job_schedule_statistics_ntiles IS 'TODO: Use this for exc
 -- Name: master_commit_job_coverage_by_day; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.master_commit_job_coverage_by_day AS
+CREATE VIEW public.master_commit_job_coverage_by_day WITH (security_barrier='false') AS
  WITH commit_days AS (
          SELECT date_trunc('day'::text, master_ordered_commits_with_metadata.committer_date) AS day,
             master_ordered_commits_with_metadata.sha1,
@@ -2994,12 +2965,12 @@ CREATE VIEW public.master_commit_job_coverage_by_day AS
     bar.count,
     blarg.total_built_commits_for_day,
     ((bar.count)::double precision / (blarg.total_built_commits_for_day)::double precision) AS covered_commit_fraction
-   FROM (( SELECT builds_deduped.job_name,
+   FROM (( SELECT global_builds.job_name,
             commit_days.day,
             count(*) AS count
            FROM (commit_days
-             JOIN public.builds_deduped ON ((builds_deduped.vcs_revision = commit_days.sha1)))
-          GROUP BY builds_deduped.job_name, commit_days.day) bar
+             JOIN public.global_builds ON ((global_builds.vcs_revision = commit_days.sha1)))
+          GROUP BY global_builds.job_name, commit_days.day) bar
      JOIN ( SELECT commit_days.day,
             sum((master_built_commit_groups.was_built)::integer) AS total_built_commits_for_day
            FROM (public.master_built_commit_groups
@@ -3146,7 +3117,7 @@ ALTER TABLE public.latest_pattern_scanned_for_build_step OWNER TO postgres;
 -- Name: master_commit_job_coverage_by_week; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.master_commit_job_coverage_by_week AS
+CREATE VIEW public.master_commit_job_coverage_by_week WITH (security_barrier='false') AS
  WITH commit_weeks AS (
          SELECT date_trunc('week'::text, master_ordered_commits_with_metadata.committer_date) AS week,
             master_ordered_commits_with_metadata.sha1,
@@ -3158,12 +3129,12 @@ CREATE VIEW public.master_commit_job_coverage_by_week AS
     bar.count,
     blarg.total_built_commits_for_week,
     ((bar.count)::double precision / (blarg.total_built_commits_for_week)::double precision) AS covered_commit_fraction
-   FROM (( SELECT builds_deduped.job_name,
+   FROM (( SELECT global_builds.job_name,
             commit_weeks.week,
             count(*) AS count
            FROM (commit_weeks
-             JOIN public.builds_deduped ON ((builds_deduped.vcs_revision = commit_weeks.sha1)))
-          GROUP BY builds_deduped.job_name, commit_weeks.week) bar
+             JOIN public.global_builds ON ((global_builds.vcs_revision = commit_weeks.sha1)))
+          GROUP BY global_builds.job_name, commit_weeks.week) bar
      JOIN ( SELECT commit_weeks.week,
             sum((master_built_commit_groups.was_built)::integer) AS total_built_commits_for_week
            FROM (public.master_built_commit_groups
@@ -3200,14 +3171,14 @@ COMMENT ON MATERIALIZED VIEW public.master_commits_contiguously_indexed_mview IS
 
 CREATE VIEW public.master_commits_unpopulated_circleci_configs WITH (security_barrier='false') AS
  SELECT DISTINCT ON (ordered_master_commits.id) ordered_master_commits.sha1,
-    builds_deduped.build_num,
+    global_builds.build_number AS build_num,
     commit_metadata.committer_date
-   FROM (((public.builds_deduped
-     JOIN public.ordered_master_commits ON ((ordered_master_commits.sha1 = builds_deduped.vcs_revision)))
+   FROM (((public.global_builds
+     JOIN public.ordered_master_commits ON ((ordered_master_commits.sha1 = global_builds.vcs_revision)))
      LEFT JOIN public.circleci_expanded_config_yaml_hashes_by_commit ON ((circleci_expanded_config_yaml_hashes_by_commit.commit_sha1 = ordered_master_commits.sha1)))
      LEFT JOIN public.commit_metadata ON ((ordered_master_commits.sha1 = commit_metadata.sha1)))
-  WHERE ((builds_deduped.provider = 3) AND (circleci_expanded_config_yaml_hashes_by_commit.commit_sha1 IS NULL))
-  ORDER BY ordered_master_commits.id DESC, builds_deduped.build_num;
+  WHERE ((global_builds.provider = 3) AND (circleci_expanded_config_yaml_hashes_by_commit.commit_sha1 IS NULL))
+  ORDER BY ordered_master_commits.id DESC, global_builds.build_number;
 
 
 ALTER TABLE public.master_commits_unpopulated_circleci_configs OWNER TO postgres;
@@ -3358,16 +3329,16 @@ CREATE VIEW public.master_intra_commit_failure_groups WITH (security_barrier='fa
     foo.pattern_id
    FROM ( SELECT best_pattern_match_for_builds.universal_build,
             ordered_master_commits.id AS commit_index,
-            builds_deduped.vcs_revision,
+            global_builds.vcs_revision,
             count(*) OVER (PARTITION BY ordered_master_commits.id, build_steps.name, best_pattern_match_for_builds.pattern_id) AS cluster_member_count,
             dense_rank() OVER (ORDER BY ordered_master_commits.id DESC, build_steps.name, best_pattern_match_for_builds.pattern_id) AS cluster_id,
             build_steps.name AS step_name,
             best_pattern_match_for_builds.pattern_id
-           FROM (((public.builds_deduped
-             JOIN public.ordered_master_commits ON ((ordered_master_commits.sha1 = builds_deduped.vcs_revision)))
-             JOIN public.build_steps ON ((build_steps.universal_build = builds_deduped.global_build)))
-             JOIN public.best_pattern_match_for_builds ON ((best_pattern_match_for_builds.universal_build = builds_deduped.global_build)))
-          WHERE (NOT builds_deduped.succeeded)) foo
+           FROM (((public.global_builds
+             JOIN public.ordered_master_commits ON ((ordered_master_commits.sha1 = global_builds.vcs_revision)))
+             JOIN public.build_steps ON ((build_steps.universal_build = global_builds.global_build_num)))
+             JOIN public.best_pattern_match_for_builds ON ((best_pattern_match_for_builds.universal_build = global_builds.global_build_num)))
+          WHERE (NOT global_builds.succeeded)) foo
   WHERE (foo.cluster_member_count > 1)
   ORDER BY foo.cluster_id;
 
@@ -3874,12 +3845,12 @@ CREATE VIEW public.master_job_failure_spans WITH (security_barrier='false') AS
            FROM ( SELECT master_commits_contiguously_indexed.id,
                     master_commits_contiguously_indexed.sha1,
                     master_commits_contiguously_indexed.commit_number,
-                    builds_deduped.job_name,
-                    builds_deduped.succeeded,
-                    (builds_deduped.succeeded <> lag(builds_deduped.succeeded) OVER (PARTITION BY builds_deduped.job_name ORDER BY master_commits_contiguously_indexed.id)) AS edge_transition
-                   FROM (public.builds_deduped
-                     JOIN public.master_commits_contiguously_indexed ON ((builds_deduped.vcs_revision = master_commits_contiguously_indexed.sha1)))
-                  ORDER BY master_commits_contiguously_indexed.id, builds_deduped.job_name) foo
+                    global_builds.job_name,
+                    global_builds.succeeded,
+                    (global_builds.succeeded <> lag(global_builds.succeeded) OVER (PARTITION BY global_builds.job_name ORDER BY master_commits_contiguously_indexed.id)) AS edge_transition
+                   FROM (public.global_builds
+                     JOIN public.master_commits_contiguously_indexed ON ((global_builds.vcs_revision = master_commits_contiguously_indexed.sha1)))
+                  ORDER BY master_commits_contiguously_indexed.id, global_builds.job_name) foo
           WHERE foo.edge_transition) bar
   WHERE (NOT bar.succeeded);
 
@@ -5515,6 +5486,14 @@ ALTER TABLE ONLY public.universal_builds
 
 
 --
+-- Name: universal_builds universal_builds_provider_commit_sha1_x_job_name_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.universal_builds
+    ADD CONSTRAINT universal_builds_provider_commit_sha1_x_job_name_key UNIQUE (provider, commit_sha1, x_job_name);
+
+
+--
 -- Name: viable_master_commit_age_history viable_master_commit_age_history_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5598,6 +5577,13 @@ CREATE INDEX fk_pattern_step ON public.pattern_step_applicability USING btree (p
 --
 
 CREATE INDEX fk_patternid ON public.scans USING btree (latest_pattern_id);
+
+
+--
+-- Name: fk_provider_scan_for_ubuild; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX fk_provider_scan_for_ubuild ON public.universal_builds USING btree (x_ci_provider_scan);
 
 
 --
@@ -6273,6 +6259,14 @@ ALTER TABLE ONLY public.universal_builds
 
 
 --
+-- Name: universal_builds universal_builds_x_ci_provider_scan_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.universal_builds
+    ADD CONSTRAINT universal_builds_x_ci_provider_scan_fkey FOREIGN KEY (x_ci_provider_scan) REFERENCES public.ci_provider_build_scans(id) ON DELETE CASCADE NOT VALID;
+
+
+--
 -- Name: SCHEMA frontend_logging; Type: ACL; Schema: -; Owner: postgres
 --
 
@@ -6359,11 +6353,10 @@ GRANT SELECT ON TABLE lambda_logging.materialized_view_refresh_event_stats TO lo
 
 
 --
--- Name: TABLE builds; Type: ACL; Schema: public; Owner: postgres
+-- Name: TABLE cached_master_merge_base; Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON TABLE public.builds TO logan;
-GRANT SELECT ON TABLE public.builds TO readonly_user;
+GRANT ALL ON TABLE public.cached_master_merge_base TO logan;
 
 
 --
@@ -6399,42 +6392,6 @@ GRANT ALL ON TABLE public.circleci_workflow_schedules TO logan;
 --
 
 GRANT ALL ON TABLE public.circleci_workflows_by_yaml_file TO logan;
-
-
---
--- Name: TABLE master_commit_circleci_scheduled_job_discrimination; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.master_commit_circleci_scheduled_job_discrimination TO logan;
-
-
---
--- Name: TABLE universal_builds; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.universal_builds TO logan;
-GRANT SELECT ON TABLE public.universal_builds TO readonly_user;
-
-
---
--- Name: TABLE global_builds; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.global_builds TO logan;
-
-
---
--- Name: TABLE builds_deduped; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.builds_deduped TO logan;
-
-
---
--- Name: TABLE cached_master_merge_base; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.cached_master_merge_base TO logan;
 
 
 --
@@ -6487,6 +6444,28 @@ GRANT SELECT ON TABLE public.github_status_events_circleci TO materialized_view_
 
 GRANT ALL ON TABLE public.github_status_events_circleci_success TO logan;
 GRANT SELECT ON TABLE public.github_status_events_circleci_success TO materialized_view_updater;
+
+
+--
+-- Name: TABLE master_commit_circleci_scheduled_job_discrimination; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_commit_circleci_scheduled_job_discrimination TO logan;
+
+
+--
+-- Name: TABLE universal_builds; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.universal_builds TO logan;
+GRANT SELECT ON TABLE public.universal_builds TO readonly_user;
+
+
+--
+-- Name: TABLE global_builds; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.global_builds TO logan;
 
 
 --
@@ -6833,6 +6812,14 @@ GRANT ALL ON TABLE public.build_failure_disjoint_causes_by_commit TO logan;
 --
 
 GRANT ALL ON SEQUENCE public.build_steps_id_seq TO logan;
+
+
+--
+-- Name: TABLE builds; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.builds TO logan;
+GRANT SELECT ON TABLE public.builds TO readonly_user;
 
 
 --

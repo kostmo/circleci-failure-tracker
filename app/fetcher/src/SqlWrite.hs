@@ -503,15 +503,54 @@ storeBuildsList ::
   -> Maybe Int64
   -> [DbHelpers.WithTypedId Builds.UniversalBuildId Builds.Build]
   -> IO Int64
-storeBuildsList conn maybe_provider_scan_id builds_list =
-  executeMany conn sql $ map f builds_list
+storeBuildsList conn maybe_provider_scan_id builds_list = do
+
+  MyUtils.debugList [
+      "Inside storeBuildsList to update"
+    , show $ length builds_list
+    , "build entries"
+    ]
+
+  for_ builds_list $ \x -> do
+    execute conn sql $ f x
+    return ()
+
+  MyUtils.debugList [
+      "Finishing storeBuildsList."
+    ]
+
+  return $ fromIntegral $ length builds_list
+
   where
     f (DbHelpers.WithTypedId (Builds.UniversalBuildId universal_build_id) rbuild) =
-      (queued_at_string, jobname, branch, universal_build_id, start_time, stop_time, maybe_provider_scan_id)
+      ( queued_at_string
+      , jobname
+      , branch
+      , start_time
+      , stop_time
+      , maybe_provider_scan_id
+      , universal_build_id
+      )
       where
         queued_at_string = T.pack $ formatTime defaultTimeLocale rfc822DateFormat queuedat
         (Builds.NewBuild _ _ queuedat jobname branch start_time stop_time) = rbuild
 
+    sql = Q.qjoin [
+        "UPDATE universal_builds"
+      , "SET"
+      , Q.list [
+          "x_queued_at = ?"
+        , "x_job_name = ?"
+        , "x_branch = ?"
+        , "x_started_at = ?"
+        , "x_finished_at = ?"
+        , "x_ci_provider_scan = ?"
+        ]
+      , "WHERE"
+      , "id = ?"
+      ]
+
+    {-
     sql = Q.qjoin [
         "INSERT INTO builds"
       , Q.insertionValues [
@@ -533,6 +572,7 @@ storeBuildsList conn maybe_provider_scan_id builds_list =
         , "finished_at = COALESCE(builds.finished_at, EXCLUDED.finished_at)"
         ]
       ]
+    -}
 
 
 storeScanRecord ::
