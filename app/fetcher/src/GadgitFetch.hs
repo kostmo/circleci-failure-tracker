@@ -11,6 +11,7 @@ import           Data.Aeson                 (FromJSON, eitherDecode,
                                              toJSON)
 import           Data.Either.Utils          (maybeToEither)
 import qualified Data.Maybe                 as Maybe
+import           Data.Text                  (Text)
 import qualified Data.Text                  as T
 import           GHC.Generics
 import qualified Network.HTTP.Client        as NC
@@ -92,3 +93,16 @@ getContainingPRs (Builds.RawCommit sha1) = runExceptT $ do
 
   where
     url_string = gadgitUrlPrefix <> "/head-of-pull-requests/" <> T.unpack sha1
+
+
+getIsAncestor ::
+     Text -- ^ supposed ancestor ref
+  -> Text -- ^ supposed descendant ref
+  -> IO (Either String Bool)
+getIsAncestor ancestor descendant = runExceptT $ do
+
+  response <- ExceptT $ liftIO $ FetchHelpers.safeGetUrl $ NW.get url_string
+  decoded_json <- except $ eitherDecode $ NC.responseBody response
+  except $ processResult id decoded_json
+  where
+    url_string = gadgitUrlPrefix <> "/api/is-ancestor?ancestor=" <> T.unpack ancestor <> "&descendant=" <> T.unpack descendant

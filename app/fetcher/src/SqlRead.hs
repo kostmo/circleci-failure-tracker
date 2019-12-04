@@ -312,12 +312,18 @@ getUniversalBuilds (Builds.UniversalBuildId oldest_universal_build_num) limit = 
 -- | XXX This is a partial function
 getGlobalBuild ::
      Builds.UniversalBuildId
-  -> DbIO Builds.StorableBuild
+  -> DbIO (Either Text Builds.StorableBuild)
 getGlobalBuild (Builds.UniversalBuildId global_build_num) = do
   conn <- ask
-  [x] <- liftIO $ query conn sql $ Only global_build_num
-  return x
+  liftIO $ do
+    xs <- query conn sql $ Only global_build_num
+    return $ maybeToEither err_msg $ Safe.headMay xs
   where
+    err_msg = T.pack $ unwords [
+        "Universal build number not located:"
+      , show global_build_num
+      ]
+
     sql = Q.qjoin [
         "SELECT"
       , Q.list [

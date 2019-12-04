@@ -28,3 +28,18 @@ testGadgitApis = do
       "result3:"
     , show result3
     ]
+
+
+  result4 <- GadgitFetch.getIsAncestor "master" "viable/strict"
+  D.debugList [
+      "result4:"
+    , show result4
+    ]
+
+
+  result5 <- GadgitFetch.getIsAncestor "viable/strict" "master"
+  D.debugList [
+      "result5:"
+    , show result5
+    ]
+

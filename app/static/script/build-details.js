@@ -5,7 +5,7 @@ function prompt_promote_match(match_id) {
 }
 
 
-function gen_builds_table(element_id, data_url, height_string, universal_build_id) {
+function gen_builds_table(element_id, data_url, height_string, universal_build_id, maybe_circleci_build_id) {
 
 	const column_list = [
 		{title: "Line", field: "line_number", width: 100, formatter: function(cell, formatterParams, onRendered) {
@@ -22,7 +22,7 @@ function gen_builds_table(element_id, data_url, height_string, universal_build_i
 
 				const row_data = cell.getRow().getData();
 
-				const provider_build_number = row_data["build_number"];
+				const provider_build_number = maybe_circleci_build_id || row_data["build_number"];
 
 				const match_id = row_data["match_id"];
 				get_log_text(match_id, STANDARD_LOG_CONTEXT_LINECOUNT, universal_build_id, provider_build_number);
@@ -116,7 +116,7 @@ function populate_build_info(universal_build_id, parent_data) {
 
 	if (parent_data["multi_match_count"] > 1) {
 		$("#all-matches-section").show();
-		gen_builds_table("all-build-matches-table", "/api/build-pattern-matches?build_id=" + universal_build_id, "300px", universal_build_id);
+		gen_builds_table("all-build-matches-table", "/api/build-pattern-matches?build_id=" + universal_build_id, "300px", universal_build_id, circleci_build_id);
 
 	} else if (parent_data["multi_match_count"] == 1) {
 
@@ -186,7 +186,7 @@ function main() {
 	$("#full-log-link-container").html(local_logview_item_full);
 
 	get_build_info(universal_build_id);
-	gen_builds_table("best-build-matches-table", "/api/best-build-match?build_id=" + universal_build_id, null, universal_build_id);
+	gen_builds_table("best-build-matches-table", "/api/best-build-match?build_id=" + universal_build_id, null, universal_build_id, null);
 
 	gen_pattern_test_link(universal_build_id);
 }

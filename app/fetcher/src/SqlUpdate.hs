@@ -96,11 +96,12 @@ getBuildInfo access_token build@(Builds.UniversalBuildId build_id) = do
   DbHelpers.BenchmarkedResponse best_match_retrieval_timing matches <- SqlRead.getBuildPatternMatches build
 
   -- TODO This should be an Either
-  storable_build <- SqlRead.getGlobalBuild build
+  either_storable_build <- SqlRead.getGlobalBuild build
 
   conn <- ask
 
   liftIO $ do
+
     xs <- query conn sql $ Only build_id
 
     let err_msg = unwords [
@@ -114,6 +115,8 @@ getBuildInfo access_token build@(Builds.UniversalBuildId build_id) = do
           (Safe.headMay xs)
 
     runExceptT $ do
+
+      storable_build <- except either_storable_build
       (multi_match_count, step_container) <- except either_tuple
 
       let sha1 = Builds.vcs_revision $ BuildSteps.build step_container

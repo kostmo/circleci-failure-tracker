@@ -928,16 +928,16 @@ genMetricsTreeVerbose (BuildSummaryStats flaky_count pre_broken_info all_failure
 
     Builds.RawCommit merge_base_sha1_text = SqlUpdate.merge_base pre_broken_info
 
-    rebase_advice_children = map pure [
+    rebase_advice_children = [
         pure (Markdown.colonize ["If your commit is older than `viable/strict`"]) <> Markdown.codeBlock ("git fetch viable/strict" :| ["git rebase viable/strict"])
-      , pure (Markdown.colonize ["If your commit is newer than `viable/strict`, you can try basing on an older, stable commit"]) <> Markdown.codeBlock ("git fetch viable/strict" :| ["git rebase --onto viable/strict master"])
+      , pure (Markdown.colonize ["If your commit is newer than `viable/strict`, you can try basing on an older, stable commit"]) <> Markdown.codeBlock ("git fetch viable/strict" :| ["git rebase --onto viable/strict $(git merge-base origin/master HEAD)"])
       ]
 
 
     rebase_advice_header = Tr.Node (pure $ Markdown.colonize [
         "You may want to rebase on the `viable/strict` branch"
       , Markdown.parens $ T.unwords ["see its", Markdown.link "recency history" viableCommitsHistoryUrl]
-      ]) rebase_advice_children
+      ]) $ map pure rebase_advice_children
 
 
     upstream_breakage_bullet_children = [rebase_advice_header]

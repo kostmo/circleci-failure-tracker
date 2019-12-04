@@ -55,16 +55,6 @@ mainAppCode args = do
   conn <- DbPreparation.prepareDatabase connection_data False
 
 
-
-  x <- runReaderT (SqlRead.getNonPatternMatchRevisionStats $ Builds.RawCommit "1c6d7505adf51db267a0b27724028fb0c73ecbdd") conn
-  D.debugList [
-      "My output:"
-    , show x
-    ]
-
-  putStrLn "Done with the thing."
-
-
   {-
   let commit_sha1_text = "1c6d7505adf51db267a0b27724028fb0c73ecbdd"
       raw_commit = Builds.RawCommit commit_sha1_text
