@@ -27,7 +27,7 @@ import qualified BuildRetrieval
 import qualified Builds
 import qualified Constants
 import qualified DbHelpers
-import qualified MyUtils
+import qualified DebugUtils                 as D
 import qualified Scanning
 import qualified SqlRead
 import qualified SqlWrite
@@ -69,7 +69,7 @@ wrapWithDbDurationRecords connection_data func = do
   maybe_scheduled_at <- S.header "X-Aws-Sqsd-Scheduled-At"
   maybe_sender_id <- S.header "X-Aws-Sqsd-Sender-Id"
 
-  liftIO $ MyUtils.debugList [
+  liftIO $ D.debugList [
       "KARL -- maybe_task_name:"
     , show maybe_task_name
     , "maybe_scheduled_at:"
@@ -117,7 +117,7 @@ scottyApp
 
       liftIO $ do
 
-        MyUtils.debugStr "Starting CircleCI build retrieval..."
+        D.debugStr "Starting CircleCI build retrieval..."
 
         conn <- DbHelpers.getConnectionWithStatementTimeout connection_data statementTimeoutSeconds
 
@@ -129,7 +129,7 @@ scottyApp
           ["master"]
           100000
 
-        MyUtils.debugList [
+        D.debugList [
             "Finished CircleCI build retrieval."
           , "Inserted"
           , show insertion_count
@@ -145,7 +145,7 @@ scottyApp
 
       liftIO $ do
         current_time <- Clock.getCurrentTime
-        MyUtils.debugList [
+        D.debugList [
             "Starting PR association retrieval at"
           , show current_time
           ]
@@ -154,17 +154,17 @@ scottyApp
 
         either_result <- SqlWrite.updateMergedPullRequestHeadCommits conn
         case either_result of
-          Right association_list -> MyUtils.debugList [
+          Right association_list -> D.debugList [
               "Retrieved"
             , show $ length association_list
             , "associations"
             ]
-          Left msg -> MyUtils.debugList [
+          Left msg -> D.debugList [
               "Failed retrieving PR assciations:"
             , T.unpack msg
             ]
 
-        MyUtils.debugStr "Finished association retrieval."
+        D.debugStr "Finished association retrieval."
 
 
       S.json ["hello-post" :: Text]
@@ -172,7 +172,7 @@ scottyApp
 
   S.post "/worker/scan-sha1" $ do
 
-    liftIO $ MyUtils.debugList [
+    liftIO $ D.debugList [
         "Posted to:"
       , "/worker/scan-sha1"
       ]
@@ -202,7 +202,7 @@ doStuff
     owned_repo
     body_json = do
 
-  MyUtils.debugList [
+  D.debugList [
       "Starting sha1 scan of"
     , show commit_sha1
     ]
@@ -217,7 +217,7 @@ doStuff
     (SqlRead.getUnvisitedBuildsForSha1 commit_sha1)
     conn
 
-  MyUtils.debugList [
+  D.debugList [
       "Unvisited build IDs:"
     , show $ map DbHelpers.db_id universal_builds
     ]
@@ -236,7 +236,7 @@ doStuff
     scan_matches
 
 
-  MyUtils.debugList [
+  D.debugList [
       "Scan match count:"
     , show $ length scan_matches
     ]
@@ -244,7 +244,7 @@ doStuff
 
   either_deletion_count <- runReaderT (SqlWrite.deleteSha1QueuePlaceholder commit_sha1) conn
 
-  MyUtils.debugList [
+  D.debugList [
       "Removed"
     , show either_deletion_count
     , "sha1's from queue"

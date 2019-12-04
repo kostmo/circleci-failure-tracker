@@ -92,6 +92,19 @@ function gen_builds_table_columns(include_timeout_column) {
 				}
 			},
 		},
+// TODO
+/*
+		{title: "Info", field: "match.elaboration",
+			formatter: function(cell, formatterParams, onRendered) {
+
+				if (cell.getValue()) {
+
+					return cell.getValue();
+				}
+			},
+			width: 75,
+		},
+*/
 		{title: "Pattern", field: "match.pattern_id",
 			formatter: function(cell, formatterParams, onRendered) {
 

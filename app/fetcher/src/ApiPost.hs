@@ -26,8 +26,8 @@ import           Network.Wreq               as NW
 
 import qualified Builds
 import qualified DbHelpers
+import qualified DebugUtils                 as D
 import qualified FetchHelpers
-import qualified MyUtils
 import qualified StatusEvent
 
 
@@ -57,7 +57,7 @@ postCommitStatus
     (Builds.RawCommit target_sha1)
     status_obj = runExceptT $ do
 
-  liftIO $ MyUtils.debugList [
+  liftIO $ D.debugList [
       "Posting to URL:"
     , url_string
     , "with json object"
@@ -68,7 +68,7 @@ postCommitStatus
     NW.postWith opts url_string json_status_obj
 
   {-
-  liftIO $ MyUtils.debugList [
+  liftIO $ D.debugList [
       "either_response:"
     , show either_response
     ]

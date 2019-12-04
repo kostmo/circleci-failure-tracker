@@ -41,6 +41,7 @@ import qualified Builds
 import qualified CommitBuilds
 import qualified Commits
 import qualified DbHelpers
+import qualified DebugUtils                           as D
 import qualified GitRev
 import qualified JsonUtils
 import qualified MatchOccurrences
@@ -78,7 +79,11 @@ runQuery sql = do
   liftIO $ query_ conn sql
 
 
-constructExpression :: Bool -> Text -> Bool -> ScanPatterns.MatchExpression
+constructExpression ::
+     Bool
+  -> Text
+  -> Bool
+  -> ScanPatterns.MatchExpression
 constructExpression
     is_regex
     pattern_text
@@ -1017,20 +1022,16 @@ apiUnmatchedCommitBuilds ::
 apiUnmatchedCommitBuilds (Builds.RawCommit sha1) = do
   conn <- ask
   liftIO $ do
-    MyUtils.debugList [
+    D.debugList [
         "SQL:"
       , show sql
       , "ARGS:"
       , show sha1
       ]
 
-    PostgresHelpers.catchDatabaseError catcher $ do
-      xs <- query conn sql $ Only sha1
-      return $ Right xs
+    xs <- query conn sql $ Only sha1
+    return $ Right xs
   where
-
-    catcher _ (PostgresHelpers.QueryCancelled some_error) = return $ Left $ "Query error in apiUnmatchedCommitBuilds: " <> T.pack (BS.unpack some_error)
-    catcher e _                                  = throwIO e
 
     sql = Q.qjoin [
         "SELECT"
@@ -1651,18 +1652,85 @@ data BasicRevisionBuildStats = BasicRevisionBuildStats {
   , _known_broken :: Int
   , _succeeded    :: Int
   , _failed       :: Int
-  } deriving (Generic, FromRow)
+  } deriving (Show, Generic, FromRow)
+
+
+getFailedCircleCIJobNames ::
+     Builds.RawCommit
+  -> DbIO (Either LT.Text [Text])
+getFailedCircleCIJobNames (Builds.RawCommit sha1) = do
+  conn <- ask
+
+  liftIO $ Right . map (\(Only x) -> x) <$> query conn sql query_parms
+  where
+    query_parms = (sha1, SqlRead.circleCIProviderIndex)
+
+    sql = Q.qjoin [
+        "SELECT job_name"
+      , "FROM global_builds"
+      , "WHERE"
+      , Q.qconjunction [
+          "vcs_revision = ?"
+        , "provider = ?"
+        , "NOT succeeded"
+        ]
+      ]
+
+
+countCircleCIFailures ::
+     Builds.RawCommit
+  -> DbIO (Either LT.Text Int)
+countCircleCIFailures (Builds.RawCommit sha1) = do
+  conn <- ask
+
+  liftIO $ maybeToEither err . Safe.headMay . map (\(Only x) -> x) <$> query conn sql query_parms
+  where
+    query_parms = (sha1, SqlRead.circleCIProviderIndex)
+
+    err = LT.unwords [
+        "No match for commit"
+      , LT.fromStrict sha1
+      ]
+
+    sql = Q.qjoin [
+        "SELECT COUNT(*)"
+      , "FROM global_builds"
+      , "WHERE"
+      , Q.qconjunction [
+          "vcs_revision = ?"
+        , "provider = ?"
+        , "NOT succeeded"
+        ]
+      ]
+
 
 
 -- | This is almost redundant with the existing "build_failure_disjoint_causes_by_commit"
 -- view but is re-implemented here to allow filtering by provider
+-- TODO THIS DOES NOT WORK AS IS
 getNonPatternMatchRevisionStats ::
      Builds.RawCommit
   -> DbIO (Either LT.Text BasicRevisionBuildStats)
 getNonPatternMatchRevisionStats (Builds.RawCommit sha1) = do
   conn <- ask
-  liftIO $ maybeToEither err . Safe.headMay <$> query conn sql (sha1, SqlRead.circleCIProviderIndex)
+
+  liftIO $ do
+    D.debugList [
+        "BLAH:"
+      , show sql
+      , "PARMS:"
+      , show query_parms
+      ]
+
+    maybeToEither err . Safe.headMay <$> query conn sql query_parms
   where
+    query_parms = (
+        sha1
+      , SqlRead.circleCIProviderIndex
+      , sha1
+--      , SqlRead.circleCIProviderIndex
+      )
+
     err = LT.unwords [
         "No match for commit"
       , LT.fromStrict sha1
@@ -1671,19 +1739,31 @@ getNonPatternMatchRevisionStats (Builds.RawCommit sha1) = do
     sql = Q.qjoin [
         "SELECT"
       , Q.list [
-          "count(build_failure_causes_disjoint.vcs_revision) AS total"
-        , "COALESCE(sum(build_failure_causes_disjoint.is_idiopathic::integer), 0::bigint) AS idiopathic"
-        , "COALESCE(sum(build_failure_causes_disjoint.is_timeout::integer), 0::bigint) AS timeout"
-        , "COALESCE(sum(build_failure_causes_disjoint.is_known_broken::integer), 0::bigint) AS known_broken"
-        , "COALESCE(sum(build_failure_causes_disjoint.succeeded::integer), 0::bigint) AS succeeded"
-        , "count(build_failure_causes_disjoint.vcs_revision) - COALESCE(sum(build_failure_causes_disjoint.succeeded::integer), 0::bigint) AS failed"
+          "count(build_failure_causes_disjoint2.vcs_revision) AS total"
+        , "COALESCE(sum(build_failure_causes_disjoint2.is_idiopathic::integer), 0::bigint) AS idiopathic"
+        , "COALESCE(sum(build_failure_causes_disjoint2.is_timeout::integer), 0::bigint) AS timeout"
+        , "COALESCE(sum(build_failure_causes_disjoint2.is_known_broken::integer), 0::bigint) AS known_broken"
+        , "COALESCE(sum(build_failure_causes_disjoint2.succeeded::integer), 0::bigint) AS succeeded"
+        , "count(build_failure_causes_disjoint2.vcs_revision) - COALESCE(sum(build_failure_causes_disjoint2.succeeded::integer), 0::bigint) AS failed"
         ]
-      , "FROM build_failure_causes_disjoint"
-      , "WHERE build_failure_causes_disjoint.vcs_revision = ?"
-      , "AND provider = ?"
-      , "GROUP BY build_failure_causes_disjoint.vcs_revision"
+      , "FROM"
+      , Q.aliasedSubquery build_failure_causes_disjoint_subquery "build_failure_causes_disjoint2"
+      , "WHERE"
+      , Q.qconjunction [
+          "vcs_revision = ?"
+--        , "provider = ?"
+        ]
+      , "GROUP BY vcs_revision"
       , "LIMIT 1"
       ]
+
+    sql_where_conditions = [
+        "vcs_revision = ?"
+        -- TODO
+      , "provider = ?"
+      ]
+
+    build_failure_causes_disjoint_subquery = genBuildFailureCausesDisjointSubquery sql_where_conditions
 
 
 genBestBuildMatchQuery ::
@@ -1724,7 +1804,7 @@ getBuildsParameterized :: ToRow q =>
 getBuildsParameterized fields_to_fetch sql_parms sql_where_conditions = do
   conn <- ask
 
-  (timing, content) <- MyUtils.timeThisFloat $ liftIO $ query conn sql sql_parms
+  (timing, content) <- D.timeThisFloat $ liftIO $ query conn sql sql_parms
   return $ DbHelpers.BenchmarkedResponse timing content
   where
     sql = genBestBuildMatchQuery fields_to_fetch sql_where_conditions
@@ -1745,14 +1825,19 @@ genBestMatchesSubquery sql_where_conditions = Q.qjoin [
     , "match_id"
     , "step_id"
     , "vcs_revision"
+    , "patterns.is_network"
+    , "patterns.is_flaky"
+    , "is_promoted"
     ]
   , "FROM"
   , Q.aliasedSubquery build_matches_subquery "inner_matches_for_build"
-  , "JOIN patterns"
+  , "JOIN patterns_rich AS patterns"
   , "ON inner_matches_for_build.pattern = patterns.id"
   , "ORDER BY"
+    -- XXX Must keep these sort criteria in sync with the "best matches" view definition
   , Q.list [
       "inner_matches_for_build.universal_build"
+    , "inner_matches_for_build.is_promoted DESC"
     , "patterns.specificity DESC"
     , "patterns.is_retired"
     , "patterns.regex"
@@ -1781,6 +1866,7 @@ genAllBuildMatchesSubquery sql_where_conditions = Q.qjoin [
         "step_id"
       , "pattern"
       , "line_number"
+      , "is_promoted DESC"
       , "match_id DESC"
       ]
     ]
@@ -1799,11 +1885,138 @@ genAllBuildMatchesSubquery sql_where_conditions = Q.qjoin [
       , "matches.span_start"
       , "matches.span_end"
       , "builds_join_steps.vcs_revision"
+      , "build_failure_elaborations.match IS NOT NULL AS is_promoted"
       ]
     , "FROM matches"
-    , "JOIN builds_join_steps ON matches.build_step = builds_join_steps.step_id"
+    , "JOIN builds_join_steps"
+    , "ON matches.build_step = builds_join_steps.step_id"
+    , "LEFT JOIN build_failure_elaborations"
+    , "ON build_failure_elaborations.match = matches.id"
     , "WHERE"
     , Q.qconjunction sql_where_conditions
+    ]
+
+
+genBuildFailureCausesDisjointSubquery sql_where_conditions = Q.qjoin [
+    "SELECT"
+  , Q.list [
+      "build_num"
+    , "succeeded"
+    , "is_idiopathic AND NOT is_known_broken AS is_idiopathic"
+    , "is_timeout AND NOT is_known_broken AS is_timeout"
+    , "is_unmatched AND NOT is_known_broken AND NOT is_timeout AND NOT is_idiopathic AS is_unmatched"
+    , "pattern_id"
+    , "is_flaky AND NOT is_known_broken AS is_flaky"
+    , "vcs_revision"
+    , "queued_at"
+    , "job_name"
+    , "is_known_broken"
+    , "is_matched AND NOT is_known_broken AS is_matched"
+    , "global_build"
+    , "is_matched AND NOT is_known_broken AND NOT is_flaky AS is_matched_other"
+    , "provider"
+    ]
+  , "FROM"
+  , Q.aliasedSubquery causes_subquery "build_failure_causes2"
+  ]
+
+  where
+    causes_subquery = genBuildFailureCausesSubquery sql_where_conditions
+
+
+genBuildFailureCausesSubquery sql_where_conditions = Q.qjoin [
+    "SELECT"
+  , Q.list [
+      "build_failure_standalone_causes2.build_num"
+    , "build_failure_standalone_causes2.vcs_revision"
+    , "build_failure_standalone_causes2.queued_at"
+    , "build_failure_standalone_causes2.job_name"
+    , "build_failure_standalone_causes2.succeeded"
+    , "build_failure_standalone_causes2.is_idiopathic"
+    , "build_failure_standalone_causes2.is_timeout"
+    , "build_failure_standalone_causes2.is_unmatched"
+    , "build_failure_standalone_causes2.pattern_id"
+    , "build_failure_standalone_causes2.is_flaky"
+    , "build_failure_standalone_causes2.is_matched"
+    , "build_failure_standalone_causes2.global_build"
+    , "build_failure_standalone_causes2.provider"
+    , "build_failure_standalone_causes2.build_namespace"
+    , "build_failure_standalone_causes2.started_at"
+    , "build_failure_standalone_causes2.finished_at"
+    , "build_failure_standalone_causes2.maybe_is_scheduled"
+    , "build_failure_standalone_causes2.is_network"
+    , "known_broken_builds.universal_build IS NOT NULL AS is_known_broken"
+    , "known_broken_builds.causes AS known_cause_ids"
+    , "known_broken_builds.cause_count"
+    ]
+  , "FROM"
+  , Q.aliasedSubquery standalone_causes_subquery "build_failure_standalone_causes2"
+  , "LEFT JOIN known_broken_builds"
+  , "ON known_broken_builds.universal_build = build_failure_standalone_causes2.global_build"
+  ]
+
+  where
+    standalone_causes_subquery = genBuildFailureStandaloneCausesSubquery sql_where_conditions
+
+
+-- | Note: The WHERE clause conditions are applied on this outer query
+-- *as well as* on the inner "matches" query.
+--
+-- This can get pretty tricky in terms of passing the query parameters
+-- in the correct order.
+genBuildFailureStandaloneCausesSubquery sql_where_conditions =
+ sql
+ where
+ sql = Q.qjoin [
+    "SELECT"
+  , Q.list [
+      "global_builds.build_number AS build_num"
+    , "global_builds.vcs_revision"
+    , "global_builds.queued_at"
+    , "global_builds.job_name"
+    , "global_builds.branch"
+    , "global_builds.succeeded"
+    , "global_builds.global_build_num AS global_build"
+    , "global_builds.provider"
+    , "global_builds.build_namespace"
+    , "global_builds.started_at"
+    , "global_builds.finished_at"
+    , "global_builds.maybe_is_scheduled"
+    , "build_steps.universal_build IS NULL AND NOT global_builds.succeeded AS is_idiopathic"
+    , "build_steps.id AS step_id"
+    , "build_steps.name AS step_name"
+    , "COALESCE(build_steps.is_timeout, false) AS is_timeout"
+    , "best_pattern_match_for_builds.pattern_id IS NULL AND NOT global_builds.succeeded AS is_unmatched"
+    , "best_pattern_match_for_builds.pattern_id IS NOT NULL AS is_matched"
+    , "best_pattern_match_for_builds.pattern_id"
+    , "COALESCE(best_pattern_match_for_builds.is_flaky, false) AS is_flaky"
+    , "COALESCE(best_pattern_match_for_builds.is_network, false) AS is_network"
+    ]
+  , "FROM global_builds"
+  , "LEFT JOIN build_steps"
+  , "ON build_steps.universal_build = global_builds.global_build_num"
+  , "LEFT JOIN"
+  , Q.aliasedSubquery best_pattern_match_for_builds_subquery "best_pattern_match_for_builds"
+  , "ON best_pattern_match_for_builds.universal_build = global_builds.global_build_num"
+--  , "WHERE"
+--  , Q.qconjunction outer_where_conditions
+  ]
+
+ {-
+ outer_where_conditions = [
+     "global_builds.vcs_revision = ?"
+   , "global_builds.provider = ?"
+   ]
+ -}
+
+
+ best_pattern_match_for_builds_subquery = genBestBuildMatchQuery fields_to_fetch sql_where_conditions
+
+ fields_to_fetch = [
+      "is_network"
+    , "is_flaky"
+    , "pattern_id"
+    , "best_pattern_match_for_builds.universal_build"
     ]
 
 
@@ -1823,9 +2036,7 @@ getRevisionBuilds git_revision = do
 
 
     sql_parms = Only $ GitRev.sha1 git_revision
-    sql_where_conditions = [
-        "vcs_revision = ?"
-      ]
+    sql_where_conditions = ["vcs_revision = ?"]
 
     fields_to_fetch = [
         "build_steps.name AS step_name"
@@ -2211,16 +2422,16 @@ refreshCachedMasterGrid view_name is_from_frontend = do
     Left x -> return $ Left x
     Right sql_query -> do
 
-      MyUtils.debugList [
+      D.debugList [
           "Refreshing view"
         , MyUtils.quote $ T.unpack view_name
         ]
 
-      (execution_time, _) <- MyUtils.timeThisFloat $ execute_ conn sql_query
+      (execution_time, _) <- D.timeThisFloat $ execute_ conn sql_query
 
       execute conn "INSERT INTO lambda_logging.materialized_view_refresh_events (view_name, execution_duration_seconds, event_source) VALUES (?, ?, ?);" (view_name, execution_time, trigger_source)
 
-      MyUtils.debugStr "View refreshed."
+      D.debugStr "View refreshed."
       return $ Right ()
 
   where
@@ -2846,34 +3057,34 @@ apiMasterBuilds timeline_parms = do
   liftIO $ runExceptT $ do
 
     liftIO $ putStrLn "FOO A"
-    (commits_list_time, (commit_id_bounds, master_commits)) <- MyUtils.timeThisFloat $
+    (commits_list_time, (commit_id_bounds, master_commits)) <- D.timeThisFloat $
       ExceptT $ getMasterCommits conn $ Pagination.offset_mode timeline_parms
 
     liftIO $ putStrLn "FOO B"
 
     let commit_bounds_tuple = DbHelpers.boundsAsTuple commit_id_bounds
 
-    (code_breakages_time, code_breakage_ranges) <- MyUtils.timeThisFloat $ liftIO $
+    (code_breakages_time, code_breakage_ranges) <- D.timeThisFloat $ liftIO $
       runReaderT (apiAnnotatedCodeBreakages should_use_uncached_annotations commit_id_bounds) conn
 
     liftIO $ putStrLn "FOO C"
 
-    (builds_list_time, completed_builds) <- MyUtils.timeThisFloat $
+    (builds_list_time, completed_builds) <- D.timeThisFloat $
       liftIO $ query conn builds_list_sql commit_bounds_tuple
 
     liftIO $ putStrLn "FOO D"
 
-    (reversion_spans_time, reversion_spans) <- MyUtils.timeThisFloat $
+    (reversion_spans_time, reversion_spans) <- D.timeThisFloat $
       liftIO $ query conn reversion_spans_sql commit_bounds_tuple
 
     liftIO $ putStrLn "FOO E"
 
-    (job_failure_spans_time, job_failure_spans) <- MyUtils.timeThisFloat $
+    (job_failure_spans_time, job_failure_spans) <- D.timeThisFloat $
       liftIO $ getBreakageSpans conn commit_id_bounds
 
     liftIO $ putStrLn "FOO F"
 
-    (disjoint_statuses_time, disjoint_statuses) <- MyUtils.timeThisFloat $
+    (disjoint_statuses_time, disjoint_statuses) <- D.timeThisFloat $
       liftIO $ query conn disjoint_statuses_sql commit_bounds_tuple
 
     liftIO $ putStrLn "FOO G"
@@ -3508,7 +3719,7 @@ getBuildPatternMatches ::
 getBuildPatternMatches (Builds.UniversalBuildId build_id) = do
   conn <- ask
 
-  (timing, result) <- MyUtils.timeThisFloat $ liftIO $ query conn sql $ Only build_id
+  (timing, result) <- D.timeThisFloat $ liftIO $ query conn sql $ Only build_id
   return $ DbHelpers.BenchmarkedResponse timing result
   where
     sql = Q.qjoin [
@@ -3532,7 +3743,14 @@ getBuildPatternMatches (Builds.UniversalBuildId build_id) = do
       , "ON log_metadata.step = build_steps.id"
       , "JOIN patterns"
       , "ON all_build_matches.pattern = patterns.id"
-      , "ORDER BY specificity DESC, pattern ASC, line_number ASC"
+      , "ORDER BY"
+        -- XXX This sort criteria list should be kept in sync with the "best match" view
+      , Q.list [
+          "is_promoted DESC"
+        , "specificity DESC"
+        , "pattern ASC"
+        , "line_number ASC"
+        ]
       ]
 
     sql_where_conditions = ["universal_build = ?"]
@@ -3664,7 +3882,7 @@ getBestBuildMatch ::
 getBestBuildMatch ubuild_id@(Builds.UniversalBuildId build_id) = do
 
   conn <- ask
-  (timing, content) <- MyUtils.timeThisFloat $ liftIO $
+  (timing, content) <- D.timeThisFloat $ liftIO $
     map f <$> query conn sql (Only build_id)
 
   return $ DbHelpers.BenchmarkedResponse timing content

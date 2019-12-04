@@ -16,7 +16,7 @@ import           Text.Regex                (mkRegex, subRegex)
 import           Text.Regex.Posix.Wrap     (Regex)
 
 import qualified Builds
-import qualified MyUtils
+import qualified DebugUtils                as D
 import qualified ScanRecords
 import           SillyMonoids              ()
 import qualified SqlWrite
@@ -78,12 +78,12 @@ doParse scan_resources build_step_id log_download_result = do
         let my_string = unpackChars my_bytestring
         readMaybe my_string
 
-  liftIO $ MyUtils.debugList [
+  liftIO $ D.debugList [
       "Declared JSON response size (possibly compressed):"
     , show maybe_header_size
     ]
 
-  liftIO $ MyUtils.debugStr "Log downloaded."
+  liftIO $ D.debugStr "Log downloaded."
 
   let response_body = HttpClient.responseBody log_download_result
 
@@ -117,13 +117,13 @@ doParse scan_resources build_step_id log_download_result = do
 
   liftIO $ do
 
-    MyUtils.debugList [
+    D.debugList [
         "Storing log to database..."
       , "Will be truncated?"
       , show was_truncated
       ]
 
-    MyUtils.debugList [
+    D.debugList [
         "Log size after ANSI stripping:"
       , show byte_count
       , "bytes,"
@@ -139,6 +139,6 @@ doParse scan_resources build_step_id log_download_result = do
         (ansi_stripped_log /= raw_console_log)
         was_truncated
 
-    MyUtils.debugStr "Log stored."
+    D.debugStr "Log stored."
 
   return ansi_stripped_log_lines

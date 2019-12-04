@@ -50,6 +50,7 @@ import qualified Builds
 import qualified CommitBuilds
 import qualified Constants
 import qualified DbHelpers
+import qualified DebugUtils                    as D
 import qualified GadgitFetch
 import qualified GithubApiFetch
 import qualified GitRev
@@ -246,7 +247,7 @@ getBuildsFromGithub
     owned_repo
     sha1
 
-  liftIO $ MyUtils.debugList [
+  liftIO $ D.debugList [
       "Build statuses count:"
     , show $ length build_statuses_list_any_source
     ]
@@ -287,7 +288,7 @@ getBuildsFromGithub
 
       circleci_failcount = length circleci_failed_builds
 
-  liftIO $ MyUtils.debugList [
+  liftIO $ D.debugList [
       "Failed CircleCI build count:"
     , show circleci_failcount
     ]
@@ -335,7 +336,7 @@ scanAndPost
       (Left $ Set.fromList scannable_build_numbers)
 
 
-  liftIO $ MyUtils.debugList ["About to enter postCommitSummaryStatus"]
+  liftIO $ D.debugList ["About to enter postCommitSummaryStatus"]
 
   postCommitSummaryStatus
     conn
@@ -357,14 +358,14 @@ fetchCommitPageInfo ::
   -> SqlRead.DbIO (Either Text CommitPageInfo)
 fetchCommitPageInfo sha1 validated_sha1 = runExceptT $ do
 
-  liftIO $ MyUtils.debugStr "Fetching revision builds"
+  liftIO $ D.debugStr "Fetching revision builds"
   DbHelpers.BenchmarkedResponse _ revision_builds <- ExceptT $ SqlRead.getRevisionBuilds validated_sha1
 
-  liftIO $ MyUtils.debugStr "Fetching unmatched commit builds..."
+  liftIO $ D.debugStr "Fetching unmatched commit builds..."
 
   unmatched_builds <- ExceptT $ SqlRead.apiUnmatchedCommitBuilds sha1
 
-  liftIO $ MyUtils.debugStr "Finishing fetchCommitPageInfo."
+  liftIO $ D.debugStr "Finishing fetchCommitPageInfo."
 
   return $ CommitPageInfo revision_builds unmatched_builds
 
@@ -383,19 +384,13 @@ postCommitSummaryStatus
     sha1@(Builds.RawCommit commit_sha1_text)
     scan_matches = do
 
-  liftIO $ MyUtils.debugStr "Checkpoint A"
+  liftIO $ D.debugStr "Checkpoint A"
 
-  -- TODO This should return the actual jobs that failed, rather than
-  -- just the count
-  -- TODO This query also tends to be slow
-  let f = SqlRead.getNonPatternMatchRevisionStats sha1
-  basic_revision_stats <- ExceptT $ runReaderT f conn
+  let f = SqlRead.getFailedCircleCIJobNames sha1
+  circleci_failed_job_names <- ExceptT $ runReaderT f conn
 
-  let (SqlRead.BasicRevisionBuildStats _ _ _ _ _ circleci_failcount) = basic_revision_stats
+  liftIO $ D.debugStr "Checkpoint B"
 
-  liftIO $ MyUtils.debugStr "Checkpoint B"
-
-  -- TODO WIP!!!
   upstream_breakages_info <- ExceptT $
     first LT.fromStrict <$> SqlUpdate.findKnownBuildBreakages
       conn
@@ -403,19 +398,19 @@ postCommitSummaryStatus
       owned_repo
       sha1
 
-  liftIO $ MyUtils.debugStr "Checkpoint C"
+  liftIO $ D.debugStr "Checkpoint C"
 
   validated_sha1 <- except $ first LT.fromStrict $ GitRev.validateSha1 commit_sha1_text
 
-  liftIO $ MyUtils.debugStr "Checkpoint D"
+  liftIO $ D.debugStr "Checkpoint D"
 
   commit_page_info <- ExceptT $ first LT.fromStrict <$>
     runReaderT (fetchCommitPageInfo sha1 validated_sha1) conn
 
-  liftIO $ MyUtils.debugStr "Checkpoint E"
+  liftIO $ D.debugStr "Checkpoint E"
 
   x <- postCommitSummaryStatusInner
-    (replicate circleci_failcount "xxx") -- TODO FIXME
+    circleci_failed_job_names
     upstream_breakages_info
     commit_page_info
     conn
@@ -424,7 +419,7 @@ postCommitSummaryStatus
     sha1
     scan_matches
 
-  liftIO $ MyUtils.debugStr "Checkpoint Z"
+  liftIO $ D.debugStr "Checkpoint Z"
 
   return x
 
@@ -435,14 +430,14 @@ fetchAndCachePrAuthor conn access_token pr_number = do
 
   case maybe_pr_author of
     Just author -> do
-      liftIO $ MyUtils.debugStr "Fetched PR author from database cache"
+      liftIO $ D.debugStr "Fetched PR author from database cache"
       return author
     Nothing -> do
       (pr_author, pr_metadata_obj) <- ExceptT $ first snd <$> GithubApiFetch.getPullRequestAuthor access_token pr_number
       liftIO $ do
-        MyUtils.debugStr "Fetched PR author from GitHub API"
+        D.debugStr "Fetched PR author from GitHub API"
         runReaderT (SqlWrite.storePullRequestStaticMetadata pr_number pr_metadata_obj) conn
-        MyUtils.debugStr "Stored PR author and other metadata in database"
+        D.debugStr "Stored PR author and other metadata in database"
       return pr_author
 
 
@@ -456,12 +451,12 @@ postCommitSummaryStatusInner
     sha1
     scan_matches = do
 
-  liftIO $ MyUtils.debugStr "Checkpoint F"
+  liftIO $ D.debugStr "Checkpoint F"
 
   maybe_previously_posted_status <- liftIO $
     runReaderT (SqlRead.getPostedGithubStatus owned_repo sha1) conn
 
-  liftIO $ MyUtils.debugStr "Checkpoint G"
+  liftIO $ D.debugStr "Checkpoint G"
 
   case maybe_previously_posted_status of
     Nothing -> when (circleci_failcount > 0) post_and_store
@@ -469,7 +464,7 @@ postCommitSummaryStatusInner
       when (previous_state_description_tuple /= new_state_description_tuple)
         post_and_store
 
-  liftIO $ MyUtils.debugStr "Checkpoint H"
+  liftIO $ D.debugStr "Checkpoint H"
 
   post_pr_comment_and_store
 
@@ -556,7 +551,7 @@ postCommitSummaryStatusInner
 
       -- If the comment was deleted, we need to re-post one.
       Left "Not Found" -> do
-        liftIO $ MyUtils.debugStr "Comment was deleted. Posting a new one..."
+        liftIO $ D.debugStr "Comment was deleted. Posting a new one..."
 
         -- Mark our database entry as stale
         liftIO $ SqlWrite.markPostedGithubCommentAsDeleted conn comment_id
@@ -580,38 +575,38 @@ postCommitSummaryStatusInner
     containing_pr_list <- ExceptT $ first LT.pack <$> GadgitFetch.getContainingPRs sha1
 
     when (null containing_pr_list) $
-      liftIO $ MyUtils.debugList [
+      liftIO $ D.debugList [
           "No Pull Requests have head commit of"
         , show sha1
         ]
 
-    for_ containing_pr_list $ \pr_number -> do
+    for_ containing_pr_list $ \pr_number ->
+      handleCommentPostingOptOut pr_number $ do
+        maybe_previous_pr_comment <- liftIO $ runReaderT (SqlRead.getPostedCommentForPR pr_number) conn
 
-      pr_author <- fetchAndCachePrAuthor conn access_token pr_number
-      let (AuthStages.Username pr_author_username) = pr_author
+        case maybe_previous_pr_comment of
+          Nothing -> post_initial_comment pr_number
+          Just previous_pr_comment -> update_comment_or_fallback pr_number previous_pr_comment
 
-      if pr_author_username `elem` whitelistedPRAuthors
-        then do
-          can_post_comments <- ExceptT $ SqlRead.canPostPullRequestComments conn pr_author
-          if can_post_comments
-            then do
 
-              maybe_previous_pr_comment <- liftIO $ runReaderT (SqlRead.getPostedCommentForPR pr_number) conn
+  handleCommentPostingOptOut pr_number f = do
+    pr_author <- fetchAndCachePrAuthor conn access_token pr_number
+    let (AuthStages.Username pr_author_username) = pr_author
 
-              case maybe_previous_pr_comment of
-                Nothing -> post_initial_comment pr_number
-                Just previous_pr_comment -> update_comment_or_fallback pr_number previous_pr_comment
-
-            else
-              ExceptT $ runReaderT (SqlWrite.recordBlockedPRCommentPosting pr_number) $
-                SqlRead.AuthConnection conn pr_author
-        else liftIO $ do
-          MyUtils.debugList [
-              "pr_author is not whitelisted:"
-            , T.unpack pr_author_username
-            , "--- skipping!"
-            ]
-          return 0
+    if pr_author_username `elem` whitelistedPRAuthors
+      then do
+        can_post_comments <- ExceptT $ SqlRead.canPostPullRequestComments conn pr_author
+        if can_post_comments
+          then f
+          else ExceptT $ runReaderT (SqlWrite.recordBlockedPRCommentPosting pr_number) $
+            SqlRead.AuthConnection conn pr_author
+      else liftIO $ do
+        D.debugList [
+            "pr_author is not whitelisted:"
+          , T.unpack pr_author_username
+          , "--- skipping!"
+          ]
+        return 0
 
 
 genUnmatchedBuildsTable unmatched_builds =
@@ -622,7 +617,7 @@ genUnmatchedBuildsTable unmatched_builds =
 
     gen_unmatched_build_row (WebApi.UnmatchedBuild _build step_name _ job_name _ _ _ _) = [
         T.unwords [
-            "<img src='https://avatars0.githubusercontent.com/ml/7?s=12'/>"
+            Markdown.image "CircleCI" "https://avatars0.githubusercontent.com/ml/7?s=12"
           , Markdown.sup job_name
           ]
       , Markdown.sup step_name
@@ -669,7 +664,7 @@ generateCommentMarkdown
     detailed_build_issues_section = if null build_failures_table_lines
       then []
       else [
-          Markdown.heading 2 "Detailed failure analysis"
+          Markdown.heading 2 "Detailed failure analysis (WIP)"
         , Markdown.colonize [
             "Here are the"
           , Markdown.link "reasons each build failed" dr_ci_commit_details_link
@@ -763,7 +758,7 @@ readGitHubStatusesAndScanAndPostSummaryForCommit
 
   liftIO $ do
     current_time <- Clock.getCurrentTime
-    MyUtils.debugList ["Processing at", show current_time]
+    D.debugList ["Processing at", show current_time]
 
   (scannable_build_numbers, _circleci_failcount) <- getBuildsFromGithub
       conn
@@ -772,12 +767,12 @@ readGitHubStatusesAndScanAndPostSummaryForCommit
       should_store_second_level_success_records
       sha1
 
-  liftIO $ MyUtils.debugList ["Finished getBuildsFromGithub"]
+  liftIO $ D.debugList ["Finished getBuildsFromGithub"]
 
 
   case should_scan of
     ShouldScanLogs -> do
-      liftIO $ MyUtils.debugList ["About to enter scanAndPost"]
+      liftIO $ D.debugList ["About to enter scanAndPost"]
 
       scanAndPost
         conn
@@ -800,7 +795,7 @@ handlePushWebhook
     access_token
     push_event = do
 
-  MyUtils.debugList [
+  D.debugList [
       "Got repo push event for ref"
     , T.unpack refname
     , "at head:"
@@ -841,14 +836,14 @@ handleStatusWebhook
     maybe_initiator
     status_event = do
 
-  liftIO $ MyUtils.debugList [
+  liftIO $ D.debugList [
       "Notified status context was:"
     , notified_status_context_string
     ]
 
   let notified_status_url_string = LT.unpack $ Webhooks.target_url status_event
   when (circleCIContextPrefix `T.isPrefixOf` notified_status_context_text) $
-    liftIO $ MyUtils.debugList [
+    liftIO $ D.debugList [
         "CircleCI URL was:"
       , notified_status_url_string
       ]
@@ -933,12 +928,19 @@ genMetricsTreeVerbose (BuildSummaryStats flaky_count pre_broken_info all_failure
 
     Builds.RawCommit merge_base_sha1_text = SqlUpdate.merge_base pre_broken_info
 
-    rebase_advice = pure (Markdown.colonize [
-        "You may want to rebase on the `viable/strict` branch"
-      , Markdown.parens $ T.unwords ["see", Markdown.link "age history" viableCommitsHistoryUrl]
-      ]) <> Markdown.codeBlock ("git fetch viable/strict" :| ["git rebase viable/strict"])
+    rebase_advice_children = map pure [
+        pure (Markdown.colonize ["If your commit is older than `viable/strict`"]) <> Markdown.codeBlock ("git fetch viable/strict" :| ["git rebase viable/strict"])
+      , pure (Markdown.colonize ["If your commit is newer than `viable/strict`, you can try basing on an older, stable commit"]) <> Markdown.codeBlock ("git fetch viable/strict" :| ["git rebase --onto viable/strict master"])
+      ]
 
-    upstream_breakage_bullet_children = [pure rebase_advice]
+
+    rebase_advice_header = Tr.Node (pure $ Markdown.colonize [
+        "You may want to rebase on the `viable/strict` branch"
+      , Markdown.parens $ T.unwords ["see its", Markdown.link "recency history" viableCommitsHistoryUrl]
+      ]) rebase_advice_children
+
+
+    upstream_breakage_bullet_children = [rebase_advice_header]
 
     pre_broken_list = SqlUpdate.inferred_upstream_caused_broken_jobs pre_broken_info
     upstream_broken_count = length pre_broken_list

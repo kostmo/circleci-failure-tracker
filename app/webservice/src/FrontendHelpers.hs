@@ -27,8 +27,8 @@ import qualified Builds
 import qualified Constants
 import qualified DbHelpers
 import qualified DbInsertion
+import qualified DebugUtils                 as D
 import qualified GitRev
-import qualified MyUtils
 import qualified Pagination
 import qualified Scanning
 import qualified ScanPatterns
@@ -424,7 +424,7 @@ rescanCommitCallback github_config commit = do
 
   liftIO $ do
 
-    MyUtils.debugList ["Starting rescanCommitCallback"]
+    D.debugList ["Starting rescanCommitCallback"]
 
     run_result <- runExceptT $
       StatusUpdate.readGitHubStatusesAndScanAndPostSummaryForCommit

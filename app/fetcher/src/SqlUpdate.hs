@@ -22,6 +22,7 @@ import qualified Builds
 import qualified BuildSteps
 import qualified Constants
 import qualified DbHelpers
+import qualified DebugUtils                 as D
 import qualified GitRev
 import qualified JsonUtils
 import qualified MyUtils
@@ -119,7 +120,7 @@ getBuildInfo access_token build@(Builds.UniversalBuildId build_id) = do
           job_name = Builds.job_name $ BuildSteps.build step_container
 
       -- TODO Replace this!
-      (breakages_retrieval_timing, UpstreamBreakagesInfo _ breakages _) <- MyUtils.timeThisFloat $ ExceptT $
+      (breakages_retrieval_timing, UpstreamBreakagesInfo _ breakages _) <- D.timeThisFloat $ ExceptT $
         findKnownBuildBreakages conn access_token pytorchRepoOwner sha1
 
       let applicable_breakages = filter (Set.member job_name . SqlRead._jobs . DbHelpers.record) breakages
@@ -196,13 +197,13 @@ countRevisionBuilds ::
 countRevisionBuilds access_token git_revision = do
   conn <- ask
 
-  liftIO $ MyUtils.debugList [
+  liftIO $ D.debugList [
       "SQL query for countRevisionBuilds:"
     , show aggregate_causes_sql
     , "PARMS:"
     , show only_commit
     ]
-  (row_retrieval_time, rows) <- MyUtils.timeThisFloat $ liftIO $ query conn aggregate_causes_sql only_commit
+  (row_retrieval_time, rows) <- D.timeThisFloat $ liftIO $ query conn aggregate_causes_sql only_commit
 
   liftIO $ runExceptT $ do
 
@@ -225,7 +226,7 @@ countRevisionBuilds access_token git_revision = do
       ) <- except $ maybeToEither err $ Safe.headMay rows
 
     -- TODO Replace this
-    (known_broken_determination_time, UpstreamBreakagesInfo _ breakages _) <- MyUtils.timeThisFloat $ ExceptT $
+    (known_broken_determination_time, UpstreamBreakagesInfo _ breakages _) <- D.timeThisFloat $ ExceptT $
       findKnownBuildBreakages conn access_token pytorchRepoOwner $ Builds.RawCommit sha1
 
     return $ DbHelpers.BenchmarkedResponse
@@ -338,7 +339,9 @@ findKnownBuildBreakages conn access_token owned_repo sha1 =
     -- TODO Use both manually annotated and inferred methods for
     -- associating breakages!
 
-    inferred_upstream_caused_broken_jobs <- liftIO $ runReaderT (SqlRead.getInferredSpanningBrokenJobsBetter sha1) conn
+    inferred_upstream_caused_broken_jobs <- liftIO $ runReaderT
+      (SqlRead.getInferredSpanningBrokenJobsBetter sha1)
+      conn
 
     -- NOTE: This requires that the "merge base" with master of the branch
     -- commit already be cached into the database.

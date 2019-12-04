@@ -45,9 +45,9 @@ import           URI.ByteString             (parseURI, strictURIParserOptions)
 import qualified AuthStages
 import qualified Builds
 import qualified DbHelpers
+import qualified DebugUtils                 as D
 import qualified Github
 import qualified GitHubRecords
-import qualified MyUtils
 import           SillyMonoids               ()
 import qualified StatusEventQuery
 import           Types
@@ -95,7 +95,7 @@ recursePaginated
     page_offset
     old_retrieved_items = do
 
-  MyUtils.debugList [
+  D.debugList [
       "Querying URL for build statuses:"
     , uri_string
     ]
@@ -227,7 +227,7 @@ getCommitsRecurse
     stopping_condition
     old_retrieved_items = do
 
-  MyUtils.debugList [
+  D.debugList [
       "Querying URL for commits:"
     , uri_string
     ]
@@ -303,7 +303,7 @@ getCommitsNewestFirst
 
   mgr <- newManager tlsManagerSettings
 
-  MyUtils.debugList [
+  D.debugList [
       "Stopping condition (sha1 to match) when fetching master commits:"
     , show stopping_sha1
     ]

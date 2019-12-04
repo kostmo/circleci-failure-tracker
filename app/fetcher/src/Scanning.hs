@@ -31,6 +31,7 @@ import qualified CircleBuild
 import qualified CircleCIParse
 import qualified Constants
 import qualified DbHelpers
+import qualified DebugUtils                 as D
 import qualified FetchHelpers
 import qualified MyUtils
 import qualified ScanPatterns
@@ -141,7 +142,7 @@ rescanSingleBuild ::
   -> IO ()
 rescanSingleBuild conn initiator build_to_scan = do
 
-  MyUtils.debugList ["Rescanning build:", show build_to_scan]
+  D.debugList ["Rescanning build:", show build_to_scan]
 
   scan_resources <- prepareScanResources conn $ Just initiator
 
@@ -173,7 +174,7 @@ rescanSingleBuild conn initiator build_to_scan = do
         (Left $ Set.singleton build_to_scan)
 
       let total_match_count = sum $ map (length . snd) scan_matches
-      MyUtils.debugList [
+      D.debugList [
           "Found"
         , show total_match_count
         , "matches across"
@@ -254,7 +255,7 @@ catchupScan
     (universal_build_obj, maybe_console_output_url)
     scannable_patterns = do
 
-  MyUtils.debugList [
+  D.debugList [
       "\tThere are"
     , show $ length scannable_patterns
     , "scannable patterns"
@@ -267,7 +268,7 @@ catchupScan
           appl_steps = ScanPatterns.applicable_steps pat_record
       applicable_patterns = filter is_pattern_applicable scannable_patterns
 
-  MyUtils.debugList [
+  D.debugList [
       "\t\twith"
     , show $ length applicable_patterns
     , "applicable to this step"
@@ -290,9 +291,9 @@ catchupScan
 
       liftIO $ do
 
-        MyUtils.timeThis $ SqlWrite.storeMatches scan_resources buildstep_id matches
+        D.timeThis $ SqlWrite.storeMatches scan_resources buildstep_id matches
 
-        MyUtils.timeThis $ SqlWrite.insertLatestPatternBuildScan
+        D.timeThis $ SqlWrite.insertLatestPatternBuildScan
           scan_resources
           buildstep_id
           maximum_pattern_id
@@ -308,7 +309,7 @@ rescanVisitedBuilds ::
 rescanVisitedBuilds scan_resources should_refetch_logs visited_builds_list =
 
   for (zip [1::Int ..] visited_builds_list) $ \(idx, (build_step_id, step_name, universal_build_with_id, pattern_ids)) -> do
-    MyUtils.debugList [
+    D.debugList [
         "Visiting"
       , show idx ++ "/" ++ show visited_count
       , "previously-visited builds"
@@ -340,7 +341,7 @@ processUnvisitedBuilds ::
 processUnvisitedBuilds scan_resources unvisited_builds_list =
 
   for (zip [1::Int ..] unvisited_builds_list) $ \(idx, universal_build_obj) -> do
-    MyUtils.debugList [
+    D.debugList [
         "Visiting"
       , show idx ++ "/" ++ show unvisited_count
       , "unvisited builds..."
@@ -384,7 +385,7 @@ getCircleCIFailedBuildInfo ::
   -> IO (Either Builds.BuildWithStepFailure ScanRecords.UnidentifiedBuildFailure)
 getCircleCIFailedBuildInfo scan_resources build_number = do
 
-  MyUtils.debugList ["Fetching from:", fetch_url]
+  D.debugList ["Fetching from:", fetch_url]
 
   either_r <- runExceptT $ do
     r <- ExceptT $ FetchHelpers.safeGetUrl $ Sess.getWith opts sess fetch_url
@@ -457,7 +458,7 @@ getAndStoreLog
                 Builds.BuildTimeoutFailure             -> Left "This build didn't have a console log because it was a timeout!"
                 Builds.ScannableFailure failure_output -> Right $ Builds.log_url failure_output
 
-      liftIO $ MyUtils.debugList [
+      liftIO $ D.debugList [
           "Downloading log from:"
         , T.unpack download_url
         ]

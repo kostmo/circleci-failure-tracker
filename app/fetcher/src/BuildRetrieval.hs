@@ -26,6 +26,7 @@ import qualified Safe
 
 import qualified Builds
 import qualified Constants
+import qualified DebugUtils                 as D
 import qualified FetchHelpers
 import qualified MyUtils
 import           SillyMonoids               ()
@@ -80,7 +81,7 @@ updateCircleCIBuildsList
       (SqlRead.getMostRecentProviderApiFetchedBuild SqlRead.circleCIProviderIndex $ T.pack branch_name)
       conn
 
-    MyUtils.debugList [
+    D.debugList [
         "Fetching builds list for branch"
       , MyUtils.quote branch_name ++ "..."
       ]
@@ -95,7 +96,7 @@ updateCircleCIBuildsList
     let succeeded_count = length $ filter snd build_list
         failed_count = length $ filter (not . snd) build_list
 
-    MyUtils.debugList [
+    D.debugList [
         "Storing builds list from"
       , branch_name
       , "branch with"
@@ -208,7 +209,7 @@ fetchCircleCIBuildsRecurse
   if max_build_count > 0
     then do
 
-      MyUtils.debugList [
+      D.debugList [
           "Getting builds starting at"
         , show offset
         , MyUtils.parens $ show max_build_count ++ " left"
@@ -242,7 +243,7 @@ fetchCircleCIBuildsRecurse
         ExceptT $ case Safe.minimumMay queued_times of
           Nothing -> return $ Left "No more builds found."
           Just earliest_encountered_build_time -> do
-            MyUtils.debugList [
+            D.debugList [
                 "Earliest build time encountered:"
               , show earliest_encountered_build_time
               ]
@@ -268,7 +269,7 @@ fetchCircleCIBuildsRecurse
 
       more_builds <- case either_more_builds of
         Left msg -> do
-          MyUtils.debugStr msg
+          D.debugStr msg
           return []
         Right blds -> return blds
 
@@ -302,7 +303,7 @@ getSingleBuildList sess filter_mode branch_name limit offset = do
       return builds_list
 
     Left err_message -> do
-      MyUtils.debugList [
+      D.debugList [
           "PROBLEM: Failed in getSingleBuildList with message:"
         , err_message
         ]

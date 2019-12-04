@@ -42,11 +42,12 @@ import qualified Builds
 import qualified Commits
 import qualified Constants
 import qualified DbHelpers
+import qualified DebugUtils                        as D
 import qualified GadgitFetch
 import qualified GithubApiFetch
 import qualified GitHubRecords
+import qualified MatchOccurrences
 import qualified MergeBase
-import qualified MyUtils
 import qualified QueryUtils                        as Q
 import qualified ScanPatterns
 import qualified ScanRecords
@@ -137,7 +138,7 @@ findMasterAncestorWithPrecomputation
   -- case we can avoid a database lookup to the merge-base cache.
   if Set.member sha1 $ Maybe.fromMaybe Set.empty maybe_all_master_commits
   then do
-    MyUtils.debugList [
+    D.debugList [
         "Bypassed cache since"
       , T.unpack unwrapped_sha1
       , "is a master commit!"
@@ -154,7 +155,7 @@ findMasterAncestorWithPrecomputation
 
     case maybe_cached_merge_base of
       Just cached_merge_base -> do
-        MyUtils.debugList [
+        D.debugList [
             "Retrieved merge base of"
           , show sha1
           , "from cache as"
@@ -183,7 +184,7 @@ findMasterAncestorWithPrecomputation
           -- Distance 0 means it was a member of the master branch.
           unless (distance == 0 || merge_base_cache_option == NoCache) $ liftIO $ do
             execute conn merge_base_insertion_sql (unwrapped_sha1, unwrapped_merge_base, distance)
-            MyUtils.debugList [
+            D.debugList [
                 "Stored merge base of"
               , T.unpack unwrapped_sha1
               , "to cache as"
@@ -240,7 +241,7 @@ updateMergedPullRequestHeadCommits conn = do
     let pr_head_eithers = map (first T.pack . sequenceA) pr_associations
         (unretrieved_pr_heads, retrieved_pr_heads) = partitionEithers pr_head_eithers
 
-    liftIO $ MyUtils.debugList [
+    liftIO $ D.debugList [
         "Retrieved"
       , show $ length retrieved_pr_heads
       , "out of"
@@ -253,7 +254,7 @@ updateMergedPullRequestHeadCommits conn = do
     let deduped_insertion_records = nubSort $ map (\(Builds.PullRequestNumber x, Builds.RawCommit y) -> (x, y)) retrieved_pr_heads
     inserted_count <- liftIO $ executeMany conn insertion_sql deduped_insertion_records
 
-    liftIO $ MyUtils.debugList [
+    liftIO $ D.debugList [
         "Inserted"
       , show inserted_count
       , "new rows into pull_request_heads table"
@@ -345,11 +346,11 @@ populateLatestMasterCommits ::
   -> IO (Either Text (Int64, Int64))
 populateLatestMasterCommits conn access_token owned_repo = do
 
-  MyUtils.debugStr "Populating latest master commits..."
+  D.debugStr "Populating latest master commits..."
 
   maybe_latest_known_commit <- SqlRead.getLatestKnownMasterCommit conn
 
-  MyUtils.debugList [
+  D.debugList [
       "Latest known master commit:"
     , show maybe_latest_known_commit
     ]
@@ -379,7 +380,7 @@ populateLatestMasterCommits conn access_token owned_repo = do
     commit_insertion_count <- ExceptT $ storeMasterCommits conn $
       map GitHubRecords.extractCommitSha fetched_commits_oldest_first
 
-    liftIO $ MyUtils.debugList [
+    liftIO $ D.debugList [
         "Inserted "
       , show commit_insertion_count
       , "commits"
@@ -512,7 +513,7 @@ storeBuildsList ::
   -> IO Int64
 storeBuildsList conn maybe_provider_scan_id builds_list = do
 
-  MyUtils.debugList [
+  D.debugList [
       "Inside storeBuildsList to update"
     , show $ length builds_list
     , "build entries"
@@ -522,7 +523,7 @@ storeBuildsList conn maybe_provider_scan_id builds_list = do
     execute conn sql $ f x
     return ()
 
-  MyUtils.debugList [
+  D.debugList [
       "Finishing storeBuildsList."
     ]
 
@@ -612,7 +613,7 @@ storeMatches ::
   -> IO Int64
 storeMatches scan_resources (Builds.NewBuildStepId build_step_id) scoped_matches = do
 
-  MyUtils.debugList [
+  D.debugList [
       "Now storing"
     , show $ length scoped_matches
     , show build_step_id ++ "..."
@@ -620,7 +621,7 @@ storeMatches scan_resources (Builds.NewBuildStepId build_step_id) scoped_matches
 
   count <- executeMany conn insertion_sql $ map to_tuple scoped_matches
 
-  MyUtils.debugList [
+  D.debugList [
       "Finished storing"
     , show $ length scoped_matches
     , "matches."
@@ -1238,7 +1239,7 @@ cacheAllMergeBases conn all_master_commits access_token owned_repo commits =
         StoreToCache
         x
 
-      MyUtils.debugList [
+      D.debugList [
         "Progress:"
         , show i
         , "/"
@@ -1301,14 +1302,14 @@ insertLatestPatternBuildScan
     (Builds.NewBuildStepId step_id)
     maximum_pattern_id = do
 
-  MyUtils.debugList [
+  D.debugList [
       "Now storing largest scanned pattern ID:"
     , show maximum_pattern_id
     ]
 
   execute conn sql (ScanRecords.scan_id scan_resources, step_id, maximum_pattern_id)
 
-  MyUtils.debugList [
+  D.debugList [
       "Stored largest scanned pattern ID"
     , show maximum_pattern_id ++ "."
     ]
@@ -1605,6 +1606,28 @@ copyPattern
         ]
       , "FROM patterns_augmented"
       , "WHERE id = ?;"
+      ]
+
+
+promoteMatch ::
+     MatchOccurrences.MatchId
+  -> SqlRead.AuthDbIO (Either Text Int64)
+promoteMatch (MatchOccurrences.MatchId match_id) = do
+  SqlRead.AuthConnection conn (AuthStages.Username username) <- ask
+  liftIO $ catchViolation catcher $ do
+    [Only match_id] <- query conn sql (match_id, username)
+    return match_id
+  where
+    catcher _ (UniqueViolation some_error) = return $ Left $ "Insertion error: " <> T.pack (BS.unpack some_error)
+    catcher e _                                  = throwIO e
+
+    sql = Q.qjoin [
+        "INSERT INTO build_failure_elaborations"
+      , Q.insertionValues [
+          "match"
+        , "author"
+        ]
+      , "RETURNING match;"
       ]
 
 

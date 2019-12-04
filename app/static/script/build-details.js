@@ -1,3 +1,10 @@
+function prompt_promote_match(match_id) {
+
+	const data_dict = {"match_id": match_id};
+	post_modification("/api/promote-match", data_dict);
+}
+
+
 function gen_builds_table(element_id, data_url, height_string, universal_build_id) {
 
 	const column_list = [
@@ -29,7 +36,20 @@ function gen_builds_table(element_id, data_url, height_string, universal_build_i
 
 	// Is not the single-entry "best match" table
 	if (height_string != null) {
-		column_list.push({title: "Specificity", field: "specificity", width: 100});
+
+		const additional_columns = [
+			{title: "Promote", field: "match_id", 
+				formatter: function(cell, formatterParams, onRendered) {
+					return link("Mark", "javascript:prompt_promote_match(" + cell.getValue() + ");");
+				},
+				width: 100,
+			},
+			{title: "Specificity", field: "specificity", width: 100},
+		];
+
+		for (var col of additional_columns) {
+			column_list.push(col);
+		}
 	}
 
 	const table = new Tabulator("#" + element_id, {

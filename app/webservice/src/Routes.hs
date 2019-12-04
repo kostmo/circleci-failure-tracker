@@ -139,6 +139,11 @@ scottyApp
       Scanning.rescanSingleBuildWrapped
         <$> (Builds.UniversalBuildId <$> S.param "build")
 
+  S.post "/api/promote-match" $
+    withAuth $
+      SqlWrite.promoteMatch
+        <$> (MatchOccurrences.MatchId <$> S.param "match_id")
+
   S.post "/api/rescan-commit" $
     withAuth $
       FrontendHelpers.rescanCommitCallback github_config

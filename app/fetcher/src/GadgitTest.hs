@@ -3,20 +3,20 @@
 module GadgitTest where
 
 import qualified Builds
+import qualified DebugUtils  as D
 import qualified GadgitFetch
-import qualified MyUtils
 
 
 testGadgitApis = do
   result1 <- GadgitFetch.getSinglePullRequestHeadCommit $ Builds.PullRequestNumber 27445
-  MyUtils.debugList [
+  D.debugList [
       "result1:"
     , show result1
     ]
 
 
   result2 <- GadgitFetch.getSinglePullRequestHeadCommit $ Builds.PullRequestNumber 27445547
-  MyUtils.debugList [
+  D.debugList [
       "result2:"
     , show result2
     ]
@@ -24,7 +24,7 @@ testGadgitApis = do
 
   -- | TODO move these to unit tests
   result3 <- GadgitFetch.getPullRequestHeadCommitsBulk $ map Builds.PullRequestNumber [22201, 23463, 9999999]
-  MyUtils.debugList [
+  D.debugList [
       "result3:"
     , show result3
     ]
