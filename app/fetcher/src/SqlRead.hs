@@ -606,19 +606,39 @@ instance ToJSON PageRequestCounts where
 getPageViewsByWeek :: Int -> DbIO [DbHelpers.TimestampedDatum PageRequestCounts]
 getPageViewsByWeek _week_count = do
   conn <- ask
---  liftIO $ fmap reverse $ query conn sql $ Only week_count
-  liftIO $ fmap reverse $ query_ conn sql
+  liftIO $ reverse <$> query_ conn sql
   where
+    top_pages_subquery = Q.qjoin [
+        "SELECT"
+      , Q.list [
+          "url"
+        , "SUM(request_count) AS total"
+        ]
+      , "FROM frontend_logging.page_requests_by_week"
+      , "GROUP BY url"
+      , "ORDER BY total DESC"
+      , "LIMIT 8"
+      ]
+
     sql = Q.qjoin [
         "SELECT"
       , Q.list [
           "week"
-        , "url"
+        , "f.url"
         , "request_count"
         ]
-      , "FROM frontend_logging.page_requests_by_week"
+      , "FROM frontend_logging.page_requests_by_week f"
+      , "JOIN"
+      , Q.aliasedSubquery top_pages_subquery "top_pages_subquery"
+      , "ON f.url = top_pages_subquery.url"
+      , "WHERE week IN"
+      , Q.parens $ Q.qjoin [
+          "SELECT DISTINCT week"
+        , "FROM frontend_logging.page_requests_by_week"
+        , "ORDER BY week DESC"
+        , "OFFSET 1"
+        ]
       , "ORDER BY week DESC"
---      , "OFFSET 1"
 --      , "LIMIT ?;"
       ]
 
@@ -1891,13 +1911,13 @@ genAllBuildMatchesSubquery sql_where_conditions = Q.qjoin [
       , "matches.span_start"
       , "matches.span_end"
       , "builds_join_steps.vcs_revision"
-      , "build_failure_elaborations.match IS NOT NULL AS is_promoted"
+      , "match_failure_elaborations.match IS NOT NULL AS is_promoted"
       ]
     , "FROM matches"
     , "JOIN builds_join_steps"
     , "ON matches.build_step = builds_join_steps.step_id"
-    , "LEFT JOIN build_failure_elaborations"
-    , "ON build_failure_elaborations.match = matches.id"
+    , "LEFT JOIN match_failure_elaborations"
+    , "ON match_failure_elaborations.match = matches.id"
     , "WHERE"
     , Q.qconjunction sql_where_conditions
     ]

@@ -1,6 +1,9 @@
 function prompt_promote_match(match_id) {
 
-	const data_dict = {"match_id": match_id};
+	const data_dict = {
+		"match_id": match_id,
+	};
+
 	post_modification("/api/promote-match", data_dict);
 }
 
@@ -40,7 +43,7 @@ function gen_builds_table(element_id, data_url, height_string, universal_build_i
 		const additional_columns = [
 			{title: "Promote", field: "match_id", 
 				formatter: function(cell, formatterParams, onRendered) {
-					return link("Mark", "javascript:prompt_promote_match(" + cell.getValue() + ");");
+					return link("Promote", "javascript:prompt_promote_match(" + cell.getValue() + ");");
 				},
 				width: 100,
 			},

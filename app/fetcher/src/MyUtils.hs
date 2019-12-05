@@ -2,11 +2,25 @@
 
 module MyUtils where
 
-import           Control.Monad          (join)
+import           Control.Monad       (join)
 
-import           Data.Hashable          (Hashable)
-import           Data.HashMap.Strict    (HashMap)
-import qualified Data.HashMap.Strict    as HashMap
+import           Data.Hashable       (Hashable)
+import           Data.HashMap.Strict (HashMap)
+import qualified Data.HashMap.Strict as HashMap
+import           Data.Text           (Text)
+import qualified Data.Text           as T
+
+
+pluralize :: Int -> Text -> Text
+pluralize quantity word =
+  T.unwords [
+      T.pack $ show quantity
+    , word <> suffix
+    ]
+  where
+    suffix = if quantity == 1
+      then ""
+      else "s"
 
 
 applyIf :: Bool -> (a -> a) -> a -> a

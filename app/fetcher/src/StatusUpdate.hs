@@ -576,7 +576,7 @@ postCommitSummaryStatusInner
 
     when (null containing_pr_list) $
       liftIO $ D.debugList [
-          "No Pull Requests have head commit of"
+          "No Pull Requests have HEAD commit of"
         , show sha1
         ]
 
@@ -631,12 +631,19 @@ genBuildFailuresTable (CommitPageInfo revision_builds unmatched_builds) =
 
     pattern_matched_section = if null revision_builds
       then mempty
-      else pure (Markdown.heading 3 $ T.unwords [T.pack $ show $ length revision_builds, "failures recognized by patterns:"])
+      else pure (Markdown.heading 3 $ T.unwords [
+                    MyUtils.pluralize (length revision_builds) "failure"
+                  , "recognized by patterns:"
+                  ])
         <> concatMap gen_matched_build_section revision_builds
 
     pattern_unmatched_section = if null unmatched_builds
       then mempty
-      else pure (Markdown.heading 3 $ T.unwords [T.pack $ show $ length unmatched_builds, "failures *not* recognized by patterns:"])
+      else pure (Markdown.heading 3 $ T.unwords [
+                    MyUtils.pluralize (length unmatched_builds) "failure"
+                  , Markdown.italic "not"
+                  , "recognized by patterns:"
+                  ])
         <> NE.toList (genUnmatchedBuildsTable unmatched_builds)
 
     gen_matched_build_section (CommitBuilds.NewCommitBuild (Builds.StorableBuild (DbHelpers.WithId _ubuild_id universal_build) build_obj) match_obj _ _) = [

@@ -19,16 +19,20 @@ surround :: [Text] -> Text -> Text
 surround brackets = mconcat . (`intersperse` brackets)
 
 
+surround2 :: Text -> Text -> Text
+surround2 endcap = surround $ replicate 2 endcap
+
+
 italic :: Text -> Text
-italic = surround ["*", "*"]
+italic = surround2 "*"
 
 
 bold :: Text -> Text
-bold = surround ["**", "**"]
+bold = surround2 "**"
 
 
 codeInline :: Text -> Text
-codeInline = surround ["`", "`"]
+codeInline = surround2 "`"
 
 
 sup :: Text -> Text
@@ -97,14 +101,19 @@ codeBlock :: NonEmpty Text -> NonEmpty Text
 codeBlock code_lines = pure "```" <> code_lines <> pure "```"
 
 
+-- | Terminates words with some punctuation
+terminate :: Text -> [Text] -> Text
+terminate terminator = (<> terminator) . T.unwords
+
+
 -- | Adds a period at the end of a list of words.
 sentence ::  [Text] -> Text
-sentence = (<> ".") . T.unwords
+sentence = terminate "."
 
 
 -- | Adds a colon at the end of a list of words.
 colonize ::  [Text] -> Text
-colonize = (<> ":") . T.unwords
+colonize = terminate ":"
 
 
 -- | Inserts blank lines between each element

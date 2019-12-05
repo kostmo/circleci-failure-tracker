@@ -429,10 +429,15 @@ function populate_form_from_url() {
 }
 
 
-function main() {
-	populate_form_from_url();
+function render_weekly_data() {
 
 	const weeks_count = $('#weeks-count-input').val();
 	render_master_stats(weeks_count);
+}
+
+
+function main() {
+	populate_form_from_url();
+	render_weekly_data();
 }
 

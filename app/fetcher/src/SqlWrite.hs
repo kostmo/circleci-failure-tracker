@@ -1609,6 +1609,28 @@ copyPattern
       ]
 
 
+elaborateBuildFailure ::
+     Builds.UniversalBuildId
+  -> SqlRead.AuthDbIO (Either Text Int64)
+elaborateBuildFailure (Builds.UniversalBuildId build_id) = do
+  SqlRead.AuthConnection conn (AuthStages.Username username) <- ask
+  liftIO $ catchViolation catcher $ do
+    [Only echoed_build_id] <- query conn sql (build_id, username)
+    return echoed_build_id
+  where
+    catcher _ (UniqueViolation some_error) = return $ Left $ "Insertion error: " <> T.pack (BS.unpack some_error)
+    catcher e _                                  = throwIO e
+
+    sql = Q.qjoin [
+        "INSERT INTO build_failure_elaborations"
+      , Q.insertionValues [
+          "universal_build"
+        , "author"
+        ]
+      , "RETURNING universal_build;"
+      ]
+
+
 promoteMatch ::
      MatchOccurrences.MatchId
   -> SqlRead.AuthDbIO (Either Text Int64)
@@ -1622,7 +1644,7 @@ promoteMatch (MatchOccurrences.MatchId match_id) = do
     catcher e _                                  = throwIO e
 
     sql = Q.qjoin [
-        "INSERT INTO build_failure_elaborations"
+        "INSERT INTO match_failure_elaborations"
       , Q.insertionValues [
           "match"
         , "author"

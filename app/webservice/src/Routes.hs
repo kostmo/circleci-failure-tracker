@@ -144,6 +144,11 @@ scottyApp
       SqlWrite.promoteMatch
         <$> (MatchOccurrences.MatchId <$> S.param "match_id")
 
+  S.post "/api/elaborate-failure" $
+    withAuth $
+      SqlWrite.elaborateBuildFailure
+        <$> (Builds.UniversalBuildId <$> S.param "build")
+
   S.post "/api/rescan-commit" $
     withAuth $
       FrontendHelpers.rescanCommitCallback github_config

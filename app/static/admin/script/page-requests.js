@@ -2,7 +2,7 @@
 const ranges_by_week = {};
 
 
-function make_timeline_highchart(container_element, series_list, stacking_type, label_prefix) {
+function make_timeline_highchart(container_element, series_list, stacking_type) {
 
 	Highcharts.chart(container_element, {
 		chart: {
@@ -26,7 +26,7 @@ function make_timeline_highchart(container_element, series_list, stacking_type, 
 		},
 		yAxis: {
 			title: {
-				text: label_prefix + ' per commit'
+				text: "View count",
 			},
 			min: 0
 		},
@@ -83,7 +83,7 @@ function render_master_stats(weeks_count) {
 
 		const series_list = gen_series(data);
 
-		make_timeline_highchart('container-stacked-timeline-by-week', series_list, 'normal', 'counts');
+		make_timeline_highchart('container-stacked-timeline-by-week', series_list, 'normal');
 	});
 }
 
