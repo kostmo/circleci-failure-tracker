@@ -87,7 +87,7 @@ type DbPattern = DbHelpers.WithId Pattern
 data MatchDetails = NewMatchDetails {
     line_text   :: LT.Text
   , line_number :: Int
-  , span        :: DbHelpers.StartEnd Int
+  , span        :: !(DbHelpers.StartEnd Int)
   } deriving Generic
 
 instance ToJSON MatchDetails
@@ -95,7 +95,7 @@ instance ToJSON MatchDetails
 
 data ScanMatch = NewScanMatch {
     scanned_pattern :: DbPattern
-  , match_details   :: MatchDetails
+  , match_details   :: !MatchDetails
   } deriving Generic
 
 instance ToJSON ScanMatch

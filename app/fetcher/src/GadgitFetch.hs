@@ -20,6 +20,7 @@ import           Network.Wreq               as NW
 import qualified Builds
 import qualified FetchHelpers
 import qualified JsonUtils
+import qualified MyUtils
 
 
 gadgitUrlPrefix :: String
@@ -95,14 +96,34 @@ getContainingPRs (Builds.RawCommit sha1) = runExceptT $ do
     url_string = gadgitUrlPrefix <> "/head-of-pull-requests/" <> T.unpack sha1
 
 
+data RefAncestryProposition = RefAncestryProposition {
+    supposed_ancestor   :: Text
+  , supposed_descendant :: Text
+  } deriving Show
+
+
+data AncestryResult =
+    RefIsAncestor
+  | RefIsNotAncestor
+  deriving Show
+
+
+data AncestryPropositionResponse =
+  AncestryPropositionResponse RefAncestryProposition AncestryResult
+  deriving Show
+
+
 getIsAncestor ::
-     Text -- ^ supposed ancestor ref
-  -> Text -- ^ supposed descendant ref
-  -> IO (Either String Bool)
-getIsAncestor ancestor descendant = runExceptT $ do
+     RefAncestryProposition
+  -> IO (Either String AncestryPropositionResponse)
+getIsAncestor proposition@(RefAncestryProposition ancestor descendant) = runExceptT $ do
 
   response <- ExceptT $ liftIO $ FetchHelpers.safeGetUrl $ NW.get url_string
   decoded_json <- except $ eitherDecode $ NC.responseBody response
-  except $ processResult id decoded_json
+  is_ancestor <- except $ processResult id decoded_json
+  return $ AncestryPropositionResponse proposition $ if is_ancestor then RefIsAncestor else RefIsNotAncestor
   where
-    url_string = gadgitUrlPrefix <> "/api/is-ancestor?ancestor=" <> T.unpack ancestor <> "&descendant=" <> T.unpack descendant
+    url_string = gadgitUrlPrefix <> "/api/is-ancestor?" <> MyUtils.genUrlQueryString [
+        ("ancestor", T.unpack ancestor)
+      , ("descendant", T.unpack descendant)
+      ]

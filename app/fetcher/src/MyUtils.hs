@@ -3,12 +3,18 @@
 module MyUtils where
 
 import           Control.Monad       (join)
-
 import           Data.Hashable       (Hashable)
 import           Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HashMap
+import           Data.List           (intercalate)
 import           Data.Text           (Text)
 import qualified Data.Text           as T
+
+
+genUrlQueryString :: [(String, String)] -> String
+genUrlQueryString key_value_pairs = intercalate "&" assignments
+  where
+    assignments = map (\(k, v) -> k <> "=" <> v) key_value_pairs
 
 
 pluralize :: Int -> Text -> Text

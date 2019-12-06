@@ -74,6 +74,10 @@ whitelistedPRAuthors :: [Text]
 whitelistedPRAuthors = ["ezyang", "kostmo", "suo", "yf225", "ZolotukhinM", "zdevito", "albanD"]
 
 
+circleCISmallAvatarUrl :: Text
+circleCISmallAvatarUrl = "https://avatars0.githubusercontent.com/ml/7?s=12"
+
+
 drCIApplicationTitle :: Text
 drCIApplicationTitle = "Dr. CI"
 
@@ -125,7 +129,7 @@ conclusiveStatuses = [
   ]
 
 
-data BuildSummaryStats = BuildSummaryStats {
+data BuildSummaryStats = NewBuildSummaryStats {
     flaky_count                 :: Int -- ^ flaky count
   , _upstream_breakages_info    :: SqlUpdate.UpstreamBreakagesInfo
   , total_circleci_fail_joblist :: [Text]
@@ -441,6 +445,16 @@ fetchAndCachePrAuthor conn access_token pr_number = do
       return pr_author
 
 
+postCommitSummaryStatusInner ::
+     [Text]
+  -> SqlUpdate.UpstreamBreakagesInfo
+  -> CommitPageInfo
+  -> Connection
+  -> OAuth2.AccessToken
+  -> DbHelpers.OwnerAndRepo
+  -> Builds.RawCommit
+  -> [(a, [ScanPatterns.ScanMatch])]
+  -> ExceptT LT.Text IO ()
 postCommitSummaryStatusInner
     circleci_fail_joblist
     upstream_breakages_info
@@ -470,7 +484,7 @@ postCommitSummaryStatusInner
 
   where
   circleci_failcount = length circleci_fail_joblist
-  build_summary_stats = BuildSummaryStats
+  build_summary_stats = NewBuildSummaryStats
     flaky_count
     upstream_breakages_info
     circleci_fail_joblist
@@ -513,7 +527,7 @@ postCommitSummaryStatusInner
     return ()
 
 
-  post_initial_comment pr_number = do
+  post_initial_comment ancestry_result pr_number = do
     comment_post_result <- ExceptT $ ApiPost.postPullRequestComment
       access_token
       owned_repo
@@ -530,11 +544,12 @@ postCommitSummaryStatusInner
       pr_comment_text = generateCommentMarkdown
         Nothing
         build_summary_stats
+        ancestry_result
         commit_page_info
         sha1
 
 
-  update_comment_or_fallback pr_number previous_pr_comment = do
+  update_comment_or_fallback ancestry_result pr_number previous_pr_comment = do
 
     either_comment_update_result <- liftIO $ ApiPost.updatePullRequestComment
       access_token
@@ -556,7 +571,7 @@ postCommitSummaryStatusInner
         -- Mark our database entry as stale
         liftIO $ SqlWrite.markPostedGithubCommentAsDeleted conn comment_id
 
-        post_initial_comment pr_number
+        post_initial_comment ancestry_result pr_number
 
       Left other_failure_message -> except $ Left other_failure_message
 
@@ -564,11 +579,14 @@ postCommitSummaryStatusInner
       pr_comment_text = generateCommentMarkdown
         (Just previous_pr_comment)
         build_summary_stats
+        ancestry_result
         commit_page_info
         sha1
 
       comment_id = ApiPost.CommentId $ SqlRead._comment_id previous_pr_comment
 
+
+  Builds.RawCommit merge_base_commit_text = SqlUpdate.merge_base upstream_breakages_info
 
   post_pr_comment_and_store = do
 
@@ -580,13 +598,16 @@ postCommitSummaryStatusInner
         , show sha1
         ]
 
+    ancestry_result <- ExceptT $ fmap (first LT.pack) $ GadgitFetch.getIsAncestor $
+      GadgitFetch.RefAncestryProposition merge_base_commit_text "viable/strict"
+
     for_ containing_pr_list $ \pr_number ->
       handleCommentPostingOptOut pr_number $ do
         maybe_previous_pr_comment <- liftIO $ runReaderT (SqlRead.getPostedCommentForPR pr_number) conn
 
         case maybe_previous_pr_comment of
-          Nothing -> post_initial_comment pr_number
-          Just previous_pr_comment -> update_comment_or_fallback pr_number previous_pr_comment
+          Nothing -> post_initial_comment ancestry_result pr_number
+          Just previous_pr_comment -> update_comment_or_fallback ancestry_result pr_number previous_pr_comment
 
 
   handleCommentPostingOptOut pr_number f = do
@@ -617,7 +638,7 @@ genUnmatchedBuildsTable unmatched_builds =
 
     gen_unmatched_build_row (WebApi.UnmatchedBuild _build step_name _ job_name _ _ _ _) = [
         T.unwords [
-            Markdown.image "CircleCI" "https://avatars0.githubusercontent.com/ml/7?s=12"
+            Markdown.image "CircleCI" circleCISmallAvatarUrl
           , Markdown.sup job_name
           ]
       , Markdown.sup step_name
@@ -632,18 +653,18 @@ genBuildFailuresTable (CommitPageInfo revision_builds unmatched_builds) =
     pattern_matched_section = if null revision_builds
       then mempty
       else pure (Markdown.heading 3 $ T.unwords [
-                    MyUtils.pluralize (length revision_builds) "failure"
-                  , "recognized by patterns:"
-                  ])
+              MyUtils.pluralize (length revision_builds) "failure"
+            , "recognized by patterns:"
+            ])
         <> concatMap gen_matched_build_section revision_builds
 
     pattern_unmatched_section = if null unmatched_builds
       then mempty
       else pure (Markdown.heading 3 $ T.unwords [
-                    MyUtils.pluralize (length unmatched_builds) "failure"
-                  , Markdown.italic "not"
-                  , "recognized by patterns:"
-                  ])
+              MyUtils.pluralize (length unmatched_builds) "failure"
+            , Markdown.italic "not"
+            , "recognized by patterns:"
+            ])
         <> NE.toList (genUnmatchedBuildsTable unmatched_builds)
 
     gen_matched_build_section (CommitBuilds.NewCommitBuild (Builds.StorableBuild (DbHelpers.WithId _ubuild_id universal_build) build_obj) match_obj _ _) = [
@@ -651,17 +672,29 @@ genBuildFailuresTable (CommitPageInfo revision_builds unmatched_builds) =
             circleci_image_link
           , Builds.job_name build_obj
           ]
-      , T.unwords [Markdown.bold "Step:", MatchOccurrences._build_step match_obj]
+      , T.unwords [
+            Markdown.bold "Step:"
+          , MatchOccurrences._build_step match_obj
+          ]
       ] <> (NE.toList $ Markdown.codeBlock $ pure $ MatchOccurrences._line_text match_obj)
       where
         (Builds.NewBuildNumber provider_build_number) = Builds.provider_buildnum universal_build
-        circleci_icon = Markdown.image "See CircleCI build" "https://avatars0.githubusercontent.com/ml/7?s=12"
-        circleci_image_link = Markdown.link circleci_icon $ "https://circleci.com/gh/pytorch/pytorch/" <> T.pack (show provider_build_number)
+        circleci_icon = Markdown.image "See CircleCI build" circleCISmallAvatarUrl
+        circleci_image_link = Markdown.link circleci_icon $
+          "https://circleci.com/gh/pytorch/pytorch/" <> T.pack (show provider_build_number)
 
 
+generateCommentMarkdown ::
+     Maybe SqlRead.PostedPRComment
+  -> BuildSummaryStats
+  -> GadgitFetch.AncestryPropositionResponse
+  -> CommitPageInfo
+  -> Builds.RawCommit
+  -> Text
 generateCommentMarkdown
     maybe_previous_pr_comment
     build_summary_stats
+    _ancestry_result
     commit_page_info
     (Builds.RawCommit sha1_text) =
   Markdown.paragraphs $ preliminary_lines_list ++ optional_suffix
@@ -706,7 +739,7 @@ generateCommentMarkdown
           ]
         , Markdown.bulletTree $ genMetricsTreeVerbose build_summary_stats
         ]
-      ] ++  detailed_build_issues_section ++ [footer_section1, footer_section2]
+      ] ++ detailed_build_issues_section ++ [footer_section1, footer_section2]
 
 
     -- Note that using the current count of N comments as the revision count will be
@@ -717,8 +750,7 @@ generateCommentMarkdown
       Just previous_pr_comment -> [
           Markdown.italic $ Markdown.sentence [
             "This comment has been revised"
-          , T.pack $ show $ SqlRead._revision_count previous_pr_comment
-          , "time(s)"
+          , MyUtils.pluralize (SqlRead._revision_count previous_pr_comment) "time"
           ]
         ]
 
@@ -928,8 +960,10 @@ handleStatusWebhook
     sha1 = Builds.RawCommit $ LT.toStrict $ Webhooks.sha status_event
 
 
-genMetricsTreeVerbose :: BuildSummaryStats -> Tr.Forest (NonEmpty Text)
-genMetricsTreeVerbose (BuildSummaryStats flaky_count pre_broken_info all_failures) =
+genMetricsTreeVerbose ::
+     BuildSummaryStats
+  -> Tr.Forest (NonEmpty Text)
+genMetricsTreeVerbose (NewBuildSummaryStats flaky_count pre_broken_info all_failures) =
   optional_kb_metric <> failures_introduced_in_pull_request <> flaky_bullet_tree
   where
 
@@ -988,7 +1022,7 @@ genMetricsTreeVerbose (BuildSummaryStats flaky_count pre_broken_info all_failure
       else []
 
 
-genCompactMetricsList (BuildSummaryStats flaky_count (SqlUpdate.UpstreamBreakagesInfo _ _ pre_broken) total_failcount) = [
+genCompactMetricsList (NewBuildSummaryStats flaky_count (SqlUpdate.UpstreamBreakagesInfo _ _ pre_broken) total_failcount) = [
     show flaky_count <> "/" <> show (length total_failcount) <> " flaky"
   ] ++ optional_kb_metric ++ failures_introduced_in_pull_request
   where

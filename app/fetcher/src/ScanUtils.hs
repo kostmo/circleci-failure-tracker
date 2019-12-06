@@ -1,6 +1,10 @@
+{-# LANGUAGE LambdaCase #-}
+
 module ScanUtils where
 
+--import           Control.Concurrent        (threadDelay)
 import           Data.Array                ((!))
+import           Data.Either.Utils         (maybeToEither)
 import           Data.Maybe                (Maybe)
 import qualified Data.Text                 as T
 import           Data.Text.Encoding        (encodeUtf8)
@@ -11,16 +15,71 @@ import           Text.Regex.Base
 import           Text.Regex.PCRE           ((=~~))
 
 import qualified DbHelpers
+--import qualified DebugUtils                as D
 import qualified ScanPatterns
 import           SillyMonoids              ()
+import           System.Timeout            (timeout)
+
+
+-- | 5 seconds
+lineScanTimeoutMicroseconds :: Int
+lineScanTimeoutMicroseconds = 1000000 * 5
+
+
+data PatternScanTimeout = PatternScanTimeout Int (Int, LT.Text) ScanPatterns.DbPattern
+
+
+-- | The timeout protects against adversarial/pathological inputs, such
+-- as single lines that are 500K characters long, which freeze certain regexes
+--
+-- FIXME The timeout doesn't seem to prevent PCRE from freezing.
+applySinglePatternIO ::
+     (Int, LT.Text)
+  -> ScanPatterns.DbPattern
+  -> IO (Either PatternScanTimeout MatchAnswer)
+applySinglePatternIO tup@(_num, _line_text) db_pattern = do
+
+  maybe_result <- timeout lineScanTimeoutMicroseconds $ do
+    {-
+    D.debugList [
+        "\t\tScanning with pattern:"
+      , show $ DbHelpers.db_id db_pattern
+      ]
+
+    D.debugStr "Starting to sleep..."
+    threadDelay 7000000
+    D.debugStr "Finished sleep."
+    -}
+    let answer = applySinglePattern tup db_pattern
+    return $! answer
+
+  return $! maybeToEither (PatternScanTimeout lineScanTimeoutMicroseconds tup db_pattern) maybe_result
+
+{-
+  where
+    pat_id = DbHelpers.db_id db_pattern
+-}
+
+
+-- | Although isomorphic to Maybe, this is necessary to force
+-- strict evaluation of the Maybe content so that the
+-- timeout works properly.
+data MatchAnswer = NoMatch | HasMatch !ScanPatterns.ScanMatch
+
+
+convertMatchAnswerToMaybe = \case
+  HasMatch y -> Just y
+  NoMatch    -> Nothing
 
 
 applySinglePattern ::
      (Int, LT.Text)
   -> ScanPatterns.DbPattern
-  -> Maybe ScanPatterns.ScanMatch
+  -> MatchAnswer
 applySinglePattern (line_number, line) db_pattern =
-  match_partial <$> match_span
+  case match_span of
+    Nothing -> NoMatch
+    Just x  -> HasMatch $ match_partial x
   where
     pattern_obj = DbHelpers.record db_pattern
 

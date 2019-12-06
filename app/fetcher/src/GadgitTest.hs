@@ -30,14 +30,14 @@ testGadgitApis = do
     ]
 
 
-  result4 <- GadgitFetch.getIsAncestor "master" "viable/strict"
+  result4 <- GadgitFetch.getIsAncestor $ GadgitFetch.RefAncestryProposition "master" "viable/strict"
   D.debugList [
       "result4:"
     , show result4
     ]
 
 
-  result5 <- GadgitFetch.getIsAncestor "viable/strict" "master"
+  result5 <- GadgitFetch.getIsAncestor $ GadgitFetch.RefAncestryProposition "viable/strict" "master"
   D.debugList [
       "result5:"
     , show result5

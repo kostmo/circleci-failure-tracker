@@ -454,6 +454,9 @@ scottyApp
   S.post "/api/update-user-opt-out-settings" $
     withAuth $ SqlWrite.updateUserOptOutSettings <$> S.param "enabled"
 
+  S.post "/api/purge-stale-work-queue-entries" $
+    withAuth $ pure SqlWrite.deleteStaleSha1QueueEntries
+
   get "/api/view-log-context" $ (fmap . fmap) WebApi.toJsonEither $
     SqlRead.logContextFunc
       <$> (MatchOccurrences.MatchId <$> S.param "match_id")

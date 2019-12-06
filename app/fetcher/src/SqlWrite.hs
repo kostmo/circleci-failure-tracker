@@ -51,6 +51,7 @@ import qualified MergeBase
 import qualified QueryUtils                        as Q
 import qualified ScanPatterns
 import qualified ScanRecords
+import qualified ScanUtils
 import qualified SqlRead
 import qualified Webhooks
 
@@ -606,12 +607,36 @@ storeScanRecord provider_id branch_filter initiated_at maybe_eb_worker_event_id 
       ]
 
 
+-- | TODO record more details
+recordTimeoutIncident ::
+     ScanRecords.ScanCatchupResources
+  -> Builds.BuildStepId
+  -> [ScanUtils.PatternScanTimeout]
+  -> SqlRead.DbIO Int64
+recordTimeoutIncident scan_resources (Builds.NewBuildStepId build_step_id) timeouts_list = do
+  conn <- ask
+  [Only new_id] <- liftIO $ query conn sql (build_step_id, scan_id, length timeouts_list)
+  return new_id
+  where
+    scan_id = ScanRecords.scan_id scan_resources
+
+    sql = Q.qjoin [
+        "INSERT INTO scan_timeout_incidents"
+      , Q.insertionValues [
+          "step_id"
+        , "scan_id"
+        , "timeout_count"
+        ]
+      , "RETURNING id;"
+      ]
+
+
 storeMatches ::
      ScanRecords.ScanCatchupResources
   -> Builds.BuildStepId
-  -> [ScanPatterns.ScanMatch]
+  -> ([ScanUtils.PatternScanTimeout], [ScanPatterns.ScanMatch])
   -> IO Int64
-storeMatches scan_resources (Builds.NewBuildStepId build_step_id) scoped_matches = do
+storeMatches scan_resources step@(Builds.NewBuildStepId build_step_id) (scan_timeouts, scoped_matches) = do
 
   D.debugList [
       "Now storing"
@@ -620,6 +645,10 @@ storeMatches scan_resources (Builds.NewBuildStepId build_step_id) scoped_matches
     ]
 
   count <- executeMany conn insertion_sql $ map to_tuple scoped_matches
+
+  unless (null scan_timeouts) $ do
+    runReaderT (recordTimeoutIncident scan_resources step scan_timeouts) conn
+    return ()
 
   D.debugList [
       "Finished storing"
@@ -915,7 +944,14 @@ removePatternTag (ScanPatterns.PatternId pattern_id) tag = do
   conn <- ask
   liftIO $ Right <$> execute conn sql (pattern_id, tag)
   where
-    sql = "DELETE FROM pattern_tags WHERE pattern = ? AND tag = ?;"
+    sql = Q.qjoin [
+        "DELETE FROM pattern_tags"
+      , "WHERE"
+      , Q.qconjunction [
+          "pattern = ?"
+        , "tag = ?;"
+        ]
+      ]
 
 
 deleteCodeBreakage ::
@@ -926,6 +962,27 @@ deleteCodeBreakage cause_id = do
   liftIO $ Right <$> execute conn sql (Only cause_id)
   where
     sql = "DELETE FROM code_breakage_cause WHERE id = ?;"
+
+
+deleteStaleSha1QueueEntries ::
+     SqlRead.AuthDbIO (Either Text Int64)
+deleteStaleSha1QueueEntries = do
+  SqlRead.AuthConnection conn (AuthStages.Username _author) <- ask
+  liftIO $ do
+    [Only deletion_count] <- query conn sql (Only minutes_age_threshold)
+    return $ Right deletion_count
+  where
+    minutes_age_threshold = 30 :: Int
+    sql = Q.qjoin [
+        "WITH deleted AS"
+      , Q.parens $ Q.qjoin [
+          "DELETE FROM work_queues.queued_sha1_scans"
+        , "WHERE inserted_at < now() - interval '? minutes'"
+        , "RETURNING *"
+        ]
+      , "SELECT count(*)"
+      , "FROM deleted;"
+      ]
 
 
 deleteSha1QueuePlaceholder ::

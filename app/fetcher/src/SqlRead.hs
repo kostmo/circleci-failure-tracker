@@ -600,14 +600,18 @@ instance ToJSON PageRequestCounts where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
--- | TODO: offset so we only obtain full weeks of data
+-- | Offsets so we only obtain full weeks of data.
 --
 -- Note also the list order reversal for Highcharts
-getPageViewsByWeek :: Int -> DbIO [DbHelpers.TimestampedDatum PageRequestCounts]
+getPageViewsByWeek ::
+     Int
+  -> DbIO [DbHelpers.TimestampedDatum PageRequestCounts]
 getPageViewsByWeek _week_count = do
   conn <- ask
-  liftIO $ reverse <$> query_ conn sql
+  liftIO $ reverse <$> query conn sql (Only url_count)
   where
+    url_count = 8 :: Int
+
     top_pages_subquery = Q.qjoin [
         "SELECT"
       , Q.list [
@@ -617,7 +621,7 @@ getPageViewsByWeek _week_count = do
       , "FROM frontend_logging.page_requests_by_week"
       , "GROUP BY url"
       , "ORDER BY total DESC"
-      , "LIMIT 8"
+      , "LIMIT ?"
       ]
 
     sql = Q.qjoin [
@@ -639,7 +643,6 @@ getPageViewsByWeek _week_count = do
         , "OFFSET 1"
         ]
       , "ORDER BY week DESC"
---      , "LIMIT ?;"
       ]
 
 
@@ -3562,7 +3565,8 @@ apiNewPatternTest universal_build_id new_pattern =
 
   where
     apply_pattern :: (Int, LT.Text) -> Maybe ScanPatterns.ScanMatch
-    apply_pattern line_tuple = ScanUtils.applySinglePattern line_tuple $ DbHelpers.WithId 0 new_pattern
+    apply_pattern line_tuple = ScanUtils.convertMatchAnswerToMaybe $
+      ScanUtils.applySinglePattern line_tuple $ DbHelpers.WithId 0 new_pattern
 
 
 -- | NOTE: Some of these values can be derived from the others.

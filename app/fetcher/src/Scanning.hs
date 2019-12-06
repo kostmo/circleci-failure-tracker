@@ -9,6 +9,7 @@ import           Control.Monad.Trans.Reader (ask, runReaderT)
 import           Data.Aeson                 (Value)
 import           Data.Aeson.Lens            (key, _Array, _Bool, _String)
 import           Data.Bifunctor             (first)
+import           Data.Either                (partitionEithers)
 import qualified Data.Either                as Either
 import           Data.Either.Combinators    (rightToMaybe)
 import qualified Data.HashMap.Strict        as HashMap
@@ -280,6 +281,7 @@ catchupScan
     Nothing -> return $ Right []
     Just maximum_pattern_id -> runExceptT $ do
 
+      liftIO $ D.debugStr "Starting getAndStoreLog"
       lines_list <- ExceptT $ getAndStoreLog
         scan_resources
         overwrite_log
@@ -287,18 +289,36 @@ catchupScan
         buildstep_id
         maybe_console_output_url
 
-      let matches = scanLogText lines_list applicable_patterns
-
       liftIO $ do
 
-        D.timeThis $ SqlWrite.storeMatches scan_resources buildstep_id matches
+        D.debugStr "Finished getAndStoreLog"
+
+        matches_and_timeouts <- scanLogText lines_list applicable_patterns
+
+        let (timeout_list, matches) = matches_and_timeouts
+        D.debugList [
+            "Starting storeMatches with"
+          , show $ length matches
+          , "matches and"
+          , show $ length timeout_list
+          , "timeouts"
+          ]
+
+        D.timeThis $ SqlWrite.storeMatches scan_resources buildstep_id matches_and_timeouts
+
+        D.debugStr "Finished storeMatches"
+
+
+        D.debugStr "Starting insertLatestPatternBuildScan"
 
         D.timeThis $ SqlWrite.insertLatestPatternBuildScan
           scan_resources
           buildstep_id
           maximum_pattern_id
 
-      return matches
+        D.debugStr "Finished insertLatestPatternBuildScan"
+
+        return matches
 
 
 rescanVisitedBuilds ::
@@ -466,7 +486,11 @@ getAndStoreLog
       log_download_result <- ExceptT $ FetchHelpers.safeGetUrl $ Sess.get aws_sess $ T.unpack download_url
 
 
-      CircleCIParse.doParse scan_resources build_step_id log_download_result
+      parsed <- CircleCIParse.doParse scan_resources build_step_id log_download_result
+
+      liftIO $ D.debugStr "Finished getAndStoreLog."
+
+      return parsed
 
   where
     aws_sess = ScanRecords.aws_sess $ ScanRecords.fetching scan_resources
@@ -475,14 +499,76 @@ getAndStoreLog
     universal_build_id = Builds.UniversalBuildId $ DbHelpers.db_id universal_build
 
 
+-- | Even though scanning for patterns in text is ostensibly a "pure" operation,
+-- we introduce IO so we can see incremental progress, and perhaps
+-- interrupt a long-running computation.
+--
+-- NOTE: Skips lines that are over 5000 characters
+-- to avoid bad regex behavior.
 scanLogText ::
      [LT.Text]
   -> [ScanPatterns.DbPattern]
-  -> [ScanPatterns.ScanMatch]
-scanLogText lines_list patterns =
-  concat $ filter (not . null) $ zipWith (curry apply_patterns) [0 ..] $ map LT.stripEnd lines_list
+  -> IO ([ScanUtils.PatternScanTimeout], [ScanPatterns.ScanMatch])
+scanLogText lines_list patterns = do
+  result_tuples <- for input_pairs $ \input_pair@(_num, line) -> do
+    {-
+    D.debugList [
+        "Scanning Line number"
+      , show num
+      , "/"
+      , show $ length lines_list
+      , "which has length"
+      , show $ LT.length line
+      ]
+
+    D.debugList [
+        "\tExcerpt:"
+      , take 500 $ LT.unpack line
+      ]
+    -}
+
+    if LT.length line < 5000
+      then do
+        pattern_match_result <- apply_patterns input_pair
+
+        {-
+        D.debugList [
+            "\tInner match count:"
+          , show $ length pattern_match_result
+          ]
+        -}
+
+        return pattern_match_result
+      else
+        return ([], [])
+
+  let final_matches = concat $ filter (not . null) $ map snd result_tuples
+
+  {-
+  D.debugList [
+      "Count of final matches:"
+    , show $ length final_matches
+    ]
+  -}
+
+  return (concatMap fst result_tuples, final_matches)
   where
-    apply_patterns line_tuple = Maybe.mapMaybe (ScanUtils.applySinglePattern line_tuple) patterns
+    input_pairs = zip [0 ..] $ map LT.stripEnd lines_list
+--    apply_patterns line_tuple = Maybe.mapMaybe (ScanUtils.applySinglePattern line_tuple) patterns
+    apply_patterns line_tuple = do
+      pattern_result_eithers <- for patterns $ \pat -> do
+        ans <- ScanUtils.applySinglePatternIO line_tuple pat
+        case ans of
+          Right blah -> do
+--            D.debugStr "completed on time."
+            return $ Right blah
+          Left foo -> do
+--            D.debugStr "NOT completed on time."
+            return $ Left foo
+
+      let (timedout, match_maybes) = partitionEithers pattern_result_eithers
+
+      return (timedout, Maybe.mapMaybe ScanUtils.convertMatchAnswerToMaybe match_maybes)
 
 
 -- | This is only for debugging purposes

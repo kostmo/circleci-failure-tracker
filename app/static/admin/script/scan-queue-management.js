@@ -24,8 +24,9 @@ function gen_missing_required_builds_table(element_id, data_url) {
 	return table;
 }
 
+
 function empty_queue() {
-	alert("Not implemented");
+	post_modification("/api/purge-stale-work-queue-entries", {});
 }
 
 

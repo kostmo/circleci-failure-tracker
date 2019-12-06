@@ -37,8 +37,8 @@ boundsAsTuple = min_bound &&& max_bound
 
 
 data StartEnd a = StartEnd {
-    _start :: a
-  , _end   :: a
+    _start :: !a
+  , _end   :: !a
   } deriving Generic
 
 instance (ToJSON a) => ToJSON (StartEnd a) where
