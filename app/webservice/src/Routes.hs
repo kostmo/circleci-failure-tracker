@@ -364,11 +364,6 @@ scottyApp
       <$> S.param "first_index"
       <*> S.param "last_index"
 
-  get "/api/universal-builds" $
-    SqlRead.getUniversalBuilds
-      <$> (Builds.UniversalBuildId <$> S.param "start-id")
-      <*> S.param "limit"
-
   get "/api/master-commits" $
     fmap WebApi.toJsonEither . ((fmap . fmap . fmap) snd SqlRead.apiGetMasterCommits) <$> FrontendHelpers.getSimpleOffsetMode
 

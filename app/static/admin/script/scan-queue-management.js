@@ -25,7 +25,8 @@ function gen_missing_required_builds_table(element_id, data_url) {
 }
 
 
-function empty_queue() {
+function empty_queue(button) {
+	$(button).prop("disabled", true);
 	post_modification("/api/purge-stale-work-queue-entries", {});
 }
 

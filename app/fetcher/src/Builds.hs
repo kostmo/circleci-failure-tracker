@@ -1,6 +1,5 @@
-{-# LANGUAGE DeriveAnyClass    #-}
-{-# LANGUAGE DeriveGeneric     #-}
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric  #-}
 
 module Builds where
 
@@ -36,9 +35,9 @@ newtype RawCommit = RawCommit Text
 instance FromField RawCommit where
   fromField f mdata = RawCommit <$> fromField f mdata
 
-
 instance ToJSON RawCommit
 instance FromJSON RawCommit
+
 
 newtype BuildNumber = NewBuildNumber Int64
   deriving (Show, Generic, Eq, Ord, FromRow)
@@ -76,6 +75,12 @@ data CiProvider = CiProvider {
   } deriving Generic
 
 instance ToJSON CiProvider
+
+
+data UniBuildWithJob = UniBuildWithJob {
+    uni_build :: UniversalBuild
+  , job       :: Text
+  } deriving Show
 
 
 data UniversalBuild = UniversalBuild {

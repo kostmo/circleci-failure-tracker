@@ -6,6 +6,7 @@ import qualified BuildRetrieval
 import qualified Constants
 import qualified DbHelpers
 import qualified DbPreparation
+import qualified DebugUtils          as D
 import qualified Scanning
 
 
@@ -45,7 +46,10 @@ mainAppCode args = do
   hSetBuffering stdout LineBuffering
 
   capability_count <- getNumCapabilities
-  putStrLn $ unwords ["Num capabilities:", show capability_count]
+  D.debugList [
+      "Num capabilities:"
+    , show capability_count
+    ]
 
   conn <- DbPreparation.prepareDatabase connection_data $ wipeDatabase args
 
@@ -66,7 +70,7 @@ mainAppCode args = do
     Scanning.NoRefetchLog
     (Right fetch_count)
 
-  putStrLn $ unwords [
+  D.debugList [
       "Scanned"
     , show $ length build_matches
     , "builds."

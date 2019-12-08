@@ -200,7 +200,7 @@ storeUniversalBuilds conn commit statuses_by_ci_providers = do
       case maybe_universal_build of
         Nothing -> return Nothing
         Just (sub_build, uni_build) -> do
-          stored_uni_build <- SqlWrite.insertSingleUniversalBuild conn uni_build
+          stored_uni_build <- SqlWrite.insertSingleUniversalBuild conn $ Builds.UniBuildWithJob uni_build $ Builds.job_name sub_build
           return $ Just (Builds.StorableBuild stored_uni_build sub_build, (status_event, DbHelpers.record provider_with_id))
 
     return $ Maybe.catMaybes result_maybe_list
@@ -1074,6 +1074,8 @@ githubEventEndpoint connection_data github_config = do
 
   maybe_event_type <- S.header "X-GitHub-Event"
 
+  current_time <- liftIO Clock.getCurrentTime
+
   case maybe_event_type of
     Nothing -> return ()
     Just event_type -> when is_signature_valid $
@@ -1081,11 +1083,18 @@ githubEventEndpoint connection_data github_config = do
         "status" -> do
           body_json <- S.jsonData
 
-          will_post <- liftIO $ handleStatusWebhook
-            connection_data
-            (AuthConfig.personal_access_token github_config)
-            Nothing
-            body_json
+          will_post <- liftIO $ do
+
+            D.debugList [
+                "Parsed 'status' event body JSON at"
+              , show current_time
+              ]
+
+            handleStatusWebhook
+              connection_data
+              (AuthConfig.personal_access_token github_config)
+              Nothing
+              body_json
 
           S.json =<< return ["Will post?" :: String, show will_post]
 
@@ -1093,9 +1102,17 @@ githubEventEndpoint connection_data github_config = do
           body_json <- S.jsonData
 
           liftIO $ do
-            putStrLn "Parsed push event body JSON..."
-            handlePushWebhook connection_data (AuthConfig.personal_access_token github_config) body_json
-            putStrLn "Handled push event."
+            D.debugList [
+                "Parsed 'push' event body JSON at"
+              , show current_time
+              ]
+
+            handlePushWebhook
+              connection_data
+              (AuthConfig.personal_access_token github_config)
+              body_json
+
+            D.debugStr "Handled push event."
           S.json =<< return ["hello" :: String]
 
         _ -> return ()

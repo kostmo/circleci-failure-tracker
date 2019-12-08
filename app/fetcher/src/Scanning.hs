@@ -569,34 +569,3 @@ scanLogText lines_list patterns = do
       let (timedout, match_maybes) = partitionEithers pattern_result_eithers
 
       return (timedout, Maybe.mapMaybe ScanUtils.convertMatchAnswerToMaybe match_maybes)
-
-
--- | This is only for debugging purposes
-reInsertCircleCiBuild ::
-     Connection
-  -> Builds.BuildNumber
-  -> Builds.RawCommit
-  -> Bool -- ^ succeeded
-  -> IO (DbHelpers.WithId Builds.UniversalBuild)
-reInsertCircleCiBuild conn provider_buildnum commit_sha1 succeeded = do
-
-  maybe_universal_build <- SqlRead.lookupUniversalBuildFromProviderBuild
-    conn
-    provider_buildnum
-
-  case maybe_universal_build of
-    Just ubuild -> return ubuild
-    Nothing -> do
-      let ubuild = Builds.UniversalBuild
-            provider_buildnum
-            SqlRead.circleCIProviderIndex
-            ""
-            succeeded
-            commit_sha1
-
-      ubuild <- SqlWrite.insertSingleUniversalBuild conn ubuild
-
-      rescanSingleBuild conn Constants.defaultPatternAuthor $
-        Builds.UniversalBuildId $ DbHelpers.db_id ubuild
-
-      return ubuild

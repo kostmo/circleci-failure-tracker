@@ -275,37 +275,14 @@ lookupUniversalBuild (Builds.UniversalBuildId universal_build_num) = do
     sql = Q.qjoin [
         "SELECT"
       , Q.list [
-          "id"
+          "global_build_num"
         , "build_number"
         , "provider"
         , "build_namespace"
         , "succeeded"
         , "commit_sha1"
         ]
-      , "FROM universal_builds WHERE id = ?;"
-      ]
-
-
-getUniversalBuilds ::
-     Builds.UniversalBuildId -- ^ oldest build number
-  -> Int -- ^ limit
-  -> DbIO [DbHelpers.WithId Builds.UniversalBuild]
-getUniversalBuilds (Builds.UniversalBuildId oldest_universal_build_num) limit = do
-  conn <- ask
-  liftIO $ query conn sql (oldest_universal_build_num, limit)
-  where
-    sql = Q.qjoin [
-        "SELECT"
-      , Q.list [
-          "id"
-        , "build_number"
-        , "provider"
-        , "build_namespace"
-        , "succeeded"
-        , "commit_sha1"
-        ]
-      , "FROM universal_builds"
-      , "WHERE id >= ? ORDER BY id ASC LIMIT ?;"
+      , "FROM global_builds WHERE global_build_num = ?;"
       ]
 
 

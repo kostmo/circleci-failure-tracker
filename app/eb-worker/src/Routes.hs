@@ -117,9 +117,15 @@ scottyApp
 
       liftIO $ do
 
-        D.debugStr "Starting CircleCI build retrieval..."
+        current_time <- Clock.getCurrentTime
+        D.debugList [
+            "Starting CircleCI build retrieval as"
+          , show current_time
+          ]
 
-        conn <- DbHelpers.getConnectionWithStatementTimeout connection_data statementTimeoutSeconds
+        conn <- DbHelpers.getConnectionWithStatementTimeout
+          connection_data
+          statementTimeoutSeconds
 
         insertion_count <- BuildRetrieval.updateCircleCIBuildsList
           conn
@@ -172,10 +178,16 @@ scottyApp
 
   S.post "/worker/scan-sha1" $ do
 
-    liftIO $ D.debugList [
-        "Posted to:"
-      , "/worker/scan-sha1"
-      ]
+
+
+    liftIO $ do
+      current_time <- Clock.getCurrentTime
+      D.debugList [
+          "Posted to:"
+        , "/worker/scan-sha1"
+        , "at"
+        , show current_time
+        ]
 
     body_json <- S.jsonData
 

@@ -530,6 +530,20 @@ The "is_scheduled" column means that *all* of the occurrences of that workflow a
 
 
 --
+-- Name: provider_build_numbers; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.provider_build_numbers (
+    provider integer NOT NULL,
+    number_namespace text,
+    provider_build_number integer NOT NULL,
+    id integer NOT NULL
+);
+
+
+ALTER TABLE public.provider_build_numbers OWNER TO postgres;
+
+--
 -- Name: universal_builds; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -537,7 +551,7 @@ CREATE TABLE public.universal_builds (
     id integer NOT NULL,
     build_number integer,
     build_namespace text,
-    provider integer,
+    provider integer NOT NULL,
     commit_sha1 character(40) NOT NULL,
     succeeded boolean NOT NULL,
     stored_at timestamp with time zone DEFAULT now(),
@@ -546,7 +560,8 @@ CREATE TABLE public.universal_builds (
     x_branch text,
     x_started_at timestamp with time zone,
     x_finished_at timestamp with time zone,
-    x_ci_provider_scan integer
+    x_ci_provider_scan integer,
+    provider_build_surrogate integer NOT NULL
 );
 
 
@@ -556,7 +571,13 @@ ALTER TABLE public.universal_builds OWNER TO postgres;
 -- Name: TABLE universal_builds; Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON TABLE public.universal_builds IS 'Currently, these records are stored even if the build succeeds.';
+COMMENT ON TABLE public.universal_builds IS 'NOTE: We intentionally DO NOT place a uniqueness constraint on the "provider_build_surrogate" column, even though this column is presumed to be unique.
+
+This is because the more important uniqueness constraint is "universal_builds_provider_build_namespace_x_job_name_commit_key", conflicts of which are handled in the one and only INSERT statement on the backend.  
+
+NOTE: These records are stored even if the build succeeds.
+
+';
 
 
 --
@@ -569,7 +590,7 @@ CREATE VIEW public.global_builds WITH (security_barrier='false') AS
     universal_builds.commit_sha1 AS vcs_revision,
     universal_builds.x_job_name AS job_name,
     (universal_builds.x_branch)::character varying AS branch,
-    universal_builds.build_number,
+    provider_build_numbers.provider_build_number AS build_number,
     universal_builds.build_namespace,
     universal_builds.x_queued_at AS queued_at,
     universal_builds.x_started_at AS started_at,
@@ -577,7 +598,8 @@ CREATE VIEW public.global_builds WITH (security_barrier='false') AS
     universal_builds.provider,
     universal_builds.x_ci_provider_scan AS ci_provider_scan,
     master_commit_circleci_scheduled_job_discrimination.is_scheduled AS maybe_is_scheduled
-   FROM (public.universal_builds
+   FROM ((public.universal_builds
+     JOIN public.provider_build_numbers ON ((universal_builds.provider_build_surrogate = provider_build_numbers.id)))
      LEFT JOIN public.master_commit_circleci_scheduled_job_discrimination ON (((universal_builds.x_job_name = master_commit_circleci_scheduled_job_discrimination.job_name) AND (universal_builds.commit_sha1 = master_commit_circleci_scheduled_job_discrimination.commit_sha1))))
   WHERE (universal_builds.x_job_name IS NOT NULL);
 
@@ -1166,6 +1188,19 @@ CREATE VIEW public.builds_join_steps WITH (security_barrier='false') AS
 ALTER TABLE public.builds_join_steps OWNER TO postgres;
 
 --
+-- Name: match_failure_elaborations; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.match_failure_elaborations (
+    match integer NOT NULL,
+    author text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+ALTER TABLE public.match_failure_elaborations OWNER TO postgres;
+
+--
 -- Name: matches; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -1195,9 +1230,11 @@ CREATE VIEW public.matches_distinct WITH (security_barrier='false') AS
     matches.line_text,
     matches.span_start,
     matches.span_end,
-    matches.scan_id
-   FROM public.matches
-  ORDER BY matches.build_step, matches.pattern, matches.line_number, matches.id DESC;
+    matches.scan_id,
+    (match_failure_elaborations.match IS NOT NULL) AS is_promoted
+   FROM (public.matches
+     LEFT JOIN public.match_failure_elaborations ON ((match_failure_elaborations.match = matches.id)))
+  ORDER BY matches.build_step, matches.pattern, matches.line_number, (match_failure_elaborations.match IS NOT NULL) DESC, matches.id DESC;
 
 
 ALTER TABLE public.matches_distinct OWNER TO postgres;
@@ -1225,7 +1262,8 @@ CREATE VIEW public.matches_for_build WITH (security_barrier='false') AS
     builds_join_steps.universal_build,
     matches_distinct.id AS match_id,
     matches_distinct.build_step AS step_id,
-    builds_join_steps.vcs_revision
+    builds_join_steps.vcs_revision,
+    matches_distinct.is_promoted
    FROM (public.matches_distinct
      JOIN public.builds_join_steps ON ((matches_distinct.build_step = builds_join_steps.step_id)));
 
@@ -1348,10 +1386,11 @@ CREATE VIEW public.best_pattern_match_for_builds WITH (security_barrier='false')
     matches_for_build.match_id,
     matches_for_build.step_id,
     matches_for_build.vcs_revision,
-    patterns_rich.is_network
+    patterns_rich.is_network,
+    matches_for_build.is_promoted
    FROM (public.matches_for_build
      JOIN public.patterns_rich ON ((matches_for_build.pat = patterns_rich.id)))
-  ORDER BY matches_for_build.universal_build, patterns_rich.specificity DESC, patterns_rich.is_retired, patterns_rich.regex, patterns_rich.id DESC, matches_for_build.match_id DESC;
+  ORDER BY matches_for_build.universal_build, matches_for_build.is_promoted DESC, patterns_rich.specificity DESC, patterns_rich.is_retired, patterns_rich.regex, patterns_rich.id DESC, matches_for_build.match_id DESC;
 
 
 ALTER TABLE public.best_pattern_match_for_builds OWNER TO postgres;
@@ -1629,7 +1668,7 @@ CREATE VIEW public.build_failure_standalone_causes WITH (security_barrier='false
     COALESCE(best_pattern_match_for_builds.is_network, false) AS is_network
    FROM ((public.global_builds
      LEFT JOIN public.build_steps ON ((build_steps.universal_build = global_builds.global_build_num)))
-     LEFT JOIN public.best_pattern_match_for_builds ON (((NOT global_builds.succeeded) AND (best_pattern_match_for_builds.universal_build = global_builds.global_build_num))));
+     LEFT JOIN public.best_pattern_match_for_builds ON ((best_pattern_match_for_builds.universal_build = global_builds.global_build_num)));
 
 
 ALTER TABLE public.build_failure_standalone_causes OWNER TO postgres;
@@ -1768,6 +1807,22 @@ CREATE VIEW public.build_failure_disjoint_causes_by_commit WITH (security_barrie
 ALTER TABLE public.build_failure_disjoint_causes_by_commit OWNER TO postgres;
 
 --
+-- Name: build_failure_elaborations; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.build_failure_elaborations (
+    universal_build integer NOT NULL,
+    author text NOT NULL,
+    created_at timestamp with time zone,
+    notes text,
+    github_issue_number integer,
+    info_url text
+);
+
+
+ALTER TABLE public.build_failure_elaborations OWNER TO postgres;
+
+--
 -- Name: build_steps_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
 --
 
@@ -1787,33 +1842,6 @@ ALTER TABLE public.build_steps_id_seq OWNER TO postgres;
 --
 
 ALTER SEQUENCE public.build_steps_id_seq OWNED BY public.build_steps.id;
-
-
---
--- Name: builds; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.builds (
-    queued_at timestamp with time zone,
-    job_name text NOT NULL,
-    branch character varying,
-    succeeded boolean,
-    started_at timestamp with time zone,
-    finished_at timestamp with time zone,
-    global_build_num integer NOT NULL,
-    ci_provider_scan integer
-);
-
-
-ALTER TABLE public.builds OWNER TO postgres;
-
---
--- Name: TABLE builds; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON TABLE public.builds IS 'In contrast with the "universal_builds" table, this is information that may be fetched using a provider-specific API and may be populated asynchronously from the "universal_builds" info which is available from the GitHub status notification.
-
-The "ci_provider_scan" field is optional; it can link a build record back to the CI provider-specific scan from which it was obtained.';
 
 
 --
@@ -4665,6 +4693,28 @@ COMMENT ON TABLE public.presumed_stable_branches IS 'A (small) list of branches 
 
 
 --
+-- Name: provider_build_numbers_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.provider_build_numbers_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.provider_build_numbers_id_seq OWNER TO postgres;
+
+--
+-- Name: provider_build_numbers_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.provider_build_numbers_id_seq OWNED BY public.provider_build_numbers.id;
+
+
+--
 -- Name: pull_request_heads_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
 --
 
@@ -4684,6 +4734,43 @@ ALTER TABLE public.pull_request_heads_id_seq OWNER TO postgres;
 --
 
 ALTER SEQUENCE public.pull_request_heads_id_seq OWNED BY public.pull_request_heads.id;
+
+
+--
+-- Name: scan_timeout_incidents; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.scan_timeout_incidents (
+    id integer NOT NULL,
+    step_id integer NOT NULL,
+    scan_id integer NOT NULL,
+    inserted_at timestamp with time zone DEFAULT now() NOT NULL,
+    timeout_count integer
+);
+
+
+ALTER TABLE public.scan_timeout_incidents OWNER TO postgres;
+
+--
+-- Name: scan_timeout_incidents_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.scan_timeout_incidents_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.scan_timeout_incidents_id_seq OWNER TO postgres;
+
+--
+-- Name: scan_timeout_incidents_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.scan_timeout_incidents_id_seq OWNED BY public.scan_timeout_incidents.id;
 
 
 --
@@ -4805,8 +4892,8 @@ CREATE VIEW public.unattributed_failed_builds WITH (security_barrier='false') AS
    FROM (( SELECT build_steps.universal_build,
             build_steps.name AS step_name
            FROM (public.build_steps
-             LEFT JOIN public.matches_distinct ON ((matches_distinct.build_step = build_steps.id)))
-          WHERE ((matches_distinct.pattern IS NULL) AND (build_steps.name IS NOT NULL) AND (NOT build_steps.is_timeout))) foo
+             LEFT JOIN public.matches ON ((matches.build_step = build_steps.id)))
+          WHERE ((matches.pattern IS NULL) AND (build_steps.name IS NOT NULL) AND (NOT build_steps.is_timeout))) foo
      JOIN public.global_builds ON ((foo.universal_build = global_builds.global_build_num)));
 
 
@@ -5082,10 +5169,24 @@ ALTER TABLE ONLY public.patterns ALTER COLUMN id SET DEFAULT nextval('public.pat
 
 
 --
+-- Name: provider_build_numbers id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.provider_build_numbers ALTER COLUMN id SET DEFAULT nextval('public.provider_build_numbers_id_seq'::regclass);
+
+
+--
 -- Name: pull_request_heads id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.pull_request_heads ALTER COLUMN id SET DEFAULT nextval('public.pull_request_heads_id_seq'::regclass);
+
+
+--
+-- Name: scan_timeout_incidents id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.scan_timeout_incidents ALTER COLUMN id SET DEFAULT nextval('public.scan_timeout_incidents_id_seq'::regclass);
 
 
 --
@@ -5127,6 +5228,22 @@ ALTER TABLE ONLY public.blocked_pr_comment_postings
 
 
 --
+-- Name: match_failure_elaborations build_failure_elaborations_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.match_failure_elaborations
+    ADD CONSTRAINT build_failure_elaborations_pkey PRIMARY KEY (match);
+
+
+--
+-- Name: build_failure_elaborations build_failure_elaborations_pkey1; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.build_failure_elaborations
+    ADD CONSTRAINT build_failure_elaborations_pkey1 PRIMARY KEY (universal_build);
+
+
+--
 -- Name: build_steps build_steps_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5148,14 +5265,6 @@ ALTER TABLE ONLY public.build_steps
 
 ALTER TABLE ONLY public.build_steps
     ADD CONSTRAINT build_steps_universal_build_step_index_key UNIQUE (universal_build, step_index);
-
-
---
--- Name: builds builds_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.builds
-    ADD CONSTRAINT builds_pkey PRIMARY KEY (global_build_num);
 
 
 --
@@ -5431,6 +5540,22 @@ ALTER TABLE ONLY public.presumed_stable_branches
 
 
 --
+-- Name: provider_build_numbers provider_build_numbers_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.provider_build_numbers
+    ADD CONSTRAINT provider_build_numbers_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: provider_build_numbers provider_build_numbers_provider_namespace_provider_build_nu_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.provider_build_numbers
+    ADD CONSTRAINT provider_build_numbers_provider_namespace_provider_build_nu_key UNIQUE (provider, number_namespace, provider_build_number);
+
+
+--
 -- Name: pull_request_heads pull_request_heads_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5455,6 +5580,14 @@ ALTER TABLE ONLY public.pull_request_static_metadata
 
 
 --
+-- Name: scan_timeout_incidents scan_timeout_incidents_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.scan_timeout_incidents
+    ADD CONSTRAINT scan_timeout_incidents_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: scanned_patterns scanned_patterns_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5471,14 +5604,6 @@ ALTER TABLE ONLY public.scans
 
 
 --
--- Name: universal_builds universal_builds_build_number_build_namespace_provider_key; Type: CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.universal_builds
-    ADD CONSTRAINT universal_builds_build_number_build_namespace_provider_key UNIQUE (build_number, build_namespace, provider);
-
-
---
 -- Name: universal_builds universal_builds_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5487,11 +5612,19 @@ ALTER TABLE ONLY public.universal_builds
 
 
 --
--- Name: universal_builds universal_builds_provider_commit_sha1_x_job_name_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: universal_builds universal_builds_provider_build_namespace_x_job_name_commit_key; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.universal_builds
-    ADD CONSTRAINT universal_builds_provider_commit_sha1_x_job_name_key UNIQUE (provider, commit_sha1, x_job_name);
+    ADD CONSTRAINT universal_builds_provider_build_namespace_x_job_name_commit_key UNIQUE (provider, build_namespace, x_job_name, commit_sha1);
+
+
+--
+-- Name: universal_builds universal_builds_provider_build_surrogate_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.universal_builds
+    ADD CONSTRAINT universal_builds_provider_build_surrogate_key UNIQUE (provider_build_surrogate);
 
 
 --
@@ -5536,13 +5669,6 @@ CREATE INDEX blah ON public.code_breakage_affected_jobs USING btree (cause);
 --
 
 CREATE INDEX breakage_sha1 ON public.code_breakage_cause USING btree (sha1);
-
-
---
--- Name: builds_job_name_idx; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX builds_job_name_idx ON public.builds USING btree (job_name);
 
 
 --
@@ -5623,13 +5749,6 @@ CREATE INDEX fki_fk_dependent_job ON public.circleci_config_job_dependencies USI
 
 
 --
--- Name: fki_fk_global_buildnum; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX fki_fk_global_buildnum ON public.builds USING btree (global_build_num);
-
-
---
 -- Name: fki_fk_idx_workflow; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -5651,10 +5770,17 @@ CREATE INDEX fki_fk_pattern ON public.scanned_patterns USING btree (newest_patte
 
 
 --
--- Name: fki_fk_provider_scan_for_build; Type: INDEX; Schema: public; Owner: postgres
+-- Name: fki_fk_provider_build_surrogate; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE INDEX fki_fk_provider_scan_for_build ON public.builds USING btree (ci_provider_scan);
+CREATE INDEX fki_fk_provider_build_surrogate ON public.universal_builds USING btree (provider_build_surrogate);
+
+
+--
+-- Name: fki_fk_provider_num; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX fki_fk_provider_num ON public.provider_build_numbers USING btree (provider);
 
 
 --
@@ -5669,6 +5795,20 @@ CREATE INDEX fki_fk_required_job ON public.circleci_config_job_dependencies USIN
 --
 
 CREATE INDEX fki_fk_scan ON public.scanned_patterns USING btree (scan);
+
+
+--
+-- Name: fki_fk_scan_id_scan_timeouts; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX fki_fk_scan_id_scan_timeouts ON public.scan_timeout_incidents USING btree (scan_id);
+
+
+--
+-- Name: fki_fk_step_id_scan_timeouts; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX fki_fk_step_id_scan_timeouts ON public.scan_timeout_incidents USING btree (step_id);
 
 
 --
@@ -5988,6 +6128,22 @@ ALTER TABLE ONLY lambda_logging.eb_worker_event_finish
 
 
 --
+-- Name: match_failure_elaborations build_failure_elaborations_match_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.match_failure_elaborations
+    ADD CONSTRAINT build_failure_elaborations_match_fkey FOREIGN KEY (match) REFERENCES public.matches(id) ON DELETE CASCADE NOT VALID;
+
+
+--
+-- Name: build_failure_elaborations build_failure_elaborations_universal_build_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.build_failure_elaborations
+    ADD CONSTRAINT build_failure_elaborations_universal_build_fkey FOREIGN KEY (universal_build) REFERENCES public.universal_builds(id) NOT VALID;
+
+
+--
 -- Name: cached_master_merge_base cached_master_merge_base_master_commit_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -6060,14 +6216,6 @@ ALTER TABLE ONLY public.circleci_config_job_dependencies
 
 
 --
--- Name: builds fk_global_buildnum; Type: FK CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.builds
-    ADD CONSTRAINT fk_global_buildnum FOREIGN KEY (global_build_num) REFERENCES public.universal_builds(id) ON DELETE CASCADE;
-
-
---
 -- Name: circleci_workflow_schedules fk_idx_workflow; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -6092,11 +6240,19 @@ ALTER TABLE ONLY public.scanned_patterns
 
 
 --
--- Name: builds fk_provider_scan_for_build; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+-- Name: universal_builds fk_provider_build_surrogate; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY public.builds
-    ADD CONSTRAINT fk_provider_scan_for_build FOREIGN KEY (ci_provider_scan) REFERENCES public.ci_provider_build_scans(id) ON DELETE CASCADE;
+ALTER TABLE ONLY public.universal_builds
+    ADD CONSTRAINT fk_provider_build_surrogate FOREIGN KEY (provider_build_surrogate) REFERENCES public.provider_build_numbers(id) NOT VALID;
+
+
+--
+-- Name: provider_build_numbers fk_provider_num; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.provider_build_numbers
+    ADD CONSTRAINT fk_provider_num FOREIGN KEY (provider) REFERENCES public.ci_providers(id) ON DELETE CASCADE NOT VALID;
 
 
 --
@@ -6113,6 +6269,22 @@ ALTER TABLE ONLY public.circleci_config_job_dependencies
 
 ALTER TABLE ONLY public.scanned_patterns
     ADD CONSTRAINT fk_scan FOREIGN KEY (scan) REFERENCES public.scans(id);
+
+
+--
+-- Name: scan_timeout_incidents fk_scan_id_scan_timeouts; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.scan_timeout_incidents
+    ADD CONSTRAINT fk_scan_id_scan_timeouts FOREIGN KEY (scan_id) REFERENCES public.scans(id) ON DELETE CASCADE NOT VALID;
+
+
+--
+-- Name: scan_timeout_incidents fk_step_id_scan_timeouts; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.scan_timeout_incidents
+    ADD CONSTRAINT fk_step_id_scan_timeouts FOREIGN KEY (step_id) REFERENCES public.build_steps(id) ON DELETE CASCADE NOT VALID;
 
 
 --
@@ -6455,6 +6627,14 @@ GRANT ALL ON TABLE public.master_commit_circleci_scheduled_job_discrimination TO
 
 
 --
+-- Name: TABLE provider_build_numbers; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.provider_build_numbers TO logan;
+GRANT SELECT ON TABLE public.provider_build_numbers TO materialized_view_updater;
+
+
+--
 -- Name: TABLE universal_builds; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -6616,6 +6796,14 @@ GRANT ALL ON TABLE public.build_steps TO logan;
 --
 
 GRANT ALL ON TABLE public.builds_join_steps TO logan;
+
+
+--
+-- Name: TABLE match_failure_elaborations; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.match_failure_elaborations TO logan;
+GRANT SELECT ON TABLE public.match_failure_elaborations TO materialized_view_updater;
 
 
 --
@@ -6809,18 +6997,18 @@ GRANT ALL ON TABLE public.build_failure_disjoint_causes_by_commit TO logan;
 
 
 --
+-- Name: TABLE build_failure_elaborations; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.build_failure_elaborations TO logan;
+GRANT SELECT ON TABLE public.build_failure_elaborations TO materialized_view_updater;
+
+
+--
 -- Name: SEQUENCE build_steps_id_seq; Type: ACL; Schema: public; Owner: postgres
 --
 
 GRANT ALL ON SEQUENCE public.build_steps_id_seq TO logan;
-
-
---
--- Name: TABLE builds; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.builds TO logan;
-GRANT SELECT ON TABLE public.builds TO readonly_user;
 
 
 --
@@ -7567,10 +7755,32 @@ GRANT ALL ON TABLE public.presumed_stable_branches TO logan;
 
 
 --
+-- Name: SEQUENCE provider_build_numbers_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE public.provider_build_numbers_id_seq TO logan;
+
+
+--
 -- Name: SEQUENCE pull_request_heads_id_seq; Type: ACL; Schema: public; Owner: postgres
 --
 
 GRANT ALL ON SEQUENCE public.pull_request_heads_id_seq TO logan;
+
+
+--
+-- Name: TABLE scan_timeout_incidents; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.scan_timeout_incidents TO logan;
+GRANT SELECT ON TABLE public.scan_timeout_incidents TO materialized_view_updater;
+
+
+--
+-- Name: SEQUENCE scan_timeout_incidents_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE public.scan_timeout_incidents_id_seq TO logan;
 
 
 --

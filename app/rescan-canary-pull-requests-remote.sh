@@ -9,4 +9,4 @@ DB_HOSTNAME=$(jq -r '.["db-hostname"]' $DB_CREDENTIALS_JSON_PATH)
 
 
 stack build --fast
-stack exec run-scanner -- --count 1 --branch master --db-username $DB_USERNAME --db-password $DB_PASSWORD --db-hostname $DB_HOSTNAME 2>&1 | tee mylog.txt
+stack exec run-scanner -- --count 350 --branch master --db-username $DB_USERNAME --db-password $DB_PASSWORD --db-hostname $DB_HOSTNAME 2>&1 | tee mylog.txt

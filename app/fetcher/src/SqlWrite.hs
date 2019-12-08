@@ -65,11 +65,45 @@ sqlInsertUniversalBuild = Q.qjoin [
     , "build_namespace"
     , "succeeded"
     , "commit_sha1"
+    , "x_job_name"
+    , "provider_build_surrogate"
     ]
   , "ON CONFLICT"
-  , "ON CONSTRAINT universal_builds_build_number_build_namespace_provider_key"
-  , "DO UPDATE SET build_number = excluded.build_number"
+  , "ON CONSTRAINT universal_builds_provider_build_namespace_x_job_name_commit_key"
+  , "DO UPDATE SET"
+  , Q.list [
+      "build_number = excluded.build_number"
+    ]
   , "RETURNING id;"
+  ]
+
+
+sqlCheckProviderProxyUniversalBuildAssociations :: Query
+sqlCheckProviderProxyUniversalBuildAssociations = Q.qjoin [
+    "SELECT t.proxy_id"
+  , "FROM (VALUES(?)) AS t (proxy_id)"
+  , "LEFT JOIN universal_builds"
+  , "ON universal_builds.provider_build_surrogate = t.proxy_id"
+  , "WHERE universal_builds.provider_build_surrogate IS NULL"
+  ]
+
+
+-- | NOTE: we are performing "DO UPDATE SET ..." instead
+-- of "DO NOTHING" because this forces the "id" column to
+-- be returned for the conflicting row; we don't actually
+-- care about updating the value of the column upon conflict.
+sqlInsertProviderBuild = Q.qjoin [
+    "INSERT INTO provider_build_numbers"
+  , Q.insertionValues [
+        "provider"
+      , "number_namespace"
+      , "provider_build_number"
+      ]
+  , "ON CONFLICT"
+  , "ON CONSTRAINT provider_build_numbers_provider_namespace_provider_build_nu_key"
+  , "DO UPDATE"
+  , "SET provider_build_number = excluded.provider_build_number"
+  , "RETURNING id"
   ]
 
 
@@ -416,18 +450,41 @@ storeMasterCommits conn commit_list =
 -- | TODO we may only need the multiple-row version of this
 insertSingleUniversalBuild ::
      Connection
-  -> Builds.UniversalBuild
+  -> Builds.UniBuildWithJob
   -> IO (DbHelpers.WithId Builds.UniversalBuild)
 insertSingleUniversalBuild
     conn
-    uni_build = do
+    (Builds.UniBuildWithJob uni_build job_name) = do
+
+  [Only provider_build_surrogate] <- query conn sqlInsertProviderBuild tup0
+
+  let tup = (
+          provider_id
+        , provider_buildnum
+        , build_namespace
+        , succeeded
+        , sha1
+        , job_name
+        , provider_build_surrogate :: Int64
+        )
 
   [Only new_id] <- query conn sqlInsertUniversalBuild tup
   return $ DbHelpers.WithId new_id uni_build
 
   where
-    tup = (provider_id, provider_buildnum, build_namespace, succeeded, sha1)
-    Builds.UniversalBuild (Builds.NewBuildNumber provider_buildnum) provider_id build_namespace succeeded (Builds.RawCommit sha1) = uni_build
+    tup0 = (provider_id, build_namespace, provider_buildnum)
+
+    Builds.UniversalBuild
+      (Builds.NewBuildNumber provider_buildnum)
+      provider_id build_namespace
+      succeeded
+      (Builds.RawCommit sha1) = uni_build
+
+
+data SurrogateProviderIdUniversalPair = SurrogateProviderIdUniversalPair {
+    surrogate_provider_build_id :: Int64
+  , ubuild_holder               :: Builds.UniBuildWithJob
+  } deriving Show
 
 
 -- | We handle de-duplication of provider-build records
@@ -464,10 +521,39 @@ storeCircleCiBuildsList
     maybe_eb_worker_event_id
     builds_list_with_possible_duplicates = do
 
+  -- | Each row contains a singleton "provider number surrogate id"
+  provider_build_insertion_output_rows <- returning
+    conn
+    sqlInsertProviderBuild
+    (map input_columns_provider_surrogate universal_builds)
+
+  let zipped_output0 = zipWith
+        (\(Only row_id) ubuild -> SurrogateProviderIdUniversalPair row_id ubuild)
+        provider_build_insertion_output_rows
+        universal_builds
+
+  -- Determine which provider builds do not yet have associated
+  -- universal builds:
+  uninserted_provider_proxy_ids <- returning
+    conn
+    sqlCheckProviderProxyUniversalBuildAssociations
+    (map (Only . surrogate_provider_build_id) zipped_output0)
+
+
+  let preservation_proxy_id_set = Set.fromList $ map (\(Only x) -> x) uninserted_provider_proxy_ids
+      filtered_insertion_records = filter (\(SurrogateProviderIdUniversalPair x _) -> Set.member x preservation_proxy_id_set) zipped_output0
+
+  {-
+  D.debugList [
+      "Will be inserting these:"
+    , show filtered_insertion_records
+    ]
+  -}
+
   universal_build_insertion_output_rows <- returning
     conn
     sqlInsertUniversalBuild
-    (map input_f universal_builds)
+    (map input_f filtered_insertion_records)
 
   let zipped_output1 = zipWith
         (\(Only row_id) ubuild -> DbHelpers.WithId row_id ubuild)
@@ -492,16 +578,29 @@ storeCircleCiBuildsList
   where
     deduped_builds_list = nubSort builds_list_with_possible_duplicates
 
-    mk_ubuild (b, succeeded) = Builds.UniversalBuild
-      (Builds.build_id b)
-      SqlRead.circleCIProviderIndex
-      "" -- no build numbering namespace qualifier for CircleCI builds
-      succeeded
-      (Builds.vcs_revision b)
+    input_columns_provider_surrogate (Builds.UniBuildWithJob (Builds.UniversalBuild (Builds.NewBuildNumber provider_build_num) provider_id build_namespace _ _) _) = (provider_id, build_namespace, provider_build_num)
+
+    mk_ubuild (b, succeeded) = Builds.UniBuildWithJob u j
+      where
+        j = Builds.job_name b
+        u = Builds.UniversalBuild
+          (Builds.build_id b)
+          SqlRead.circleCIProviderIndex
+          "" -- no build numbering namespace qualifier for CircleCI builds
+          succeeded
+          (Builds.vcs_revision b)
 
     universal_builds = map mk_ubuild deduped_builds_list
 
-    input_f (Builds.UniversalBuild (Builds.NewBuildNumber provider_buildnum) provider_id build_namespace succeeded (Builds.RawCommit sha1)) = (provider_id, provider_buildnum, build_namespace, succeeded, sha1)
+    input_f (SurrogateProviderIdUniversalPair surrogate_provider_build_id (Builds.UniBuildWithJob (Builds.UniversalBuild (Builds.NewBuildNumber provider_buildnum) provider_id build_namespace succeeded (Builds.RawCommit sha1)) job_name)) = (
+        provider_id
+      , provider_buildnum
+      , build_namespace
+      , succeeded
+      , sha1
+      , job_name
+      , surrogate_provider_build_id
+      )
 
 
 -- | This is idempotent; builds that are already present will not be overwritten
@@ -520,9 +619,8 @@ storeBuildsList conn maybe_provider_scan_id builds_list = do
     , "build entries"
     ]
 
-  for_ builds_list $ \x -> do
+  for builds_list $ \x ->
     execute conn sql $ f x
-    return ()
 
   D.debugList [
       "Finishing storeBuildsList."
@@ -533,7 +631,6 @@ storeBuildsList conn maybe_provider_scan_id builds_list = do
   where
     f (DbHelpers.WithTypedId (Builds.UniversalBuildId universal_build_id) rbuild) =
       ( queued_at_string
-      , jobname
       , branch
       , start_time
       , stop_time
@@ -542,14 +639,13 @@ storeBuildsList conn maybe_provider_scan_id builds_list = do
       )
       where
         queued_at_string = T.pack $ formatTime defaultTimeLocale rfc822DateFormat queuedat
-        (Builds.NewBuild _ _ queuedat jobname branch start_time stop_time) = rbuild
+        (Builds.NewBuild _ _ queuedat _ branch start_time stop_time) = rbuild
 
     sql = Q.qjoin [
         "UPDATE universal_builds"
       , "SET"
       , Q.list [
           "x_queued_at = ?"
-        , "x_job_name = ?"
         , "x_branch = ?"
         , "x_started_at = ?"
         , "x_finished_at = ?"
@@ -698,7 +794,13 @@ insertSingleCIProvider conn hostname = do
       return new_id
   return $ DbHelpers.WithId row_id hostname
   where
-    sql_query = "SELECT id FROM ci_providers WHERE hostname = ? LIMIT 1;"
+    sql_query = Q.qjoin [
+        "SELECT id"
+      , "FROM ci_providers"
+      , "WHERE hostname = ?"
+      , "LIMIT 1;"
+      ]
+
     sql_insert = Q.qjoin [
         "INSERT INTO ci_providers"
       , Q.insertionValues ["hostname"]
