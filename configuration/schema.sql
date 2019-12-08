@@ -549,7 +549,6 @@ ALTER TABLE public.provider_build_numbers OWNER TO postgres;
 
 CREATE TABLE public.universal_builds (
     id integer NOT NULL,
-    build_number integer,
     build_namespace text,
     provider integer NOT NULL,
     commit_sha1 character(40) NOT NULL,
@@ -581,10 +580,10 @@ NOTE: These records are stored even if the build succeeds.
 
 
 --
--- Name: global_builds; Type: VIEW; Schema: public; Owner: postgres
+-- Name: global_builds_unfiltered; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.global_builds WITH (security_barrier='false') AS
+CREATE VIEW public.global_builds_unfiltered AS
  SELECT universal_builds.id AS global_build_num,
     universal_builds.succeeded,
     universal_builds.commit_sha1 AS vcs_revision,
@@ -600,8 +599,31 @@ CREATE VIEW public.global_builds WITH (security_barrier='false') AS
     master_commit_circleci_scheduled_job_discrimination.is_scheduled AS maybe_is_scheduled
    FROM ((public.universal_builds
      JOIN public.provider_build_numbers ON ((universal_builds.provider_build_surrogate = provider_build_numbers.id)))
-     LEFT JOIN public.master_commit_circleci_scheduled_job_discrimination ON (((universal_builds.x_job_name = master_commit_circleci_scheduled_job_discrimination.job_name) AND (universal_builds.commit_sha1 = master_commit_circleci_scheduled_job_discrimination.commit_sha1))))
-  WHERE (universal_builds.x_job_name IS NOT NULL);
+     LEFT JOIN public.master_commit_circleci_scheduled_job_discrimination ON (((universal_builds.x_job_name = master_commit_circleci_scheduled_job_discrimination.job_name) AND (universal_builds.commit_sha1 = master_commit_circleci_scheduled_job_discrimination.commit_sha1))));
+
+
+ALTER TABLE public.global_builds_unfiltered OWNER TO postgres;
+
+--
+-- Name: global_builds; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.global_builds WITH (security_barrier='false') AS
+ SELECT global_builds_unfiltered.global_build_num,
+    global_builds_unfiltered.succeeded,
+    global_builds_unfiltered.vcs_revision,
+    global_builds_unfiltered.job_name,
+    global_builds_unfiltered.branch,
+    global_builds_unfiltered.build_number,
+    global_builds_unfiltered.build_namespace,
+    global_builds_unfiltered.queued_at,
+    global_builds_unfiltered.started_at,
+    global_builds_unfiltered.finished_at,
+    global_builds_unfiltered.provider,
+    global_builds_unfiltered.ci_provider_scan,
+    global_builds_unfiltered.maybe_is_scheduled
+   FROM public.global_builds_unfiltered
+  WHERE (global_builds_unfiltered.job_name IS NOT NULL);
 
 
 ALTER TABLE public.global_builds OWNER TO postgres;
@@ -2460,8 +2482,8 @@ CREATE VIEW public.disjoint_circleci_build_statuses WITH (security_barrier='fals
     github_circleci_latest_statuses_by_build.state
    FROM ((public.github_circleci_latest_statuses_by_build
      JOIN public.ordered_master_commits ON ((github_circleci_latest_statuses_by_build.sha1 = ordered_master_commits.sha1)))
-     LEFT JOIN public.universal_builds ON (((github_circleci_latest_statuses_by_build.build_number_extracted = universal_builds.build_number) AND (universal_builds.provider = 3))))
-  WHERE (universal_builds.build_number IS NULL)
+     LEFT JOIN public.global_builds_unfiltered b_joined ON (((github_circleci_latest_statuses_by_build.build_number_extracted = b_joined.build_number) AND (b_joined.provider = 3))))
+  WHERE (b_joined.build_number IS NULL)
   ORDER BY ordered_master_commits.id DESC;
 
 
@@ -4029,7 +4051,7 @@ ALTER SEQUENCE public.match_id_seq OWNED BY public.matches.id;
 
 CREATE VIEW public.match_positions WITH (security_barrier='false') AS
  SELECT foo.pattern,
-    universal_builds.build_number AS build,
+    global_builds.build_number AS build,
     log_metadata.step AS step_id,
     build_steps.name AS step_name,
     foo.first_line,
@@ -4039,7 +4061,7 @@ CREATE VIEW public.match_positions WITH (security_barrier='false') AS
     ((foo.first_line)::double precision / (log_metadata.line_count)::double precision) AS first_position_fraction,
     ((foo.last_line)::double precision / (log_metadata.line_count)::double precision) AS last_position_fraction,
     (log_metadata.line_count - (1 + foo.last_line)) AS lines_from_end,
-    universal_builds.id AS universal_build
+    global_builds.global_build_num AS universal_build
    FROM (((( SELECT matches_distinct.pattern,
             matches_distinct.build_step,
             min(matches_distinct.line_number) AS first_line,
@@ -4049,8 +4071,8 @@ CREATE VIEW public.match_positions WITH (security_barrier='false') AS
           GROUP BY matches_distinct.pattern, matches_distinct.build_step) foo
      JOIN public.log_metadata ON ((log_metadata.step = foo.build_step)))
      JOIN public.build_steps ON ((build_steps.id = log_metadata.step)))
-     JOIN public.universal_builds ON ((universal_builds.id = build_steps.universal_build)))
-  ORDER BY foo.matched_line_count DESC, foo.pattern, universal_builds.id DESC;
+     JOIN public.global_builds ON ((global_builds.global_build_num = build_steps.universal_build)))
+  ORDER BY foo.matched_line_count DESC, foo.pattern, global_builds.global_build_num DESC;
 
 
 ALTER TABLE public.match_positions OWNER TO postgres;
@@ -4814,15 +4836,15 @@ ALTER SEQUENCE public.scans_id_seq OWNED BY public.scans.id;
 --
 
 CREATE VIEW public.unvisited_builds WITH (security_barrier='false') AS
- SELECT universal_builds.build_number AS build_num,
-    universal_builds.id AS universal_build_id,
-    universal_builds.build_namespace,
-    universal_builds.provider,
-    universal_builds.commit_sha1,
-    universal_builds.succeeded
-   FROM (public.universal_builds
-     LEFT JOIN public.build_steps ON ((universal_builds.id = build_steps.universal_build)))
-  WHERE ((build_steps.universal_build IS NULL) AND (NOT universal_builds.succeeded));
+ SELECT global_builds_unfiltered.build_number AS build_num,
+    global_builds_unfiltered.global_build_num AS universal_build_id,
+    global_builds_unfiltered.build_namespace,
+    global_builds_unfiltered.provider,
+    global_builds_unfiltered.vcs_revision AS commit_sha1,
+    global_builds_unfiltered.succeeded
+   FROM (public.global_builds_unfiltered
+     LEFT JOIN public.build_steps ON ((global_builds_unfiltered.global_build_num = build_steps.universal_build)))
+  WHERE ((build_steps.universal_build IS NULL) AND (NOT global_builds_unfiltered.succeeded));
 
 
 ALTER TABLE public.unvisited_builds OWNER TO postgres;
@@ -6640,6 +6662,14 @@ GRANT SELECT ON TABLE public.provider_build_numbers TO materialized_view_updater
 
 GRANT ALL ON TABLE public.universal_builds TO logan;
 GRANT SELECT ON TABLE public.universal_builds TO readonly_user;
+
+
+--
+-- Name: TABLE global_builds_unfiltered; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.global_builds_unfiltered TO logan;
+GRANT SELECT ON TABLE public.global_builds_unfiltered TO materialized_view_updater;
 
 
 --

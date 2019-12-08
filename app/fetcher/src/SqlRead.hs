@@ -2163,8 +2163,19 @@ getMasterCommits conn parent_offset_mode =
           maybe_committer_email <*>
           maybe_committer_date
 
-    sql_first_commit_id = "SELECT id FROM ordered_master_commits ORDER BY id DESC LIMIT 1 OFFSET ?;"
-    sql_associated_commit_id = "SELECT id FROM ordered_master_commits WHERE sha1 = ?;"
+    sql_first_commit_id = Q.qjoin [
+        "SELECT id"
+      , "FROM ordered_master_commits"
+      , "ORDER BY id DESC"
+      , "LIMIT 1"
+      , "OFFSET ?;"
+      ]
+
+    sql_associated_commit_id = Q.qjoin [
+        "SELECT id"
+      , "FROM ordered_master_commits"
+      , "WHERE sha1 = ?;"
+      ]
 
     commits_query_prefix = Q.qjoin [
         "SELECT"
@@ -2435,12 +2446,21 @@ refreshCachedMasterGrid view_name is_from_frontend = do
 
       (execution_time, _) <- D.timeThisFloat $ execute_ conn sql_query
 
-      execute conn "INSERT INTO lambda_logging.materialized_view_refresh_events (view_name, execution_duration_seconds, event_source) VALUES (?, ?, ?);" (view_name, execution_time, trigger_source)
+      execute conn insertion_sql (view_name, execution_time, trigger_source)
 
       D.debugStr "View refreshed."
       return $ Right ()
 
   where
+    insertion_sql = Q.qjoin [
+        "INSERT INTO lambda_logging.materialized_view_refresh_events"
+      , Q.insertionValues [
+          "view_name"
+        , "execution_duration_seconds"
+        , "event_source"
+        ]
+      ]
+
     trigger_source :: Text
     trigger_source = if is_from_frontend
       then "frontend"
