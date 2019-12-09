@@ -3127,6 +3127,46 @@ instance ToJSON JobScheduleStats where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
+
+data GitHubCircleCIStatusEvent = GitHubCircleCIStatusEvent {
+    _sha1         :: Builds.RawCommit
+  , _created_at   :: UTCTime
+  , _job_name     :: Text
+  , _build_number :: Builds.BuildNumber
+  , _state        :: Text
+  } deriving (Generic, FromRow)
+
+instance ToJSON GitHubCircleCIStatusEvent where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+apiGitHubNotificationsForBuild ::
+     Text
+  -> Builds.RawCommit
+  -> DbIO [GitHubCircleCIStatusEvent]
+apiGitHubNotificationsForBuild job_name (Builds.RawCommit sha1_text) = do
+  conn <- ask
+  liftIO $ query conn sql (job_name, sha1_text)
+  where
+  sql = Q.qjoin [
+      "SELECT"
+    , Q.list [
+        "sha1"
+      , "created_at"
+      , "job_name_extracted"
+      , "build_number_extracted"
+      , "state"
+      ]
+    , "FROM github_status_events_circleci"
+    , "WHERE"
+    , Q.qconjunction [
+        "job_name_extracted = ?"
+      , "sha1 = ?"
+      ]
+    , "ORDER BY created_at DESC"
+    ]
+
+
 apiJobScheduleStats :: DbIO [JobScheduleStats]
 apiJobScheduleStats = runQuery $ Q.qjoin [
     "SELECT"

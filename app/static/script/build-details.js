@@ -130,12 +130,56 @@ function populate_build_info(universal_build_id, parent_data) {
 }
 
 
+function gen_status_notifications_table(element_id, data) {
+
+	var table = new Tabulator("#" + element_id, {
+		height:"400px",
+		layout:"fitColumns",
+		placeholder:"No Data Set",
+		columns:[
+/*
+			{title: "Revision", field: "sha1", width: 100, formatter: function(cell, formatterParams, onRendered) {
+				return '<code><a href="/commit-details.html?sha1=' + cell.getValue() + '">' + cell.getValue().substring(0, 7) + '</a></code>';
+			}},
+*/
+			{title: "Time", field: "created_at", formatter: function(cell, formatterParams, onRendered) {
+//				return moment(cell.getValue()).fromNow();
+				return cell.getValue();
+			}},
+			{title: "Provider Build number", field: "build_number", 
+				formatter: "link",
+				formatterParams: {
+					urlPrefix: "https://circleci.com/gh/pytorch/pytorch/",
+				},
+			},
+			{title: "State", field: "state", sorter: "string"},
+		],
+		data: data,
+	});
+}
+
+
+function get_status_notifications(job_name, sha1) {
+
+	$.getJSON('/api/list-build-github-status-events', {"job": job_name, "sha1": sha1}, function (data) {
+
+		gen_status_notifications_table("status-notifications-table", data)
+
+	});
+}
+
+
 function get_build_info(universal_build_id) {
 
 	$.getJSON('/api/single-build-info', {"build_id": universal_build_id}, function (data) {
 		if (data.success) {
-			console.log("Retrieved best match info wihin '/api/single-build-info' api call in " + data.payload.timing.best_match_retrieval.toFixed(1) + " seconds");
+			console.log("Retrieved best match info within '/api/single-build-info' api call in " + data.payload.timing.best_match_retrieval.toFixed(1) + " seconds");
 			populate_build_info(universal_build_id, data.payload.content);
+
+			const job_name = data.payload.content["build_info"]["build"]["job_name"];
+			const sha1 = data.payload.content["build_info"]["build"]["vcs_revision"];
+			get_status_notifications(job_name, sha1);
+
 		} else {
 		        $("#build-info-box").html(render_tag("span", "Error: " + data.error.message, {"style": "color: red;"}));
 		}

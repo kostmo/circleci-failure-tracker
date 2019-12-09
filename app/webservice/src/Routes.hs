@@ -356,6 +356,11 @@ scottyApp
     fmap WebApi.toJsonEither . SqlUpdate.getBuildInfo (AuthConfig.personal_access_token github_config) . Builds.UniversalBuildId
     <$> S.param "build_id"
 
+  get "/api/list-build-github-status-events" $
+    SqlRead.apiGitHubNotificationsForBuild
+      <$> S.param "job"
+      <*> (Builds.RawCommit <$> S.param "sha1")
+
   get "/api/list-commit-jobs" $
     SqlRead.apiCommitJobs . Builds.RawCommit <$> S.param "sha1"
 

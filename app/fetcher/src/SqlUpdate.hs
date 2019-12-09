@@ -92,11 +92,16 @@ getBuildInfo ::
   -> SqlRead.DbIO (Either Text (DbHelpers.BenchmarkedResponse BuildInfoRetrievalBenchmarks SingleBuildInfo))
 getBuildInfo access_token build@(Builds.UniversalBuildId build_id) = do
 
+  liftIO $ D.debugStr "BLAH AAA"
+
   -- TODO Replace this with SQL COUNT()
   DbHelpers.BenchmarkedResponse best_match_retrieval_timing matches <- SqlRead.getBuildPatternMatches build
 
-  -- TODO This should be an Either
+  liftIO $ D.debugStr "BLAH BBB"
+
   either_storable_build <- SqlRead.getGlobalBuild build
+
+  liftIO $ D.debugStr "BLAH CCC"
 
   conn <- ask
 
@@ -170,7 +175,7 @@ getBuildInfo access_token build@(Builds.UniversalBuildId build_id) = do
         "SELECT"
       , Q.list [
           "step_id"
-        , "step_name"
+        , "COALESCE(step_name, '') AS step_name"
         , "build_num"
         , "vcs_revision"
         , "queued_at"
