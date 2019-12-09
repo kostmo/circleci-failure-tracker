@@ -116,6 +116,11 @@ colonize ::  [Text] -> Text
 colonize = terminate ":"
 
 
+-- | Adds a comma at the end of a list of words.
+commaize ::  [Text] -> Text
+commaize = terminate ","
+
+
 -- | Inserts blank lines between each element
 paragraphs :: [Text] -> Text
 paragraphs = T.unlines . intersperse ""

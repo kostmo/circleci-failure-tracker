@@ -4,7 +4,6 @@ module StatusUpdate (
     githubEventEndpoint
   , readGitHubStatusesAndScanAndPostSummaryForCommit
   , postCommitSummaryStatus
-  , genBuildFailuresTable
   , fetchCommitPageInfo
   , SuccessRecordStorageMode (..)
   , ScanLogsMode (..)
@@ -20,8 +19,6 @@ import           Data.Bifunctor                (first)
 import qualified Data.ByteString.Lazy          as LBS
 import           Data.Foldable                 (for_)
 import           Data.List                     (filter, intercalate)
-import           Data.List.NonEmpty            (NonEmpty ((:|)))
-import qualified Data.List.NonEmpty            as NE
 import           Data.List.Split               (splitOn)
 import qualified Data.Maybe                    as Maybe
 import qualified Data.Set                      as Set
@@ -30,7 +27,6 @@ import qualified Data.Text                     as T
 import qualified Data.Text.Lazy                as LT
 import qualified Data.Time.Clock               as Clock
 import           Data.Traversable              (for)
-import qualified Data.Tree                     as Tr
 import           Data.Tuple                    (swap)
 import           Database.PostgreSQL.Simple    (Connection)
 import           GHC.Int                       (Int64)
@@ -47,15 +43,13 @@ import qualified ApiPost
 import qualified AuthConfig
 import qualified AuthStages
 import qualified Builds
-import qualified CommitBuilds
+import qualified CommentRender
 import qualified Constants
 import qualified DbHelpers
 import qualified DebugUtils                    as D
 import qualified GadgitFetch
 import qualified GithubApiFetch
 import qualified GitRev
-import qualified Markdown
-import qualified MatchOccurrences
 import qualified MyUtils
 import qualified PushWebhooks
 import qualified Scanning
@@ -65,28 +59,16 @@ import qualified SqlUpdate
 import qualified SqlWrite
 import qualified StatusEvent
 import qualified StatusEventQuery
-import qualified WebApi
+import qualified StatusUpdateTypes
 import qualified Webhooks
+
+
+viableBranchName = "viable/strict"
 
 
 -- | For auto-commenting feature
 whitelistedPRAuthors :: [Text]
 whitelistedPRAuthors = ["ezyang", "kostmo", "suo", "yf225", "ZolotukhinM", "zdevito", "albanD"]
-
-
-circleCISmallAvatarUrl :: Text
-circleCISmallAvatarUrl = "https://avatars0.githubusercontent.com/ml/7?s=12"
-
-
-drCIApplicationTitle :: Text
-drCIApplicationTitle = "Dr. CI"
-
-
-drCIPullRequestCommentsReadmeUrl :: Text
-drCIPullRequestCommentsReadmeUrl = "https://github.com/kostmo/circleci-failure-tracker/tree/master/docs/from-pull-request-comment"
-
-
-viableCommitsHistoryUrl = "https://dr.pytorch.org/master-viable-commits.html"
 
 
 -- | 3 minutes
@@ -96,10 +78,6 @@ buildStatusHandlerTimeoutMicroseconds = 1000000 * 60 * 3
 
 fullMasterRefName :: Text
 fullMasterRefName = "refs/heads/" <> Constants.masterName
-
-
-webserverBaseUrl :: LT.Text
-webserverBaseUrl = "https://dr.pytorch.org"
 
 
 circleciDomain :: String
@@ -127,13 +105,6 @@ conclusiveStatuses = [
     gitHubStatusFailureString
   , gitHubStatusSuccessString
   ]
-
-
-data BuildSummaryStats = NewBuildSummaryStats {
-    flaky_count                 :: Int -- ^ flaky count
-  , _upstream_breakages_info    :: SqlUpdate.UpstreamBreakagesInfo
-  , total_circleci_fail_joblist :: [Text]
-  }
 
 
 groupStatusesByHostname ::
@@ -350,16 +321,10 @@ scanAndPost
     scan_matches
 
 
-data CommitPageInfo = CommitPageInfo {
-    _revision_builds  :: [CommitBuilds.CommitBuild]
-  , _unmatched_builds :: [WebApi.UnmatchedBuild]
-  }
-
-
 fetchCommitPageInfo ::
      Builds.RawCommit
   -> GitRev.GitSha1
-  -> SqlRead.DbIO (Either Text CommitPageInfo)
+  -> SqlRead.DbIO (Either Text StatusUpdateTypes.CommitPageInfo)
 fetchCommitPageInfo sha1 validated_sha1 = runExceptT $ do
 
   liftIO $ D.debugStr "Fetching revision builds"
@@ -371,7 +336,7 @@ fetchCommitPageInfo sha1 validated_sha1 = runExceptT $ do
 
   liftIO $ D.debugStr "Finishing fetchCommitPageInfo."
 
-  return $ CommitPageInfo revision_builds unmatched_builds
+  return $ StatusUpdateTypes.CommitPageInfo revision_builds unmatched_builds
 
 
 postCommitSummaryStatus ::
@@ -448,7 +413,7 @@ fetchAndCachePrAuthor conn access_token pr_number = do
 postCommitSummaryStatusInner ::
      [Text]
   -> SqlUpdate.UpstreamBreakagesInfo
-  -> CommitPageInfo
+  -> StatusUpdateTypes.CommitPageInfo
   -> Connection
   -> OAuth2.AccessToken
   -> DbHelpers.OwnerAndRepo
@@ -484,7 +449,7 @@ postCommitSummaryStatusInner
 
   where
   circleci_failcount = length circleci_fail_joblist
-  build_summary_stats = NewBuildSummaryStats
+  build_summary_stats = StatusUpdateTypes.NewBuildSummaryStats
     flaky_count
     upstream_breakages_info
     circleci_fail_joblist
@@ -541,7 +506,7 @@ postCommitSummaryStatusInner
       pr_number
       comment_post_result
     where
-      pr_comment_text = generateCommentMarkdown
+      pr_comment_text = CommentRender.generateCommentMarkdown
         Nothing
         build_summary_stats
         ancestry_result
@@ -576,7 +541,7 @@ postCommitSummaryStatusInner
       Left other_failure_message -> except $ Left other_failure_message
 
     where
-      pr_comment_text = generateCommentMarkdown
+      pr_comment_text = CommentRender.generateCommentMarkdown
         (Just previous_pr_comment)
         build_summary_stats
         ancestry_result
@@ -599,7 +564,7 @@ postCommitSummaryStatusInner
         ]
 
     ancestry_result <- ExceptT $ fmap (first LT.pack) $ GadgitFetch.getIsAncestor $
-      GadgitFetch.RefAncestryProposition merge_base_commit_text "viable/strict"
+      GadgitFetch.RefAncestryProposition merge_base_commit_text viableBranchName
 
     for_ containing_pr_list $ \pr_number ->
       handleCommentPostingOptOut pr_number $ do
@@ -628,135 +593,6 @@ postCommitSummaryStatusInner
           , "--- skipping!"
           ]
         return 0
-
-
-genUnmatchedBuildsTable unmatched_builds =
-  Markdown.table header_columns data_rows
-  where
-    header_columns = ["Job", "Step"]
-    data_rows = map gen_unmatched_build_row unmatched_builds
-
-    gen_unmatched_build_row (WebApi.UnmatchedBuild _build step_name _ job_name _ _ _ _) = [
-        T.unwords [
-            Markdown.image "CircleCI" circleCISmallAvatarUrl
-          , Markdown.sup job_name
-          ]
-      , Markdown.sup step_name
-      ]
-
-
-genBuildFailuresTable :: CommitPageInfo -> [Text]
-genBuildFailuresTable (CommitPageInfo revision_builds unmatched_builds) =
-  pattern_matched_section <> pattern_unmatched_section
-  where
-
-    pattern_matched_section = if null revision_builds
-      then mempty
-      else pure (Markdown.heading 3 $ T.unwords [
-              MyUtils.pluralize (length revision_builds) "failure"
-            , "recognized by patterns:"
-            ])
-        <> concatMap gen_matched_build_section revision_builds
-
-    pattern_unmatched_section = if null unmatched_builds
-      then mempty
-      else pure (Markdown.heading 3 $ T.unwords [
-              MyUtils.pluralize (length unmatched_builds) "failure"
-            , Markdown.italic "not"
-            , "recognized by patterns:"
-            ])
-        <> NE.toList (genUnmatchedBuildsTable unmatched_builds)
-
-    gen_matched_build_section (CommitBuilds.NewCommitBuild (Builds.StorableBuild (DbHelpers.WithId _ubuild_id universal_build) build_obj) match_obj _ _) = [
-        Markdown.heading 4 $ T.unwords [
-            circleci_image_link
-          , Builds.job_name build_obj
-          ]
-      , T.unwords [
-            Markdown.bold "Step:"
-          , MatchOccurrences._build_step match_obj
-          ]
-      ] <> (NE.toList $ Markdown.codeBlock $ pure $ MatchOccurrences._line_text match_obj)
-      where
-        (Builds.NewBuildNumber provider_build_number) = Builds.provider_buildnum universal_build
-        circleci_icon = Markdown.image "See CircleCI build" circleCISmallAvatarUrl
-        circleci_image_link = Markdown.link circleci_icon $
-          "https://circleci.com/gh/pytorch/pytorch/" <> T.pack (show provider_build_number)
-
-
-generateCommentMarkdown ::
-     Maybe SqlRead.PostedPRComment
-  -> BuildSummaryStats
-  -> GadgitFetch.AncestryPropositionResponse
-  -> CommitPageInfo
-  -> Builds.RawCommit
-  -> Text
-generateCommentMarkdown
-    maybe_previous_pr_comment
-    build_summary_stats
-    _ancestry_result
-    commit_page_info
-    (Builds.RawCommit sha1_text) =
-  Markdown.paragraphs $ preliminary_lines_list ++ optional_suffix
-  where
-    build_failures_table_lines = genBuildFailuresTable commit_page_info
-
-    detailed_build_issues_section = if null build_failures_table_lines
-      then []
-      else [
-          Markdown.heading 2 "Detailed failure analysis (WIP)"
-        , Markdown.colonize [
-            "Here are the"
-          , Markdown.link "reasons each build failed" dr_ci_commit_details_link
-          ]
-        , T.unlines build_failures_table_lines
-        ]
-
-    footer_section1 = T.unlines [
-          "---"
-        , Markdown.sentence [
-            "This comment was automatically generated by"
-          , Markdown.link drCIApplicationTitle drCIPullRequestCommentsReadmeUrl
-          ]
-        , Markdown.sentence [
-            "Follow"
-          , Markdown.link "this link to opt-out" opt_out_url
-          , "of these comments for your Pull Requests"
-          ]
-        ]
-
-    footer_section2 = Markdown.sentence [
-          "Please report bugs/suggestions on the"
-        , Markdown.link "GitHub issue tracker" "https://github.com/kostmo/circleci-failure-tracker/issues"
-        ]
-
-    preliminary_lines_list = [
-        T.unlines [
-          Markdown.heading 2 "CircleCI build failures summary"
-        , Markdown.colonize [
-            "As of commit"
-          , T.take Constants.gitCommitPrefixLength sha1_text
-          ]
-        , Markdown.bulletTree $ genMetricsTreeVerbose build_summary_stats
-        ]
-      ] ++ detailed_build_issues_section ++ [footer_section1, footer_section2]
-
-
-    -- Note that using the current count of N comments as the revision count will be
-    -- appropriate for the (N+1)th comment (the one that's about to be posted), because
-    -- the first post doesn't count as a "revision".
-    optional_suffix = case maybe_previous_pr_comment of
-      Nothing -> []
-      Just previous_pr_comment -> [
-          Markdown.italic $ Markdown.sentence [
-            "This comment has been revised"
-          , MyUtils.pluralize (SqlRead._revision_count previous_pr_comment) "time"
-          ]
-        ]
-
-    dr_ci_base_url = LT.toStrict webserverBaseUrl
-    dr_ci_commit_details_link = dr_ci_base_url <> "/commit-details.html?sha1=" <> sha1_text
-    opt_out_url = dr_ci_base_url <> "/admin/comments-opt-out.html"
 
 
 -- | whether to store second-level build records for "success" status
@@ -960,69 +796,7 @@ handleStatusWebhook
     sha1 = Builds.RawCommit $ LT.toStrict $ Webhooks.sha status_event
 
 
-genMetricsTreeVerbose ::
-     BuildSummaryStats
-  -> Tr.Forest (NonEmpty Text)
-genMetricsTreeVerbose (NewBuildSummaryStats flaky_count pre_broken_info all_failures) =
-  optional_kb_metric <> failures_introduced_in_pull_request <> flaky_bullet_tree
-  where
-
-    Builds.RawCommit merge_base_sha1_text = SqlUpdate.merge_base pre_broken_info
-
-    rebase_advice_children = [
-        pure (Markdown.colonize ["If your commit is older than `viable/strict`"]) <> Markdown.codeBlock ("git fetch viable/strict" :| ["git rebase viable/strict"])
-      , pure (Markdown.colonize ["If your commit is newer than `viable/strict`, you can try basing on an older, stable commit"]) <> Markdown.codeBlock ("git fetch viable/strict" :| ["git rebase --onto viable/strict $(git merge-base origin/master HEAD)"])
-      ]
-
-
-    rebase_advice_header = Tr.Node (pure $ Markdown.colonize [
-        "You may want to rebase on the `viable/strict` branch"
-      , Markdown.parens $ T.unwords ["see its", Markdown.link "recency history" viableCommitsHistoryUrl]
-      ]) $ map pure rebase_advice_children
-
-
-    upstream_breakage_bullet_children = [rebase_advice_header]
-
-    pre_broken_list = SqlUpdate.inferred_upstream_caused_broken_jobs pre_broken_info
-    upstream_broken_count = length pre_broken_list
-    total_failcount = length all_failures
-    broken_in_pr_count = total_failcount - upstream_broken_count
-
-    bold_fraction a b = Markdown.bold $ T.pack $ show a <> "/" <> show b
-
-    grid_view_url = "https://dr.pytorch.org/master-timeline.html?count=10&sha1=" <> merge_base_sha1_text <> "&should_suppress_scheduled_builds=true&should_suppress_fully_successful_columns=true&max_columns_suppress_successful=35"
-
-    upstream_breakage_bullet_tree = Tr.Node (
-       pure $ T.unwords [
-           bold_fraction upstream_broken_count total_failcount
-         , "broken upstream at merge base"
-         , T.take Constants.gitCommitPrefixLength merge_base_sha1_text
-         , Markdown.parens $ T.unwords ["see", Markdown.link "grid view" grid_view_url]
-       ]) upstream_breakage_bullet_children
-
-    optional_kb_metric = if null pre_broken_list
-      then []
-      else [upstream_breakage_bullet_tree]
-
-
-    failures_introduced_in_pull_request = [
-        pure $ pure $ T.unwords [
-            bold_fraction broken_in_pr_count total_failcount
-          , "failures introduced in this PR"
-          ]
-      ]
-
-    flaky_bullet_tree = if flaky_count > 0
-      then [
-        Tr.Node (pure $ T.unwords [
-            bold_fraction flaky_count total_failcount
-          , "recognized as flaky"
-          ]) [pure $ pure "Re-run these jobs?"]
-        ]
-      else []
-
-
-genCompactMetricsList (NewBuildSummaryStats flaky_count (SqlUpdate.UpstreamBreakagesInfo _ _ pre_broken) total_failcount) = [
+genCompactMetricsList (StatusUpdateTypes.NewBuildSummaryStats flaky_count (SqlUpdate.UpstreamBreakagesInfo _ _ pre_broken) total_failcount) = [
     show flaky_count <> "/" <> show (length total_failcount) <> " flaky"
   ] ++ optional_kb_metric ++ failures_introduced_in_pull_request
   where
@@ -1036,14 +810,14 @@ genCompactMetricsList (NewBuildSummaryStats flaky_count (SqlUpdate.UpstreamBreak
 
 genFlakinessStatus ::
      Builds.RawCommit
-  -> BuildSummaryStats
+  -> StatusUpdateTypes.BuildSummaryStats
   -> StatusEvent.GitHubStatusEventSetter
 genFlakinessStatus (Builds.RawCommit sha1) build_summary_stats =
 
   StatusEvent.GitHubStatusEventSetter
     description
     status_string
-    (webserverBaseUrl <> "/commit-details.html?sha1=" <> LT.fromStrict sha1)
+    (CommentRender.webserverBaseUrl <> "/commit-details.html?sha1=" <> LT.fromStrict sha1)
     (LT.fromStrict myAppStatusContext)
 
   where
@@ -1053,7 +827,7 @@ genFlakinessStatus (Builds.RawCommit sha1) build_summary_stats =
       , intercalate ", " $ genCompactMetricsList build_summary_stats
       ]
 
-    status_string = if flaky_count build_summary_stats == length (total_circleci_fail_joblist build_summary_stats)
+    status_string = if StatusUpdateTypes.flaky_count build_summary_stats == length (StatusUpdateTypes.total_circleci_fail_joblist build_summary_stats)
       then gitHubStatusSuccessString
       else gitHubStatusFailureString
 
@@ -1116,3 +890,4 @@ githubEventEndpoint connection_data github_config = do
           S.json =<< return ["hello" :: String]
 
         _ -> return ()
+
