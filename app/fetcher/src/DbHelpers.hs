@@ -51,6 +51,9 @@ instance (FromField a) => FromRow (StartEnd a) where
   fromRow = StartEnd <$> field <*> field
 
 
+offsetStartEnd :: (a -> a) -> DbHelpers.StartEnd a -> DbHelpers.StartEnd a
+offsetStartEnd f (DbHelpers.StartEnd x y) = DbHelpers.StartEnd (f x) (f y)
+
 
 instance (ToJSON a) => ToJSON (PGArray a) where
   toJSON = toJSON . fromPGArray

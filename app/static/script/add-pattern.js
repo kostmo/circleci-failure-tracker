@@ -101,7 +101,14 @@ function submit_pattern(submit_button) {
 			// TODO consolidate with "handle_submission_response()" in "html-utils.js"
 			if (data.success) {
 				alert("submitted pattern with ID: " + data.payload);
+
+				const build_id = get_build_id_from_url();
+				if (build_id != null) {
+					window.location.href = "/build-details.html?build_id=" + build_id;
+				} else {
 					window.location.href = "/";
+				}
+
 			} else {
 				if (data.error.details.authentication_failed) {
 					alert("Not logged in: " + data.error.message);
@@ -269,12 +276,18 @@ function import_patterns(button_obj) {
 
 
 function prepopulate_build_number() {
-	const urlParams = new URLSearchParams(window.location.search);
-	const build_id = urlParams.get('build_id');
+	const build_id = get_build_id_from_url();
 
 	if (build_id) {
 		$("#test-build-id").val(build_id);
 	}
+}
+
+
+function get_build_id_from_url() {
+
+	const urlParams = new URLSearchParams(window.location.search);
+	return urlParams.get('build_id');
 }
 
 

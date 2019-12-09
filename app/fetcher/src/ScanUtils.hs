@@ -16,14 +16,20 @@ import           Text.Regex.PCRE           ((=~~))
 
 import qualified DbHelpers
 --import qualified DebugUtils                as D
+import           GHC.Int                   (Int64)
 import qualified ScanPatterns
 import           SillyMonoids              ()
 import           System.Timeout            (timeout)
 
 
 -- | 5 seconds
+-- TODO not used
 lineScanTimeoutMicroseconds :: Int
 lineScanTimeoutMicroseconds = 1000000 * 5
+
+
+maxLineScanLength :: Int64
+maxLineScanLength = 5000
 
 
 data PatternScanTimeout = PatternScanTimeout Int (Int, LT.Text) ScanPatterns.DbPattern
@@ -37,7 +43,7 @@ applySinglePatternIO ::
      (Int, LT.Text)
   -> ScanPatterns.DbPattern
   -> IO (Either PatternScanTimeout MatchAnswer)
-applySinglePatternIO tup@(_num, _line_text) db_pattern = do
+applySinglePatternIO (line_num, line) db_pattern = do
 
   maybe_result <- timeout lineScanTimeoutMicroseconds $ do
     {-
@@ -50,10 +56,20 @@ applySinglePatternIO tup@(_num, _line_text) db_pattern = do
     threadDelay 7000000
     D.debugStr "Finished sleep."
     -}
-    let answer = applySinglePattern tup db_pattern
+    let answer = applySinglePattern (+ fromIntegral drop_count) modified_tup db_pattern
     return $! answer
 
-  return $! maybeToEither (PatternScanTimeout lineScanTimeoutMicroseconds tup db_pattern) maybe_result
+  return $! maybeToEither err_obj maybe_result
+  where
+    err_obj = PatternScanTimeout
+      lineScanTimeoutMicroseconds
+      modified_tup
+      db_pattern
+
+    modified_tup = (line_num, LT.drop drop_count line)
+
+    drop_count = max 0 $ LT.length line - maxLineScanLength
+
 
 {-
   where
@@ -64,7 +80,9 @@ applySinglePatternIO tup@(_num, _line_text) db_pattern = do
 -- | Although isomorphic to Maybe, this is necessary to force
 -- strict evaluation of the Maybe content so that the
 -- timeout works properly.
-data MatchAnswer = NoMatch | HasMatch !ScanPatterns.ScanMatch
+data MatchAnswer =
+    NoMatch
+  | HasMatch !ScanPatterns.ScanMatch
 
 
 convertMatchAnswerToMaybe = \case
@@ -73,23 +91,24 @@ convertMatchAnswerToMaybe = \case
 
 
 applySinglePattern ::
-     (Int, LT.Text)
+     (Int -> Int)
+  -> (Int, LT.Text)
   -> ScanPatterns.DbPattern
   -> MatchAnswer
-applySinglePattern (line_number, line) db_pattern =
+applySinglePattern offset_func (line_number, line) db_pattern =
   case match_span of
     Nothing -> NoMatch
-    Just x  -> HasMatch $ match_partial x
+    Just x  -> HasMatch $ match_partial $ DbHelpers.offsetStartEnd offset_func x
   where
     pattern_obj = DbHelpers.record db_pattern
 
     match_span = case ScanPatterns.expression pattern_obj of
       ScanPatterns.RegularExpression regex_text _ -> do
         (match_offset, match_length) <- LT.unpack line =~~ encodeUtf8 regex_text :: Maybe (MatchOffset, MatchLength)
-        return $ DbHelpers.StartEnd match_offset (match_offset + match_length)
+        return $ DbHelpers.StartEnd match_offset $ match_offset + match_length
       ScanPatterns.LiteralExpression literal_text -> do
-        first_index <- Safe.headMay (Search.indices literal_text $ LT.toStrict line)
-        return $ DbHelpers.StartEnd first_index (first_index + T.length literal_text)
+        first_index <- Safe.headMay $ Search.indices literal_text $ LT.toStrict line
+        return $ DbHelpers.StartEnd first_index $ first_index + T.length literal_text
 
     match_partial = ScanPatterns.NewScanMatch db_pattern .
       ScanPatterns.NewMatchDetails

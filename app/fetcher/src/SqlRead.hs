@@ -280,7 +280,7 @@ lookupUniversalBuild (Builds.UniversalBuildId universal_build_num) = do
         , "provider"
         , "build_namespace"
         , "succeeded"
-        , "commit_sha1"
+        , "vcs_revision"
         ]
       , "FROM global_builds WHERE global_build_num = ?;"
       ]
@@ -3378,7 +3378,7 @@ apiNewPatternTest universal_build_id new_pattern =
   where
     apply_pattern :: (Int, LT.Text) -> Maybe ScanPatterns.ScanMatch
     apply_pattern line_tuple = ScanUtils.convertMatchAnswerToMaybe $
-      ScanUtils.applySinglePattern line_tuple $ DbHelpers.WithId 0 new_pattern
+      ScanUtils.applySinglePattern id line_tuple $ DbHelpers.WithId 0 new_pattern
 
 
 -- | NOTE: Some of these values can be derived from the others.

@@ -112,7 +112,10 @@ rescanSingleBuildWrapped ::
   -> SqlRead.AuthDbIO (Either a T.Text)
 rescanSingleBuildWrapped build_to_scan = do
   SqlRead.AuthConnection conn user <- ask
-  liftIO $ rescanSingleBuild conn user build_to_scan
+  liftIO $ rescanSingleBuild
+    conn
+    user
+    build_to_scan
   return $ Right "Build rescan complete."
 
 
@@ -143,7 +146,10 @@ rescanSingleBuild ::
   -> IO ()
 rescanSingleBuild conn initiator build_to_scan = do
 
-  D.debugList ["Rescanning build:", show build_to_scan]
+  D.debugList [
+      "Rescanning build:"
+    , show build_to_scan
+    ]
 
   scan_resources <- prepareScanResources conn $ Just initiator
 
@@ -231,7 +237,10 @@ prepareScanResources conn maybe_initiator = do
       circle_sess
 
 
-getPatternObjects :: ScanRecords.ScanCatchupResources -> [Int64] -> [ScanPatterns.DbPattern]
+getPatternObjects ::
+     ScanRecords.ScanCatchupResources
+  -> [Int64]
+  -> [ScanPatterns.DbPattern]
 getPatternObjects scan_resources =
   Maybe.mapMaybe (\x -> DbHelpers.WithId x <$> HashMap.lookup x (ScanRecords.patterns_by_id scan_resources))
 
@@ -510,7 +519,7 @@ scanLogText ::
   -> [ScanPatterns.DbPattern]
   -> IO ([ScanUtils.PatternScanTimeout], [ScanPatterns.ScanMatch])
 scanLogText lines_list patterns = do
-  result_tuples <- for input_pairs $ \input_pair@(_num, line) -> do
+  result_tuples <- for input_pairs $ \num_line_pair -> do
     {-
     D.debugList [
         "Scanning Line number"
@@ -527,32 +536,14 @@ scanLogText lines_list patterns = do
       ]
     -}
 
-    if LT.length line < 5000
-      then do
-        pattern_match_result <- apply_patterns input_pair
+    apply_patterns num_line_pair
 
-        {-
-        D.debugList [
-            "\tInner match count:"
-          , show $ length pattern_match_result
-          ]
-        -}
-
-        return pattern_match_result
-      else
-        return ([], [])
 
   let final_matches = concat $ filter (not . null) $ map snd result_tuples
 
-  {-
-  D.debugList [
-      "Count of final matches:"
-    , show $ length final_matches
-    ]
-  -}
-
   return (concatMap fst result_tuples, final_matches)
   where
+
     input_pairs = zip [0 ..] $ map LT.stripEnd lines_list
 --    apply_patterns line_tuple = Maybe.mapMaybe (ScanUtils.applySinglePattern line_tuple) patterns
     apply_patterns line_tuple = do
@@ -567,5 +558,6 @@ scanLogText lines_list patterns = do
             return $ Left foo
 
       let (timedout, match_maybes) = partitionEithers pattern_result_eithers
+          flattened_matches = Maybe.mapMaybe ScanUtils.convertMatchAnswerToMaybe match_maybes
 
-      return (timedout, Maybe.mapMaybe ScanUtils.convertMatchAnswerToMaybe match_maybes)
+      return (timedout, flattened_matches)

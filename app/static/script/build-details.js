@@ -189,7 +189,12 @@ function main() {
 	$("#full-log-link-container").html(local_logview_item_full);
 
 	get_build_info(universal_build_id);
-	gen_builds_table("best-build-matches-table", "/api/best-build-match?build_id=" + universal_build_id, null, universal_build_id, null);
+	gen_builds_table(
+		"best-build-matches-table",
+		"/api/best-build-match?build_id=" + universal_build_id,
+		null,
+		universal_build_id,
+		null);
 
 	gen_pattern_test_link(universal_build_id);
 }
