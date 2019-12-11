@@ -61,7 +61,6 @@ sqlInsertUniversalBuild = Q.qjoin [
     "INSERT INTO universal_builds"
   , Q.insertionValues [
       "provider"
-    , "build_number"
     , "build_namespace"
     , "succeeded"
     , "commit_sha1"
@@ -72,7 +71,10 @@ sqlInsertUniversalBuild = Q.qjoin [
   , "ON CONSTRAINT universal_builds_provider_build_namespace_x_job_name_commit_key"
   , "DO UPDATE SET"
   , Q.list [
-      "build_number = excluded.build_number"
+--      "succeeded = excluded.succeeded"
+--    , "provider_build_surrogate = excluded.provider_build_surrogate"
+      "provider = excluded.provider" -- This field to update is arbitrarily chosen,
+                 -- just so that the "id" field can be returned.
     ]
   , "RETURNING id;"
   ]
@@ -460,7 +462,6 @@ insertSingleUniversalBuild
 
   let tup = (
           provider_id
-        , provider_buildnum
         , build_namespace
         , succeeded
         , sha1
@@ -592,9 +593,8 @@ storeCircleCiBuildsList
 
     universal_builds = map mk_ubuild deduped_builds_list
 
-    input_f (SurrogateProviderIdUniversalPair surrogate_provider_build_id (Builds.UniBuildWithJob (Builds.UniversalBuild (Builds.NewBuildNumber provider_buildnum) provider_id build_namespace succeeded (Builds.RawCommit sha1)) job_name)) = (
+    input_f (SurrogateProviderIdUniversalPair surrogate_provider_build_id (Builds.UniBuildWithJob (Builds.UniversalBuild _ provider_id build_namespace succeeded (Builds.RawCommit sha1)) job_name)) = (
         provider_id
-      , provider_buildnum
       , build_namespace
       , succeeded
       , sha1

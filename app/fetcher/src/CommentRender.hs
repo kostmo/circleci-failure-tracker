@@ -45,6 +45,9 @@ drCIPullRequestCommentsReadmeUrl :: Text
 drCIPullRequestCommentsReadmeUrl = "https://github.com/kostmo/circleci-failure-tracker/tree/master/docs/from-pull-request-comment"
 
 
+circleCIBuildUrlPrefix = "https://circleci.com/gh/pytorch/pytorch/"
+
+
 genUnmatchedBuildsTable unmatched_builds =
   M.table header_columns data_rows
   where
@@ -66,39 +69,47 @@ genBuildFailuresTable ::
 genBuildFailuresTable (StatusUpdateTypes.CommitPageInfo revision_builds unmatched_builds) =
   pattern_matched_section <> pattern_unmatched_section
   where
+    pattern_matched_header = M.heading 3 $ M.colonize [
+        MyUtils.pluralize (length revision_builds) "failure"
+      , "recognized by patterns"
+      ]
 
+    matched_builds_details_block = concat $ zipWith gen_matched_build_section [1..] revision_builds
     pattern_matched_section = if null revision_builds
       then mempty
-      else pure (M.heading 3 $ T.unwords [
-              MyUtils.pluralize (length revision_builds) "failure"
-            , "recognized by patterns:"
-            ])
-        <> concatMap gen_matched_build_section revision_builds
+      else pure pattern_matched_header
+        <> matched_builds_details_block
+
+    pattern_unmatched_header = M.heading 3 $ M.colonize [
+        MyUtils.pluralize (length unmatched_builds) "failure"
+      , M.italic "not"
+      , "recognized by patterns"
+      ]
 
     pattern_unmatched_section = if null unmatched_builds
       then mempty
-      else pure (M.heading 3 $ T.unwords [
-              MyUtils.pluralize (length unmatched_builds) "failure"
-            , M.italic "not"
-            , "recognized by patterns:"
-            ])
+      else pure pattern_unmatched_header
         <> NE.toList (genUnmatchedBuildsTable unmatched_builds)
 
-    gen_matched_build_section (CommitBuilds.NewCommitBuild (Builds.StorableBuild (DbHelpers.WithId _ubuild_id universal_build) build_obj) match_obj _ _) = [
+    gen_matched_build_section idx (CommitBuilds.NewCommitBuild (Builds.StorableBuild (DbHelpers.WithId ubuild_id universal_build) build_obj) match_obj _ _) = [
         M.heading 4 $ T.unwords [
             circleci_image_link
           , Builds.job_name build_obj
+          , M.parens $ T.pack $ MyUtils.renderFrac idx $ length revision_builds
           ]
       , T.unwords [
-            M.bold "Step:"
-          , MatchOccurrences._build_step match_obj
-          ]
-      ] <> (NE.toList $ M.codeBlock $ pure $ MatchOccurrences._line_text match_obj)
+          M.bold "Step:"
+        , MatchOccurrences._build_step match_obj
+        , M.parens $ M.link "details" $ LT.toStrict webserverBaseUrl <> "/build-details.html?build_id=" <> T.pack (show ubuild_id)
+        ]
+      ] <> code_block_lines
       where
+        code_block_lines = NE.toList $ M.codeBlock $ pure $ MatchOccurrences._line_text match_obj
+
         (Builds.NewBuildNumber provider_build_number) = Builds.provider_buildnum universal_build
         circleci_icon = M.image "See CircleCI build" circleCISmallAvatarUrl
         circleci_image_link = M.link circleci_icon $
-          "https://circleci.com/gh/pytorch/pytorch/" <> T.pack (show provider_build_number)
+          circleCIBuildUrlPrefix <> T.pack (show provider_build_number)
 
 
 generateCommentMarkdown ::
@@ -186,15 +197,18 @@ genMetricsTreeVerbose
   optional_kb_metric <> failures_introduced_in_pull_request <> flaky_bullet_tree
   where
 
-    (GadgitFetch.AncestryPropositionResponse (GadgitFetch.RefAncestryProposition supposed_ancestor _supposed_descendant) ancestry_result) = ancestry_response
+    (GadgitFetch.AncestryPropositionResponse (GadgitFetch.RefAncestryProposition _supposed_ancestor _supposed_descendant) ancestry_result) = ancestry_response
 
     Builds.RawCommit merge_base_sha1_text = SqlUpdate.merge_base pre_broken_info
 
     definite_older_commit_advice = pure $ M.colonize [
-        "Since your merge base"
-      , M.codeInline supposed_ancestor
-      , "is older than"
-      , M.codeInline viableBranchName
+        M.commaize [
+          "Since your merge base"
+--        , M.codeInline supposed_ancestor
+        , "is older than"
+        , M.codeInline viableBranchName
+        ]
+      , "run these commands"
       ]
 
     possible_older_commit_advice = pure $ M.colonize [

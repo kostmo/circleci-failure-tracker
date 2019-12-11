@@ -163,8 +163,7 @@ function get_status_notifications(job_name, sha1) {
 
 	$.getJSON('/api/list-build-github-status-events', {"job": job_name, "sha1": sha1}, function (data) {
 
-		gen_status_notifications_table("status-notifications-table", data)
-
+		gen_status_notifications_table("status-notifications-table", data);
 	});
 }
 

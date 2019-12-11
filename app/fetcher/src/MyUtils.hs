@@ -29,6 +29,10 @@ pluralize quantity word =
       else "s"
 
 
+renderFrac numerator denominator =
+  show numerator <> "/" <> show denominator
+
+
 applyIf :: Bool -> (a -> a) -> a -> a
 applyIf should func = f
   where

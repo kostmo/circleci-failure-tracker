@@ -395,7 +395,11 @@ getRevisitableWhitelistedBuilds ::
   -> [Builds.UniversalBuildId]
   -> IO [(Builds.BuildStepId, Text, DbHelpers.WithId Builds.UniversalBuild, [Int64])]
 getRevisitableWhitelistedBuilds conn universal_build_ids = do
-  putStrLn $ unwords ["Inside", "getRevisitableWhitelistedBuilds"]
+  D.debugList [
+      "Inside"
+    , "getRevisitableWhitelistedBuilds"
+    ]
+
   map common_xform <$> query conn sql
     (Only $ In $ map (\(Builds.UniversalBuildId x) -> x) universal_build_ids)
   where
@@ -1016,7 +1020,10 @@ apiUnmatchedBuilds = runQuery $ Q.qjoin [
 apiIdiopathicBuilds :: DbIO [WebApi.BuildBranchRecord]
 apiIdiopathicBuilds = listBuilds $ Q.qjoin [
     "SELECT"
-  , "branch, global_build_num"
+  , Q.list [
+      "branch"
+    , "global_build_num"
+    ]
   , "FROM idiopathic_build_failures"
   , "ORDER BY global_build_num DESC;"
   ]
@@ -1028,17 +1035,9 @@ apiUnmatchedCommitBuilds ::
 apiUnmatchedCommitBuilds (Builds.RawCommit sha1) = do
   conn <- ask
   liftIO $ do
-    D.debugList [
-        "SQL:"
-      , show sql
-      , "ARGS:"
-      , show sha1
-      ]
-
     xs <- query conn sql $ Only sha1
     return $ Right xs
   where
-
     sql = Q.qjoin [
         "SELECT"
       , Q.list [

@@ -92,19 +92,12 @@ getBuildInfo ::
   -> SqlRead.DbIO (Either Text (DbHelpers.BenchmarkedResponse BuildInfoRetrievalBenchmarks SingleBuildInfo))
 getBuildInfo access_token build@(Builds.UniversalBuildId build_id) = do
 
-  liftIO $ D.debugStr "BLAH AAA"
-
   -- TODO Replace this with SQL COUNT()
   DbHelpers.BenchmarkedResponse best_match_retrieval_timing matches <- SqlRead.getBuildPatternMatches build
 
-  liftIO $ D.debugStr "BLAH BBB"
-
   either_storable_build <- SqlRead.getGlobalBuild build
 
-  liftIO $ D.debugStr "BLAH CCC"
-
   conn <- ask
-
   liftIO $ do
 
     xs <- query conn sql $ Only build_id

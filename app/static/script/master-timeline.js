@@ -515,6 +515,8 @@ function define_job_column(col) {
 
 				const is_success = cell_value.failure_mode["tag"] == "Success";
 
+				// NOTE: it would make the most sense to check for success first;
+				// in case the fields are inconsistent (flaky + succeeded)
 				const img_path = cell_value.is_flaky ? "yellow-triangle.svg"
 					: cell_value.failure_mode["tag"] == "FailedStep" && cell_value.failure_mode["step_failure"]["tag"] == "Timeout" ? "purple-circle.svg"
 						: cell_value.failure_mode["tag"] == "FailedStep" && cell_value.failure_mode["step_failure"]["tag"] == "NoMatch" ? "blue-square.svg"
@@ -779,7 +781,7 @@ function define_builds_completeness_column() {
 		title: "Build completeness",
 		field: "required_commit_job_counts",
 		headerVertical: true,
-		width: 75,
+		width: 90,
 		formatter: function(cell, formatterParams, onRendered) {
 
 			const mydict = cell.getValue();
@@ -808,7 +810,7 @@ function define_builds_completeness_column() {
 				return final_lines.join("\n");
 			}
 		},
-		resizable: false,
+		resizable: true,
 		headerSort: false,
 	};
 }

@@ -4953,14 +4953,15 @@ CREATE VIEW public.unscanned_patterns WITH (security_barrier='false') AS
     builds_join_steps.universal_build,
     builds_join_steps.vcs_revision,
     builds_join_steps.job_name,
-    bar.unscanned_patterns_delimited,
+    array_to_string(bar.unscanned_patterns_array, ';'::text) AS unscanned_patterns_delimited,
     bar.unscanned_pattern_count,
     builds_join_steps.build_num,
     builds_join_steps.provider,
     builds_join_steps.succeeded,
-    builds_join_steps.build_namespace
+    builds_join_steps.build_namespace,
+    bar.unscanned_patterns_array
    FROM (public.builds_join_steps
-     JOIN ( SELECT string_agg((patterns.id)::text, ';'::text) AS unscanned_patterns_delimited,
+     JOIN ( SELECT array_agg(patterns.id) AS unscanned_patterns_array,
             count(patterns.id) AS unscanned_pattern_count,
             foo.step_id
            FROM (( SELECT latest_pattern_scanned_for_build_step.step_id,
@@ -5614,7 +5615,7 @@ ALTER TABLE ONLY public.scan_timeout_incidents
 --
 
 ALTER TABLE ONLY public.scanned_patterns
-    ADD CONSTRAINT scanned_patterns_pkey PRIMARY KEY (scan, newest_pattern, step_id);
+    ADD CONSTRAINT scanned_patterns_pkey PRIMARY KEY (scan, step_id);
 
 
 --
