@@ -10,6 +10,7 @@ import           Control.Monad.Trans.Except (ExceptT (ExceptT), except,
 import           Control.Monad.Trans.Reader (ask, runReaderT)
 import           Data.Aeson
 import           Data.Either.Utils          (maybeToEither)
+import           Data.Set                   (Set)
 import qualified Data.Set                   as Set
 import           Data.Text                  (Text)
 import qualified Data.Text                  as T
@@ -82,7 +83,7 @@ instance ToJSON BuildInfoRetrievalBenchmarks where
 data UpstreamBreakagesInfo = UpstreamBreakagesInfo {
     merge_base :: Builds.RawCommit
   , manually_annotated_breakages :: [DbHelpers.WithId SqlRead.CodeBreakage]
-  , inferred_upstream_caused_broken_jobs :: [Text]
+  , inferred_upstream_caused_broken_jobs :: Set Text
   }
 
 
@@ -349,5 +350,6 @@ findKnownBuildBreakages conn access_token owned_repo sha1 =
     -- SqlWrite.findMasterAncestor does this for us.
     return $ UpstreamBreakagesInfo
       nearest_ancestor
-      manually_annotated_breakages
-      (map SqlRead.extractJobName inferred_upstream_caused_broken_jobs)
+      manually_annotated_breakages $
+        Set.fromList $
+          map SqlRead.extractJobName inferred_upstream_caused_broken_jobs

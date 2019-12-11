@@ -4,6 +4,7 @@ module CommentRender where
 
 import           Data.List.NonEmpty (NonEmpty ((:|)))
 import qualified Data.List.NonEmpty as NE
+import qualified Data.Set           as Set
 import           Data.Text          (Text)
 import qualified Data.Text          as T
 import qualified Data.Text.Lazy     as LT
@@ -65,16 +66,25 @@ genUnmatchedBuildsTable unmatched_builds =
 
 genBuildFailuresTable ::
      StatusUpdateTypes.CommitPageInfo
+  -> StatusUpdateTypes.BuildSummaryStats
   -> [Text]
-genBuildFailuresTable (StatusUpdateTypes.CommitPageInfo revision_builds unmatched_builds) =
+genBuildFailuresTable
+    (StatusUpdateTypes.CommitPageInfo revision_builds unmatched_builds)
+    (StatusUpdateTypes.NewBuildSummaryStats _ pre_broken_info _) =
+
   pattern_matched_section <> pattern_unmatched_section
   where
+
+    pre_broken_set = SqlUpdate.inferred_upstream_caused_broken_jobs pre_broken_info
+
     pattern_matched_header = M.heading 3 $ M.colonize [
         MyUtils.pluralize (length revision_builds) "failure"
       , "recognized by patterns"
       ]
 
-    matched_builds_details_block = concat $ zipWith gen_matched_build_section [1..] revision_builds
+    matched_builds_details_block = concat $
+      zipWith gen_matched_build_section [1..] revision_builds
+
     pattern_matched_section = if null revision_builds
       then mempty
       else pure pattern_matched_header
@@ -97,13 +107,27 @@ genBuildFailuresTable (StatusUpdateTypes.CommitPageInfo revision_builds unmatche
           , Builds.job_name build_obj
           , M.parens $ T.pack $ MyUtils.renderFrac idx $ length revision_builds
           ]
-      , T.unwords [
-          M.bold "Step:"
-        , MatchOccurrences._build_step match_obj
-        , M.parens $ M.link "details" $ LT.toStrict webserverBaseUrl <> "/build-details.html?build_id=" <> T.pack (show ubuild_id)
-        ]
+      , T.unwords summary_info_pieces
       ] <> code_block_lines
       where
+        job_name = Builds.job_name build_obj
+
+        merge_base_commit = SqlUpdate.merge_base pre_broken_info
+        upstream_brokenness_text = T.unwords [
+            "&#128721;"
+          , M.link "Broken upstream" $ genGridViewSha1Link 1 merge_base_commit $ Just job_name
+          ]
+        upstream_brokenness_indicator = if Set.member job_name pre_broken_set
+          then [upstream_brokenness_text]
+          else []
+
+        summary_info_pieces = [
+            M.bold "Step:"
+          , MatchOccurrences._build_step match_obj
+          , M.parens $ M.link "details" $ LT.toStrict webserverBaseUrl <> "/build-details.html?build_id=" <> T.pack (show ubuild_id)
+          ] <> upstream_brokenness_indicator
+
+
         code_block_lines = NE.toList $ M.codeBlockFromList $
 --        pure $ MatchOccurrences._line_text match_obj
           map (LT.toStrict . snd) log_lines
@@ -129,15 +153,15 @@ generateCommentMarkdown
     (Builds.RawCommit sha1_text) =
   M.paragraphs $ preliminary_lines_list ++ optional_suffix
   where
-    build_failures_table_lines = genBuildFailuresTable commit_page_info
+    build_failures_table_lines = genBuildFailuresTable commit_page_info build_summary_stats
 
     detailed_build_issues_section = if null build_failures_table_lines
       then []
       else [
-          M.heading 2 "Detailed failure analysis (WIP)"
+          M.heading 2 "Detailed failure analysis"
         , M.colonize [
             "Here are the"
-          , M.link "reasons each build failed" dr_ci_commit_details_link
+          , M.link "probable reasons each build failed" dr_ci_commit_details_link
           ]
         , T.unlines build_failures_table_lines
         ]
@@ -201,7 +225,8 @@ genMetricsTreeVerbose
 
     (GadgitFetch.AncestryPropositionResponse (GadgitFetch.RefAncestryProposition _supposed_ancestor _supposed_descendant) ancestry_result) = ancestry_response
 
-    Builds.RawCommit merge_base_sha1_text = SqlUpdate.merge_base pre_broken_info
+    merge_base_commit = SqlUpdate.merge_base pre_broken_info
+    Builds.RawCommit merge_base_sha1_text = merge_base_commit
 
     definite_older_commit_advice = pure $ M.colonize [
         M.commaize [
@@ -260,22 +285,14 @@ genMetricsTreeVerbose
 
     upstream_breakage_bullet_children = [rebase_advice_section]
 
-    pre_broken_list = SqlUpdate.inferred_upstream_caused_broken_jobs pre_broken_info
-    upstream_broken_count = length pre_broken_list
+    pre_broken_set = SqlUpdate.inferred_upstream_caused_broken_jobs pre_broken_info
+    upstream_broken_count = length pre_broken_set
     total_failcount = length all_failures
     broken_in_pr_count = total_failcount - upstream_broken_count
 
-    bold_fraction a b = M.bold $ T.pack $ show a <> "/" <> show b
+    bold_fraction a b = M.bold $ T.pack $ MyUtils.renderFrac a b
 
-    grid_view_query_parms = [
-        ("count", "10")
-      , ("sha1", T.unpack merge_base_sha1_text)
-      , ("should_suppress_scheduled_builds", "true")
-      , ("should_suppress_fully_successful_columns", "true")
-      , ("max_columns_suppress_successful", "35")
-      ]
-
-    grid_view_url = T.pack $ "https://dr.pytorch.org/master-timeline.html?" <> MyUtils.genUrlQueryString grid_view_query_parms
+    grid_view_url = genGridViewSha1Link 1 merge_base_commit Nothing
 
     upstream_breakage_bullet_tree = Tr.Node (
        pure $ T.unwords [
@@ -289,7 +306,7 @@ genMetricsTreeVerbose
          ]
        ) upstream_breakage_bullet_children
 
-    optional_kb_metric = if null pre_broken_list
+    optional_kb_metric = if null pre_broken_set
       then []
       else [upstream_breakage_bullet_tree]
 
@@ -309,3 +326,29 @@ genMetricsTreeVerbose
           ]) [pure $ pure "Re-run these jobs?"]
         ]
       else []
+
+
+genGridViewSha1Link ::
+     Int -- ^ row count
+  -> Builds.RawCommit
+  -> Maybe Text -- ^ job highlight
+  -> Text
+genGridViewSha1Link
+    row_count
+    (Builds.RawCommit merge_base_sha1_text)
+    maybe_job_highlight =
+
+  T.pack $ "https://dr.pytorch.org/master-timeline.html?" <> MyUtils.genUrlQueryString grid_view_query_parms
+  where
+
+    highlight_parm = case maybe_job_highlight of
+      Nothing               -> []
+      Just higlight_jobname -> [("highlight_job", T.unpack higlight_jobname)]
+
+    grid_view_query_parms = [
+        ("count", show row_count)
+      , ("sha1", T.unpack merge_base_sha1_text)
+      , ("should_suppress_scheduled_builds", "true")
+      , ("should_suppress_fully_successful_columns", "true")
+      , ("max_columns_suppress_successful", "35")
+      ] <> highlight_parm
