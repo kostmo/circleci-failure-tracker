@@ -171,8 +171,14 @@ storeUniversalBuilds conn commit statuses_by_ci_providers = do
       case maybe_universal_build of
         Nothing -> return Nothing
         Just (sub_build, uni_build) -> do
-          stored_uni_build <- SqlWrite.insertSingleUniversalBuild conn $ Builds.UniBuildWithJob uni_build $ Builds.job_name sub_build
-          return $ Just (Builds.StorableBuild stored_uni_build sub_build, (status_event, DbHelpers.record provider_with_id))
+
+          stored_uni_build <- SqlWrite.insertSingleUniversalBuild conn $
+            Builds.UniBuildWithJob uni_build $ Builds.job_name sub_build
+
+          return $ Just (
+              Builds.StorableBuild stored_uni_build sub_build
+            , (status_event, DbHelpers.record provider_with_id)
+            )
 
     return $ Maybe.catMaybes result_maybe_list
 
@@ -235,12 +241,15 @@ getBuildsFromGithub
 
   statuses_by_ci_providers <- liftIO $ SqlWrite.getAndStoreCIProviders conn statuses_by_hostname
 
+  liftIO $ D.debugList ["HERE 1A"]
 
   -- Only store succeeded or failed builds; ignore pending or aborted
   stored_build_tuples <- liftIO $ storeUniversalBuilds
     conn
     sha1
     statuses_by_ci_providers
+
+  liftIO $ D.debugList ["HERE 1B"]
 
   let circleci_builds_and_statuses = filter ((== circleciDomain) . snd . snd) stored_build_tuples
 

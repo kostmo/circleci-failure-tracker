@@ -522,49 +522,7 @@ storeCircleCiBuildsList
     maybe_eb_worker_event_id
     builds_list_with_possible_duplicates = do
 
-  -- | Each row contains a singleton "provider number surrogate id"
-  provider_build_insertion_output_rows <- returning
-    conn
-    sqlInsertProviderBuild
-    (map input_columns_provider_surrogate universal_builds)
-
-  let zipped_output0 = zipWith
-        (\(Only row_id) ubuild -> SurrogateProviderIdUniversalPair row_id ubuild)
-        provider_build_insertion_output_rows
-        universal_builds
-
-  -- Determine which provider builds do not yet have associated
-  -- universal builds:
-  uninserted_provider_proxy_ids <- returning
-    conn
-    sqlCheckProviderProxyUniversalBuildAssociations
-    (map (Only . surrogate_provider_build_id) zipped_output0)
-
-
-  let preservation_proxy_id_set = Set.fromList $ map (\(Only x) -> x) uninserted_provider_proxy_ids
-      filtered_insertion_records = filter (\(SurrogateProviderIdUniversalPair x _) -> Set.member x preservation_proxy_id_set) zipped_output0
-
-  {-
-  D.debugList [
-      "Will be inserting these:"
-    , show filtered_insertion_records
-    ]
-  -}
-
-  universal_build_insertion_output_rows <- returning
-    conn
-    sqlInsertUniversalBuild
-    (map input_f filtered_insertion_records)
-
-  let zipped_output1 = zipWith
-        (\(Only row_id) ubuild -> DbHelpers.WithId row_id ubuild)
-        universal_build_insertion_output_rows
-        universal_builds
-
-      zipped_output2 = zipWith
-        (\(DbHelpers.WithId ubuild_id _ubuild) rbuild -> DbHelpers.WithTypedId (Builds.UniversalBuildId ubuild_id) rbuild)
-        zipped_output1
-        (map fst deduped_builds_list)
+  zipped_output2 <- storeHelper conn deduped_builds_list
 
   let store_scan_record = storeScanRecord
         SqlRead.circleCIProviderIndex
@@ -579,7 +537,77 @@ storeCircleCiBuildsList
   where
     deduped_builds_list = nubSort builds_list_with_possible_duplicates
 
-    input_columns_provider_surrogate (Builds.UniBuildWithJob (Builds.UniversalBuild (Builds.NewBuildNumber provider_build_num) provider_id build_namespace _ _) _) = (provider_id, build_namespace, provider_build_num)
+
+storeHelper ::
+     Connection
+  -> [(Builds.Build, Bool)]
+  -> IO [DbHelpers.WithTypedId Builds.UniversalBuildId Builds.Build]
+storeHelper conn deduped_builds_list = do
+
+  -- First, insert/deduplicate provider build numbers.
+  -- The output list should be the same length as the
+  -- input list, since the input list is *already supposed
+  -- to be deduped*.
+  --
+  -- Each returned row contains a singleton
+  -- "provider number surrogate id" generated (or retrieved)
+  -- by the database.
+  provider_build_insertion_output_rows <- returning
+    conn
+    sqlInsertProviderBuild
+    (map (input_columns_provider_surrogate . snd) paired_builds)
+
+  -- Pair the input builds with the newly assigned
+  -- "provider number" surrogate indices
+  --
+  -- XXX Do not separate this from the DB insertion above!
+  let zipped_output0 = zipWith
+        (\(Only row_id) (rbuild, ubuild) -> (rbuild, (SurrogateProviderIdUniversalPair row_id ubuild)))
+        provider_build_insertion_output_rows
+        paired_builds
+
+
+  -- Determine which provider builds do not yet have associated
+  -- universal builds:
+  uninserted_provider_proxy_ids <- returning
+    conn
+    sqlCheckProviderProxyUniversalBuildAssociations
+    (map (Only . surrogate_provider_build_id . snd) zipped_output0)
+
+
+  -- reduce the set of input builds to those that
+  -- have not yet been inserted
+  let preservation_proxy_id_set = Set.fromList $
+        map (\(Only x) -> x) uninserted_provider_proxy_ids
+
+      filtered_insertion_records = filter (\(_, SurrogateProviderIdUniversalPair x _) -> Set.member x preservation_proxy_id_set) zipped_output0
+
+  {-
+  D.debugList [
+      "Will be inserting these:"
+    , show filtered_insertion_records
+    ]
+  -}
+
+  universal_build_insertion_output_rows <- returning
+    conn
+    sqlInsertUniversalBuild $
+      map (input_f . snd) filtered_insertion_records
+
+  -- XXX Do not separate this from the DB insertion above!
+  let zipped_output1 = zipWith
+        (\(Only row_id) (rbuild, ubuild) -> (rbuild, DbHelpers.WithId row_id ubuild))
+        universal_build_insertion_output_rows
+        filtered_insertion_records
+
+  let zipped_output2 = map
+        (\(rbuild, DbHelpers.WithId ubuild_id _ubuild) -> DbHelpers.WithTypedId (Builds.UniversalBuildId ubuild_id) rbuild)
+        zipped_output1
+
+  return zipped_output2
+
+  where
+    paired_builds = map (\tup -> (fst tup, mk_ubuild tup)) deduped_builds_list
 
     mk_ubuild (b, succeeded) = Builds.UniBuildWithJob u j
       where
@@ -591,7 +619,7 @@ storeCircleCiBuildsList
           succeeded
           (Builds.vcs_revision b)
 
-    universal_builds = map mk_ubuild deduped_builds_list
+    input_columns_provider_surrogate (Builds.UniBuildWithJob (Builds.UniversalBuild (Builds.NewBuildNumber provider_build_num) provider_id build_namespace _ _) _) = (provider_id, build_namespace, provider_build_num)
 
     input_f (SurrogateProviderIdUniversalPair surrogate_provider_build_id (Builds.UniBuildWithJob (Builds.UniversalBuild _ provider_id build_namespace succeeded (Builds.RawCommit sha1)) job_name)) = (
         provider_id

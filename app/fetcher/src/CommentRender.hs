@@ -236,8 +236,8 @@ genMetricsTreeVerbose
       ]
 
     maybe_newer_rebase_advice_children = [
-        possible_older_commit_advice <> older_commit_codeblock
-      , newer_commit_advice <> newer_commit_codeblock
+        newer_commit_advice <> newer_commit_codeblock
+      , possible_older_commit_advice <> older_commit_codeblock
       ]
 
     rebase_advice_children = case ancestry_result of

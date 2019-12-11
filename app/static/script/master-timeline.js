@@ -687,13 +687,6 @@ function define_commit_message_column() {
 		formatter: function(cell, formatterParams, onRendered) {
 
 			const row_data = cell.getRow().getData();
-
-			if (!row_data["populated_config_yaml"] && row_data["was_built"]) {
-				cell.getElement().style.backgroundImage = "url('/images/corner-triangle-red.svg')";
-				cell.getElement().style.backgroundRepeat = "no-repeat";
-				cell.getElement().style.backgroundSize = "10px";
-			}
-
 			const commit_metadata = row_data["commit_metadata"];
 
 			if (commit_metadata) {
@@ -784,6 +777,13 @@ function define_builds_completeness_column() {
 		width: 90,
 		formatter: function(cell, formatterParams, onRendered) {
 
+			const row_data = cell.getRow().getData();
+			if (!row_data["populated_config_yaml"] && row_data["was_built"]) {
+				cell.getElement().style.backgroundImage = "url('/images/corner-triangle-red.svg')";
+				cell.getElement().style.backgroundRepeat = "no-repeat";
+				cell.getElement().style.backgroundSize = "10px";
+			}
+
 			const mydict = cell.getValue();
 			if (mydict) {
 				const succeeded_count = mydict["total"] - mydict["not_succeeded"]
@@ -808,6 +808,11 @@ function define_builds_completeness_column() {
 
 				const final_lines = lines.concat(["", "Disqualifying jobs:"], mydict["disqualifying_jobs"].map(x => "  " + x));
 				return final_lines.join("\n");
+			} else {
+				const row_data = cell.getRow().getData();
+				if (!row_data["populated_config_yaml"] && row_data["was_built"]) {
+					return "config.yml data not yet populated for this commit"
+				}
 			}
 		},
 		resizable: true,
