@@ -101,6 +101,10 @@ codeBlock :: NonEmpty Text -> NonEmpty Text
 codeBlock code_lines = pure "```" <> code_lines <> pure "```"
 
 
+codeBlockFromList :: [Text] -> NonEmpty Text
+codeBlockFromList code_lines = "```" :| code_lines ++ ["```"]
+
+
 -- | Terminates words with some punctuation
 terminate :: Text -> [Text] -> Text
 terminate terminator = (<> terminator) . T.unwords

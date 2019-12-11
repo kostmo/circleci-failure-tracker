@@ -91,7 +91,7 @@ genBuildFailuresTable (StatusUpdateTypes.CommitPageInfo revision_builds unmatche
       else pure pattern_unmatched_header
         <> NE.toList (genUnmatchedBuildsTable unmatched_builds)
 
-    gen_matched_build_section idx (CommitBuilds.NewCommitBuild (Builds.StorableBuild (DbHelpers.WithId ubuild_id universal_build) build_obj) match_obj _ _) = [
+    gen_matched_build_section idx (CommitBuilds.BuildWithLogContext (CommitBuilds.NewCommitBuild (Builds.StorableBuild (DbHelpers.WithId ubuild_id universal_build) build_obj) match_obj _ _) (CommitBuilds.LogContext _ log_lines)) = [
         M.heading 4 $ T.unwords [
             circleci_image_link
           , Builds.job_name build_obj
@@ -104,7 +104,9 @@ genBuildFailuresTable (StatusUpdateTypes.CommitPageInfo revision_builds unmatche
         ]
       ] <> code_block_lines
       where
-        code_block_lines = NE.toList $ M.codeBlock $ pure $ MatchOccurrences._line_text match_obj
+        code_block_lines = NE.toList $ M.codeBlockFromList $
+--        pure $ MatchOccurrences._line_text match_obj
+          map (LT.toStrict . snd) log_lines
 
         (Builds.NewBuildNumber provider_build_number) = Builds.provider_buildnum universal_build
         circleci_icon = M.image "See CircleCI build" circleCISmallAvatarUrl

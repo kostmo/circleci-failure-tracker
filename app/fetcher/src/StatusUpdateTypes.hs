@@ -8,7 +8,7 @@ import qualified WebApi
 
 
 data CommitPageInfo = CommitPageInfo {
-    _revision_builds  :: [CommitBuilds.CommitBuild]
+    _revision_builds  :: [CommitBuilds.BuildWithLogContext]
   , _unmatched_builds :: [WebApi.UnmatchedBuild]
   }
 

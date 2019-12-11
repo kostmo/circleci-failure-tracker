@@ -57,6 +57,10 @@ import qualified WebApi
 import qualified WeeklyStats
 
 
+hiddenContextLinecount :: Int
+hiddenContextLinecount = 1000
+
+
 circleCIProviderIndex :: Int64
 circleCIProviderIndex = 3
 
@@ -3824,26 +3828,18 @@ getBestBuildMatch ubuild_id@(Builds.UniversalBuildId build_id) = do
     sql = genBestBuildMatchQuery fields_to_fetch sql_where_conditions
 
 
-data LogContext = LogContext {
-    _match_info :: ScanPatterns.MatchDetails
-  , _log_lines  :: [(Int, LT.Text)]
-  } deriving Generic
-
-instance ToJSON LogContext where
-  toJSON = genericToJSON JsonUtils.dropUnderscore
-
-
-hiddenContextLinecount :: Int
-hiddenContextLinecount = 1000
-
-
 -- | TODO: Could shave off a bit more time
 -- by doing the line count arithmetic in Postgres
 logContextFunc ::
-     MatchOccurrences.MatchId
+     Int -- ^ Hidden context linecount
+  -> MatchOccurrences.MatchId
   -> Int
-  -> DbIO (Either Text LogContext)
-logContextFunc mid@(MatchOccurrences.MatchId match_id) context_linecount = do
+  -> DbIO (Either Text CommitBuilds.LogContext)
+logContextFunc
+    hidden_context_linecount
+    mid@(MatchOccurrences.MatchId match_id)
+    context_linecount = do
+
   conn <- ask
   liftIO $ do
     xs <- query conn sql $ Only match_id
@@ -3856,7 +3852,7 @@ logContextFunc mid@(MatchOccurrences.MatchId match_id) context_linecount = do
       let (line_number, span_start, span_end, line_text) = first_row
           match_info = ScanPatterns.NewMatchDetails line_text line_number $ DbHelpers.StartEnd span_start span_end
 
-          first_context_line = max 0 $ line_number - context_linecount - hiddenContextLinecount
+          first_context_line = max 0 $ line_number - context_linecount - hidden_context_linecount
 
           last_context_line = line_number + context_linecount + 1
           retrieval_line_count = last_context_line - first_context_line
@@ -3867,7 +3863,7 @@ logContextFunc mid@(MatchOccurrences.MatchId match_id) context_linecount = do
 
       let tuples = zip [first_context_line..] log_lines
 
-      return $ LogContext
+      return $ CommitBuilds.LogContext
         match_info
         tuples
 

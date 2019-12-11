@@ -44,12 +44,14 @@ import qualified AuthConfig
 import qualified AuthStages
 import qualified Builds
 import qualified CommentRender
+import qualified CommitBuilds
 import qualified Constants
 import qualified DbHelpers
 import qualified DebugUtils                    as D
 import qualified GadgitFetch
 import qualified GithubApiFetch
 import qualified GitRev
+import qualified MatchOccurrences
 import qualified MyUtils
 import qualified PushWebhooks
 import qualified Scanning
@@ -152,6 +154,8 @@ getCircleciFailure sha1 event_setter = do
 
 -- | TODO return Left for each universal build that
 -- violated its uniqueness constraint
+--
+-- TODO Replace the inside logic with SqlWite.storeHelper
 storeUniversalBuilds ::
      Connection
   -> Builds.RawCommit
@@ -161,6 +165,27 @@ storeUniversalBuilds conn commit statuses_by_ci_providers = do
 
   result_lists <- for statuses_by_ci_providers $ \(statuses, provider_with_id) -> do
 
+    {-
+    -- XXX This does not work, because the return value of this function
+    -- requires *all* the builds for this commit, not just the ones
+    -- that were stored to the DB in this invoation.
+
+    let f status_event = sequenceA (status_event, extractUniversalBuild
+            commit
+            provider_with_id
+            status_event)
+
+    let build_pairs = Maybe.mapMaybe f statuses
+        prepped_input = map (\(status_event, (sub_build, uni_build)) -> (status_event, (sub_build, Builds.succeeded uni_build))) build_pairs
+
+
+    output <- SqlWrite.storeHelper conn prepped_input
+
+    let prepped_output = map (\(status_event, storable_build) -> (storable_build, (status_event, DbHelpers.record provider_with_id))) output
+
+    return prepped_output
+
+    -}
     result_maybe_list <- for statuses $ \status_event -> do
 
       let maybe_universal_build = extractUniversalBuild
@@ -339,13 +364,18 @@ fetchCommitPageInfo sha1 validated_sha1 = runExceptT $ do
   liftIO $ D.debugStr "Fetching revision builds"
   DbHelpers.BenchmarkedResponse _ revision_builds <- ExceptT $ SqlRead.getRevisionBuilds validated_sha1
 
+  matched_builds_with_log_context <- for revision_builds $ \x -> do
+    ExceptT $ (fmap . fmap) (CommitBuilds.BuildWithLogContext x) $ SqlRead.logContextFunc 0 (MatchOccurrences._match_id $ CommitBuilds._match x) 5
+
   liftIO $ D.debugStr "Fetching unmatched commit builds..."
 
   unmatched_builds <- ExceptT $ SqlRead.apiUnmatchedCommitBuilds sha1
 
   liftIO $ D.debugStr "Finishing fetchCommitPageInfo."
 
-  return $ StatusUpdateTypes.CommitPageInfo revision_builds unmatched_builds
+  return $ StatusUpdateTypes.CommitPageInfo
+    matched_builds_with_log_context
+    unmatched_builds
 
 
 postCommitSummaryStatus ::

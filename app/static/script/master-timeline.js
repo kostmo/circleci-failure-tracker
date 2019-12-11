@@ -784,8 +784,17 @@ function define_builds_completeness_column() {
 				cell.getElement().style.backgroundSize = "10px";
 			}
 
+
 			const mydict = cell.getValue();
 			if (mydict) {
+
+				if (mydict["failed"] > 0) {
+					cell.getElement().style.backgroundColor = "#f002";
+				} else if (mydict["not_succeeded"] == 0) {
+					cell.getElement().style.backgroundColor = "#0f02";
+				}
+
+
 				const succeeded_count = mydict["total"] - mydict["not_succeeded"]
 				return succeeded_count + "/" + mydict["total"] + "; " + mydict["failed"] + "F";
 			}

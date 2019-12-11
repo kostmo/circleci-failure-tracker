@@ -4,6 +4,7 @@
 module CommitBuilds where
 
 import           Data.Aeson
+import qualified Data.Text.Lazy                     as LT
 import           Database.PostgreSQL.Simple         (FromRow)
 import           Database.PostgreSQL.Simple.FromRow (field, fromRow)
 import           GHC.Generics
@@ -21,6 +22,22 @@ data FailureModeInfo = FailureModeInfo {
 
 instance ToJSON FailureModeInfo where
   toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+
+data LogContext = LogContext {
+    _match_info :: ScanPatterns.MatchDetails
+  , _log_lines  :: [(Int, LT.Text)]
+  } deriving Generic
+
+instance ToJSON LogContext where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+data BuildWithLogContext = BuildWithLogContext {
+    commit_build :: CommitBuild
+  , log_context  :: LogContext
+  }
 
 
 data CommitBuild = NewCommitBuild {

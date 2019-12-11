@@ -458,7 +458,7 @@ scottyApp
     withAuth $ pure SqlWrite.deleteStaleSha1QueueEntries
 
   get "/api/view-log-context" $ (fmap . fmap) WebApi.toJsonEither $
-    SqlRead.logContextFunc
+    SqlRead.logContextFunc SqlRead.hiddenContextLinecount
       <$> (MatchOccurrences.MatchId <$> S.param "match_id")
       <*> S.param "context_linecount"
 
