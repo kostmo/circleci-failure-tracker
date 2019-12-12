@@ -161,12 +161,15 @@ genBuildFailuresTable
 
     gen_matched_build_section idx (CommitBuilds.BuildWithLogContext (CommitBuilds.NewCommitBuild (Builds.StorableBuild (DbHelpers.WithId ubuild_id universal_build) build_obj) match_obj _ _) (CommitBuilds.LogContext _ log_lines)) = [
         M.heading 4 $ T.unwords [
-            circleci_image_link
+            "<details>"
+          , "<summary>"
+          , circleci_image_link
           , Builds.job_name build_obj
           , M.parens $ T.pack $ MyUtils.renderFrac idx $ length non_upstream_breakages
+          , "</summary>"
           ]
       , T.unwords summary_info_pieces
-      ] <> code_block_lines
+      ] <> code_block_lines <> ["</details>"]
       where
 --        job_name = Builds.job_name build_obj
 
