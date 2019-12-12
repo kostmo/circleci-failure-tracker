@@ -462,7 +462,7 @@ fetchAndCachePrAuthor conn access_token pr_number = do
 
 
 postCommitSummaryStatusInner ::
-     [Text]
+     [Text] -- ^ circleci failed job list
   -> SqlUpdate.UpstreamBreakagesInfo
   -> StatusUpdateTypes.CommitPageInfo
   -> Connection

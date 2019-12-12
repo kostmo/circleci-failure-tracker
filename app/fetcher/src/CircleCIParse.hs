@@ -32,10 +32,23 @@ ansiRegex :: Text.Regex.Posix.Wrap.Regex
 ansiRegex = mkRegex "\x1b\\[([0-9;]*m|K)"
 
 
+-- | Strips cursor movement codes
+-- See http://ascii-table.com/ansi-escape-sequences-vt-100.php
+-- TODO: Will this regex handle *all* control codes?
+-- https://stackoverflow.com/a/33925550/105137
+ansiRegexCursorMovement :: Text.Regex.Posix.Wrap.Regex
+ansiRegexCursorMovement = mkRegex "\x1b\\[([0-9]+[AB]|[0-2]K)"
+
+
 -- | TODO: Consider using attoparsec instead of regex:
 -- https://pl-rants.net/posts/regexes-and-combinators/
 filterAnsi :: String -> String
 filterAnsi line = subRegex ansiRegex line ""
+
+
+-- | TODO Apply this filter upon ingest!
+filterAnsiCursorMovement :: String -> String
+filterAnsiCursorMovement line = subRegex ansiRegexCursorMovement line ""
 
 
 -- | Take elements of the list until a size threshold is

@@ -3863,9 +3863,19 @@ logContextFunc
           last_context_line = line_number + context_linecount + 1
           retrieval_line_count = last_context_line - first_context_line
 
-      log_lines <- liftIO $ runReaderT
-        (SqlRead.readLogSubset mid first_context_line retrieval_line_count)
-        conn
+      log_lines <- liftIO $ do
+
+        D.debugList [
+            "reading console log subset starting at line"
+          , show first_context_line
+          , "spanning"
+          , show retrieval_line_count
+          , "lines."
+          ]
+
+        runReaderT
+          (SqlRead.readLogSubset mid first_context_line retrieval_line_count)
+          conn
 
       let tuples = zip [first_context_line..] log_lines
 

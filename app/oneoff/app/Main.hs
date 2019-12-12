@@ -5,11 +5,13 @@ import           Control.Monad.Trans.Reader (runReaderT)
 import           Data.Either                (fromRight)
 import           Data.Text                  (Text)
 import qualified Data.Text                  as T
+import qualified Data.Text.Lazy             as LT
 import qualified Network.OAuth.OAuth2       as OAuth2
 import           Options.Applicative
 import           System.IO
 
 import qualified Builds
+import qualified CommentRender
 import qualified Constants
 import qualified DbHelpers
 import qualified DbPreparation
@@ -21,6 +23,7 @@ import qualified SqlRead
 import qualified SqlUpdate
 import qualified SqlWrite
 import qualified StatusUpdate
+import qualified StatusUpdateTypes
 
 
 data CommandLineArgs = NewCommandLineArgs {
@@ -55,21 +58,36 @@ mainAppCode args = do
   conn <- DbPreparation.prepareDatabase connection_data False
 
 
-  {-
-  let commit_sha1_text = "1c6d7505adf51db267a0b27724028fb0c73ecbdd"
+
+  let commit_sha1_text = "6258c79855fa97525a631961d435e416cfac27cc"
       raw_commit = Builds.RawCommit commit_sha1_text
       validated_sha1 = fromRight (error "BAD") $ GitRev.validateSha1 commit_sha1_text
 
   blah <- runReaderT (SqlRead.getRevisionBuilds validated_sha1) conn
   let DbHelpers.BenchmarkedResponse _ revision_builds = fromRight (error "BAD2") blah
 
-  commit_page_info <- liftIO $
-    runReaderT (StatusUpdate.fetchCommitPageInfo raw_commit validated_sha1) conn
+  blah2 <- SqlUpdate.findKnownBuildBreakages
+      conn
+      oauth_access_token
+      owned_repo
+      raw_commit
 
-  putStrLn $ T.unpack $ T.unlines $ StatusUpdate.genBuildFailuresTable $
-    fromRight (error "BAD3") commit_page_info
+  let upstream_breakages_info = fromRight (error "BAD3") blah2
 
-  -}
+  blah3 <- liftIO $
+    runReaderT (StatusUpdate.fetchCommitPageInfo upstream_breakages_info raw_commit validated_sha1) conn
+
+  let build_summary_stats = StatusUpdateTypes.NewBuildSummaryStats
+        1
+        upstream_breakages_info
+        []
+
+  let commit_page_info = fromRight (error "BAD4") blah3
+  putStrLn $ T.unpack $ T.unlines $
+    CommentRender.genBuildFailuresTable commit_page_info build_summary_stats
+
+
+
 
   putStrLn "============================="
 

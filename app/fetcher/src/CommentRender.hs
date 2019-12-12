@@ -12,6 +12,7 @@ import qualified Data.Text.Lazy     as LT
 import qualified Data.Tree          as Tr
 
 import qualified Builds
+import qualified CircleCIParse
 import qualified CommitBuilds
 import qualified Constants
 import qualified DbHelpers
@@ -124,7 +125,6 @@ genBuildFailuresTable
         <> pure upstream_intro_text
         <> pure matched_upstream_builds_details_block
 
-
     pattern_unmatched_header = M.heading 3 $ M.colonize [
         MyUtils.pluralize (length unmatched_builds) "failure"
       , M.italic "not"
@@ -148,6 +148,8 @@ genBuildFailuresTable
         job_name = Builds.job_name build_obj
 
         merge_base_commit = SqlUpdate.merge_base pre_broken_info
+
+        -- TODO this indicator isn't actually used
         upstream_brokenness_text = T.unwords [
             "&#128721;"
           , M.link "Broken upstream" $ genGridViewSha1Link 1 merge_base_commit $ Just job_name
@@ -165,12 +167,34 @@ genBuildFailuresTable
 
         code_block_lines = NE.toList $ M.codeBlockFromList $
 --        pure $ MatchOccurrences._line_text match_obj
-          map (LT.toStrict . snd) log_lines
+          map renderLogLineTuple log_lines
+
 
         (Builds.NewBuildNumber provider_build_number) = Builds.provider_buildnum universal_build
         circleci_icon = M.image "See CircleCI build" circleCISmallAvatarUrl
         circleci_image_link = M.link circleci_icon $
           circleCIBuildUrlPrefix <> T.pack (show provider_build_number)
+
+
+--renderLogLineTuple tup = T.pack (show $ fst tup) <> ") " <> (sanitizeLongLine . LT.toStrict . snd) tup
+renderLogLineTuple = sanitizeLongLine . LT.toStrict . snd
+
+
+-- | Handles misbehaving carriage returns, as well as stripping some
+-- ANSI control codes that weren't filtered on ingest
+sanitizeLongLine :: Text -> Text
+sanitizeLongLine line_text =
+  T.drop final_character_count_to_drop recombined_chunks
+  where
+    absolute_character_count_to_preserve = 500
+    final_character_count_to_drop = max 0 $ T.length recombined_chunks - absolute_character_count_to_preserve
+
+    recombined_chunks = T.intercalate " " preserved_chunks
+    preserved_chunks = drop chunk_count_to_drop carriage_return_chunks
+
+    chunk_count_to_preserve = 5
+    chunk_count_to_drop = max 0 $ length carriage_return_chunks - chunk_count_to_preserve
+    carriage_return_chunks = T.split (== '\r') $ T.pack $ CircleCIParse.filterAnsiCursorMovement $ T.unpack line_text
 
 
 generateCommentMarkdown ::
@@ -290,8 +314,13 @@ genMetricsTreeVerbose
       ]
 
     newer_commit_codeblock = M.codeBlock $
-      ("git fetch " <> viableBranchName) :| ["git rebase --onto " <> viableBranchName <> " $(git merge-base origin/master HEAD)"]
-
+      ("git fetch " <> viableBranchName) :| [
+      T.unwords [
+          "git rebase --onto"
+        , viableBranchName
+        , "$(git merge-base origin/master HEAD)"
+        ]
+     ]
 
     definite_older_rebase_advice_children = [
         definite_older_commit_advice <> older_commit_codeblock
