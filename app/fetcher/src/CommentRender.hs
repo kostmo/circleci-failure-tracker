@@ -5,6 +5,7 @@ module CommentRender where
 import           Data.List          (partition)
 import           Data.List.NonEmpty (NonEmpty ((:|)))
 import qualified Data.List.NonEmpty as NE
+import           Data.Set           (Set)
 import qualified Data.Set           as Set
 import           Data.Text          (Text)
 import qualified Data.Text          as T
@@ -52,13 +53,24 @@ drCIPullRequestCommentsReadmeUrl :: Text
 drCIPullRequestCommentsReadmeUrl = "https://github.com/kostmo/circleci-failure-tracker/tree/master/docs/from-pull-request-comment"
 
 
+circleCIBuildUrlPrefix :: Text
 circleCIBuildUrlPrefix = "https://circleci.com/gh/pytorch/pytorch/"
 
 
-genUnmatchedBuildsTable unmatched_builds =
+genUnmatchedBuildsTable ::
+     Set Text
+  -> Builds.RawCommit
+  -> [WebApi.UnmatchedBuild]
+  -> NonEmpty Text
+genUnmatchedBuildsTable pre_broken_set merge_base_commit unmatched_builds =
   M.table header_columns data_rows
   where
-    header_columns = ["Job", "Step"]
+    header_columns = [
+        "Job"
+      , "Step"
+      , "Status"
+      ]
+
     data_rows = map gen_unmatched_build_row unmatched_builds
 
     gen_unmatched_build_row (WebApi.UnmatchedBuild _build step_name _ job_name _ _ _ _) = [
@@ -67,7 +79,17 @@ genUnmatchedBuildsTable unmatched_builds =
           , M.sup job_name
           ]
       , M.sup step_name
+      , upstream_brokenness_indicator
       ]
+      where
+        upstream_brokenness_text = T.unwords [
+            "&#128721;"
+          , M.link "Broken upstream" $ genGridViewSha1Link 1 merge_base_commit $ Just job_name
+          ]
+
+        upstream_brokenness_indicator = if Set.member job_name pre_broken_set
+          then upstream_brokenness_text
+          else "New in PR"
 
 
 get_job_name_from_build_with_log_context (CommitBuilds.BuildWithLogContext (CommitBuilds.NewCommitBuild (Builds.StorableBuild _ build_obj) _ _ _) _) = Builds.job_name build_obj
@@ -84,6 +106,7 @@ genBuildFailuresTable
   where
 
     pre_broken_set = SqlUpdate.inferred_upstream_caused_broken_jobs pre_broken_info
+    merge_base_commit = SqlUpdate.merge_base pre_broken_info
 
     (upstream_breakages, non_upstream_breakages) = partition (\x -> Set.member (get_job_name_from_build_with_log_context x) pre_broken_set) pattern_matched_builds
 
@@ -134,7 +157,7 @@ genBuildFailuresTable
     pattern_unmatched_section = if null unmatched_builds
       then mempty
       else pure pattern_unmatched_header
-        <> NE.toList (genUnmatchedBuildsTable unmatched_builds)
+        <> NE.toList (genUnmatchedBuildsTable pre_broken_set merge_base_commit unmatched_builds)
 
     gen_matched_build_section idx (CommitBuilds.BuildWithLogContext (CommitBuilds.NewCommitBuild (Builds.StorableBuild (DbHelpers.WithId ubuild_id universal_build) build_obj) match_obj _ _) (CommitBuilds.LogContext _ log_lines)) = [
         M.heading 4 $ T.unwords [
@@ -145,27 +168,17 @@ genBuildFailuresTable
       , T.unwords summary_info_pieces
       ] <> code_block_lines
       where
-        job_name = Builds.job_name build_obj
-
-        merge_base_commit = SqlUpdate.merge_base pre_broken_info
-
-        -- TODO this indicator isn't actually used
-        upstream_brokenness_text = T.unwords [
-            "&#128721;"
-          , M.link "Broken upstream" $ genGridViewSha1Link 1 merge_base_commit $ Just job_name
-          ]
-        upstream_brokenness_indicator = if Set.member job_name pre_broken_set
-          then [upstream_brokenness_text]
-          else []
+--        job_name = Builds.job_name build_obj
 
         summary_info_pieces = [
             M.bold "Step:"
           , M.quote $ MatchOccurrences._build_step match_obj
           , M.parens $ M.link "details" $ LT.toStrict webserverBaseUrl <> "/build-details.html?build_id=" <> T.pack (show ubuild_id)
-          ] <> upstream_brokenness_indicator
+          ]
 
 
         code_block_lines = NE.toList $ M.codeBlockFromList $
+          -- NOTE: this commented-out code just renders the single matched line
 --        pure $ MatchOccurrences._line_text match_obj
           map renderLogLineTuple log_lines
 
