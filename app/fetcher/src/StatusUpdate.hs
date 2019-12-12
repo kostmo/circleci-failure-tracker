@@ -69,8 +69,10 @@ viableBranchName = "viable/strict"
 
 
 -- | For auto-commenting feature
+{-
 whitelistedPRAuthors :: [Text]
 whitelistedPRAuthors = ["ezyang", "kostmo", "suo", "yf225", "ZolotukhinM", "zdevito", "albanD"]
+-}
 
 
 -- | 3 minutes
@@ -628,7 +630,8 @@ postCommitSummaryStatusInner
     pr_author <- fetchAndCachePrAuthor conn access_token pr_number
     let (AuthStages.Username pr_author_username) = pr_author
 
-    if pr_author_username `elem` whitelistedPRAuthors
+--    if pr_author_username `elem` whitelistedPRAuthors
+    if True
       then do
         can_post_comments <- ExceptT $ SqlRead.canPostPullRequestComments conn pr_author
         if can_post_comments
