@@ -355,17 +355,27 @@ scanAndPost
     scan_matches
 
 
+
+{-
+-- TODO not yet used
+data MatchedUnmatchedBuilds a b = MatchedUnmatchedBuilds {
+    matched_builds   :: a
+  , unmatched_builds :: b
+  }
+-}
+
 fetchCommitPageInfo ::
-     Builds.RawCommit
+     SqlUpdate.UpstreamBreakagesInfo
+  -> Builds.RawCommit
   -> GitRev.GitSha1
   -> SqlRead.DbIO (Either Text StatusUpdateTypes.CommitPageInfo)
-fetchCommitPageInfo sha1 validated_sha1 = runExceptT $ do
+fetchCommitPageInfo _pre_broken_info sha1 validated_sha1 = runExceptT $ do
 
   liftIO $ D.debugStr "Fetching revision builds"
   DbHelpers.BenchmarkedResponse _ revision_builds <- ExceptT $ SqlRead.getRevisionBuilds validated_sha1
 
   matched_builds_with_log_context <- for revision_builds $ \x -> do
-    ExceptT $ (fmap . fmap) (CommitBuilds.BuildWithLogContext x) $ SqlRead.logContextFunc 0 (MatchOccurrences._match_id $ CommitBuilds._match x) 5
+    ExceptT $ (fmap . fmap) (CommitBuilds.BuildWithLogContext x) $ SqlRead.logContextFunc 0 (MatchOccurrences._match_id $ CommitBuilds._match x) CommentRender.pullRequestCommentsLogContextLineCount
 
   liftIO $ D.debugStr "Fetching unmatched commit builds..."
 
@@ -413,7 +423,7 @@ postCommitSummaryStatus
   liftIO $ D.debugStr "Checkpoint D"
 
   commit_page_info <- ExceptT $ first LT.fromStrict <$>
-    runReaderT (fetchCommitPageInfo sha1 validated_sha1) conn
+    runReaderT (fetchCommitPageInfo upstream_breakages_info sha1 validated_sha1) conn
 
   liftIO $ D.debugStr "Checkpoint E"
 

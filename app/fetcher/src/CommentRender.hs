@@ -2,6 +2,7 @@
 
 module CommentRender where
 
+import           Data.List          (partition)
 import           Data.List.NonEmpty (NonEmpty ((:|)))
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Set           as Set
@@ -22,6 +23,10 @@ import qualified SqlRead
 import qualified SqlUpdate
 import qualified StatusUpdateTypes
 import qualified WebApi
+
+
+pullRequestCommentsLogContextLineCount :: Int
+pullRequestCommentsLogContextLineCount = 10
 
 
 viableBranchName = "viable/strict"
@@ -64,31 +69,61 @@ genUnmatchedBuildsTable unmatched_builds =
       ]
 
 
+get_job_name_from_build_with_log_context (CommitBuilds.BuildWithLogContext (CommitBuilds.NewCommitBuild (Builds.StorableBuild _ build_obj) _ _ _) _) = Builds.job_name build_obj
+
 genBuildFailuresTable ::
      StatusUpdateTypes.CommitPageInfo
   -> StatusUpdateTypes.BuildSummaryStats
   -> [Text]
 genBuildFailuresTable
-    (StatusUpdateTypes.CommitPageInfo revision_builds unmatched_builds)
+    (StatusUpdateTypes.CommitPageInfo pattern_matched_builds unmatched_builds)
     (StatusUpdateTypes.NewBuildSummaryStats _ pre_broken_info _) =
 
-  pattern_matched_section <> pattern_unmatched_section
+  nonupstream_pattern_matched_section <> upstream_matched_section <> pattern_unmatched_section
   where
 
     pre_broken_set = SqlUpdate.inferred_upstream_caused_broken_jobs pre_broken_info
 
-    pattern_matched_header = M.heading 3 $ M.colonize [
-        MyUtils.pluralize (length revision_builds) "failure"
+    (upstream_breakages, non_upstream_breakages) = partition (\x -> Set.member (get_job_name_from_build_with_log_context x) pre_broken_set) pattern_matched_builds
+
+    pattern_matched_header = M.heading 3 $ T.unwords [
+        MyUtils.pluralize (length non_upstream_breakages) "new failure"
       , "recognized by patterns"
       ]
 
     matched_builds_details_block = concat $
-      zipWith gen_matched_build_section [1..] revision_builds
+      zipWith gen_matched_build_section [1..] non_upstream_breakages
 
-    pattern_matched_section = if null revision_builds
+    non_upstream_intro_text = M.colonize [
+        "The following build failures don't appear to be due to upstream breakage"
+      ]
+
+    nonupstream_pattern_matched_section = if null non_upstream_breakages
       then mempty
       else pure pattern_matched_header
+        <> pure non_upstream_intro_text
         <> matched_builds_details_block
+
+    upstream_matched_header = M.heading 3 $ M.colonize [
+        MyUtils.pluralize (length upstream_breakages) "upstream failure"
+      , "recognized by patterns"
+      ]
+
+
+    render_upstream_matched_failure_item x@(CommitBuilds.BuildWithLogContext (CommitBuilds.NewCommitBuild (Builds.StorableBuild (DbHelpers.WithId ubuild_id _universal_build) _build_obj) _match_obj _ _) _) = pure $ pure $ M.link (get_job_name_from_build_with_log_context x) $ LT.toStrict webserverBaseUrl <> "/build-details.html?build_id=" <> T.pack (show ubuild_id)
+
+    matched_upstream_builds_details_block = M.bulletTree $ map render_upstream_matched_failure_item upstream_breakages
+
+    upstream_intro_text = M.colonize [
+        "These builds matched patterns, but were probably caused by upstream breakages"
+      ]
+
+    upstream_matched_section = if null upstream_breakages
+      then mempty
+      else pure upstream_matched_header
+        <> pure upstream_intro_text
+        <> pure matched_upstream_builds_details_block
+
 
     pattern_unmatched_header = M.heading 3 $ M.colonize [
         MyUtils.pluralize (length unmatched_builds) "failure"
@@ -105,7 +140,7 @@ genBuildFailuresTable
         M.heading 4 $ T.unwords [
             circleci_image_link
           , Builds.job_name build_obj
-          , M.parens $ T.pack $ MyUtils.renderFrac idx $ length revision_builds
+          , M.parens $ T.pack $ MyUtils.renderFrac idx $ length non_upstream_breakages
           ]
       , T.unwords summary_info_pieces
       ] <> code_block_lines
@@ -123,7 +158,7 @@ genBuildFailuresTable
 
         summary_info_pieces = [
             M.bold "Step:"
-          , MatchOccurrences._build_step match_obj
+          , M.quote $ MatchOccurrences._build_step match_obj
           , M.parens $ M.link "details" $ LT.toStrict webserverBaseUrl <> "/build-details.html?build_id=" <> T.pack (show ubuild_id)
           ] <> upstream_brokenness_indicator
 
@@ -159,9 +194,9 @@ generateCommentMarkdown
       then []
       else [
           M.heading 2 "Detailed failure analysis"
-        , M.colonize [
-            "Here are the"
-          , M.link "probable reasons each build failed" dr_ci_commit_details_link
+        , M.sentence [
+            "One may explore the probable reasons each build failed interactively"
+          , M.link "on the Dr. CI website" dr_ci_commit_details_link
           ]
         , T.unlines build_failures_table_lines
         ]

@@ -1423,6 +1423,9 @@ data UpstreamBrokenJob = UpstreamBrokenJob {
   , _breakage_end_time   :: Maybe UTCTime
   , _breakage_start_sha1 :: Builds.RawCommit
   , _breakage_end_sha1   :: Maybe Builds.RawCommit
+  , _universal_build     :: Builds.UniversalBuildId
+  , _provider            :: Int
+  , _provider_build_num  :: Builds.BuildNumber
   } deriving (Generic, FromRow)
 
 instance ToJSON UpstreamBrokenJob where
@@ -1430,7 +1433,7 @@ instance ToJSON UpstreamBrokenJob where
 
 
 extractJobName :: UpstreamBrokenJob -> Text
-extractJobName (UpstreamBrokenJob x _ _ _ _) = x
+extractJobName (UpstreamBrokenJob x _ _ _ _ _ _ _) = x
 
 
 -- | Compare to: getSpanningBreakages
@@ -1454,6 +1457,9 @@ getInferredSpanningBrokenJobsBetter (Builds.RawCommit branch_sha1) = do
         , "closed_date"
         , "open_sha1"
         , "closed_sha1"
+        , "universal_build"
+        , "provider"
+        , "provider_build_num"
         ]
       , "FROM downstream_build_failures_from_upstream_inferred_breakages"
       , "WHERE branch_commit = ?"

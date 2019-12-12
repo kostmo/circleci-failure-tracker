@@ -31,6 +31,10 @@ bold :: Text -> Text
 bold = surround2 "**"
 
 
+quote :: Text -> Text
+quote = surround2 "\""
+
+
 codeInline :: Text -> Text
 codeInline = surround2 "`"
 
