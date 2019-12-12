@@ -1,8 +1,9 @@
+
 {-# LANGUAGE OverloadedStrings #-}
 
 module CommentRender where
 
-import           Data.List          (partition)
+import           Data.List          (dropWhileEnd, partition)
 import           Data.List.NonEmpty (NonEmpty ((:|)))
 import qualified Data.List.NonEmpty as NE
 import           Data.Set           (Set)
@@ -162,13 +163,13 @@ genBuildFailuresTable
     gen_matched_build_section idx (CommitBuilds.BuildWithLogContext (CommitBuilds.NewCommitBuild (Builds.StorableBuild (DbHelpers.WithId ubuild_id universal_build) build_obj) match_obj _ _) (CommitBuilds.LogContext _ log_lines)) = [
         M.heading 4 $ T.unwords [
             circleci_image_link
-          , Builds.job_name build_obj
+          , job_name
           , M.parens $ T.pack $ MyUtils.renderFrac idx $ length non_upstream_breakages
           ]
       , T.unwords summary_info_pieces
       ] <> code_block_lines
       where
---        job_name = Builds.job_name build_obj
+        job_name = Builds.job_name build_obj
 
         summary_info_pieces = [
             M.bold "Step:"
@@ -180,7 +181,7 @@ genBuildFailuresTable
         code_block_lines = NE.toList $ M.codeBlockFromList $
           -- NOTE: this commented-out code just renders the single matched line
 --        pure $ MatchOccurrences._line_text match_obj
-          map renderLogLineTuple log_lines
+          dropWhileEnd T.null $ map renderLogLineTuple log_lines
 
 
         (Builds.NewBuildNumber provider_build_number) = Builds.provider_buildnum universal_build
