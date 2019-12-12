@@ -15,7 +15,7 @@ import qualified HTMLEntities.Builder   as HEB
 import           Data.Text.Lazy.Builder (toLazyText)
 
 
-surround :: [Text] -> Text -> Text
+surround :: (Monoid a) => [a] -> a -> a
 surround brackets = mconcat . (`intersperse` brackets)
 
 
@@ -40,7 +40,7 @@ codeInline = surround2 "`"
 
 
 sup :: Text -> Text
-sup = surround ["<sup>", "</sup>"]
+sup = tagElement "sup"
 
 
 parens :: Text -> Text
@@ -49,6 +49,26 @@ parens = surround ["(", ")"]
 
 bracket :: Text -> Text
 bracket = surround ["[", "]"]
+
+
+angleBracket :: Text -> Text
+angleBracket = surround ["<", ">"]
+
+
+tagElement :: Text -> Text -> Text
+tagElement tag_name =
+  surround [opening_tag, closing_tag]
+  where
+    opening_tag = angleBracket tag_name
+    closing_tag = angleBracket $ "/" <> tag_name
+
+
+tagElementMultiline :: Text -> [Text] -> [Text]
+tagElementMultiline tag_name content =
+  [opening_tag] ++ content ++ [closing_tag]
+  where
+    opening_tag = angleBracket tag_name
+    closing_tag = angleBracket $ "/" <> tag_name
 
 
 supTitle :: Text -> Text -> Text
@@ -127,6 +147,15 @@ colonize = terminate ":"
 -- | Adds a comma at the end of a list of words.
 commaize ::  [Text] -> Text
 commaize = terminate ","
+
+
+-- | Note that the empty lines padding the markdown
+-- inside the html tags are necessary, *as well as*
+-- the trailing blank line *after* the closing html tag.
+detailsExpander :: Text -> [Text] -> [Text]
+detailsExpander heading details = x ++ [""]
+  where
+  x = tagElementMultiline "details" $ tagElementMultiline "summary" [heading] <> ([""] ++ details ++ [""])
 
 
 -- | Inserts blank lines between each element
