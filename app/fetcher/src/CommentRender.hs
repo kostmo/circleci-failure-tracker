@@ -167,7 +167,7 @@ genBuildFailuresTable
           , M.parens $ T.pack $ MyUtils.renderFrac idx $ length non_upstream_breakages
           ]
       , T.unwords summary_info_pieces
-      ] <> code_block_lines
+      ] <> M.detailsExpander (M.tagElement "code" $ MatchOccurrences._line_text match_obj) code_block_lines
       where
         job_name = Builds.job_name build_obj
 
