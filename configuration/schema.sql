@@ -784,7 +784,7 @@ CREATE VIEW public.master_commit_job_success_completeness WITH (security_barrier
                             built_jobs_table.job_name AS any_build_job_name,
                             failed_jobs_table.job_name AS failed_build_job_name
                            FROM (((public.master_commit_circleci_scheduled_job_discrimination
-                             LEFT JOIN ( SELECT github_status_events_circleci_success.job_name_extracted AS job_name,
+                             LEFT JOIN ( SELECT DISTINCT ON (github_status_events_circleci_success.job_name_extracted, github_status_events_circleci_success.sha1) github_status_events_circleci_success.job_name_extracted AS job_name,
                                     github_status_events_circleci_success.sha1
                                    FROM public.github_status_events_circleci_success) succeeded_jobs_table ON (((succeeded_jobs_table.job_name = master_commit_circleci_scheduled_job_discrimination.job_name) AND (succeeded_jobs_table.sha1 = master_commit_circleci_scheduled_job_discrimination.commit_sha1))))
                              LEFT JOIN ( SELECT global_builds.job_name,
@@ -2589,7 +2589,10 @@ CREATE VIEW public.downstream_build_failures_from_upstream_inferred_breakages WI
     m1.sha1 AS open_sha1,
     m2.sha1 AS closed_sha1,
     m1.committer_date AS open_date,
-    m2.committer_date AS closed_date
+    m2.committer_date AS closed_date,
+    build_failure_standalone_causes.global_build AS universal_build,
+    build_failure_standalone_causes.build_num AS provider_build_num,
+    build_failure_standalone_causes.provider
    FROM (((((public.pr_merge_bases
      JOIN public.ordered_master_commits ON ((pr_merge_bases.master_commit = ordered_master_commits.sha1)))
      JOIN public.build_failure_standalone_causes ON (((build_failure_standalone_causes.vcs_revision = pr_merge_bases.branch_commit) AND (NOT build_failure_standalone_causes.succeeded))))
@@ -4640,8 +4643,8 @@ CREATE VIEW public.pr_merge_time_build_stats_by_master_commit WITH (security_bar
    FROM (((public.master_ordered_commits_with_metadata
      JOIN ( SELECT pr_merge_time_build_statuses.master_commit,
             count(pr_merge_time_build_statuses.global_build) AS total_builds,
-            sum((pr_merge_time_build_statuses.succeeded)::integer) AS succeeded_count,
-            sum(((NOT pr_merge_time_build_statuses.succeeded))::integer) AS failed_count
+            COALESCE(sum((pr_merge_time_build_statuses.succeeded)::integer), (0)::bigint) AS succeeded_count,
+            COALESCE(sum(((NOT pr_merge_time_build_statuses.succeeded))::integer), (0)::bigint) AS failed_count
            FROM public.pr_merge_time_build_statuses
           GROUP BY pr_merge_time_build_statuses.master_commit) foo ON ((foo.master_commit = master_ordered_commits_with_metadata.sha1)))
      JOIN public.pr_merge_time_heads_for_master_commits ON ((pr_merge_time_heads_for_master_commits.master_commit = master_ordered_commits_with_metadata.sha1)))
@@ -4671,7 +4674,8 @@ CREATE VIEW public.pr_merge_time_failing_builds_by_week WITH (security_barrier='
     sum(((pr_merge_time_build_stats_by_master_commit.failed_count > 0))::integer) AS failing_pr_count,
     (sum(pr_merge_time_build_stats_by_master_commit.total_builds))::integer AS total_build_count,
     (sum(pr_merge_time_build_stats_by_master_commit.failed_count))::integer AS total_failed_build_count,
-    sum(((pr_merge_time_build_stats_by_master_commit.foreshadowed_breakage_count > 0))::integer) AS foreshadowed_breakage_count
+    sum(((pr_merge_time_build_stats_by_master_commit.foreshadowed_breakage_count > 0))::integer) AS foreshadowed_breakage_count,
+    array_agg(pr_merge_time_build_stats_by_master_commit.github_pr_number) AS pr_numbers
    FROM public.pr_merge_time_build_stats_by_master_commit
   GROUP BY (date_trunc('week'::text, pr_merge_time_build_stats_by_master_commit.committer_date))
   ORDER BY (date_trunc('week'::text, pr_merge_time_build_stats_by_master_commit.committer_date)) DESC;
@@ -4689,7 +4693,8 @@ CREATE MATERIALIZED VIEW public.pr_merge_time_failing_builds_by_week_mview AS
     pr_merge_time_failing_builds_by_week.failing_pr_count,
     pr_merge_time_failing_builds_by_week.total_build_count,
     pr_merge_time_failing_builds_by_week.total_failed_build_count,
-    pr_merge_time_failing_builds_by_week.foreshadowed_breakage_count
+    pr_merge_time_failing_builds_by_week.foreshadowed_breakage_count,
+    pr_merge_time_failing_builds_by_week.pr_numbers
    FROM public.pr_merge_time_failing_builds_by_week
   WITH NO DATA;
 
@@ -6045,10 +6050,10 @@ CREATE UNIQUE INDEX idx_patterns ON public.pattern_frequency_summary_mview USING
 
 
 --
--- Name: idx_pr_merge_time_failing_builds_by_week_mview_week; Type: INDEX; Schema: public; Owner: materialized_view_updater
+-- Name: idx_pr_merge_time_failing_builds_by_week_mview_week2; Type: INDEX; Schema: public; Owner: materialized_view_updater
 --
 
-CREATE UNIQUE INDEX idx_pr_merge_time_failing_builds_by_week_mview_week ON public.pr_merge_time_failing_builds_by_week_mview USING btree (week);
+CREATE UNIQUE INDEX idx_pr_merge_time_failing_builds_by_week_mview_week2 ON public.pr_merge_time_failing_builds_by_week_mview USING btree (week DESC NULLS LAST);
 
 
 --

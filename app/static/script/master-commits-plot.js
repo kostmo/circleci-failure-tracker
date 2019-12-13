@@ -158,9 +158,9 @@ function pr_merges_timeline_highchart(chart_id, data, stacking_type, y_label_pre
 
 		const week_val = Date.parse(datum["timestamp"]);
 
-		succeeding_pr_merges_points.push([week_val, datum["record"]["total_pr_count"] - datum["record"]["failing_pr_count"]]);
-		failing_pr_merges_points.push([week_val, datum["record"]["failing_pr_count"] - datum["record"]["foreshadowed_breakage_count"]]);
-		failing_pr_foreshadowing_breakage_points.push([week_val, datum["record"]["foreshadowed_breakage_count"]]);
+		succeeding_pr_merges_points.push({x: week_val, y: datum["record"]["total_pr_count"] - datum["record"]["failing_pr_count"], pr_numbers: datum["record"]["pr_numbers"]});
+		failing_pr_merges_points.push({x: week_val, y: datum["record"]["failing_pr_count"] - datum["record"]["foreshadowed_breakage_count"], pr_numbers: datum["record"]["pr_numbers"]});
+		failing_pr_foreshadowing_breakage_points.push({x: week_val, y: datum["record"]["foreshadowed_breakage_count"], pr_numbers: datum["record"]["pr_numbers"]});
 	}
 
 	const series_list = [];
@@ -183,7 +183,6 @@ function pr_merges_timeline_highchart(chart_id, data, stacking_type, y_label_pre
 		});
 	}
 
-
 	Highcharts.chart(chart_id, {
 		chart: {
 			type: 'area', // TODO use "step"
@@ -194,6 +193,19 @@ function pr_merges_timeline_highchart(chart_id, data, stacking_type, y_label_pre
 		},
 		subtitle: {
 			text: 'Showing only full weeks, starting on labeled day'
+		},
+		tooltip: {
+			formatter: function() {
+				const pull_request_numbers = this.point.pr_numbers;
+
+				return 'Count: <b>'+ Highcharts.numberFormat(this.y, 0) + '</b><br/>'+
+					'Week of: ' + moment(this.x).format('MM/DD') +
+                                        '<br/><a href="javascript:list_prs([' + pull_request_numbers.join(',') + ']);">Open PR list</a>';
+			},
+			useHTML: true,
+			style: {
+				pointerEvents: 'auto'
+			}
 		},
 		xAxis: {
 			type: 'datetime',
@@ -227,6 +239,13 @@ function pr_merges_timeline_highchart(chart_id, data, stacking_type, y_label_pre
 		},
 		series: series_list,
 	});
+}
+
+function list_prs(pr_numbers) {
+
+	const github_pr_links = pr_numbers.map(x => "<a href='https://github.com/pytorch/pytorch/pull/" + x + "'>" + x + "</a>")
+
+	$("#secret-render-area").html( render_list(github_pr_links) );
 }
 
 

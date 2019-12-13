@@ -31,6 +31,7 @@ import           Database.PostgreSQL.Simple
 import           Database.PostgreSQL.Simple.FromField (FromField)
 import           Database.PostgreSQL.Simple.FromRow   (field, fromRow)
 import           Database.PostgreSQL.Simple.ToField   (ToField)
+import           Database.PostgreSQL.Simple.Types     (PGArray)
 import           GHC.Generics
 import           GHC.Int                              (Int64)
 import qualified Safe
@@ -544,6 +545,7 @@ data WeeklyFailingMergedPullRequests = WeeklyFailingMergedPullRequests {
   , _total_build_count           :: Int
   , _total_failed_build_count    :: Int
   , _foreshadowed_breakage_count :: Int
+  , _pr_numbers                  :: PGArray Int
   } deriving (Generic, FromRow)
 
 instance ToJSON WeeklyFailingMergedPullRequests where
@@ -569,6 +571,7 @@ getMergeTimeFailingPullRequestBuildsByWeek week_count = do
         , "total_build_count"
         , "total_failed_build_count"
         , "foreshadowed_breakage_count"
+        , "pr_numbers"
         ]
       , "FROM pr_merge_time_failing_builds_by_week_mview"
       , "WHERE failing_pr_count IS NOT NULL"
