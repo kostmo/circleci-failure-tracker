@@ -59,7 +59,7 @@ mainAppCode args = do
 
 
 
-  let commit_sha1_text = "9fcdb91641ace35188c261417aff553a6b9df523"
+  let commit_sha1_text = "1c6d7505adf51db267a0b27724028fb0c73ecbdd"
       raw_commit = Builds.RawCommit commit_sha1_text
       validated_sha1 = fromRight (error "BAD") $ GitRev.validateSha1 commit_sha1_text
 
@@ -78,14 +78,30 @@ mainAppCode args = do
     runReaderT (StatusUpdate.fetchCommitPageInfo upstream_breakages_info raw_commit validated_sha1) conn
 
   let build_summary_stats = StatusUpdateTypes.NewBuildSummaryStats
-        1
+        3
         upstream_breakages_info
         []
 
-  let commit_page_info = fromRight (error "BAD4") blah3
-  putStrLn $ T.unpack $ T.unlines $
-    CommentRender.genBuildFailuresTable commit_page_info build_summary_stats
 
+
+  let commit_page_info = fromRight (error "BAD4") blah3
+
+
+  let Builds.RawCommit merge_base_commit_text = SqlUpdate.merge_base upstream_breakages_info
+
+  blah4 <- GadgitFetch.getIsAncestor $
+      GadgitFetch.RefAncestryProposition merge_base_commit_text StatusUpdate.viableBranchName
+  let ancestry_result = fromRight (error "BAD5") blah4
+
+
+  putStrLn $ T.unpack $
+--    T.unlines $ CommentRender.genBuildFailuresTable commit_page_info build_summary_stats
+    CommentRender.generateCommentMarkdown
+      Nothing
+      build_summary_stats
+      ancestry_result
+      commit_page_info
+      raw_commit
 
 
 

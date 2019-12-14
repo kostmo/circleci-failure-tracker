@@ -7,6 +7,7 @@ module StatusUpdate (
   , fetchCommitPageInfo
   , SuccessRecordStorageMode (..)
   , ScanLogsMode (..)
+  , viableBranchName
   ) where
 
 import           Control.Concurrent            (forkIO)

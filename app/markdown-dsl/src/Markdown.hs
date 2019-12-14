@@ -92,6 +92,13 @@ link :: Text -> Text -> Text
 link label url = bracket label <> parens url
 
 
+htmlLink :: Text -> Text -> Text
+htmlLink label url =
+     angleBracket ("a href=" <> quote url)
+  <> label
+  <> angleBracket "/a"
+
+
 image :: Text -> Text -> Text
 image tooltip url = "!" <> link tooltip url
 
@@ -152,10 +159,16 @@ commaize = terminate ","
 -- | Note that the empty lines padding the markdown
 -- inside the html tags are necessary, *as well as*
 -- the trailing blank line *after* the closing html tag.
-detailsExpander :: Text -> [Text] -> [Text]
-detailsExpander heading details = x ++ [""]
+detailsExpanderForCode :: Text -> [Text] -> [Text]
+detailsExpanderForCode heading details = x ++ [""]
   where
   x = tagElementMultiline "details" $ tagElementMultiline "summary" [heading] <> ([""] ++ details ++ [""])
+
+
+detailsExpander :: Text -> Text -> Text
+detailsExpander heading details = x
+  where
+  x = tagElement "details" $ tagElement "summary" heading <> details
 
 
 -- | Inserts blank lines between each element
