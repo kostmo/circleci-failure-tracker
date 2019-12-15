@@ -56,10 +56,15 @@ angleBracket = surround ["<", ">"]
 
 
 tagElement :: Text -> Text -> Text
-tagElement tag_name =
+tagElement = tagElementAttrs []
+
+
+tagElementAttrs :: [(Text, Text)] -> Text -> Text -> Text
+tagElementAttrs attrs tag_name =
   surround [opening_tag, closing_tag]
   where
-    opening_tag = angleBracket tag_name
+    kv_pairs = map (\(k, v) -> k <> "=" <> quote v) attrs
+    opening_tag = angleBracket $ T.intercalate " " $ tag_name : kv_pairs
     closing_tag = angleBracket $ "/" <> tag_name
 
 
@@ -72,12 +77,8 @@ tagElementMultiline tag_name content =
 
 
 supTitle :: Text -> Text -> Text
-supTitle title = surround brackets
+supTitle title = tagElementAttrs [("title", escaped_title)] "sup"
   where
-    brackets = [
-        "<sup title=\"" <> escaped_title <> "\">"
-      , "</sup>"
-      ]
     escaped_title = LT.toStrict $ toLazyText $ HEB.text title
 
 
@@ -93,10 +94,7 @@ link label url = bracket label <> parens url
 
 
 htmlLink :: Text -> Text -> Text
-htmlLink label url =
-     angleBracket ("a href=" <> quote url)
-  <> label
-  <> angleBracket "/a"
+htmlLink label url = tagElementAttrs [("href", url)] "a" label
 
 
 image :: Text -> Text -> Text
