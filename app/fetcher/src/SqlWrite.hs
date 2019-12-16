@@ -1403,16 +1403,6 @@ stepFailureToTuple (Builds.UniversalBuildId universal_buildnum, visitation_resul
     in (Just stepname, is_timeout, universal_buildnum, step_index)
 
 
-populatePresumedStableBranches :: Connection -> [Text] -> IO Int64
-populatePresumedStableBranches conn =
-  executeMany conn sql . map Only
-  where
-    sql = Q.qjoin [
-        "INSERT INTO presumed_stable_branches"
-      , Q.insertionValues ["branch"]
-      ]
-
-
 cacheAllMergeBases ::
      Connection
   -> Set Builds.RawCommit

@@ -7,10 +7,8 @@ import           Control.Monad.Trans.Reader (runReaderT)
 import           Data.Foldable              (for_)
 import           Database.PostgreSQL.Simple
 
-import qualified Constants
 import qualified DbHelpers
 import qualified PatternsFetch
-import qualified SqlWrite
 
 
 buildDataTruncations :: [Query]
@@ -47,7 +45,6 @@ wipeAndRepopulateDb :: Connection -> IO ()
 wipeAndRepopulateDb conn = do
   scrubTables conn
   runReaderT PatternsFetch.populatePatterns conn
-  SqlWrite.populatePresumedStableBranches conn Constants.presumedGoodBranches
   return ()
 
 

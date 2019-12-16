@@ -25,18 +25,6 @@ defaultPatternAuthor :: AuthStages.Username
 defaultPatternAuthor = AuthStages.Username "kostmo"
 
 
-presumedGoodBranches :: [Text]
-presumedGoodBranches = [
-    masterName
-  , "pull/18339"
-  , "pull/18340"
-  , "pull/18341"
-  , "pull/18342"
-  , "pull/18343"
-  , "pull/18907"
-  ]
-
-
 -- | Not used
 appName :: FilePath
 appName = "circleci-failure-tracker"

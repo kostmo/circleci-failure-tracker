@@ -933,8 +933,12 @@ apiStep = WebApi.ApiResponse <$> runQuery q
         "step_name"
       , "COUNT(*) AS freq"
       ]
-    , "FROM builds_join_steps"
-    , "WHERE step_name IS NOT NULL AND branch IN (SELECT branch FROM presumed_stable_branches)"
+    , "FROM master_failures_raw_causes_mview"
+    , "WHERE"
+    , Q.qconjunction [
+        "step_name IS NOT NULL"
+      , "step_name != ''"
+      ]
     , "GROUP BY step_name ORDER BY freq DESC;"
     ]
 
