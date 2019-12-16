@@ -523,9 +523,8 @@ storeCircleCiBuildsList
     maybe_eb_worker_event_id
     builds_list_with_possible_duplicates = do
 
-  D.debugList ["MARKER A"]
   zipped_output1 <- storeHelper conn $ map (\x -> ((), x)) deduped_builds_list
-  D.debugList ["MARKER B"]
+
   let zipped_output2 = map
         (\(Builds.StorableBuild (DbHelpers.WithId ubuild_id _ubuild) rbuild) -> DbHelpers.WithTypedId (Builds.UniversalBuildId ubuild_id) rbuild)
         (map snd zipped_output1)
@@ -537,9 +536,9 @@ storeCircleCiBuildsList
         maybe_eb_worker_event_id
 
   ci_scan_id <- runReaderT store_scan_record conn
-  D.debugList ["MARKER C"]
+
   retval <- storeBuildsList conn (Just ci_scan_id) zipped_output2
-  D.debugList ["MARKER D"]
+
   return retval
 
   where
@@ -563,14 +562,11 @@ storeHelper conn deduped_builds_list = do
   -- "provider number surrogate id" generated (or retrieved)
   -- by the database.
 
-  D.debugList ["INNER MARKER A"]
   provider_build_insertion_output_rows <- returning
     conn
     sqlInsertProviderBuild
     (map (input_columns_provider_surrogate . snd . snd) paired_builds)
 
-
-  D.debugList ["INNER MARKER B"]
 
   -- Pair the input builds with the newly assigned
   -- "provider number" surrogate indices
@@ -589,8 +585,6 @@ storeHelper conn deduped_builds_list = do
     sqlCheckProviderProxyUniversalBuildAssociations
     (map (Only . surrogate_provider_build_id . snd . snd) zipped_output0)
 
-
-  D.debugList ["INNER MARKER C"]
 
   -- reduce the set of input builds to those that
   -- have not yet been inserted
@@ -613,8 +607,6 @@ storeHelper conn deduped_builds_list = do
     sqlInsertUniversalBuild $
       map (input_f . snd . snd) deduped_filtered_insertion_records
 
-
-  D.debugList ["INNER MARKER D"]
 
   -- XXX Do not separate this from the DB insertion above!
   return $ zipWith
