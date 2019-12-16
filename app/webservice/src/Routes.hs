@@ -414,6 +414,10 @@ scottyApp
       <$> S.param "missing-threshold"
       <*> S.param "failing-threshold"
 
+  get "/api/pr-batch-list" $
+    SqlRead.apiPrBatchList
+      <$> (map (read . LT.unpack) . LT.splitOn "," <$> S.param "pr-numbers-delimited")
+
   get "/api/viable-commit-age-history" $
     SqlRead.apiLatestViableMasterCommitAgeHistory
       <$> S.param "weeks"
@@ -540,7 +544,11 @@ scottyApp
 
   S.options "/" $ do
     S.setHeader "Access-Control-Allow-Origin" "*"
-    S.setHeader "Access-Control-Allow-Methods" "POST, GET, OPTIONS"
+    S.setHeader "Access-Control-Allow-Methods" $ LT.intercalate ", " [
+        "POST"
+      , "GET"
+      , "OPTIONS"
+      ]
 
   S.get "/" $ do
     S.setHeader "Content-Type" "text/html; charset=utf-8"

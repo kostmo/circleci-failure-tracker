@@ -21,7 +21,6 @@ function get_unmatched_build_columns() {
 				return moment(cell.getValue()).fromNow();
 			},
 		},
-
 		{title: "Log", field: "universal_build_id",
 			formatter: "link",
 			formatterParams: {

@@ -522,10 +522,10 @@ postCommitSummaryStatusInner
     , LT.toStrict $ StatusEvent._description status_setter_data
     )
 
-  -- We're examining statuses on both failed and successful build notifications, which can add
-  -- up to a lot of activity.
-  -- We only should re-post our summary status if it will change what was already posted,
-  -- since we don't want GitHub to throttle our requests.
+  -- We're examining statuses on both failed and successful
+  -- build notifications, which can add up to a lot of activity.
+  -- We only should re-post our summary status if it will change what
+  -- was already posted, since we don't want GitHub to throttle our requests.
 
   post_and_store = do
 

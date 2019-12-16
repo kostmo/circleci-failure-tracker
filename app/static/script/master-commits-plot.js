@@ -243,9 +243,8 @@ function pr_merges_timeline_highchart(chart_id, data, stacking_type, y_label_pre
 
 function list_prs(pr_numbers) {
 
-	const github_pr_links = pr_numbers.map(x => "<a href='https://github.com/pytorch/pytorch/pull/" + x + "'>" + x + "</a>")
-
-	$("#secret-render-area").html( render_list(github_pr_links) );
+	const pr_params = pr_numbers.map(x => "pr=" + x)
+	window.location.href = "/pr-batch-details.html?" + pr_params.join("&");
 }
 
 

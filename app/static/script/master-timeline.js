@@ -1103,7 +1103,7 @@ function gen_timeline_table(element_id, fetched_data) {
 
 		rowFormatter: function(row) {
 
-			var data = row.getData();
+			const data = row.getData();
 
 			if (!data["was_built"]) {
 				row.getElement().style.backgroundColor = "#eec";

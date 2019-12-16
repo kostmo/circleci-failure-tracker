@@ -456,6 +456,54 @@ getLatestPatternId conn =
     sql = "SELECT id FROM patterns ORDER BY id DESC LIMIT 1;"
 
 
+
+data PullRequestBuildStats = PullRequestBuildStats {
+    _pr_number                   :: Builds.PullRequestNumber
+  , _commit_id                   :: Int64
+  , _master_commit               :: Builds.RawCommit
+  , _pr_head_commit              :: Builds.RawCommit
+  , _committer_date              :: UTCTime
+  , _total_builds                :: Int
+  , _succeeded_count             :: Int
+  , _failed_count                :: Int
+  , _foreshadowed_breakage_count :: Int
+  , _all_succeeded               :: Bool
+  } deriving (FromRow, Generic)
+
+instance ToJSON PullRequestBuildStats where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+apiPrBatchList ::
+     [Int64]
+  -> DbIO [PullRequestBuildStats]
+apiPrBatchList pr_numbers = do
+  conn <- ask
+  liftIO $ query conn sql $ Only $ In pr_numbers
+  where
+    sql = Q.qjoin [
+        "SELECT"
+      , Q.list [
+          "github_pr_number"
+        , "commit_id"
+--        , "commit_number"
+        , "master_commit"
+        , "pr_head_commit"
+        , "committer_date"
+        , "total_builds"
+        , "succeeded_count"
+        , "failed_count"
+        , "foreshadowed_breakage_count"
+        , "total_builds = succeeded_count AS all_succeeded"
+        ]
+      , "FROM pr_merge_time_build_stats_by_master_commit"
+      , "WHERE"
+      , "github_pr_number IN ?"
+      , "ORDER BY commit_id DESC"
+      ]
+
+
+
 apiPostedPRComments ::
      Int
   -> DbIO [PostedComments.PostedComment]
