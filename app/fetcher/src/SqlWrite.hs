@@ -14,6 +14,7 @@ import qualified Data.ByteString.Char8             as BS
 import           Data.Either                       (partitionEithers)
 import           Data.Either.Utils                 (maybeToEither)
 import           Data.Foldable                     (for_)
+import           Data.List.Extra                   (nubSortOn)
 import           Data.List.Ordered                 (nubSort)
 import qualified Data.Maybe                        as Maybe
 import           Data.Set                          (Set)
@@ -522,8 +523,9 @@ storeCircleCiBuildsList
     maybe_eb_worker_event_id
     builds_list_with_possible_duplicates = do
 
+  D.debugList ["MARKER A"]
   zipped_output1 <- storeHelper conn $ map (\x -> ((), x)) deduped_builds_list
-
+  D.debugList ["MARKER B"]
   let zipped_output2 = map
         (\(Builds.StorableBuild (DbHelpers.WithId ubuild_id _ubuild) rbuild) -> DbHelpers.WithTypedId (Builds.UniversalBuildId ubuild_id) rbuild)
         (map snd zipped_output1)
@@ -535,8 +537,10 @@ storeCircleCiBuildsList
         maybe_eb_worker_event_id
 
   ci_scan_id <- runReaderT store_scan_record conn
-
-  storeBuildsList conn (Just ci_scan_id) zipped_output2
+  D.debugList ["MARKER C"]
+  retval <- storeBuildsList conn (Just ci_scan_id) zipped_output2
+  D.debugList ["MARKER D"]
+  return retval
 
   where
     deduped_builds_list = nubSort builds_list_with_possible_duplicates
@@ -558,10 +562,15 @@ storeHelper conn deduped_builds_list = do
   -- Each returned row contains a singleton
   -- "provider number surrogate id" generated (or retrieved)
   -- by the database.
+
+  D.debugList ["INNER MARKER A"]
   provider_build_insertion_output_rows <- returning
     conn
     sqlInsertProviderBuild
     (map (input_columns_provider_surrogate . snd . snd) paired_builds)
+
+
+  D.debugList ["INNER MARKER B"]
 
   -- Pair the input builds with the newly assigned
   -- "provider number" surrogate indices
@@ -581,12 +590,14 @@ storeHelper conn deduped_builds_list = do
     (map (Only . surrogate_provider_build_id . snd . snd) zipped_output0)
 
 
+  D.debugList ["INNER MARKER C"]
+
   -- reduce the set of input builds to those that
   -- have not yet been inserted
   let preservation_proxy_id_set = Set.fromList $
         map (\(Only x) -> x) uninserted_provider_proxy_ids
 
-      filtered_insertion_records = filter (\(_, (_, SurrogateProviderIdUniversalPair x _)) -> Set.member x preservation_proxy_id_set) zipped_output0
+      raw_filtered_insertion_records = filter (\(_, (_, SurrogateProviderIdUniversalPair x _)) -> Set.member x preservation_proxy_id_set) zipped_output0
 
   {-
   D.debugList [
@@ -595,16 +606,21 @@ storeHelper conn deduped_builds_list = do
     ]
   -}
 
+  let deduped_filtered_insertion_records = nubSortOn (Builds.getUniquenessConstraint . (\(SurrogateProviderIdUniversalPair _ x) -> x) . snd . snd) raw_filtered_insertion_records
+
   universal_build_insertion_output_rows <- returning
     conn
     sqlInsertUniversalBuild $
-      map (input_f . snd . snd) filtered_insertion_records
+      map (input_f . snd . snd) deduped_filtered_insertion_records
+
+
+  D.debugList ["INNER MARKER D"]
 
   -- XXX Do not separate this from the DB insertion above!
   return $ zipWith
         (\(Only row_id) (x, (rbuild, (SurrogateProviderIdUniversalPair _ (Builds.UniBuildWithJob ubuild _)))) -> (x, Builds.StorableBuild (DbHelpers.WithId row_id ubuild) rbuild))
         universal_build_insertion_output_rows
-        filtered_insertion_records
+        deduped_filtered_insertion_records
 
   where
     paired_builds = map (\(x, tup) -> (x, (fst tup, mk_ubuild tup))) deduped_builds_list

@@ -117,8 +117,17 @@ data StorableBuild = StorableBuild {
   , build_record    :: Build
   } deriving Generic
 
-instance ToJSON StorableBuild
 
+-- | Constraint in database is named "universal_builds_provider_build_namespace_x_job_name_commit_key"
+getUniquenessConstraint :: UniBuildWithJob -> (Text, Int64, RawCommit, Text)
+getUniquenessConstraint (UniBuildWithJob u_build_obj job) = (
+    build_namespace u_build_obj
+  , provider_id u_build_obj
+  , sha1 u_build_obj
+  , job
+  )
+
+instance ToJSON StorableBuild
 
 instance FromRow StorableBuild where
   fromRow = do
