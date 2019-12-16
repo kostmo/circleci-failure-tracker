@@ -16,6 +16,9 @@ function gen_pr_table(div_id, data) {
 			formatter: function(cell, formatterParams, onRendered) {
 				return moment(cell.getValue()).fromNow();
 			},
+			tooltip: function(cell) {
+				return moment(cell.getValue()).format("llll");
+			},
 		},
 		{title: "Commits", columns: [
 			{title: "PR HEAD", field: "pr_head_commit",
@@ -67,7 +70,12 @@ function populate_info_box(element_id, data) {
 		}
 	}
 
-	const html_content = render_tag("b", green_pr_count + "/" + total_pr_count) + " PRs were green upon merge";
+	const html_content = [
+		render_tag("b", green_pr_count),
+		"out of",
+		render_tag("b", total_pr_count),
+		"PRs were green upon merge",
+	].join(" ");
 
 	$("#" + element_id).html(html_content);
 }
