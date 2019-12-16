@@ -3,16 +3,23 @@ var start_picker;
 var end_picker;
 
 
-var global_unmatched_failure_details_table = null;
+var global_failure_details_table = null;
 
-function gen_failure_details_table(element_id, data_payload, height_string) {
+function gen_failure_details_table(element_id, data_payload, height_string, selectable_rows) {
 
-	const table = new Tabulator("#" + element_id, {
+	const processed_data = [];
+	for (var d of data_payload) {
+		d["universal_build_id"] = d["build"]["universal_build"]["db_id"];
+		processed_data.push(d);
+	}
+
+	global_failure_details_table = new Tabulator("#" + element_id, {
 		height: height_string,
 		layout: "fitColumns",
 		placeholder: "No Data Set",
 		columns: gen_builds_table_columns(),
-		data: data_payload,
+		selectable: selectable_rows,
+		data: processed_data,
 	});
 }
 
@@ -35,7 +42,7 @@ function load_pattern_failure_details(pattern_id, commit_id_min, commit_id_max) 
 		if (data.success) {
 
 			$("#failure-details-table").show();
-			gen_failure_details_table("failure-details-table", data.payload, 300);
+			gen_failure_details_table("failure-details-table", data.payload, 300, true);
 
 		} else {
 
@@ -49,7 +56,7 @@ function rescan_selected_builds(button) {
 
 	$(button).prop("disabled", true);
 
-	const selected_data = global_unmatched_failure_details_table.getSelectedData();
+	const selected_data = global_failure_details_table.getSelectedData();
 
 	console.log("Will scan", selected_data.length, "rows...");
 
@@ -226,7 +233,7 @@ function load_job_failure_details(job_name, commit_id_min, commit_id_max) {
 		if (data.success) {
 
 			$("#failure-details-table").show();
-			gen_failure_details_table("failure-details-table", data.payload, 300)
+			gen_failure_details_table("failure-details-table", data.payload, 300, false)
 
 		} else {
 			alert("error: " + data.error);
@@ -292,7 +299,8 @@ function gen_patterns_table(element_id, data_payload, height_string) {
 			const commit_id_max = row_data["max_commit_index"];
 
 			if (pattern_id != null) {
-				$("#rescan-failures-button").hide();
+//				$("#rescan-failures-button").hide();
+				$("#rescan-failures-button").show();
 				load_pattern_failure_details(pattern_id, commit_id_min, commit_id_max);
 			} else {
 
@@ -316,7 +324,7 @@ function gen_unmatched_failures_table(query_args_dict) {
 
 			$("#selected-details-row-title-container").html("unmatched logs");
 
-			global_unmatched_failure_details_table = new Tabulator("#failure-details-table", {
+			global_failure_details_table = new Tabulator("#failure-details-table", {
 				height:"200px",
 				layout:"fitColumns",
 				placeholder:"No Data Set",
