@@ -59,7 +59,6 @@ WHITELISTED_VIEW_NAMES = {
     "upstream_breakages_weekly_aggregation_mview",
     "job_schedule_statistics_mview",
     "master_failures_weekly_aggregation_mview",
-    "pr_merge_time_failing_builds_by_week_mview",
     "job_schedule_discriminated_mview",
     "master_ordered_commits_with_metadata_mview",
     "master_commit_job_success_completeness_mview",
@@ -69,6 +68,7 @@ WHITELISTED_VIEW_NAMES = {
     "master_required_unbuilt_jobs_mview",
     "pattern_frequency_summary_mview",
     "known_breakage_summaries_sans_impact_mview",
+    "pr_merge_time_build_stats_by_master_commit_mview",
 }
 
 
@@ -120,7 +120,7 @@ if __name__ == "__main__":
 #        "job_schedule_discriminated_mview",
 #        "master_ordered_commits_with_metadata_mview",
 #       "master_commit_reversion_spans_mview",
-       "known_breakage_summaries_sans_impact_mview",
+       "pr_merge_time_build_stats_by_master_commit_mview",
     ]
 
     payload = update_multiple_views(view_names, "test")

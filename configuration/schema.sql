@@ -4665,6 +4665,27 @@ COMMENT ON VIEW public.pr_merge_time_build_stats_by_master_commit IS 'NOTE: This
 
 
 --
+-- Name: pr_merge_time_build_stats_by_master_commit_mview; Type: MATERIALIZED VIEW; Schema: public; Owner: materialized_view_updater
+--
+
+CREATE MATERIALIZED VIEW public.pr_merge_time_build_stats_by_master_commit_mview AS
+ SELECT pr_merge_time_build_stats_by_master_commit.commit_id,
+    pr_merge_time_build_stats_by_master_commit.commit_number,
+    pr_merge_time_build_stats_by_master_commit.master_commit,
+    pr_merge_time_build_stats_by_master_commit.committer_date,
+    pr_merge_time_build_stats_by_master_commit.github_pr_number,
+    pr_merge_time_build_stats_by_master_commit.pr_head_commit,
+    pr_merge_time_build_stats_by_master_commit.total_builds,
+    pr_merge_time_build_stats_by_master_commit.succeeded_count,
+    pr_merge_time_build_stats_by_master_commit.failed_count,
+    pr_merge_time_build_stats_by_master_commit.foreshadowed_breakage_count
+   FROM public.pr_merge_time_build_stats_by_master_commit
+  WITH NO DATA;
+
+
+ALTER TABLE public.pr_merge_time_build_stats_by_master_commit_mview OWNER TO materialized_view_updater;
+
+--
 -- Name: pr_merge_time_failing_builds_by_week; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -4676,7 +4697,7 @@ CREATE VIEW public.pr_merge_time_failing_builds_by_week WITH (security_barrier='
     (sum(pr_merge_time_build_stats_by_master_commit.failed_count))::integer AS total_failed_build_count,
     sum(((pr_merge_time_build_stats_by_master_commit.foreshadowed_breakage_count > 0))::integer) AS foreshadowed_breakage_count,
     array_agg(pr_merge_time_build_stats_by_master_commit.github_pr_number) AS pr_numbers
-   FROM public.pr_merge_time_build_stats_by_master_commit
+   FROM public.pr_merge_time_build_stats_by_master_commit_mview pr_merge_time_build_stats_by_master_commit
   GROUP BY (date_trunc('week'::text, pr_merge_time_build_stats_by_master_commit.committer_date))
   ORDER BY (date_trunc('week'::text, pr_merge_time_build_stats_by_master_commit.committer_date)) DESC;
 
@@ -6047,6 +6068,13 @@ CREATE UNIQUE INDEX idx_master_required_unbuilt_jobs_mview ON public.master_requ
 --
 
 CREATE UNIQUE INDEX idx_patterns ON public.pattern_frequency_summary_mview USING btree (id);
+
+
+--
+-- Name: idx_pr_build_stats_by_pr_commit_id; Type: INDEX; Schema: public; Owner: materialized_view_updater
+--
+
+CREATE UNIQUE INDEX idx_pr_build_stats_by_pr_commit_id ON public.pr_merge_time_build_stats_by_master_commit_mview USING btree (commit_id DESC NULLS LAST);
 
 
 --
@@ -7765,6 +7793,15 @@ GRANT ALL ON TABLE public.pr_merge_time_build_statuses TO logan;
 --
 
 GRANT ALL ON TABLE public.pr_merge_time_build_stats_by_master_commit TO logan;
+GRANT SELECT ON TABLE public.pr_merge_time_build_stats_by_master_commit TO materialized_view_updater;
+
+
+--
+-- Name: TABLE pr_merge_time_build_stats_by_master_commit_mview; Type: ACL; Schema: public; Owner: materialized_view_updater
+--
+
+GRANT SELECT ON TABLE public.pr_merge_time_build_stats_by_master_commit_mview TO logan;
+GRANT SELECT ON TABLE public.pr_merge_time_build_stats_by_master_commit_mview TO postgres;
 
 
 --

@@ -496,12 +496,11 @@ apiPrBatchList pr_numbers = do
         , "foreshadowed_breakage_count"
         , "total_builds = succeeded_count AS all_succeeded"
         ]
-      , "FROM pr_merge_time_build_stats_by_master_commit"
+      , "FROM pr_merge_time_build_stats_by_master_commit_mview"
       , "WHERE"
       , "github_pr_number IN ?"
       , "ORDER BY commit_id DESC"
       ]
-
 
 
 apiPostedPRComments ::
@@ -621,7 +620,7 @@ getMergeTimeFailingPullRequestBuildsByWeek week_count = do
         , "foreshadowed_breakage_count"
         , "pr_numbers"
         ]
-      , "FROM pr_merge_time_failing_builds_by_week_mview"
+      , "FROM pr_merge_time_failing_builds_by_week"
       , "WHERE failing_pr_count IS NOT NULL"
       , "ORDER BY week DESC OFFSET 1 LIMIT ?;"
       ]
@@ -1628,14 +1627,6 @@ data MasterCommitAndSourcePr = MasterCommitAndSourcePr {
 
 instance ToJSON MasterCommitAndSourcePr where
   toJSON = genericToJSON JsonUtils.dropUnderscore
-
-
-getAllMergedPullRequestHeadCommits :: DbIO [Builds.RawCommit]
-getAllMergedPullRequestHeadCommits = runQuery $ Q.qjoin [
-    "SELECT pr_head_commit"
-  , "FROM pr_merge_time_build_stats_by_master_commit"
-  , "ORDER BY commit_number DESC;"
-  ]
 
 
 getPullRequestsWithMissingHeads :: DbIO [Builds.PullRequestNumber]
