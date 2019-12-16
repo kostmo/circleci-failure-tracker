@@ -733,35 +733,6 @@ instance ToJSON TestFailure where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
--- | This uses capture groups of a specifically-crafted regex
--- to identify the name of the failing test
-apiTestFailures :: ScanPatterns.PatternId -> DbIO (Either Text [TestFailure])
-apiTestFailures test_failure_pattern_id = do
-  patterns_singleton <- apiSinglePattern test_failure_pattern_id
-
-  case Safe.headMay patterns_singleton of
-    Nothing -> return $ Left "Could not find Test Failure pattern"
-    Just test_failure_pattern -> do
-      pattern_occurrences <- getBestPatternMatchesWhitelistedBranches test_failure_pattern_id
-      return $ Right $ Maybe.mapMaybe (repackage test_failure_pattern) pattern_occurrences
-
-  where
-    repackage test_failure_pattern pattern_occurrence = do
-      maybe_first_match <- maybe_first_match_group
-      return $ TestFailure
-        (_vcs_revision pattern_occurrence)
-        (T.pack maybe_first_match)
-        (_queued_at pattern_occurrence)
-      where
-        start_idx = fromIntegral $ _span_start pattern_occurrence
-        end_idx = fromIntegral $ _span_end pattern_occurrence
-        span_length = end_idx - start_idx
-        extracted_chunk = LT.take span_length $ LT.drop start_idx $ _line_text pattern_occurrence
-
-        pattern_text = _pattern test_failure_pattern
-        maybe_first_match_group = ScanUtils.getFirstMatchGroup extracted_chunk pattern_text
-
-
 patternBuildStepOccurrences ::
      ScanPatterns.PatternId
   -> DbIO [WebApi.PieSliceApiRecord]
@@ -3770,17 +3741,6 @@ getBestPatternMatches pat@(ScanPatterns.PatternId pattern_id) = do
     sql = Q.qjoin [
         commonQueryPrefixPatternMatches
       , "LIMIT 100;"
-      ]
-
-
-getBestPatternMatchesWhitelistedBranches :: ScanPatterns.PatternId -> DbIO [PatternOccurrence]
-getBestPatternMatchesWhitelistedBranches pat@(ScanPatterns.PatternId pattern_id) = do
-  conn <- ask
-  liftIO $ map (patternOccurrenceTxForm pat) <$> query conn sql (Only pattern_id)
-  where
-    sql = Q.qjoin [
-        commonQueryPrefixPatternMatches
-      , "AND branch IN (SELECT branch from presumed_stable_branches);"
       ]
 
 

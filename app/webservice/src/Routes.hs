@@ -349,9 +349,6 @@ scottyApp
   get "/api/best-build-match" $
     SqlRead.getBestBuildMatch . Builds.UniversalBuildId <$> S.param "build_id"
 
-  get "/api/test-failures" $
-    fmap WebApi.toJsonEither . SqlRead.apiTestFailures . ScanPatterns.PatternId <$> S.param "pattern_id"
-
   get "/api/single-build-info" $
     fmap WebApi.toJsonEither . SqlUpdate.getBuildInfo (AuthConfig.personal_access_token github_config) . Builds.UniversalBuildId
     <$> S.param "build_id"
