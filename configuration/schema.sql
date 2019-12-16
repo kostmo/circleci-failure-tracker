@@ -4705,24 +4705,6 @@ CREATE VIEW public.pr_merge_time_failing_builds_by_week WITH (security_barrier='
 ALTER TABLE public.pr_merge_time_failing_builds_by_week OWNER TO postgres;
 
 --
--- Name: pr_merge_time_failing_builds_by_week_mview; Type: MATERIALIZED VIEW; Schema: public; Owner: materialized_view_updater
---
-
-CREATE MATERIALIZED VIEW public.pr_merge_time_failing_builds_by_week_mview AS
- SELECT pr_merge_time_failing_builds_by_week.week,
-    pr_merge_time_failing_builds_by_week.total_pr_count,
-    pr_merge_time_failing_builds_by_week.failing_pr_count,
-    pr_merge_time_failing_builds_by_week.total_build_count,
-    pr_merge_time_failing_builds_by_week.total_failed_build_count,
-    pr_merge_time_failing_builds_by_week.foreshadowed_breakage_count,
-    pr_merge_time_failing_builds_by_week.pr_numbers
-   FROM public.pr_merge_time_failing_builds_by_week
-  WITH NO DATA;
-
-
-ALTER TABLE public.pr_merge_time_failing_builds_by_week_mview OWNER TO materialized_view_updater;
-
---
 -- Name: presumed_stable_branches; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -6075,13 +6057,6 @@ CREATE UNIQUE INDEX idx_patterns ON public.pattern_frequency_summary_mview USING
 --
 
 CREATE UNIQUE INDEX idx_pr_build_stats_by_pr_commit_id ON public.pr_merge_time_build_stats_by_master_commit_mview USING btree (commit_id DESC NULLS LAST);
-
-
---
--- Name: idx_pr_merge_time_failing_builds_by_week_mview_week2; Type: INDEX; Schema: public; Owner: materialized_view_updater
---
-
-CREATE UNIQUE INDEX idx_pr_merge_time_failing_builds_by_week_mview_week2 ON public.pr_merge_time_failing_builds_by_week_mview USING btree (week DESC NULLS LAST);
 
 
 --
@@ -7810,14 +7785,6 @@ GRANT SELECT ON TABLE public.pr_merge_time_build_stats_by_master_commit_mview TO
 
 GRANT ALL ON TABLE public.pr_merge_time_failing_builds_by_week TO logan;
 GRANT SELECT ON TABLE public.pr_merge_time_failing_builds_by_week TO materialized_view_updater;
-
-
---
--- Name: TABLE pr_merge_time_failing_builds_by_week_mview; Type: ACL; Schema: public; Owner: materialized_view_updater
---
-
-GRANT SELECT ON TABLE public.pr_merge_time_failing_builds_by_week_mview TO logan;
-GRANT SELECT ON TABLE public.pr_merge_time_failing_builds_by_week_mview TO postgres;
 
 
 --

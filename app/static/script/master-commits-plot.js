@@ -199,8 +199,7 @@ function pr_merges_timeline_highchart(chart_id, data, stacking_type, y_label_pre
 				const pull_request_numbers = this.point.pr_numbers;
 
 				return 'Count: <b>'+ Highcharts.numberFormat(this.y, 0) + '</b><br/>'+
-					'Week of: ' + moment(this.x).format('MM/DD') +
-                                        '<br/><a href="javascript:list_prs([' + pull_request_numbers.join(',') + ']);">Open PR list</a>';
+					'Week of: <b>' + moment(this.x).format('MM/DD') + '</b>';
 			},
 			useHTML: true,
 			style: {
@@ -233,18 +232,27 @@ function pr_merges_timeline_highchart(chart_id, data, stacking_type, y_label_pre
 			area: {
 			    stacking: stacking_type,
 			},
+
+
+			series: {
+				cursor: 'pointer',
+				point: {
+					events: {
+						click: function () {
+							const pull_request_numbers = this.pr_numbers;
+
+							const pr_params = pull_request_numbers.map(x => "pr=" + x)
+							location.href = "/pr-batch-details.html?" + pr_params.join("&");
+						},
+					},
+				},
+			},
 		},
 		credits: {
 			enabled: false
 		},
 		series: series_list,
 	});
-}
-
-function list_prs(pr_numbers) {
-
-	const pr_params = pr_numbers.map(x => "pr=" + x)
-	window.location.href = "/pr-batch-details.html?" + pr_params.join("&");
 }
 
 

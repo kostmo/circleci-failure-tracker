@@ -56,8 +56,27 @@ function gen_pr_table(div_id, data) {
 }
 
 
+function populate_info_box(element_id, data) {
+
+	var total_pr_count = data.length;
+	var green_pr_count = 0;
+
+	for (var pr_object of data) {
+		if (pr_object.all_succeeded) {
+			green_pr_count += 1;
+		}
+	}
+
+	const html_content = render_tag("b", green_pr_count + "/" + total_pr_count) + " PRs were green upon merge";
+
+	$("#" + element_id).html(html_content);
+}
+
+
 function request_pull_requests(pr_numbers) {
 	getJsonWithThrobber("#throbber", "/api/pr-batch-list", {"pr-numbers-delimited": pr_numbers.join(",")}, function (data) {
+
+		populate_info_box("info-box", data);
 		gen_pr_table("container-pull-requests", data);
 	});
 }
