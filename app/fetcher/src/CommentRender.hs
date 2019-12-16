@@ -174,7 +174,10 @@ genBuildFailuresTable
         summary_info_pieces = [
             M.bold "Step:"
           , M.quote $ MatchOccurrences._build_step match_obj
-          , M.parens $ M.link "details" $ LT.toStrict webserverBaseUrl <> "/build-details.html?build_id=" <> T.pack (show ubuild_id)
+          , M.parens $ T.intercalate " | " [
+                M.link "full log" $ LT.toStrict webserverBaseUrl <> "/api/view-log-full?build_id=" <> T.pack (show ubuild_id)
+              , M.link "pattern match details" $ LT.toStrict webserverBaseUrl <> "/build-details.html?build_id=" <> T.pack (show ubuild_id)
+              ]
           ]
 
 
