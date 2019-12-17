@@ -39,6 +39,10 @@ codeInline :: Text -> Text
 codeInline = surround2 "`"
 
 
+codeInlineHtml :: Text -> Text
+codeInlineHtml = tagElement "code"
+
+
 sup :: Text -> Text
 sup = tagElement "sup"
 

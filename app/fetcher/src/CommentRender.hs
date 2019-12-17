@@ -39,6 +39,9 @@ webserverBaseUrl :: LT.Text
 webserverBaseUrl = "https://dr.pytorch.org"
 
 
+drCiIssueTrackerUrl = "https://github.com/kostmo/circleci-failure-tracker/issues"
+
+
 viableCommitsHistoryUrl = webserverBaseUrl <> "/master-viable-commits.html"
 
 
@@ -167,7 +170,7 @@ genBuildFailuresTable
           , M.parens $ T.pack $ MyUtils.renderFrac idx $ length non_upstream_breakages
           ]
       , T.unwords summary_info_pieces
-      ] <> M.detailsExpanderForCode (M.tagElement "code" $ MatchOccurrences._line_text match_obj) code_block_lines
+      ] <> M.detailsExpanderForCode (M.codeInlineHtml $ MatchOccurrences._line_text match_obj) code_block_lines
       where
         job_name = Builds.job_name build_obj
 
@@ -249,7 +252,8 @@ generateCommentMarkdown
       , M.parens "expand for details"
       ]
 
-    footer_section = M.detailsExpander dr_ci_attribution_line $ T.unlines $ intersperse "" footer_hidden_details
+    footer_section = M.detailsExpander dr_ci_attribution_line $ T.unlines $
+      intersperse "" footer_hidden_details
 
     footer_hidden_details = [
         M.sentence [
@@ -259,13 +263,13 @@ generateCommentMarkdown
           ]
       , M.sentence [
           "Please report bugs/suggestions on the"
-        , M.htmlLink "GitHub issue tracker" "https://github.com/kostmo/circleci-failure-tracker/issues"
+        , M.htmlLink "GitHub issue tracker" drCiIssueTrackerUrl
         ]
       ] ++ optional_suffix
 
     preliminary_lines_list = [
         T.unlines [
-          M.heading 2 "CircleCI build failures summary"
+          M.heading 2 "CircleCI build failures summary and remediations"
         , M.colonize [
             "As of commit"
           , T.take Constants.gitCommitPrefixLength sha1_text
@@ -342,32 +346,37 @@ genMetricsTreeVerbose
         ]
      ]
 
-    definite_older_rebase_advice_children = [
+    definite_older_rebase_advice_children =
         definite_older_commit_advice <> older_commit_codeblock
-      ]
 
-    maybe_newer_rebase_advice_children = [
-        newer_commit_advice <> newer_commit_codeblock
-      , possible_older_commit_advice <> older_commit_codeblock
-      ]
+    maybe_newer_rebase_advice_children =
+         newer_commit_advice
+      <> newer_commit_codeblock
+      <> possible_older_commit_advice
+      <> older_commit_codeblock
+
 
     rebase_advice_children = case ancestry_result of
       GadgitFetch.RefIsAncestor    -> definite_older_rebase_advice_children
       GadgitFetch.RefIsNotAncestor -> maybe_newer_rebase_advice_children
 
-    rebase_advice_intro = pure $ M.colonize [
-        "You may want to rebase on the"
-      , M.codeInline viableBranchName
-      , "branch"
-      , M.parens $ T.unwords [
-          "see its"
-        , M.link "recency history" $ LT.toStrict viableCommitsHistoryUrl
-        ]
+    rebase_advice_footer = pure $ M.sentence [
+        "See the"
+      , M.link "recency history" $ LT.toStrict viableCommitsHistoryUrl
+      , "of this"
+      , M.quote "viable master"
+      , "tracking branch"
       ]
 
-    rebase_advice_section = Tr.Node rebase_advice_intro $ map pure rebase_advice_children
+    rebase_advice_intro = T.unwords [
+        "You may want to rebase on the"
+      , M.codeInlineHtml viableBranchName
+      , "branch"
+      , M.parens "expand for instructions"
+      ]
 
-    upstream_breakage_bullet_children = [rebase_advice_section]
+    rebase_advice_section = M.detailsExpanderForCode rebase_advice_intro $ NE.toList $ rebase_advice_children <> rebase_advice_footer
+
 
     pre_broken_set = SqlUpdate.inferred_upstream_caused_broken_jobs pre_broken_info
     upstream_broken_count = length pre_broken_set
@@ -378,8 +387,7 @@ genMetricsTreeVerbose
 
     grid_view_url = genGridViewSha1Link 1 merge_base_commit Nothing
 
-    upstream_breakage_bullet_tree = Tr.Node (
-       pure $ T.unwords [
+    upstream_brokenness_declaration = T.unwords [
            bold_fraction upstream_broken_count total_failcount
          , "broken upstream at merge base"
          , T.take Constants.gitCommitPrefixLength merge_base_sha1_text
@@ -388,7 +396,10 @@ genMetricsTreeVerbose
            , M.link "grid view" grid_view_url
            ]
          ]
-       ) upstream_breakage_bullet_children
+
+    upstream_breakage_bullet_tree = pure $
+       upstream_brokenness_declaration :| rebase_advice_section
+
 
     optional_kb_metric = if null pre_broken_set
       then []
