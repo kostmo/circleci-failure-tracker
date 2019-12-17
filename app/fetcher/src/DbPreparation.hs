@@ -30,7 +30,6 @@ scanTruncations = [
   , "TRUNCATE pattern_tags CASCADE;"
   , "TRUNCATE pattern_authorship CASCADE;"
   , "TRUNCATE patterns CASCADE;"
-  , "TRUNCATE presumed_stable_branches CASCADE;"
   ]
 
 

@@ -717,8 +717,7 @@ apiPatternOccurrenceTimeline = do
         , "COUNT(*) AS occurrences"
         , "date_trunc('week', queued_at) AS week"
         ]
-      , "FROM best_pattern_match_augmented_builds"
-      , "WHERE branch IN (SELECT branch FROM presumed_stable_branches)"
+      , "FROM master_failures_raw_causes_mview"
       , "GROUP BY pattern_id, week"
       ]
 
