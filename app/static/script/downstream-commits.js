@@ -8,6 +8,13 @@ function gen_good_commits_table(element_id, data_url) {
 		},
 		{title: "Distance", field: "distance", width: 100,
 		},
+		{title: "PR #", field: "pr_number",
+			width: 75,
+			formatter: function(cell, formatterParams, onRendered) {
+				const pr_num = cell.getValue()
+				return pr_num == null ? "" : link(cell.getValue(), "https://github.com/pytorch/pytorch/pull/" + pr_num);
+			},
+		},
 	];
 
 	const table = new Tabulator("#" + element_id, {

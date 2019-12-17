@@ -929,23 +929,32 @@ apiDeterministicFailureModes = WebApi.ApiResponse <$> runQuery q
 
 
 data DownstreamCommitInfo = DownstreamCommitInfo {
-    _sha1     :: Builds.RawCommit
-  , _distance :: Int
+    _sha1      :: Builds.RawCommit
+  , _distance  :: Int
+  , _pr_number :: Maybe Int
   } deriving (Generic, FromRow)
 
 instance ToJSON DownstreamCommitInfo where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
-apiMasterDownstreamCommits :: Builds.RawCommit -> DbIO [DownstreamCommitInfo]
+apiMasterDownstreamCommits ::
+     Builds.RawCommit
+  -> DbIO [DownstreamCommitInfo]
 apiMasterDownstreamCommits (Builds.RawCommit sha1) = do
   conn <- ask
   liftIO $ query conn sql $ Only sha1
   where
   sql = Q.qjoin [
-      "SELECT branch_commit, distance"
+      "SELECT"
+    , Q.list [
+        "branch_commit"
+      , "distance"
+      , "pr_number"
+      ]
     , "FROM pr_merge_bases"
     , "WHERE master_commit = ?"
+    , "ORDER BY pr_number IS NULL"
     ]
 
 
