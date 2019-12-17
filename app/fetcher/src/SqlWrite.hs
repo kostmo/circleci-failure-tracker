@@ -57,6 +57,20 @@ import qualified SqlRead
 import qualified Webhooks
 
 
+pullRequestHeadsInsertionSql :: Query
+pullRequestHeadsInsertionSql = Q.qjoin [
+    "INSERT INTO pull_request_heads"
+  , Q.insertionValues [
+      "pr_number"
+    , "head_sha1"
+    , "from_webhook"
+    ]
+  , "ON CONFLICT"
+  , "ON CONSTRAINT pull_request_heads_pr_number_head_sha1_key"
+  , "DO UPDATE SET timestamp = NOW();"
+  ]
+
+
 sqlInsertUniversalBuild :: Query
 sqlInsertUniversalBuild = Q.qjoin [
     "INSERT INTO universal_builds"
@@ -279,37 +293,41 @@ updateMergedPullRequestHeadCommits conn = do
     let pr_head_eithers = map (first T.pack . sequenceA) pr_associations
         (unretrieved_pr_heads, retrieved_pr_heads) = partitionEithers pr_head_eithers
 
-    liftIO $ D.debugList [
-        "Retrieved"
-      , show $ length retrieved_pr_heads
-      , "out of"
-      , show $ length unmatched_pr_numbers
-      , "unassociated PR HEAD commits."
-      , show $ length unretrieved_pr_heads
-      , "were not available."
-      ]
+    liftIO $ do
+      D.debugList [
+          "Retrieved"
+        , show $ length retrieved_pr_heads
+        , "out of"
+        , show $ length unmatched_pr_numbers
+        , "unassociated PR HEAD commits."
+        , show $ length unretrieved_pr_heads
+        , "were not available."
+        ]
 
-    let deduped_insertion_records = nubSort $ map (\(Builds.PullRequestNumber x, Builds.RawCommit y) -> (x, y)) retrieved_pr_heads
-    inserted_count <- liftIO $ executeMany conn insertion_sql deduped_insertion_records
-
-    liftIO $ D.debugList [
-        "Inserted"
-      , show inserted_count
-      , "new rows into pull_request_heads table"
-      ]
+      insertPullRequestHeads conn False retrieved_pr_heads
 
     return retrieved_pr_heads
+
+
+insertPullRequestHeads ::
+     Connection
+  -> Bool -- ^ datasource was webhook notification
+  -> [(Builds.PullRequestNumber, Builds.RawCommit)]
+  -> IO Int64
+insertPullRequestHeads conn from_webhook retrieved_pr_heads = do
+
+  inserted_count <- executeMany conn pullRequestHeadsInsertionSql deduped_insertion_records
+
+  D.debugList [
+      "Inserted"
+    , show inserted_count
+    , "new rows into pull_request_heads table"
+    ]
+
+  return inserted_count
+
   where
-    insertion_sql = Q.qjoin [
-        "INSERT INTO pull_request_heads"
-      , Q.insertionValues [
-          "pr_number"
-        , "head_sha1"
-        ]
-      , "ON CONFLICT"
-      , "ON CONSTRAINT pull_request_heads_pr_number_head_sha1_key"
-      , "DO UPDATE SET timestamp = NOW();"
-      ]
+    deduped_insertion_records = nubSort $ map (\(Builds.PullRequestNumber x, Builds.RawCommit y) -> (x, y, from_webhook)) retrieved_pr_heads
 
 
 storeCachedMergeBases ::

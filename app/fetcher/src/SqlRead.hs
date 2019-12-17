@@ -1619,16 +1619,8 @@ getPullRequestsWithMissingHeads = do
   where
     sql = Q.qjoin [
         "SELECT"
-      , "mv.github_pr_number"
-      , "FROM master_ordered_commits_with_metadata_mview mv"
-      , "LEFT JOIN pull_request_heads"
-      , "ON pull_request_heads.pr_number = mv.github_pr_number"
-      , "WHERE"
-      , Q.qconjunction [
-          "github_pr_number IS NOT NULL"
-        , "pull_request_heads.pr_number IS NULL"
-        ]
-      , "ORDER BY mv.id DESC"
+      , "github_pr_number"
+      , "FROM pull_requests_with_missing_heads"
       ]
 
 

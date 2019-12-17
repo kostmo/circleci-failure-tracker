@@ -54,6 +54,7 @@ import qualified GithubApiFetch
 import qualified GitRev
 import qualified MatchOccurrences
 import qualified MyUtils
+import qualified PullRequestWebhooks
 import qualified PushWebhooks
 import qualified Scanning
 import qualified ScanPatterns
@@ -713,6 +714,35 @@ readGitHubStatusesAndScanAndPostSummaryForCommit
     NoScanLogs -> return ()
 
 
+handlePullRequestWebhook ::
+     DbHelpers.DbConnectionData
+  -> OAuth2.AccessToken
+  -> PullRequestWebhooks.GitHubPullRequestEvent
+  -> IO (Either LT.Text Int64)
+handlePullRequestWebhook
+    db_connection_data
+    _access_token
+    (PullRequestWebhooks.GitHubPullRequestEvent actn pr_number@(Builds.PullRequestNumber pr_num) pr_obj) = do
+
+  D.debugList [
+      "Got PR event for PR number"
+    , show pr_num
+    , "at head:"
+    , show pr_head_commit
+    , "for action:"
+    , LT.unpack actn
+    ]
+
+  insertion_count <- liftIO $ do
+    synchronous_conn <- DbHelpers.get_connection db_connection_data
+    SqlWrite.insertPullRequestHeads synchronous_conn True [(pr_number, pr_head_commit)]
+
+  return $ Right insertion_count
+
+  where
+    pr_head_commit = PullRequestWebhooks.sha $ PullRequestWebhooks.head pr_obj
+
+
 handlePushWebhook ::
      DbHelpers.DbConnectionData
   -> OAuth2.AccessToken
@@ -924,6 +954,24 @@ githubEventEndpoint connection_data github_config = do
               body_json
 
           S.json =<< return ["Will post?" :: String, show will_post]
+
+
+        "pull_request" -> do
+          body_json <- S.jsonData
+
+          liftIO $ do
+            D.debugList [
+                "Parsed 'pull_request' event body JSON at"
+              , show current_time
+              ]
+
+            handlePullRequestWebhook
+              connection_data
+              (AuthConfig.personal_access_token github_config)
+              body_json
+
+            D.debugStr "Handled pull_request event."
+          S.json =<< return ["hello" :: String]
 
         "push" -> do
           body_json <- S.jsonData
