@@ -115,7 +115,8 @@ genBuildFailuresTable
     (upstream_breakages, non_upstream_breakages) = partition (\x -> Set.member (get_job_name_from_build_with_log_context x) pre_broken_set) pattern_matched_builds
 
     pattern_matched_header = M.heading 3 $ T.unwords [
-        MyUtils.pluralize (length non_upstream_breakages) "new failure"
+        ":detective:"
+      , MyUtils.pluralize (length non_upstream_breakages) "new failure"
       , "recognized by patterns"
       ]
 
@@ -133,7 +134,8 @@ genBuildFailuresTable
         <> matched_builds_details_block
 
     upstream_matched_header = M.heading 3 $ M.colonize [
-        MyUtils.pluralize (length upstream_breakages) "upstream failure"
+        ":construction:"
+      , MyUtils.pluralize (length upstream_breakages) "upstream failure"
       , "recognized by patterns"
       ]
 
@@ -269,7 +271,7 @@ generateCommentMarkdown
 
     preliminary_lines_list = [
         T.unlines [
-          M.heading 2 "CircleCI build failures summary and remediations"
+          M.heading 2 ":pill: CircleCI build failures summary and remediations"
         , M.colonize [
             "As of commit"
           , T.take Constants.gitCommitPrefixLength sha1_text
