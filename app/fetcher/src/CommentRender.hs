@@ -363,7 +363,7 @@ genMetricsTreeVerbose
       GadgitFetch.RefIsNotAncestor -> maybe_newer_rebase_advice_children
 
     rebase_advice_footer = pure $ M.sentence [
-        "See the"
+        "Check out the"
       , M.link "recency history" $ LT.toStrict viableCommitsHistoryUrl
       , "of this"
       , M.quote "viable master"

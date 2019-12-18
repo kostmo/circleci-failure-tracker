@@ -608,7 +608,7 @@ postCommitSummaryStatusInner
 
   post_pr_comment_and_store = do
 
-    containing_pr_list <- ExceptT $ first LT.pack <$> GadgitFetch.getContainingPRs sha1
+    containing_pr_list <- lookupPullRequestsByHeadCommit conn sha1
 
     when (null containing_pr_list) $
       liftIO $ D.debugList [
@@ -647,6 +647,20 @@ postCommitSummaryStatusInner
           , "--- skipping!"
           ]
         return 0
+
+
+-- | Falls back to Gadgit webservice if database lookup did not find anything
+lookupPullRequestsByHeadCommit ::
+     Connection
+  -> Builds.RawCommit
+  -> ExceptT LT.Text IO [Builds.PullRequestNumber]
+lookupPullRequestsByHeadCommit conn sha1 = do
+
+  found_prs <- liftIO $ runReaderT (SqlRead.getPullRequestsByCurrentHead sha1) conn
+
+  if null found_prs
+    then ExceptT $ first LT.pack <$> GadgitFetch.getContainingPRs sha1
+    else return found_prs
 
 
 -- | whether to store second-level build records for "success" status
@@ -733,9 +747,11 @@ handlePullRequestWebhook
     , LT.unpack actn
     ]
 
-  insertion_count <- liftIO $ do
-    synchronous_conn <- DbHelpers.get_connection db_connection_data
-    SqlWrite.insertPullRequestHeads synchronous_conn True [(pr_number, pr_head_commit)]
+  insertion_count <- if "synchronize" == actn
+    then liftIO $ do
+      synchronous_conn <- DbHelpers.get_connection db_connection_data
+      SqlWrite.insertPullRequestHeads synchronous_conn True [(pr_number, pr_head_commit)]
+    else return 0
 
   return $ Right insertion_count
 

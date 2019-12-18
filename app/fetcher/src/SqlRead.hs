@@ -1624,6 +1624,24 @@ getPullRequestsWithMissingHeads = do
       ]
 
 
+getPullRequestsByCurrentHead ::
+     Builds.RawCommit
+  -> DbIO [Builds.PullRequestNumber]
+getPullRequestsByCurrentHead (Builds.RawCommit commit_sha1) = do
+  conn <- ask
+  liftIO $ do
+    xs <- query conn sql $ Only commit_sha1
+    return $ map (\(Only x) -> Builds.PullRequestNumber x) xs
+  where
+
+    sql = Q.qjoin [
+        "SELECT"
+      , "pr_number"
+      , "FROM pr_current_heads"
+      , "WHERE head_sha1 = ?"
+      ]
+
+
 getAllMasterCommitPullRequests :: DbIO [MasterCommitAndSourcePr]
 getAllMasterCommitPullRequests = runQuery $ Q.qjoin [
     "SELECT"
