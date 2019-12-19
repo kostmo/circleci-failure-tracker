@@ -1633,7 +1633,6 @@ getPullRequestsByCurrentHead (Builds.RawCommit commit_sha1) = do
     xs <- query conn sql $ Only commit_sha1
     return $ map (\(Only x) -> Builds.PullRequestNumber x) xs
   where
-
     sql = Q.qjoin [
         "SELECT"
       , "pr_number"
@@ -2375,6 +2374,7 @@ data PostedPRComment = PostedPRComment {
     _pr_number      :: Int
   , _comment_id     :: Int64
   , _revision_id    :: Int64
+  , _sha1           :: Builds.RawCommit
   , _body           :: Text
   , _created_at     :: UTCTime
   , _updated_at     :: UTCTime
@@ -2397,6 +2397,7 @@ getPostedCommentForPR (Builds.PullRequestNumber pr_number) = do
           "pr_number"
         , "comment_id"
         , "id"
+        , "sha1"
         , "body"
         , "created_at"
         , "updated_at"

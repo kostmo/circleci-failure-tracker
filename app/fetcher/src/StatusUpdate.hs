@@ -70,6 +70,9 @@ import qualified Webhooks
 viableBranchName = "viable/strict"
 
 
+pullRequestEventActionSynchronize = "synchronize"
+
+
 -- | For auto-commenting feature
 {-
 whitelistedPRAuthors :: [Text]
@@ -379,7 +382,10 @@ fetchCommitPageInfo _pre_broken_info sha1 validated_sha1 = runExceptT $ do
   DbHelpers.BenchmarkedResponse _ revision_builds <- ExceptT $ SqlRead.getRevisionBuilds validated_sha1
 
   matched_builds_with_log_context <- for revision_builds $ \x -> do
-    ExceptT $ (fmap . fmap) (CommitBuilds.BuildWithLogContext x) $ SqlRead.logContextFunc 0 (MatchOccurrences._match_id $ CommitBuilds._match x) CommentRender.pullRequestCommentsLogContextLineCount
+    ExceptT $ (fmap . fmap) (CommitBuilds.BuildWithLogContext x) $
+      SqlRead.logContextFunc 0
+        (MatchOccurrences._match_id $ CommitBuilds._match x)
+        CommentRender.pullRequestCommentsLogContextLineCount
 
   liftIO $ D.debugStr "Fetching unmatched commit builds..."
 
@@ -545,65 +551,6 @@ postCommitSummaryStatusInner
     return ()
 
 
-  post_initial_comment ancestry_result pr_number = do
-    comment_post_result <- ExceptT $ ApiPost.postPullRequestComment
-      access_token
-      owned_repo
-      pr_number
-      pr_comment_text
-
-    liftIO $ SqlWrite.insertPostedGithubComment
-      conn
-      owned_repo
-      sha1
-      pr_number
-      comment_post_result
-    where
-      pr_comment_text = CommentRender.generateCommentMarkdown
-        Nothing
-        build_summary_stats
-        ancestry_result
-        commit_page_info
-        sha1
-
-
-  update_comment_or_fallback ancestry_result pr_number previous_pr_comment = do
-
-    either_comment_update_result <- liftIO $ ApiPost.updatePullRequestComment
-      access_token
-      owned_repo
-      comment_id
-      pr_comment_text
-
-    case either_comment_update_result of
-      Right comment_update_result ->
-        liftIO $ SqlWrite.modifyPostedGithubComment
-          conn
-          sha1
-          comment_update_result
-
-      -- If the comment was deleted, we need to re-post one.
-      Left "Not Found" -> do
-        liftIO $ D.debugStr "Comment was deleted. Posting a new one..."
-
-        -- Mark our database entry as stale
-        liftIO $ SqlWrite.markPostedGithubCommentAsDeleted conn comment_id
-
-        post_initial_comment ancestry_result pr_number
-
-      Left other_failure_message -> except $ Left other_failure_message
-
-    where
-      pr_comment_text = CommentRender.generateCommentMarkdown
-        (Just previous_pr_comment)
-        build_summary_stats
-        ancestry_result
-        commit_page_info
-        sha1
-
-      comment_id = ApiPost.CommentId $ SqlRead._comment_id previous_pr_comment
-
-
   Builds.RawCommit merge_base_commit_text = SqlUpdate.merge_base upstream_breakages_info
 
   post_pr_comment_and_store = do
@@ -619,14 +566,33 @@ postCommitSummaryStatusInner
     ancestry_result <- ExceptT $ fmap (first LT.pack) $ GadgitFetch.getIsAncestor $
       GadgitFetch.RefAncestryProposition merge_base_commit_text viableBranchName
 
+    let middle_sections = CommentRender.generateMiddleSections
+          ancestry_result
+          build_summary_stats
+          commit_page_info
+          sha1
+
     for_ containing_pr_list $ \pr_number ->
       handleCommentPostingOptOut pr_number $ do
         maybe_previous_pr_comment <- liftIO $ runReaderT (SqlRead.getPostedCommentForPR pr_number) conn
 
         case maybe_previous_pr_comment of
-          Nothing -> post_initial_comment ancestry_result pr_number
-          Just previous_pr_comment -> update_comment_or_fallback ancestry_result pr_number previous_pr_comment
+          Nothing -> postInitialComment
+            access_token
+            owned_repo
+            conn
+            sha1
+            middle_sections
+            pr_number
 
+          Just previous_pr_comment -> updateCommentOrFallback
+            access_token
+            owned_repo
+            conn
+            sha1
+            middle_sections
+            pr_number
+            previous_pr_comment
 
   handleCommentPostingOptOut pr_number f = do
     pr_author <- fetchAndCachePrAuthor conn access_token pr_number
@@ -661,6 +627,132 @@ lookupPullRequestsByHeadCommit conn sha1 = do
   if null found_prs
     then ExceptT $ first LT.pack <$> GadgitFetch.getContainingPRs sha1
     else return found_prs
+
+
+postInitialComment ::
+     OAuth2.AccessToken
+  -> DbHelpers.OwnerAndRepo
+  -> Connection
+  -> Builds.RawCommit
+  -> [Text]
+  -> Builds.PullRequestNumber
+  -> ExceptT LT.Text IO Int64
+postInitialComment
+    access_token
+    owned_repo
+    conn
+    sha1
+    pr_comment_middle_sections
+    pr_number = do
+
+  comment_post_result <- ExceptT $ ApiPost.postPullRequestComment
+    access_token
+    owned_repo
+    pr_number
+    pr_comment_text
+
+  liftIO $ SqlWrite.insertPostedGithubComment
+    conn
+    owned_repo
+    sha1
+    pr_number
+    comment_post_result
+
+  where
+    pr_comment_text = CommentRender.generateCommentMarkdown
+      Nothing
+      pr_comment_middle_sections
+      sha1
+
+
+updateCommentOrFallback ::
+     OAuth2.AccessToken
+  -> DbHelpers.OwnerAndRepo
+  -> Connection
+  -> Builds.RawCommit
+  -> [Text]
+  -> Builds.PullRequestNumber
+  -> SqlRead.PostedPRComment
+  -> ExceptT LT.Text IO Int64
+updateCommentOrFallback
+    access_token
+    owned_repo
+    conn
+    sha1
+    middle_sections
+    pr_number
+    previous_pr_comment = do
+
+  either_comment_update_result <- liftIO $ ApiPost.updatePullRequestComment
+    access_token
+    owned_repo
+    comment_id
+    pr_comment_text
+
+  case either_comment_update_result of
+    Right comment_update_result ->
+      liftIO $ SqlWrite.modifyPostedGithubComment
+        conn
+        sha1
+        comment_update_result
+
+    -- If the comment was deleted, we need to re-post one.
+    Left "Not Found" -> do
+      liftIO $ D.debugStr "Comment was deleted. Posting a new one..."
+
+      -- Mark our database entry as stale
+      liftIO $ SqlWrite.markPostedGithubCommentAsDeleted conn comment_id
+
+      postInitialComment
+        access_token
+        owned_repo
+        conn
+        sha1
+        middle_sections
+        pr_number
+
+    Left other_failure_message -> except $ Left other_failure_message
+
+  where
+    pr_comment_text = CommentRender.generateCommentMarkdown
+      (Just previous_pr_comment)
+      middle_sections
+      sha1
+
+    comment_id = ApiPost.CommentId $ SqlRead._comment_id previous_pr_comment
+
+
+wipeCommentForUpdatedPr ::
+     OAuth2.AccessToken
+  -> DbHelpers.OwnerAndRepo
+  -> Connection
+  -> SqlRead.PostedPRComment
+  -> Builds.PullRequestNumber
+  -> Builds.RawCommit
+  -> ExceptT LT.Text IO ()
+wipeCommentForUpdatedPr
+    access_token
+    owned_repo
+    conn
+    previous_pr_comment
+    pr_number
+    new_pr_head_commit@(Builds.RawCommit sha1_text) = do
+
+  updateCommentOrFallback
+    access_token
+    owned_repo
+    conn
+    new_pr_head_commit
+    [middle_sections]
+    pr_number
+    previous_pr_comment
+
+  return ()
+  where
+    middle_sections = T.unwords [
+        "Waiting for builds of commit"
+      , T.take Constants.gitCommitPrefixLength sha1_text
+      ]
 
 
 -- | whether to store second-level build records for "success" status
@@ -704,11 +796,11 @@ readGitHubStatusesAndScanAndPostSummaryForCommit
     D.debugList ["Processing at", show current_time]
 
   (scannable_build_numbers, _circleci_failcount) <- getBuildsFromGithub
-      conn
-      access_token
-      owned_repo
-      should_store_second_level_success_records
-      sha1
+    conn
+    access_token
+    owned_repo
+    should_store_second_level_success_records
+    sha1
 
   liftIO $ D.debugList ["Finished getBuildsFromGithub"]
 
@@ -735,28 +827,52 @@ handlePullRequestWebhook ::
   -> IO (Either LT.Text Int64)
 handlePullRequestWebhook
     db_connection_data
-    _access_token
+    access_token
     (PullRequestWebhooks.GitHubPullRequestEvent actn pr_number@(Builds.PullRequestNumber pr_num) pr_obj) = do
 
   D.debugList [
       "Got PR event for PR number"
     , show pr_num
     , "at head:"
-    , show pr_head_commit
+    , show new_pr_head_commit
     , "for action:"
     , LT.unpack actn
     ]
 
-  insertion_count <- if "synchronize" == actn
-    then liftIO $ do
+  insertion_count <- if pullRequestEventActionSynchronize == actn
+    then do
       synchronous_conn <- DbHelpers.get_connection db_connection_data
-      SqlWrite.insertPullRequestHeads synchronous_conn True [(pr_number, pr_head_commit)]
+
+      (maybe_old_pr_comment, pr_heads_insertion_count) <- flip runReaderT synchronous_conn $ do
+        a1 <- SqlRead.getPostedCommentForPR pr_number
+
+        a2 <- SqlWrite.insertPullRequestHeads True [(pr_number, new_pr_head_commit)]
+        return (a1, a2)
+
+      case maybe_old_pr_comment of
+        Nothing -> return $ Right ()
+        Just previous_comment@(SqlRead.PostedPRComment _ _ _ comment_sha1 _ _ _ _) -> do
+          if comment_sha1 /= new_pr_head_commit
+          then runExceptT $
+
+            wipeCommentForUpdatedPr
+              access_token
+              Constants.pytorchOwnedRepo
+              synchronous_conn
+              previous_comment
+              pr_number
+              new_pr_head_commit
+
+           else return $ pure ()
+
+      return pr_heads_insertion_count
+
     else return 0
 
   return $ Right insertion_count
 
   where
-    pr_head_commit = PullRequestWebhooks.sha $ PullRequestWebhooks.head pr_obj
+    new_pr_head_commit = PullRequestWebhooks.sha $ PullRequestWebhooks.head pr_obj
 
 
 handlePushWebhook ::

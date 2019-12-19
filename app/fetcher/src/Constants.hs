@@ -7,6 +7,7 @@ import           Data.List       (intercalate)
 import           Data.Text       (Text)
 
 import qualified AuthStages
+import qualified DbHelpers
 
 
 printDebug :: Bool
@@ -40,6 +41,12 @@ projectName = "pytorch"
 
 repoName :: String
 repoName = "pytorch"
+
+
+pytorchOwnedRepo :: DbHelpers.OwnerAndRepo
+pytorchOwnedRepo = DbHelpers.OwnerAndRepo
+  projectName
+  repoName
 
 
 circleci_api_base :: String

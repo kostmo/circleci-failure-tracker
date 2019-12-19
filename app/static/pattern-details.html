@@ -25,6 +25,23 @@
 
 <div id="patterns-table"></div>
 
+<h2>Remediation details</h2>
+<p>This section is applicable for highly-specific patterns that have a GitHub issue to track them.</p>
+
+<form onsubmit="return submit_remediation_details(this);">
+
+<label>Notes: <input id="input-remediation-notes" type="text"/></label>
+<br/>
+
+<label>GitHub Issue number: <input id="input-remediation-issue-number" type="number" size="6"/></label>
+<br/>
+
+<label>Info URL: <input id="input-remediation-info-url" type="text"/></label>
+<br/>
+
+<input type="submit"/>
+</form>
+
 <h2>Best matches</h2>
 <p>
 This shows only the "highest-specificity" pattern match for a build.  If there are multiple lines matching for that pattern, the first is shown.

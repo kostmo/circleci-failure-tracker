@@ -918,6 +918,28 @@ CREATE VIEW public.master_commits_contiguously_indexed AS
 ALTER TABLE public.master_commits_contiguously_indexed OWNER TO postgres;
 
 --
+-- Name: pull_request_heads; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.pull_request_heads (
+    head_sha1 character(40) NOT NULL,
+    id integer NOT NULL,
+    "timestamp" timestamp with time zone DEFAULT now() NOT NULL,
+    pr_number integer NOT NULL,
+    from_webhook boolean DEFAULT false NOT NULL
+);
+
+
+ALTER TABLE public.pull_request_heads OWNER TO postgres;
+
+--
+-- Name: TABLE pull_request_heads; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.pull_request_heads IS 'tracks the current commit as well as the evolution over time (including rebases) of a pull request';
+
+
+--
 -- Name: pr_merge_bases; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -928,10 +950,12 @@ CREATE VIEW public.pr_merge_bases WITH (security_barrier='false') AS
     cached_master_merge_base.distance,
     master_commits_basic_metadata.id,
     m1.sha1,
-    master_commits_basic_metadata.committer_date
-   FROM ((public.cached_master_merge_base
+    master_commits_basic_metadata.committer_date,
+    pull_request_heads.pr_number
+   FROM (((public.cached_master_merge_base
      JOIN public.master_commits_basic_metadata ON ((cached_master_merge_base.master_commit = master_commits_basic_metadata.sha1)))
      LEFT JOIN public.ordered_master_commits m1 ON ((m1.sha1 = cached_master_merge_base.branch_commit)))
+     LEFT JOIN public.pull_request_heads ON ((pull_request_heads.head_sha1 = cached_master_merge_base.branch_commit)))
   WHERE (m1.sha1 IS NULL)
   ORDER BY master_commits_basic_metadata.id DESC;
 
@@ -1580,35 +1604,20 @@ CREATE TABLE public.code_breakage_affected_jobs (
 ALTER TABLE public.code_breakage_affected_jobs OWNER TO postgres;
 
 --
--- Name: pull_request_heads; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.pull_request_heads (
-    head_sha1 character(40) NOT NULL,
-    id integer NOT NULL,
-    "timestamp" timestamp with time zone DEFAULT now() NOT NULL,
-    pr_number integer NOT NULL
-);
-
-
-ALTER TABLE public.pull_request_heads OWNER TO postgres;
-
---
--- Name: TABLE pull_request_heads; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON TABLE public.pull_request_heads IS 'tracks the current commit as well as the evolution over time (including rebases) of a pull request';
-
-
---
 -- Name: pr_current_heads; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.pr_current_heads AS
- SELECT DISTINCT ON (pull_request_heads.pr_number) pull_request_heads.pr_number,
+CREATE VIEW public.pr_current_heads WITH (security_barrier='false') AS
+ SELECT pull_request_heads.pr_number,
     pull_request_heads.head_sha1,
-    pull_request_heads."timestamp"
-   FROM public.pull_request_heads
+    pull_request_heads."timestamp",
+    foo.update_count
+   FROM (( SELECT pull_request_heads_1.pr_number,
+            count(*) AS update_count,
+            max(pull_request_heads_1.id) AS max_id
+           FROM public.pull_request_heads pull_request_heads_1
+          GROUP BY pull_request_heads_1.pr_number) foo
+     JOIN public.pull_request_heads ON ((pull_request_heads.id = foo.max_id)))
   ORDER BY pull_request_heads.pr_number, pull_request_heads.id DESC;
 
 
@@ -1827,22 +1836,6 @@ CREATE VIEW public.build_failure_disjoint_causes_by_commit WITH (security_barrie
 
 
 ALTER TABLE public.build_failure_disjoint_causes_by_commit OWNER TO postgres;
-
---
--- Name: build_failure_elaborations; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.build_failure_elaborations (
-    universal_build integer NOT NULL,
-    author text NOT NULL,
-    created_at timestamp with time zone,
-    notes text,
-    github_issue_number integer,
-    info_url text
-);
-
-
-ALTER TABLE public.build_failure_elaborations OWNER TO postgres;
 
 --
 -- Name: build_steps_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
@@ -2610,6 +2603,44 @@ ALTER TABLE public.downstream_build_failures_from_upstream_inferred_breakages OW
 COMMENT ON VIEW public.downstream_build_failures_from_upstream_inferred_breakages IS 'This view is different from "upstream_downstream_builds" in that it uses the inferred breakage spans (from a materialized view).
 
 The query performance is good.';
+
+
+--
+-- Name: failure_remediations; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.failure_remediations (
+    author text NOT NULL,
+    id integer NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    notes text,
+    github_issue_number integer,
+    info_url text
+);
+
+
+ALTER TABLE public.failure_remediations OWNER TO postgres;
+
+--
+-- Name: failure_remediations_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.failure_remediations_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.failure_remediations_id_seq OWNER TO postgres;
+
+--
+-- Name: failure_remediations_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.failure_remediations_id_seq OWNED BY public.failure_remediations.id;
 
 
 --
@@ -4705,24 +4736,6 @@ CREATE VIEW public.pr_merge_time_failing_builds_by_week WITH (security_barrier='
 ALTER TABLE public.pr_merge_time_failing_builds_by_week OWNER TO postgres;
 
 --
--- Name: presumed_stable_branches; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.presumed_stable_branches (
-    branch text NOT NULL
-);
-
-
-ALTER TABLE public.presumed_stable_branches OWNER TO postgres;
-
---
--- Name: TABLE presumed_stable_branches; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON TABLE public.presumed_stable_branches IS 'A (small) list of branches that are presumed to be stable.  That is, the branch is "policed" for human-caused breakages.  Such breakages are annotated and reverted ASAP.';
-
-
---
 -- Name: provider_build_numbers_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
 --
 
@@ -4764,6 +4777,60 @@ ALTER TABLE public.pull_request_heads_id_seq OWNER TO postgres;
 --
 
 ALTER SEQUENCE public.pull_request_heads_id_seq OWNED BY public.pull_request_heads.id;
+
+
+--
+-- Name: pull_requests_with_missing_heads; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.pull_requests_with_missing_heads AS
+ SELECT mv.github_pr_number
+   FROM (public.master_ordered_commits_with_metadata_mview mv
+     LEFT JOIN public.pull_request_heads ON ((pull_request_heads.pr_number = mv.github_pr_number)))
+  WHERE ((mv.github_pr_number IS NOT NULL) AND (pull_request_heads.pr_number IS NULL))
+  ORDER BY mv.id DESC;
+
+
+ALTER TABLE public.pull_requests_with_missing_heads OWNER TO postgres;
+
+--
+-- Name: VIEW pull_requests_with_missing_heads; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.pull_requests_with_missing_heads IS 'NOTE: It is OK that this query references the "pull_request_heads" table directly instead of "pr_current_heads", because we are only checking for the *existence* of pull requests in the "pull_request_heads" table; it doesn''t matter which head is associated with a given PR.';
+
+
+--
+-- Name: remediations_builds; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.remediations_builds (
+    universal_build integer NOT NULL,
+    remediation integer NOT NULL
+);
+
+
+ALTER TABLE public.remediations_builds OWNER TO postgres;
+
+--
+-- Name: remediations_patterns; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.remediations_patterns (
+    pattern integer NOT NULL,
+    remediation integer NOT NULL
+);
+
+
+ALTER TABLE public.remediations_patterns OWNER TO postgres;
+
+--
+-- Name: TABLE remediations_patterns; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.remediations_patterns IS 'Sister table: "remediations_builds"
+
+Some patterns are specific enough that a github issue is dedicated to them.';
 
 
 --
@@ -5151,6 +5218,13 @@ ALTER TABLE ONLY public.created_pull_request_comment_revisions ALTER COLUMN id S
 
 
 --
+-- Name: failure_remediations id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.failure_remediations ALTER COLUMN id SET DEFAULT nextval('public.failure_remediations_id_seq'::regclass);
+
+
+--
 -- Name: github_incoming_status_events id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
@@ -5267,11 +5341,11 @@ ALTER TABLE ONLY public.match_failure_elaborations
 
 
 --
--- Name: build_failure_elaborations build_failure_elaborations_pkey1; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: remediations_builds build_failure_elaborations_pkey1; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY public.build_failure_elaborations
-    ADD CONSTRAINT build_failure_elaborations_pkey1 PRIMARY KEY (universal_build);
+ALTER TABLE ONLY public.remediations_builds
+    ADD CONSTRAINT build_failure_elaborations_pkey1 PRIMARY KEY (universal_build, remediation);
 
 
 --
@@ -5443,6 +5517,14 @@ ALTER TABLE ONLY public.created_pull_request_comments
 
 
 --
+-- Name: failure_remediations failure_remediations_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.failure_remediations
+    ADD CONSTRAINT failure_remediations_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: github_incoming_status_events_derived_circleci_columns github_incoming_status_events_derived_circleci_columns_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5563,14 +5645,6 @@ ALTER TABLE ONLY public.pr_comment_posting_opt_outs
 
 
 --
--- Name: presumed_stable_branches presumed_stable_branches_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.presumed_stable_branches
-    ADD CONSTRAINT presumed_stable_branches_pkey PRIMARY KEY (branch);
-
-
---
 -- Name: provider_build_numbers provider_build_numbers_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5608,6 +5682,14 @@ ALTER TABLE ONLY public.pull_request_heads
 
 ALTER TABLE ONLY public.pull_request_static_metadata
     ADD CONSTRAINT pull_request_static_metadata_pkey PRIMARY KEY (pr_number);
+
+
+--
+-- Name: remediations_patterns remediations_patterns_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.remediations_patterns
+    ADD CONSTRAINT remediations_patterns_pkey PRIMARY KEY (pattern, remediation);
 
 
 --
@@ -5815,6 +5897,13 @@ CREATE INDEX fki_fk_provider_num ON public.provider_build_numbers USING btree (p
 
 
 --
+-- Name: fki_fk_remediation_id; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX fki_fk_remediation_id ON public.remediations_builds USING btree (remediation);
+
+
+--
 -- Name: fki_fk_required_job; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -5892,10 +5981,24 @@ CREATE INDEX fki_fk_yaml_sha1_from_workflow ON public.circleci_workflows_by_yaml
 
 
 --
+-- Name: fki_i; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX fki_i ON public.remediations_patterns USING btree (remediation);
+
+
+--
 -- Name: fki_idx_comment_id; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE INDEX fki_idx_comment_id ON public.created_pull_request_comment_revisions USING btree (comment_id);
+
+
+--
+-- Name: fki_idx_remed_patterns; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX fki_idx_remed_patterns ON public.remediations_patterns USING btree (pattern);
 
 
 --
@@ -6167,10 +6270,10 @@ ALTER TABLE ONLY public.match_failure_elaborations
 
 
 --
--- Name: build_failure_elaborations build_failure_elaborations_universal_build_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+-- Name: remediations_builds build_failure_elaborations_universal_build_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY public.build_failure_elaborations
+ALTER TABLE ONLY public.remediations_builds
     ADD CONSTRAINT build_failure_elaborations_universal_build_fkey FOREIGN KEY (universal_build) REFERENCES public.universal_builds(id) NOT VALID;
 
 
@@ -6287,6 +6390,22 @@ ALTER TABLE ONLY public.provider_build_numbers
 
 
 --
+-- Name: remediations_patterns fk_remed; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.remediations_patterns
+    ADD CONSTRAINT fk_remed FOREIGN KEY (remediation) REFERENCES public.failure_remediations(id) NOT VALID;
+
+
+--
+-- Name: remediations_builds fk_remediation_id; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.remediations_builds
+    ADD CONSTRAINT fk_remediation_id FOREIGN KEY (remediation) REFERENCES public.failure_remediations(id) ON DELETE CASCADE NOT VALID;
+
+
+--
 -- Name: circleci_config_job_dependencies fk_required_job; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -6380,6 +6499,14 @@ ALTER TABLE ONLY public.circleci_workflows_by_yaml_file
 
 ALTER TABLE ONLY public.github_incoming_status_events_derived_circleci_columns
     ADD CONSTRAINT github_incoming_status_events_derived_circleci_co_event_id_fkey FOREIGN KEY (event_id) REFERENCES public.github_incoming_status_events(id) NOT VALID;
+
+
+--
+-- Name: remediations_patterns idx_remed_patterns; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.remediations_patterns
+    ADD CONSTRAINT idx_remed_patterns FOREIGN KEY (pattern) REFERENCES public.patterns(id) NOT VALID;
 
 
 --
@@ -6772,6 +6899,13 @@ GRANT ALL ON TABLE public.master_commits_contiguously_indexed TO logan;
 
 
 --
+-- Name: TABLE pull_request_heads; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.pull_request_heads TO logan;
+
+
+--
 -- Name: TABLE pr_merge_bases; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -6966,13 +7100,6 @@ GRANT ALL ON TABLE public.code_breakage_affected_jobs TO logan;
 
 
 --
--- Name: TABLE pull_request_heads; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.pull_request_heads TO logan;
-
-
---
 -- Name: TABLE pr_current_heads; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -7033,14 +7160,6 @@ GRANT ALL ON TABLE public.build_failure_causes_disjoint TO logan;
 --
 
 GRANT ALL ON TABLE public.build_failure_disjoint_causes_by_commit TO logan;
-
-
---
--- Name: TABLE build_failure_elaborations; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.build_failure_elaborations TO logan;
-GRANT SELECT ON TABLE public.build_failure_elaborations TO materialized_view_updater;
 
 
 --
@@ -7259,6 +7378,14 @@ GRANT SELECT ON TABLE public.master_job_failure_spans_conservative_mview TO post
 
 GRANT ALL ON TABLE public.downstream_build_failures_from_upstream_inferred_breakages TO logan;
 GRANT SELECT ON TABLE public.downstream_build_failures_from_upstream_inferred_breakages TO materialized_view_updater;
+
+
+--
+-- Name: TABLE failure_remediations; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.failure_remediations TO logan;
+GRANT SELECT ON TABLE public.failure_remediations TO materialized_view_updater;
 
 
 --
@@ -7788,13 +7915,6 @@ GRANT SELECT ON TABLE public.pr_merge_time_failing_builds_by_week TO materialize
 
 
 --
--- Name: TABLE presumed_stable_branches; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.presumed_stable_branches TO logan;
-
-
---
 -- Name: SEQUENCE provider_build_numbers_id_seq; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -7806,6 +7926,30 @@ GRANT ALL ON SEQUENCE public.provider_build_numbers_id_seq TO logan;
 --
 
 GRANT ALL ON SEQUENCE public.pull_request_heads_id_seq TO logan;
+
+
+--
+-- Name: TABLE pull_requests_with_missing_heads; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.pull_requests_with_missing_heads TO logan;
+GRANT SELECT ON TABLE public.pull_requests_with_missing_heads TO materialized_view_updater;
+
+
+--
+-- Name: TABLE remediations_builds; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.remediations_builds TO logan;
+GRANT SELECT ON TABLE public.remediations_builds TO materialized_view_updater;
+
+
+--
+-- Name: TABLE remediations_patterns; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.remediations_patterns TO logan;
+GRANT SELECT ON TABLE public.remediations_patterns TO materialized_view_updater;
 
 
 --

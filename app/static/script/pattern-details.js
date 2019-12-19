@@ -102,11 +102,31 @@ function gen_best_matches_table(pattern_id) {
 }
 
 
-function main() {
+function submit_remediation_details(form_element) {
+
+	const pattern_id = get_pattern_id();
+	const data_dict = {
+		"pattern_id": pattern_id,
+		"notes": $("#input-remediation-notes").val(),
+		"github_issue_number": $("#input-remediation-issue-number").val(),
+		"info_url": $("#input-remediation-info-url").val(),
+	};
+
+	post_modification("/api/create-pattern-remediation", data_dict);
+
+	return false;
+}
+
+
+function get_pattern_id() {
 
 	const urlParams = new URLSearchParams(window.location.search);
-	const pattern_id = urlParams.get('pattern_id');
+	return urlParams.get('pattern_id');
+}
 
+
+function main() {
+	const pattern_id = get_pattern_id();
         gen_patterns_table(pattern_id, false, []);
 
         gen_best_matches_table(pattern_id);

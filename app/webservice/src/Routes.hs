@@ -170,6 +170,12 @@ scottyApp
         <$> S.param "cause_id"
         <*> S.param "mode"
 
+  S.post "/api/create-pattern-remediation" $
+    withAuth $
+      SqlWrite.createPatternRemediation
+        <$> (ScanPatterns.PatternId <$> S.param "pattern_id")
+        <*> parseRemediationObject
+
   get "/api/latest-master-commit-with-metadata" $
     pure $ WebApi.toJsonEither <$> SqlRead.getLatestMasterCommitWithMetadata
 
@@ -568,6 +574,19 @@ scottyApp
     logger_domain_identifier = if AuthConfig.is_local github_config
       then "localhost"
       else "dr.pytorch.org"
+
+
+parseRemediationObject :: ScottyTypes.ActionT LT.Text IO SqlWrite.FailureRemediation
+parseRemediationObject = do
+
+  notes <- S.param "notes"
+  github_issue_number <- S.param "github_issue_number"
+  info_url <- S.param "info_url"
+
+  return $ SqlWrite.FailureRemediation
+    (Just notes)
+    (Just github_issue_number)
+    (Just info_url)
 
 
 parseTimeRangeParms :: ScottyTypes.ActionT LT.Text IO SqlRead.TimeRange

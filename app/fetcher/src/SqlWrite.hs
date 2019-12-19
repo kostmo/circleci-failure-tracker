@@ -167,6 +167,9 @@ storeCommitMetadata conn commit_list =
 -- to the master branch.
 --
 -- Therefore, this cache of merge bases never needs to be invalidated.
+--
+-- This function does check the database cache before querying
+-- the repo.
 findMasterAncestorWithPrecomputation ::
      Maybe (Set Builds.RawCommit)
      -- ^ all master commits; passing this in can save time in a loop
@@ -304,30 +307,31 @@ updateMergedPullRequestHeadCommits conn = do
         , "were not available."
         ]
 
-      insertPullRequestHeads conn False retrieved_pr_heads
+      runReaderT (insertPullRequestHeads False retrieved_pr_heads) conn
 
     return retrieved_pr_heads
 
 
 insertPullRequestHeads ::
-     Connection
-  -> Bool -- ^ datasource was webhook notification
+     Bool -- ^ datasource was webhook notification
   -> [(Builds.PullRequestNumber, Builds.RawCommit)]
-  -> IO Int64
-insertPullRequestHeads conn from_webhook retrieved_pr_heads = do
+  -> SqlRead.DbIO Int64
+insertPullRequestHeads from_webhook retrieved_pr_heads = do
+  conn <- ask
+  liftIO $ do
+    inserted_count <- executeMany conn pullRequestHeadsInsertionSql deduped_insertion_records
 
-  inserted_count <- executeMany conn pullRequestHeadsInsertionSql deduped_insertion_records
+    D.debugList [
+        "Inserted"
+      , show inserted_count
+      , "new rows into pull_request_heads table"
+      ]
 
-  D.debugList [
-      "Inserted"
-    , show inserted_count
-    , "new rows into pull_request_heads table"
-    ]
-
-  return inserted_count
+    return inserted_count
 
   where
-    deduped_insertion_records = nubSort $ map (\(Builds.PullRequestNumber x, Builds.RawCommit y) -> (x, y, from_webhook)) retrieved_pr_heads
+    f (Builds.PullRequestNumber x, Builds.RawCommit y) = (x, y, from_webhook)
+    deduped_insertion_records = nubSort $ map f retrieved_pr_heads
 
 
 storeCachedMergeBases ::
@@ -732,6 +736,57 @@ storeBuildsList conn maybe_provider_scan_id builds_list = do
         ]
       ]
     -}
+
+
+data FailureRemediation = FailureRemediation {
+    notes               :: Maybe Text
+  , github_issue_number :: Maybe Int
+  , info_url            :: Maybe Text
+  }
+
+
+createPatternRemediation ::
+     ScanPatterns.PatternId
+  -> FailureRemediation
+  -> SqlRead.AuthDbIO (Either Text Int64)
+createPatternRemediation
+    (ScanPatterns.PatternId pattern_id)
+    (FailureRemediation maybe_notes maybe_github_issue_number maybe_info_url) = do
+
+  SqlRead.AuthConnection conn (AuthStages.Username author) <- ask
+  liftIO $ do
+    [Only new_remediation_id] <- query conn remediation_insertion_sql (
+        author
+      , maybe_notes
+      , maybe_github_issue_number
+      , maybe_info_url
+      )
+
+    execute conn pattern_assoc_insertion_sql (
+        new_remediation_id
+      , pattern_id
+      )
+
+    return $ Right new_remediation_id
+  where
+    remediation_insertion_sql = Q.qjoin [
+        "INSERT INTO failure_remediations"
+      , Q.insertionValues [
+          "author"
+        , "notes"
+        , "github_issue_number"
+        , "info_url"
+        ]
+      , "RETURNING id;"
+      ]
+
+    pattern_assoc_insertion_sql = Q.qjoin [
+        "INSERT INTO remediations_patterns"
+      , Q.insertionValues [
+          "remediation"
+        , "pattern"
+        ]
+      ]
 
 
 storeScanRecord ::

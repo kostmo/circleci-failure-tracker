@@ -69,7 +69,7 @@ mainAppCode args = do
   blah2 <- SqlUpdate.findKnownBuildBreakages
       conn
       oauth_access_token
-      owned_repo
+      Constants.pytorchOwnedRepo
       raw_commit
 
   let upstream_breakages_info = fromRight (error "BAD3") blah2
@@ -93,16 +93,19 @@ mainAppCode args = do
       GadgitFetch.RefAncestryProposition merge_base_commit_text StatusUpdate.viableBranchName
   let ancestry_result = fromRight (error "BAD5") blah4
 
+      middle_sections = CommentRender.generateMiddleSections
+        ancestry_result
+        build_summary_stats
+        commit_page_info
+        raw_commit
+
 
   putStrLn $ T.unpack $
 --    T.unlines $ CommentRender.genBuildFailuresTable commit_page_info build_summary_stats
     CommentRender.generateCommentMarkdown
       Nothing
-      build_summary_stats
-      ancestry_result
-      commit_page_info
+      middle_sections
       raw_commit
-
 
 
   putStrLn "============================="
@@ -132,7 +135,6 @@ mainAppCode args = do
 
   where
     git_repo_dir = repoGitDir args
-    owned_repo = DbHelpers.OwnerAndRepo Constants.projectName Constants.repoName
 
     oauth_access_token = OAuth2.AccessToken $ gitHubPersonalAccessToken args
 
