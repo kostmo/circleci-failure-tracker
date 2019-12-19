@@ -52,6 +52,7 @@ import qualified DebugUtils                    as D
 import qualified GadgitFetch
 import qualified GithubApiFetch
 import qualified GitRev
+import qualified Markdown                      as M
 import qualified MatchOccurrences
 import qualified MyUtils
 import qualified PullRequestWebhooks
@@ -749,9 +750,10 @@ wipeCommentForUpdatedPr
 
   return ()
   where
-    middle_sections = T.unwords [
-        "Waiting for builds of commit"
+    middle_sections = M.italic $ T.unwords [
+        "Commit"
       , T.take Constants.gitCommitPrefixLength sha1_text
+      , "was recently pushed. Waiting for builds..."
       ]
 
 

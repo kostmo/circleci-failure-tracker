@@ -1929,21 +1929,12 @@ getRevisionBuilds git_revision = do
       ]
 
 
-apiGetMasterCommits ::
+getMasterCommits ::
      Pagination.ParentOffsetMode
   -> DbIO (Either Text (DbHelpers.InclusiveNumericBounds Int64, [BuildResults.IndexedRichCommit]))
-apiGetMasterCommits parent_offset_mode = do
+getMasterCommits parent_offset_mode = do
   conn <- ask
-  liftIO $ getMasterCommits conn parent_offset_mode
-
-
-getMasterCommits ::
-     Connection
-  -> Pagination.ParentOffsetMode
-  -> IO (Either Text (DbHelpers.InclusiveNumericBounds Int64, [BuildResults.IndexedRichCommit]))
-getMasterCommits conn parent_offset_mode =
-
-  case parent_offset_mode of
+  liftIO $ case parent_offset_mode of
     Pagination.CommitIndices bounds@(DbHelpers.InclusiveNumericBounds minbound maxbound) -> do
 
       rows <- liftIO $ query conn sql_commit_id_bounds (minbound, maxbound)
@@ -2907,11 +2898,18 @@ apiLatestViableMasterCommitLagCountHistory weeks_count end_time = do
 
 
 getBreakageSpans ::
-     Connection
-  -> DbHelpers.InclusiveNumericBounds Int64
-  -> IO [BuildResults.JobFailureSpan]
-getBreakageSpans conn commit_id_bounds =
-  query conn job_failure_spans_sql parms_tuple
+     DbHelpers.InclusiveNumericBounds Int64
+  -> DbIO [BuildResults.JobFailureSpan]
+getBreakageSpans commit_id_bounds = do
+  conn <- ask
+  liftIO $ do
+    D.debugList [
+        "SQL:"
+      , show job_failure_spans_sql
+      , "PARMS:"
+      , show parms_tuple
+      ]
+    query conn job_failure_spans_sql parms_tuple
   where
     bounds_tuple = DbHelpers.boundsAsTuple commit_id_bounds
     parms_tuple = (fst bounds_tuple, snd bounds_tuple, fst bounds_tuple, snd bounds_tuple)
@@ -2944,7 +2942,7 @@ apiMasterBuilds timeline_parms = do
 
     liftIO $ putStrLn "FOO A"
     (commits_list_time, (commit_id_bounds, master_commits)) <- D.timeThisFloat $
-      ExceptT $ getMasterCommits conn $ Pagination.offset_mode timeline_parms
+      ExceptT $ runReaderT (getMasterCommits $ Pagination.offset_mode timeline_parms) conn
 
     liftIO $ putStrLn "FOO B"
 
@@ -2955,8 +2953,8 @@ apiMasterBuilds timeline_parms = do
 
     liftIO $ putStrLn "FOO C"
 
-    (builds_list_time, completed_builds) <- D.timeThisFloat $
-      liftIO $ query conn builds_list_sql commit_bounds_tuple
+    (job_failure_spans_time, job_failure_spans) <- D.timeThisFloat $
+      liftIO $ runReaderT (getBreakageSpans commit_id_bounds) conn
 
     liftIO $ putStrLn "FOO D"
 
@@ -2965,8 +2963,8 @@ apiMasterBuilds timeline_parms = do
 
     liftIO $ putStrLn "FOO E"
 
-    (job_failure_spans_time, job_failure_spans) <- D.timeThisFloat $
-      liftIO $ getBreakageSpans conn commit_id_bounds
+    (builds_list_time, completed_builds) <- D.timeThisFloat $
+      liftIO $ query conn builds_list_sql commit_bounds_tuple
 
     liftIO $ putStrLn "FOO F"
 

@@ -373,7 +373,7 @@ scottyApp
       <*> S.param "last_index"
 
   get "/api/master-commits" $
-    fmap WebApi.toJsonEither . ((fmap . fmap . fmap) snd SqlRead.apiGetMasterCommits) <$> FrontendHelpers.getSimpleOffsetMode
+    fmap WebApi.toJsonEither . ((fmap . fmap . fmap) snd SqlRead.getMasterCommits) <$> FrontendHelpers.getSimpleOffsetMode
 
   get "/api/master-timeline" $
     fmap WebApi.toJsonEither . SqlRead.apiMasterBuilds <$> FrontendHelpers.getOffsetMode

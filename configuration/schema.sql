@@ -2734,6 +2734,20 @@ CREATE VIEW public.github_status_events_window_functions WITH (security_barrier=
 ALTER TABLE public.github_status_events_window_functions OWNER TO postgres;
 
 --
+-- Name: global_builds_supplemental_github_notification_success; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.global_builds_supplemental_github_notification_success AS
+ SELECT COALESCE(github_status_events_circleci_success.sha1, global_builds.vcs_revision) AS sha1,
+    COALESCE(github_status_events_circleci_success.job_name_extracted, global_builds.job_name) AS job_name,
+    COALESCE(global_builds.succeeded, (github_status_events_circleci_success.sha1 IS NOT NULL)) AS succeeded
+   FROM (public.global_builds
+     FULL JOIN public.github_status_events_circleci_success ON (((github_status_events_circleci_success.sha1 = global_builds.vcs_revision) AND (github_status_events_circleci_success.job_name_extracted = global_builds.job_name))));
+
+
+ALTER TABLE public.global_builds_supplemental_github_notification_success OWNER TO postgres;
+
+--
 -- Name: idiopathic_build_failures; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -7414,6 +7428,14 @@ GRANT ALL ON TABLE public.github_status_events_aggregate_circleci_failures TO lo
 --
 
 GRANT ALL ON TABLE public.github_status_events_window_functions TO logan;
+
+
+--
+-- Name: TABLE global_builds_supplemental_github_notification_success; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.global_builds_supplemental_github_notification_success TO logan;
+GRANT SELECT ON TABLE public.global_builds_supplemental_github_notification_success TO materialized_view_updater;
 
 
 --

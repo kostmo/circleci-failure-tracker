@@ -148,6 +148,11 @@ sentence ::  [Text] -> Text
 sentence = terminate "."
 
 
+-- | Adds an ellipsis at the end of a list of words.
+ellipsize ::  [Text] -> Text
+ellipsize = terminate "..."
+
+
 -- | Adds a colon at the end of a list of words.
 colonize ::  [Text] -> Text
 colonize = terminate ":"
