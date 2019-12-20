@@ -242,7 +242,7 @@ function load_job_failure_details(job_name, commit_id_min, commit_id_max) {
 }
 
 
-function gen_patterns_table(element_id, data_payload, height_string) {
+function gen_pattern_matches_table(element_id, data_payload, height_string) {
 
 	const column_list = [
 		{title: "Pattern expression", field: "expression", 
@@ -413,7 +413,7 @@ function requery_by_pattern_table(query_args_dict) {
 				const commit_count = max_commit_number - min_commit_number + 1;
 			}
 
-			gen_patterns_table("isolated-failures-by-pattern-table", data.payload, 200);
+			gen_pattern_matches_table("isolated-failures-by-pattern-table", data.payload, 200);
 
 		} else {
 			alert("error: " + data.error);

@@ -50,7 +50,7 @@ function render_relative_time(cell) {
 }
 
 
-function gen_patterns_table(pattern_id, used_presumed_stable_branches, filtered_branches) {
+function gen_patterns_table(pattern_id) {
 
 	// Note the plural ("s")
 	var api_endpoint_url = "/api/patterns";

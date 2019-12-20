@@ -59,7 +59,7 @@ mainAppCode args = do
 
 
 
-  let commit_sha1_text = "1c6d7505adf51db267a0b27724028fb0c73ecbdd"
+  let commit_sha1_text = "5be8f33bd75c5d18d85950bf148ada2bcc5e2546"
       raw_commit = Builds.RawCommit commit_sha1_text
       validated_sha1 = fromRight (error "BAD") $ GitRev.validateSha1 commit_sha1_text
 

@@ -172,7 +172,7 @@ genBuildFailuresTable
           , M.parens $ T.pack $ MyUtils.renderFrac idx $ length non_upstream_breakages
           ]
       , T.unwords summary_info_pieces
-      ] <> M.detailsExpanderForCode (M.codeInlineHtml $ MatchOccurrences._line_text match_obj) code_block_lines
+      ] <> M.detailsExpanderForCode (M.codeInlineHtml $ sanitizeLongLine $ MatchOccurrences._line_text match_obj) code_block_lines
       where
         job_name = Builds.job_name build_obj
 
@@ -198,7 +198,6 @@ genBuildFailuresTable
           circleCIBuildUrlPrefix <> T.pack (show provider_build_number)
 
 
---renderLogLineTuple tup = T.pack (show $ fst tup) <> ") " <> (sanitizeLongLine . LT.toStrict . snd) tup
 renderLogLineTuple = sanitizeLongLine . LT.toStrict . snd
 
 
@@ -438,7 +437,7 @@ genMetricsTreeVerbose
       then [
         Tr.Node (pure $ T.unwords [
             bold_fraction flaky_count total_failcount
-          , "recognized as flaky"
+          , "recognized as flaky :snowflake:"
           ]) [pure $ pure "Re-run these jobs?"]
         ]
       else []

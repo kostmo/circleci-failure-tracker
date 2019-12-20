@@ -127,7 +127,7 @@ function get_pattern_id() {
 
 function main() {
 	const pattern_id = get_pattern_id();
-        gen_patterns_table(pattern_id, false, []);
+        gen_patterns_table(pattern_id);
 
         gen_best_matches_table(pattern_id);
         gen_all_matches_table(pattern_id);
