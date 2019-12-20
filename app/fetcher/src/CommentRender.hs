@@ -348,7 +348,7 @@ genMetricsTreeVerbose
       ]
 
     older_commit_codeblock = M.codeBlock $
-      ("git fetch " <> viableBranchName) :| ["git rebase " <> viableBranchName]
+      ("git fetch origin " <> viableBranchName) :| ["git rebase " <> viableBranchName]
 
     newer_commit_advice = pure $ M.colonize [
         M.commaize [
@@ -359,7 +359,7 @@ genMetricsTreeVerbose
       ]
 
     newer_commit_codeblock = M.codeBlock $
-      ("git fetch " <> viableBranchName) :| [
+      ("git fetch origin " <> viableBranchName) :| [
       T.unwords [
           "git rebase --onto"
         , viableBranchName

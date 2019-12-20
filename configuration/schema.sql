@@ -3,7 +3,7 @@
 --
 
 -- Dumped from database version 10.6
--- Dumped by pg_dump version 12.0 (Ubuntu 12.0-2.pgdg18.04+1)
+-- Dumped by pg_dump version 12.1 (Ubuntu 12.1-1.pgdg18.04+1)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -2483,6 +2483,24 @@ CREATE VIEW public.disjoint_circleci_build_statuses WITH (security_barrier='fals
 ALTER TABLE public.disjoint_circleci_build_statuses OWNER TO postgres;
 
 --
+-- Name: global_builds_supplemental_github_notification_success; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.global_builds_supplemental_github_notification_success WITH (security_barrier='false') AS
+ SELECT foo.sha1,
+    foo.job_name,
+    bool_or(foo.succeeded) AS succeeded
+   FROM ( SELECT COALESCE(github_status_events_circleci_success.sha1, global_builds.vcs_revision) AS sha1,
+            COALESCE(github_status_events_circleci_success.job_name_extracted, global_builds.job_name) AS job_name,
+            COALESCE(global_builds.succeeded, (github_status_events_circleci_success.sha1 IS NOT NULL)) AS succeeded
+           FROM (public.global_builds
+             FULL JOIN public.github_status_events_circleci_success ON (((github_status_events_circleci_success.sha1 = global_builds.vcs_revision) AND (github_status_events_circleci_success.job_name_extracted = global_builds.job_name))))) foo
+  GROUP BY foo.sha1, foo.job_name;
+
+
+ALTER TABLE public.global_builds_supplemental_github_notification_success OWNER TO postgres;
+
+--
 -- Name: master_job_failure_spans_conservative; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -2534,13 +2552,13 @@ CREATE VIEW public.master_job_failure_spans_conservative WITH (security_barrier=
                    FROM ( SELECT master_commits_contiguously_indexed.id,
                             master_commits_contiguously_indexed.sha1,
                             master_commits_contiguously_indexed.commit_number,
-                            global_builds.job_name,
-                            global_builds.succeeded,
-                            (global_builds.succeeded <> lag(global_builds.succeeded) OVER (PARTITION BY global_builds.job_name ORDER BY master_commits_contiguously_indexed.id)) AS forward_edge_transition,
-                            (global_builds.succeeded <> lead(global_builds.succeeded) OVER (PARTITION BY global_builds.job_name ORDER BY master_commits_contiguously_indexed.id)) AS backward_edge_transition
-                           FROM (public.global_builds
-                             JOIN public.master_commits_contiguously_indexed ON ((global_builds.vcs_revision = master_commits_contiguously_indexed.sha1)))
-                          ORDER BY master_commits_contiguously_indexed.id, global_builds.job_name) foo
+                            global_builds_supplemental_github_notification_success.job_name,
+                            global_builds_supplemental_github_notification_success.succeeded,
+                            (global_builds_supplemental_github_notification_success.succeeded <> lag(global_builds_supplemental_github_notification_success.succeeded) OVER (PARTITION BY global_builds_supplemental_github_notification_success.job_name ORDER BY master_commits_contiguously_indexed.id)) AS forward_edge_transition,
+                            (global_builds_supplemental_github_notification_success.succeeded <> lead(global_builds_supplemental_github_notification_success.succeeded) OVER (PARTITION BY global_builds_supplemental_github_notification_success.job_name ORDER BY master_commits_contiguously_indexed.id)) AS backward_edge_transition
+                           FROM (public.global_builds_supplemental_github_notification_success
+                             JOIN public.master_commits_contiguously_indexed ON ((global_builds_supplemental_github_notification_success.sha1 = master_commits_contiguously_indexed.sha1)))
+                          ORDER BY master_commits_contiguously_indexed.id, global_builds_supplemental_github_notification_success.job_name) foo
                   WHERE (foo.forward_edge_transition OR foo.backward_edge_transition)) bar
           WHERE (NOT bar.succeeded)) blah
   WHERE blah.forward_edge_transition;
@@ -2732,20 +2750,6 @@ CREATE VIEW public.github_status_events_window_functions WITH (security_barrier=
 
 
 ALTER TABLE public.github_status_events_window_functions OWNER TO postgres;
-
---
--- Name: global_builds_supplemental_github_notification_success; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.global_builds_supplemental_github_notification_success AS
- SELECT COALESCE(github_status_events_circleci_success.sha1, global_builds.vcs_revision) AS sha1,
-    COALESCE(github_status_events_circleci_success.job_name_extracted, global_builds.job_name) AS job_name,
-    COALESCE(global_builds.succeeded, (github_status_events_circleci_success.sha1 IS NOT NULL)) AS succeeded
-   FROM (public.global_builds
-     FULL JOIN public.github_status_events_circleci_success ON (((github_status_events_circleci_success.sha1 = global_builds.vcs_revision) AND (github_status_events_circleci_success.job_name_extracted = global_builds.job_name))));
-
-
-ALTER TABLE public.global_builds_supplemental_github_notification_success OWNER TO postgres;
 
 --
 -- Name: idiopathic_build_failures; Type: VIEW; Schema: public; Owner: postgres
@@ -7371,6 +7375,14 @@ GRANT SELECT ON TABLE public.disjoint_circleci_build_statuses TO materialized_vi
 
 
 --
+-- Name: TABLE global_builds_supplemental_github_notification_success; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.global_builds_supplemental_github_notification_success TO logan;
+GRANT SELECT ON TABLE public.global_builds_supplemental_github_notification_success TO materialized_view_updater;
+
+
+--
 -- Name: TABLE master_job_failure_spans_conservative; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -7428,14 +7440,6 @@ GRANT ALL ON TABLE public.github_status_events_aggregate_circleci_failures TO lo
 --
 
 GRANT ALL ON TABLE public.github_status_events_window_functions TO logan;
-
-
---
--- Name: TABLE global_builds_supplemental_github_notification_success; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.global_builds_supplemental_github_notification_success TO logan;
-GRANT SELECT ON TABLE public.global_builds_supplemental_github_notification_success TO materialized_view_updater;
 
 
 --

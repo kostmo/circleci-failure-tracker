@@ -497,6 +497,8 @@ postCommitSummaryStatusInner
 
   liftIO $ D.debugStr "Checkpoint G"
 
+
+----- TODO Disable this
   case maybe_previously_posted_status of
     Nothing -> when (circleci_failcount > 0) post_and_store
     Just previous_state_description_tuple ->
