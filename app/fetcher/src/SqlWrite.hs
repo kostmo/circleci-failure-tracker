@@ -1032,36 +1032,6 @@ insertReceivedGithubStatus conn (Webhooks.GitHubStatusEvent sha name description
       ]
 
 
-insertPostedGithubStatus ::
-     Connection
-  -> Builds.RawCommit
-  -> DbHelpers.OwnerAndRepo
-  -> ApiPost.StatusPostResult
-  -> IO Int64
-insertPostedGithubStatus conn (Builds.RawCommit git_sha1) (DbHelpers.OwnerAndRepo owner repo) (ApiPost.StatusPostResult id url state desc target_url context created_at updated_at) = do
-
-  [Only record_id] <- query conn sql (id, git_sha1, owner, repo, url, state, desc, target_url, context, created_at, updated_at)
-  return record_id
-  where
-    sql = Q.qjoin [
-        "INSERT INTO created_github_statuses"
-      , Q.insertionValues [
-          "id"
-        , "sha1"
-        , "project"
-        , "repo"
-        , "url"
-        , "state"
-        , "description"
-        , "target_url"
-        , "context"
-        , "created_at"
-        , "updated_at"
-        ]
-      , "RETURNING id;"
-      ]
-
-
 commentBodyInsertionSql = Q.qjoin [
     "INSERT INTO created_pull_request_comment_revisions"
   , Q.insertionValues [

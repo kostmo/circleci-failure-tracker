@@ -6,7 +6,6 @@
 module ApiPost where
 
 import           Control.Lens               hiding ((<.>))
-import           Control.Monad.IO.Class     (liftIO)
 import           Control.Monad.Trans.Except (ExceptT (ExceptT), except,
                                              runExceptT)
 import           Data.Aeson                 (FromJSON, ToJSON, eitherDecode,
@@ -14,7 +13,6 @@ import           Data.Aeson                 (FromJSON, ToJSON, eitherDecode,
 import           Data.Bifunctor             (first)
 import           Data.List                  (intercalate)
 import           Data.Text                  (Text)
-import qualified Data.Text                  as T
 import           Data.Text.Encoding         (encodeUtf8)
 import qualified Data.Text.Lazy             as LT
 import           Data.Time                  (UTCTime)
@@ -26,68 +24,7 @@ import           Network.Wreq               as NW
 
 import qualified Builds
 import qualified DbHelpers
-import qualified DebugUtils                 as D
 import qualified FetchHelpers
-import qualified StatusEvent
-
-
-data StatusPostResult = StatusPostResult {
-    id          :: Int64
-  , url         :: Text
-  , state       :: Text
-  , description :: Text
-  , target_url  :: Text
-  , context     :: Text
-  , created_at  :: UTCTime
-  , updated_at  :: UTCTime
-  } deriving (Generic, Show)
-
-instance FromJSON StatusPostResult
-
-
-postCommitStatus ::
-     OAuth2.AccessToken
-  -> DbHelpers.OwnerAndRepo
-  -> Builds.RawCommit
-  -> StatusEvent.GitHubStatusEventSetter
-  -> IO (Either LT.Text StatusPostResult)
-postCommitStatus
-    (OAuth2.AccessToken personal_access_token)
-    owned_repo
-    (Builds.RawCommit target_sha1)
-    status_obj = runExceptT $ do
-
-  liftIO $ D.debugList [
-      "Posting to URL:"
-    , url_string
-    , "with json object"
-    , show json_status_obj
-    ]
-
-  either_response <- liftIO $ FetchHelpers.safeGetUrl $
-    NW.postWith opts url_string json_status_obj
-
-  {-
-  liftIO $ D.debugList [
-      "either_response:"
-    , show either_response
-    ]
-  -}
-
-  response <- except $ first LT.pack either_response
-
-  except $ first LT.pack $ eitherDecode $ NC.responseBody response
-
-  where
-    json_status_obj = toJSON status_obj
-    opts = NW.defaults
-      & NW.header "Authorization" .~ ["token " <> encodeUtf8 personal_access_token]
-
-    url_string = intercalate "/" [
-        DbHelpers.githubRepoApiPrefix owned_repo
-      , "statuses"
-      , T.unpack target_sha1
-      ]
 
 
 -- | Do not use newtype; we don't want to collapse single field
@@ -96,7 +33,6 @@ data CommentBodyContainer = CommentBodyContainer {
   } deriving (Generic, Show)
 
 instance ToJSON CommentBodyContainer
-
 
 
 data CommentPostResult = CommentPostResult {

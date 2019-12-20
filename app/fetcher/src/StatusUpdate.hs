@@ -19,7 +19,7 @@ import           Control.Monad.Trans.Reader    (runReaderT)
 import           Data.Bifunctor                (first)
 import qualified Data.ByteString.Lazy          as LBS
 import           Data.Foldable                 (for_)
-import           Data.List                     (filter, intercalate)
+import           Data.List                     (filter)
 import           Data.List.Split               (splitOn)
 import qualified Data.Maybe                    as Maybe
 import qualified Data.Set                      as Set
@@ -62,7 +62,6 @@ import qualified ScanPatterns
 import qualified SqlRead
 import qualified SqlUpdate
 import qualified SqlWrite
-import qualified StatusEvent
 import qualified StatusEventQuery
 import qualified StatusUpdateTypes
 import qualified Webhooks
@@ -492,25 +491,17 @@ postCommitSummaryStatusInner
 
   liftIO $ D.debugStr "Checkpoint F"
 
-  maybe_previously_posted_status <- liftIO $
-    runReaderT (SqlRead.getPostedGithubStatus owned_repo sha1) conn
 
-  liftIO $ D.debugStr "Checkpoint G"
-
-
------ TODO Disable this
-  case maybe_previously_posted_status of
-    Nothing -> when (circleci_failcount > 0) post_and_store
-    Just previous_state_description_tuple ->
-      when (previous_state_description_tuple /= new_state_description_tuple)
-        post_and_store
-
-  liftIO $ D.debugStr "Checkpoint H"
+  -- XXX Is the following still applicable??
+  --
+  -- We're examining statuses on both failed and successful
+  -- build notifications, which can add up to a lot of activity.
+  -- We only should re-post our summary status if it will change what
+  -- was already posted, since we don't want GitHub to throttle our requests.
 
   post_pr_comment_and_store
 
   where
-  circleci_failcount = length circleci_fail_joblist
   build_summary_stats = StatusUpdateTypes.NewBuildSummaryStats
     flaky_count
     upstream_breakages_info
@@ -524,35 +515,6 @@ postCommitSummaryStatusInner
   builds_with_flaky_pattern_matches = filter flaky_predicate scan_matches
 
   flaky_count = length builds_with_flaky_pattern_matches
-  status_setter_data = genFlakinessStatus sha1 build_summary_stats
-
-
-  new_state_description_tuple = (
-      LT.toStrict $ StatusEvent._state status_setter_data
-    , LT.toStrict $ StatusEvent._description status_setter_data
-    )
-
-  -- We're examining statuses on both failed and successful
-  -- build notifications, which can add up to a lot of activity.
-  -- We only should re-post our summary status if it will change what
-  -- was already posted, since we don't want GitHub to throttle our requests.
-
-  post_and_store = do
-
-    post_result <- ExceptT $ ApiPost.postCommitStatus
-      access_token
-      owned_repo
-      sha1
-      status_setter_data
-
-    liftIO $ SqlWrite.insertPostedGithubStatus
-      conn
-      sha1
-      owned_repo
-      post_result
-
-    return ()
-
 
   Builds.RawCommit merge_base_commit_text = SqlUpdate.merge_base upstream_breakages_info
 
@@ -1013,42 +975,6 @@ handleStatusWebhook
 
     is_not_my_own_context = notified_status_context_text /= myAppStatusContext
     sha1 = Builds.RawCommit $ LT.toStrict $ Webhooks.sha status_event
-
-
-genCompactMetricsList (StatusUpdateTypes.NewBuildSummaryStats flaky_count (SqlUpdate.UpstreamBreakagesInfo _ _ pre_broken) total_failcount) = [
-    show flaky_count <> "/" <> show (length total_failcount) <> " flaky"
-  ] ++ optional_kb_metric ++ failures_introduced_in_pull_request
-  where
-    optional_kb_metric = if null pre_broken
-      then []
-      else [show (length pre_broken) <> "/" <> show (length total_failcount) <> " broken upstream"]
-
-    broken_in_pr_count = length total_failcount - length pre_broken
-    failures_introduced_in_pull_request = [show broken_in_pr_count <> "/" <> show (length total_failcount) <> " new failures"]
-
-
-genFlakinessStatus ::
-     Builds.RawCommit
-  -> StatusUpdateTypes.BuildSummaryStats
-  -> StatusEvent.GitHubStatusEventSetter
-genFlakinessStatus (Builds.RawCommit sha1) build_summary_stats =
-
-  StatusEvent.GitHubStatusEventSetter
-    description
-    status_string
-    (CommentRender.webserverBaseUrl <> "/commit-details.html?sha1=" <> LT.fromStrict sha1)
-    (LT.fromStrict myAppStatusContext)
-
-  where
-    description = LT.pack $ unwords [
---        "(deprecated)"
-        "(experimental)"
-      , intercalate ", " $ genCompactMetricsList build_summary_stats
-      ]
-
-    status_string = if StatusUpdateTypes.flaky_count build_summary_stats == length (StatusUpdateTypes.total_circleci_fail_joblist build_summary_stats)
-      then gitHubStatusSuccessString
-      else gitHubStatusFailureString
 
 
 githubEventEndpoint ::
