@@ -178,17 +178,15 @@ gen_matched_build_section total_count idx build_with_log_context = [
   ] <> M.detailsExpanderForCode single_match_line code_block_lines
 
   where
-    (CommitBuilds.BuildWithLogContext (CommitBuilds.NewCommitBuild storable_build match_obj _ _) (CommitBuilds.LogContext _ log_lines)) = build_with_log_context
+    (CommitBuilds.BuildWithLogContext (CommitBuilds.NewCommitBuild storable_build match_obj _ failure_mode) (CommitBuilds.LogContext _ log_lines)) = build_with_log_context
 
     single_match_line = M.codeInlineHtml $ sanitizeLongLine $ MatchOccurrences._line_text match_obj
     Builds.StorableBuild (DbHelpers.WithId ubuild_id universal_build) build_obj = storable_build
 
     job_name = Builds.job_name build_obj
 
-    -- TODO
-    optional_flakiness_indicator = if True
---    optional_flakiness_indicator = if ScanPatterns.is_flaky xxxxx
-      then []
+    optional_flakiness_indicator = if CommitBuilds._is_flaky failure_mode
+      then [":snowflake:"]
       else []
 
     summary_info_pieces = [
