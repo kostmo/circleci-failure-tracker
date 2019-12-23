@@ -123,7 +123,7 @@ getBuildInfo access_token build@(Builds.UniversalBuildId build_id) = do
 
       -- TODO Replace this!
       (breakages_retrieval_timing, UpstreamBreakagesInfo _ breakages _) <- D.timeThisFloat $ ExceptT $
-        findKnownBuildBreakages conn access_token pytorchRepoOwner sha1
+        flip runReaderT conn $ findKnownBuildBreakages access_token pytorchRepoOwner sha1
 
       let applicable_breakages = filter (Set.member job_name . SqlRead._jobs . DbHelpers.record) breakages
 
@@ -229,7 +229,7 @@ countRevisionBuilds access_token git_revision = do
 
     -- TODO Replace this
     (known_broken_determination_time, UpstreamBreakagesInfo _ breakages _) <- D.timeThisFloat $ ExceptT $
-      findKnownBuildBreakages conn access_token pytorchRepoOwner $ Builds.RawCommit sha1
+      flip runReaderT conn $ findKnownBuildBreakages access_token pytorchRepoOwner $ Builds.RawCommit sha1
 
     return $ DbHelpers.BenchmarkedResponse
       (RevisionBuildCountBenchmarks row_retrieval_time known_broken_determination_time) $
@@ -265,65 +265,16 @@ countRevisionBuilds access_token git_revision = do
       ]
 
 
--- TODO This is not finished!
-diagnoseCommitsBatch ::
-     Connection
-  -> OAuth2.AccessToken
-  -> DbHelpers.OwnerAndRepo
-  -> IO (Either Text ())
-diagnoseCommitsBatch conn access_token owned_repo =
-
-  runExceptT $ do
-
-    -- First, ensure knowledge of "master" branch lineage
-    -- is up-to-date
-    ExceptT $ SqlWrite.populateLatestMasterCommits conn access_token owned_repo
-
-    non_master_uncached_failed_commits <- liftIO $ query_ conn commit_list_sql
-
-
-    all_master_commits <- liftIO $ SqlRead.getAllMasterCommits conn
-
-    -- NOTE: Some subset of these may be accessible from
-    -- the local repo. We can make a first path with the
-    -- local repo and then obtain the rest via the GitHub API.
-    liftIO $ SqlWrite.cacheAllMergeBases
-      conn
-      all_master_commits
-      access_token
-      owned_repo
-      non_master_uncached_failed_commits
-
-
---    mapM_ (ExceptT . findKnownBuildBreakages conn access_token owned_repo) sha1_list
-
-  where
-    -- Excludes commits from the master branch and commits that are already cached
-    commit_list_sql = Q.qjoin [
-        "SELECT DISTINCT vcs_revision"
-      , "FROM builds_join_steps"
-      , "LEFT JOIN ordered_master_commits"
-      , "ON ordered_master_commits.sha1 = builds_join_steps.vcs_revision"
-      , "LEFT JOIN cached_master_merge_base"
-      , "ON cached_master_merge_base.branch_commit = builds_join_steps.vcs_revision"
-      , "WHERE ordered_master_commits.sha1 IS NULL"
-      , "AND cached_master_merge_base.branch_commit IS NULL"
-      , "AND NOT succeeded"
-      , "AND NOT is_timeout;"
-      ]
-
-
 -- | Find known build breakages applicable to the merge base
 -- of this PR commit
 findKnownBuildBreakages ::
-     Connection
-  -> OAuth2.AccessToken
+     OAuth2.AccessToken
   -> DbHelpers.OwnerAndRepo
   -> Builds.RawCommit
-  -> IO (Either Text UpstreamBreakagesInfo)
-findKnownBuildBreakages conn access_token owned_repo sha1 =
-
-  runExceptT $ do
+  -> SqlRead.DbIO (Either Text UpstreamBreakagesInfo)
+findKnownBuildBreakages access_token owned_repo sha1 = do
+  conn <- ask
+  liftIO $ runExceptT $ do
 
     -- Second, find which "master" commit is the most recent
     -- ancestor of the given PR commit.

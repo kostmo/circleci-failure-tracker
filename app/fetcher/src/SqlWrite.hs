@@ -1446,35 +1446,6 @@ stepFailureToTuple (Builds.UniversalBuildId universal_buildnum, visitation_resul
     in (Just stepname, is_timeout, universal_buildnum, step_index)
 
 
-cacheAllMergeBases ::
-     Connection
-  -> Set Builds.RawCommit
-  -> OAuth2.AccessToken
-  -> DbHelpers.OwnerAndRepo
-  -> [Builds.RawCommit]
-  -> IO ()
-cacheAllMergeBases conn all_master_commits access_token owned_repo commits =
-
-  mapM_ f $ zip [1..] commits
-
-  where
-    f (i, x) = do
-      findMasterAncestorWithPrecomputation
-        (Just all_master_commits)
-        conn
-        access_token
-        owned_repo
-        StoreToCache
-        x
-
-      D.debugList [
-        "Progress:"
-        , show i
-        , "/"
-        , show $ length commits
-        ]
-
-
 storeLogInfo ::
      ScanRecords.ScanCatchupResources
   -> Builds.BuildStepId

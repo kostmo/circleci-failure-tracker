@@ -59,15 +59,14 @@ mainAppCode args = do
 
 
 
-  let commit_sha1_text = "143e1e60f0486862c9d5636b62ac5fa7ff7653e0"
+  let commit_sha1_text = "9fb273510098ba5ee765bdbf0fac5c22d1abd65a"
       raw_commit = Builds.RawCommit commit_sha1_text
       validated_sha1 = fromRight (error "BAD") $ GitRev.validateSha1 commit_sha1_text
 
   blah <- runReaderT (SqlRead.getRevisionBuilds validated_sha1) conn
   let DbHelpers.BenchmarkedResponse _ revision_builds = fromRight (error "BAD2") blah
 
-  blah2 <- SqlUpdate.findKnownBuildBreakages
-      conn
+  blah2 <- flip runReaderT conn $ SqlUpdate.findKnownBuildBreakages
       oauth_access_token
       Constants.pytorchOwnedRepo
       raw_commit
@@ -81,7 +80,6 @@ mainAppCode args = do
         3
         upstream_breakages_info
         []
-
 
 
   let commit_page_info = fromRight (error "BAD4") blah3

@@ -3,7 +3,7 @@
 
 module CommentRender where
 
-import           Data.List          (dropWhileEnd, intersperse, partition)
+import           Data.List          (dropWhileEnd, intersperse)
 import           Data.List.NonEmpty (NonEmpty ((:|)))
 import qualified Data.List.NonEmpty as NE
 import           Data.Set           (Set)
@@ -32,6 +32,7 @@ pullRequestCommentsLogContextLineCount :: Int
 pullRequestCommentsLogContextLineCount = 10
 
 
+viableBranchName :: Text
 viableBranchName = "viable/strict"
 
 
@@ -39,6 +40,7 @@ webserverBaseUrl :: LT.Text
 webserverBaseUrl = "https://dr.pytorch.org"
 
 
+drCiIssueTrackerUrl :: Text
 drCiIssueTrackerUrl = "https://github.com/kostmo/circleci-failure-tracker/issues"
 
 
@@ -96,8 +98,6 @@ genUnmatchedBuildsTable pre_broken_set merge_base_commit unmatched_builds =
           else "New in PR"
 
 
-get_job_name_from_build_with_log_context (CommitBuilds.BuildWithLogContext (CommitBuilds.NewCommitBuild (Builds.StorableBuild _ build_obj) _ _ _) _) = Builds.job_name build_obj
-
 genBuildFailuresTable ::
      StatusUpdateTypes.CommitPageInfo
   -> StatusUpdateTypes.BuildSummaryStats
@@ -106,32 +106,63 @@ genBuildFailuresTable
     (StatusUpdateTypes.CommitPageInfo pattern_matched_builds unmatched_builds)
     (StatusUpdateTypes.NewBuildSummaryStats _ pre_broken_info _) =
 
-  nonupstream_pattern_matched_section <> upstream_matched_section <> pattern_unmatched_section
-  where
+     nonupstream_nonflaky_pattern_matched_section
+  <> nonupstream_flaky_pattern_matched_section
+  <> upstream_matched_section
+  <> pattern_unmatched_section
 
+  where
     pre_broken_set = SqlUpdate.inferred_upstream_caused_broken_jobs pre_broken_info
     merge_base_commit = SqlUpdate.merge_base pre_broken_info
 
-    (upstream_breakages, non_upstream_breakages) = partition (\x -> Set.member (get_job_name_from_build_with_log_context x) pre_broken_set) pattern_matched_builds
+    StatusUpdateTypes.UpstreamBuildPartition upstream_breakages non_upstream_breakages_raw = pattern_matched_builds
 
-    pattern_matched_header = M.heading 3 $ T.unwords [
+    StatusUpdateTypes.FlakyBuildPartition nonupstream_flaky_breakages nonupstream_nonflaky_breakages = non_upstream_breakages_raw
+
+    nonupstream_nonflaky_pattern_matched_header = M.heading 3 $ T.unwords [
         ":detective:"
-      , MyUtils.pluralize (length non_upstream_breakages) "new failure"
+      , MyUtils.pluralize (length nonupstream_nonflaky_breakages) "new failure"
       , "recognized by patterns"
       ]
 
-    matched_builds_details_block = concat $
-      zipWith (gen_matched_build_section $ length non_upstream_breakages) [1..] non_upstream_breakages
+    nonflaky_matched_builds_details_block = concat $
+      zipWith (gen_matched_build_section $ length nonupstream_nonflaky_breakages) [1..] nonupstream_nonflaky_breakages
 
-    non_upstream_intro_text = M.colonize [
+
+
+    flaky_matched_builds_details_block = concat $
+      zipWith (gen_matched_build_section $ length nonupstream_flaky_breakages) [1..] nonupstream_flaky_breakages
+
+
+    non_upstream_nonflaky_intro_text = M.colonize [
         "The following build failures don't appear to be due to upstream breakage"
       ]
 
-    nonupstream_pattern_matched_section = if null non_upstream_breakages
+
+    non_upstream_flaky_intro_text = M.colonize [
+        "The following build failures have been detected as flaky and may not be your fault"
+      ]
+
+    nonupstream_nonflaky_pattern_matched_section = if null nonupstream_nonflaky_breakages
       then mempty
-      else pure pattern_matched_header
-        <> pure non_upstream_intro_text
-        <> matched_builds_details_block
+      else pure nonupstream_nonflaky_pattern_matched_header
+        <> pure non_upstream_nonflaky_intro_text
+        <> nonflaky_matched_builds_details_block
+
+
+    nonupstream_flaky_pattern_matched_section = if null nonupstream_flaky_breakages
+      then mempty
+      else pure nonupstream_flaky_pattern_matched_header
+        <> pure non_upstream_flaky_intro_text
+        <> flaky_matched_builds_details_block
+
+
+    nonupstream_flaky_pattern_matched_header = M.heading 3 $ T.unwords [
+        ":snowflake:"
+      , MyUtils.pluralize (length nonupstream_nonflaky_breakages) "failure"
+      , "recognized as flaky"
+      ]
+
 
     upstream_matched_header = M.heading 3 $ M.colonize [
         ":construction:"
@@ -141,7 +172,7 @@ genBuildFailuresTable
 
 
     render_upstream_matched_failure_item x@(CommitBuilds.BuildWithLogContext (CommitBuilds.NewCommitBuild (Builds.StorableBuild (DbHelpers.WithId ubuild_id _universal_build) _build_obj) _match_obj _ _) _) =
-      pure $ pure $ M.link (get_job_name_from_build_with_log_context x) $
+      pure $ pure $ M.link (StatusUpdateTypes.get_job_name_from_build_with_log_context x) $
         LT.toStrict webserverBaseUrl <> "/build-details.html?build_id=" <> T.pack (show ubuild_id)
 
     matched_upstream_builds_details_block = M.bulletTree $ map render_upstream_matched_failure_item upstream_breakages
@@ -323,8 +354,6 @@ generateMiddleSections
     dr_ci_commit_details_link = dr_ci_base_url <> "/commit-details.html?sha1=" <> sha1_text
 
 
-
-
 genMetricsTreeVerbose ::
      GadgitFetch.AncestryPropositionResponse
   -> StatusUpdateTypes.BuildSummaryStats
@@ -404,7 +433,8 @@ genMetricsTreeVerbose
       , M.parens "expand for instructions"
       ]
 
-    rebase_advice_section = M.detailsExpanderForCode rebase_advice_intro $ NE.toList $ rebase_advice_children <> rebase_advice_footer
+    rebase_advice_section = M.detailsExpanderForCode rebase_advice_intro $ NE.toList $
+      rebase_advice_children <> rebase_advice_footer
 
 
     pre_broken_set = SqlUpdate.inferred_upstream_caused_broken_jobs pre_broken_info
@@ -417,14 +447,14 @@ genMetricsTreeVerbose
     grid_view_url = genGridViewSha1Link 1 merge_base_commit Nothing
 
     upstream_brokenness_declaration = T.unwords [
-           bold_fraction upstream_broken_count total_failcount
-         , "broken upstream at merge base"
-         , T.take Constants.gitCommitPrefixLength merge_base_sha1_text
-         , M.parens $ T.unwords [
-             "see"
-           , M.link "grid view" grid_view_url
-           ]
-         ]
+        bold_fraction upstream_broken_count total_failcount
+      , "broken upstream at merge base"
+      , T.take Constants.gitCommitPrefixLength merge_base_sha1_text
+      , M.parens $ T.unwords [
+          "see"
+        , M.link "grid view" grid_view_url
+        ]
+      ]
 
     upstream_breakage_bullet_tree = pure $
        upstream_brokenness_declaration :| rebase_advice_section

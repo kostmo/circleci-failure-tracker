@@ -58,7 +58,6 @@ import qualified MyUtils
 import qualified PullRequestWebhooks
 import qualified PushWebhooks
 import qualified Scanning
-import qualified ScanPatterns
 import qualified SqlRead
 import qualified SqlUpdate
 import qualified SqlWrite
@@ -67,17 +66,12 @@ import qualified StatusUpdateTypes
 import qualified Webhooks
 
 
+viableBranchName :: Text
 viableBranchName = "viable/strict"
 
 
+pullRequestEventActionSynchronize :: LT.Text
 pullRequestEventActionSynchronize = "synchronize"
-
-
--- | For auto-commenting feature
-{-
-whitelistedPRAuthors :: [Text]
-whitelistedPRAuthors = ["ezyang", "kostmo", "suo", "yf225", "ZolotukhinM", "zdevito", "albanD"]
--}
 
 
 -- | 3 minutes
@@ -340,7 +334,7 @@ scanAndPost
     owned_repo
     sha1 = do
 
-  scan_matches <- liftIO $ do
+  liftIO $ do
 
     scan_resources <- Scanning.prepareScanResources conn maybe_initiator
     DbHelpers.setSessionStatementTimeout conn Scanning.scanningStatementTimeoutSeconds
@@ -351,32 +345,21 @@ scanAndPost
       Scanning.NoRefetchLog
       (Left $ Set.fromList scannable_build_numbers)
 
-
-  liftIO $ D.debugList ["About to enter postCommitSummaryStatus"]
+    D.debugList ["About to enter postCommitSummaryStatus"]
 
   postCommitSummaryStatus
     conn
     access_token
     owned_repo
     sha1
-    scan_matches
 
-
-
-{-
--- TODO not yet used
-data MatchedUnmatchedBuilds a b = MatchedUnmatchedBuilds {
-    matched_builds   :: a
-  , unmatched_builds :: b
-  }
--}
 
 fetchCommitPageInfo ::
      SqlUpdate.UpstreamBreakagesInfo
   -> Builds.RawCommit
   -> GitRev.GitSha1
   -> SqlRead.DbIO (Either Text StatusUpdateTypes.CommitPageInfo)
-fetchCommitPageInfo _pre_broken_info sha1 validated_sha1 = runExceptT $ do
+fetchCommitPageInfo pre_broken_info sha1 validated_sha1 = runExceptT $ do
 
   liftIO $ D.debugStr "Fetching revision builds"
   DbHelpers.BenchmarkedResponse _ revision_builds <- ExceptT $ SqlRead.getRevisionBuilds validated_sha1
@@ -394,8 +377,11 @@ fetchCommitPageInfo _pre_broken_info sha1 validated_sha1 = runExceptT $ do
   liftIO $ D.debugStr "Finishing fetchCommitPageInfo."
 
   return $ StatusUpdateTypes.CommitPageInfo
-    matched_builds_with_log_context
+    (StatusUpdateTypes.partitionMatchedBuilds pre_broken_set matched_builds_with_log_context)
     unmatched_builds
+
+  where
+    pre_broken_set = SqlUpdate.inferred_upstream_caused_broken_jobs pre_broken_info
 
 
 postCommitSummaryStatus ::
@@ -403,14 +389,12 @@ postCommitSummaryStatus ::
   -> OAuth2.AccessToken
   -> DbHelpers.OwnerAndRepo
   -> Builds.RawCommit
-  -> [(a, [ScanPatterns.ScanMatch])]
   -> ExceptT LT.Text IO ()
 postCommitSummaryStatus
     conn
     access_token
     owned_repo
-    sha1@(Builds.RawCommit commit_sha1_text)
-    scan_matches = do
+    sha1@(Builds.RawCommit commit_sha1_text) = do
 
   liftIO $ D.debugStr "Checkpoint A"
 
@@ -419,11 +403,10 @@ postCommitSummaryStatus
   liftIO $ D.debugStr "Checkpoint B"
 
   upstream_breakages_info <- ExceptT $
-    first LT.fromStrict <$> SqlUpdate.findKnownBuildBreakages
-      conn
+    first LT.fromStrict <$> runReaderT (SqlUpdate.findKnownBuildBreakages
       access_token
       owned_repo
-      sha1
+      sha1) conn
 
   liftIO $ D.debugStr "Checkpoint C"
 
@@ -444,16 +427,20 @@ postCommitSummaryStatus
     access_token
     owned_repo
     sha1
-    scan_matches
 
   liftIO $ D.debugStr "Checkpoint Z"
 
   return x
 
 
+fetchAndCachePrAuthor ::
+     Connection
+  -> OAuth2.AccessToken
+  -> Builds.PullRequestNumber
+  -> ExceptT LT.Text IO AuthStages.Username
 fetchAndCachePrAuthor conn access_token pr_number = do
 
-  maybe_pr_author <- liftIO $ runReaderT (SqlRead.getCachedPullRequestAuthor pr_number) conn
+  maybe_pr_author <- liftIO $ flip runReaderT conn $ SqlRead.getCachedPullRequestAuthor pr_number
 
   case maybe_pr_author of
     Just author -> do
@@ -476,7 +463,6 @@ postCommitSummaryStatusInner ::
   -> OAuth2.AccessToken
   -> DbHelpers.OwnerAndRepo
   -> Builds.RawCommit
-  -> [(a, [ScanPatterns.ScanMatch])]
   -> ExceptT LT.Text IO ()
 postCommitSummaryStatusInner
     circleci_fail_joblist
@@ -485,98 +471,74 @@ postCommitSummaryStatusInner
     conn
     access_token
     owned_repo
-    sha1
-    scan_matches = do
+    sha1 = do
 
   liftIO $ D.debugStr "Checkpoint F"
 
-
-  -- XXX Is the following still applicable??
+  -- XXX Is the following advice still applicable??
   --
-  -- We're examining statuses on both failed and successful
-  -- build notifications, which can add up to a lot of activity.
-  -- We only should re-post our summary status if it will change what
-  -- was already posted, since we don't want GitHub to throttle our requests.
+  --   We're examining statuses on both failed and successful
+  --   build notifications, which can add up to a lot of activity.
+  --   We only should re-post our summary status if it will change what
+  --   was already posted, since we don't want GitHub to throttle our requests.
 
-  post_pr_comment_and_store
+  containing_pr_list <- lookupPullRequestsByHeadCommit conn sha1
+
+  when (null containing_pr_list) $
+    liftIO $ D.debugList [
+        "No Pull Requests have HEAD commit of"
+      , show sha1
+      ]
+
+  ancestry_result <- ExceptT $ fmap (first LT.pack) $ GadgitFetch.getIsAncestor $
+    GadgitFetch.RefAncestryProposition merge_base_commit_text viableBranchName
+
+  let middle_sections = CommentRender.generateMiddleSections
+        ancestry_result
+        build_summary_stats
+        commit_page_info
+        sha1
+
+  for_ containing_pr_list $ \pr_number ->
+    handleCommentPostingOptOut pr_number $ do
+      maybe_previous_pr_comment <- liftIO $ flip runReaderT conn $ SqlRead.getPostedCommentForPR pr_number
+
+      case maybe_previous_pr_comment of
+        Nothing -> postInitialComment
+          access_token
+          owned_repo
+          conn
+          sha1
+          middle_sections
+          pr_number
+
+        Just previous_pr_comment -> updateCommentOrFallback
+          access_token
+          owned_repo
+          conn
+          sha1
+          middle_sections
+          pr_number
+          previous_pr_comment
 
   where
-  build_summary_stats = StatusUpdateTypes.NewBuildSummaryStats
-    flaky_count
+
+  build_summary_stats = StatusUpdateTypes.deriveSummaryStats
+    commit_page_info
     upstream_breakages_info
     circleci_fail_joblist
 
-  -- TODO - we should instead see if the "best matching pattern" is
-  -- flaky, rather than checking if *any* matching pattern is a
-  -- "flaky" pattern.
-  -- See Issue #63
-  flaky_predicate = any (ScanPatterns.is_flaky . DbHelpers.record . ScanPatterns.scanned_pattern) . snd
-  builds_with_flaky_pattern_matches = filter flaky_predicate scan_matches
-
-  flaky_count = length builds_with_flaky_pattern_matches
-
   Builds.RawCommit merge_base_commit_text = SqlUpdate.merge_base upstream_breakages_info
 
-  post_pr_comment_and_store = do
-
-    containing_pr_list <- lookupPullRequestsByHeadCommit conn sha1
-
-    when (null containing_pr_list) $
-      liftIO $ D.debugList [
-          "No Pull Requests have HEAD commit of"
-        , show sha1
-        ]
-
-    ancestry_result <- ExceptT $ fmap (first LT.pack) $ GadgitFetch.getIsAncestor $
-      GadgitFetch.RefAncestryProposition merge_base_commit_text viableBranchName
-
-    let middle_sections = CommentRender.generateMiddleSections
-          ancestry_result
-          build_summary_stats
-          commit_page_info
-          sha1
-
-    for_ containing_pr_list $ \pr_number ->
-      handleCommentPostingOptOut pr_number $ do
-        maybe_previous_pr_comment <- liftIO $ runReaderT (SqlRead.getPostedCommentForPR pr_number) conn
-
-        case maybe_previous_pr_comment of
-          Nothing -> postInitialComment
-            access_token
-            owned_repo
-            conn
-            sha1
-            middle_sections
-            pr_number
-
-          Just previous_pr_comment -> updateCommentOrFallback
-            access_token
-            owned_repo
-            conn
-            sha1
-            middle_sections
-            pr_number
-            previous_pr_comment
 
   handleCommentPostingOptOut pr_number f = do
     pr_author <- fetchAndCachePrAuthor conn access_token pr_number
-    let (AuthStages.Username pr_author_username) = pr_author
 
---    if pr_author_username `elem` whitelistedPRAuthors
-    if True
-      then do
-        can_post_comments <- ExceptT $ SqlRead.canPostPullRequestComments conn pr_author
-        if can_post_comments
-          then f
-          else ExceptT $ runReaderT (SqlWrite.recordBlockedPRCommentPosting pr_number) $
-            SqlRead.AuthConnection conn pr_author
-      else liftIO $ do
-        D.debugList [
-            "pr_author is not whitelisted:"
-          , T.unpack pr_author_username
-          , "--- skipping!"
-          ]
-        return 0
+    can_post_comments <- ExceptT $ SqlRead.canPostPullRequestComments conn pr_author
+    if can_post_comments
+      then f
+      else ExceptT $ runReaderT (SqlWrite.recordBlockedPRCommentPosting pr_number) $
+        SqlRead.AuthConnection conn pr_author
 
 
 -- | Falls back to Gadgit webservice if database lookup did not find anything
@@ -586,7 +548,7 @@ lookupPullRequestsByHeadCommit ::
   -> ExceptT LT.Text IO [Builds.PullRequestNumber]
 lookupPullRequestsByHeadCommit conn sha1 = do
 
-  found_prs <- liftIO $ runReaderT (SqlRead.getPullRequestsByCurrentHead sha1) conn
+  found_prs <- liftIO $ flip runReaderT conn $ SqlRead.getPullRequestsByCurrentHead sha1
 
   if null found_prs
     then ExceptT $ first LT.pack <$> GadgitFetch.getContainingPRs sha1
@@ -918,15 +880,14 @@ handleStatusWebhook
     liftIO $ SqlWrite.insertReceivedGithubStatus synchronous_conn status_event
 
     maybe_previously_posted_status <- liftIO $
-      runReaderT (SqlRead.getPostedGithubStatus owned_repo sha1) synchronous_conn
+      flip runReaderT synchronous_conn $ SqlRead.getPostedGithubStatus owned_repo sha1
 
 
     -- On builds from the *master* branch,
     -- we may store the *successful* as well as the failed second-level
     -- build records,
     -- since the volume on the *master* branch should be relatively low.
-    is_master_commit <- liftIO $
-      runReaderT (SqlRead.isMasterCommit sha1) synchronous_conn
+    is_master_commit <- liftIO $ flip runReaderT synchronous_conn $ SqlRead.isMasterCommit sha1
 
 
     let dr_ci_posting_computation = do

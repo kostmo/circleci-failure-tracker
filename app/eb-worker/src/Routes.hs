@@ -245,8 +245,6 @@ doStuff
     access_token
     owned_repo
     commit_sha1
-    scan_matches
-
 
   D.debugList [
       "Scan match count:"

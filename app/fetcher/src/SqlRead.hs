@@ -1500,8 +1500,7 @@ getInferredSpanningBrokenJobsBetter (Builds.RawCommit branch_sha1) = do
 
 
 -- | This only works for commits from the master branch.
--- Commits from other branches must use
--- StatusUpdate.findKnownBuildBreakages
+-- Commits from other branches must use StatusUpdate.findKnownBuildBreakages
 --
 -- | Compare to: getInferredSpanningBrokenJobs
 getSpanningBreakages ::
