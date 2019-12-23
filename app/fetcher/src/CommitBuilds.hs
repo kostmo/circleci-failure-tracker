@@ -18,6 +18,7 @@ import qualified ScanPatterns
 
 data FailureModeInfo = FailureModeInfo {
     _is_timeout :: Bool
+  , _is_flaky   :: Bool
   } deriving (Generic, FromRow)
 
 instance ToJSON FailureModeInfo where
@@ -76,6 +77,7 @@ instance FromRow CommitBuild where
     started_at <- field
     finished_at <- field
     is_timeout <- field
+    is_flaky <- field
 
     let provider_obj = Builds.CiProvider
           ci_icon_url
@@ -117,7 +119,7 @@ instance FromRow CommitBuild where
 
         provider_with_id = DbHelpers.WithId provider_id provider_obj
 
-        failure_mode_info = FailureModeInfo is_timeout
+        failure_mode_info = FailureModeInfo is_timeout is_flaky
 
     return $ NewCommitBuild
       parent_build_obj

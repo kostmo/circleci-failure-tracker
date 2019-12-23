@@ -1783,20 +1783,6 @@ genBestBuildMatchQuery fields_to_fetch sql_where_conditions =
     best_match_subquery_sql = genBestMatchesSubquery sql_where_conditions
 
 
-getBuildsParameterized :: ToRow q =>
-     [Query]
-  -> q
-  -> [Query]
-  -> DbIO (DbHelpers.BenchmarkedResponse Float [CommitBuilds.CommitBuild])
-getBuildsParameterized fields_to_fetch sql_parms sql_where_conditions = do
-  conn <- ask
-
-  (timing, content) <- D.timeThisFloat $ liftIO $ query conn sql sql_parms
-  return $ DbHelpers.BenchmarkedResponse timing content
-  where
-    sql = genBestBuildMatchQuery fields_to_fetch sql_where_conditions
-
-
 genBestMatchesSubquery :: [Query] -> Query
 genBestMatchesSubquery sql_where_conditions = Q.qjoin [
     "SELECT DISTINCT ON"
@@ -1891,10 +1877,15 @@ getRevisionBuilds ::
 getRevisionBuilds git_revision = do
   conn <- ask
   liftIO $ PostgresHelpers.catchDatabaseError catcher $ do
-    x <- runReaderT (getBuildsParameterized fields_to_fetch sql_parms sql_where_conditions) conn
+    x <- flip runReaderT conn $ do
+      (timing, content) <- D.timeThisFloat $ liftIO $ query conn sql sql_parms
+      return $ DbHelpers.BenchmarkedResponse timing content
+
     return $ Right x
 
   where
+    sql = genBestBuildMatchQuery fields_to_fetch sql_where_conditions
+
     catcher _ (PostgresHelpers.QueryCancelled some_error) = return $ Left $ "Query error in getRevisionBuilds: " <> T.pack (BS.unpack some_error)
     catcher e _                                  = throwIO e
 
@@ -1926,6 +1917,7 @@ getRevisionBuilds git_revision = do
       , "started_at"
       , "finished_at"
       , "FALSE as is_timeout"
+      , "is_flaky"
       ]
 
 
@@ -2812,6 +2804,7 @@ genMasterFailureDetailsQuery extra_where_condition =
         , "master_failures_raw_causes_mview.started_at"
         , "master_failures_raw_causes_mview.finished_at"
         , "master_failures_raw_causes_mview.is_timeout"
+        , "master_failures_raw_causes_mview.is_flaky"
         ]
       , "FROM master_failures_raw_causes_mview"
       , "JOIN ci_providers"
@@ -2965,6 +2958,7 @@ apiMasterBuilds timeline_parms = do
 
     (builds_list_time, completed_builds) <- D.timeThisFloat $
       liftIO $ query conn builds_list_sql commit_bounds_tuple
+
 
     liftIO $ putStrLn "FOO F"
 

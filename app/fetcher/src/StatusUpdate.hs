@@ -414,8 +414,7 @@ postCommitSummaryStatus
 
   liftIO $ D.debugStr "Checkpoint A"
 
-  let f = SqlRead.getFailedCircleCIJobNames sha1
-  circleci_failed_job_names <- ExceptT $ runReaderT f conn
+  circleci_failed_job_names <- ExceptT $ flip runReaderT conn $ SqlRead.getFailedCircleCIJobNames sha1
 
   liftIO $ D.debugStr "Checkpoint B"
 

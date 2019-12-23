@@ -121,7 +121,7 @@ genBuildFailuresTable
       ]
 
     matched_builds_details_block = concat $
-      zipWith gen_matched_build_section [1..] non_upstream_breakages
+      zipWith (gen_matched_build_section $ length non_upstream_breakages) [1..] non_upstream_breakages
 
     non_upstream_intro_text = M.colonize [
         "The following build failures don't appear to be due to upstream breakage"
@@ -140,7 +140,9 @@ genBuildFailuresTable
       ]
 
 
-    render_upstream_matched_failure_item x@(CommitBuilds.BuildWithLogContext (CommitBuilds.NewCommitBuild (Builds.StorableBuild (DbHelpers.WithId ubuild_id _universal_build) _build_obj) _match_obj _ _) _) = pure $ pure $ M.link (get_job_name_from_build_with_log_context x) $ LT.toStrict webserverBaseUrl <> "/build-details.html?build_id=" <> T.pack (show ubuild_id)
+    render_upstream_matched_failure_item x@(CommitBuilds.BuildWithLogContext (CommitBuilds.NewCommitBuild (Builds.StorableBuild (DbHelpers.WithId ubuild_id _universal_build) _build_obj) _match_obj _ _) _) =
+      pure $ pure $ M.link (get_job_name_from_build_with_log_context x) $
+        LT.toStrict webserverBaseUrl <> "/build-details.html?build_id=" <> T.pack (show ubuild_id)
 
     matched_upstream_builds_details_block = M.bulletTree $ map render_upstream_matched_failure_item upstream_breakages
 
@@ -165,37 +167,46 @@ genBuildFailuresTable
       else pure pattern_unmatched_header
         <> NE.toList (genUnmatchedBuildsTable pre_broken_set merge_base_commit unmatched_builds)
 
-    gen_matched_build_section idx (CommitBuilds.BuildWithLogContext (CommitBuilds.NewCommitBuild (Builds.StorableBuild (DbHelpers.WithId ubuild_id universal_build) build_obj) match_obj _ _) (CommitBuilds.LogContext _ log_lines)) = [
-        M.heading 4 $ T.unwords [
-            circleci_image_link
-          , job_name
-          , M.parens $ T.pack $ MyUtils.renderFrac idx $ length non_upstream_breakages
-          ]
-      , T.unwords summary_info_pieces
-      ] <> M.detailsExpanderForCode (M.codeInlineHtml $ sanitizeLongLine $ MatchOccurrences._line_text match_obj) code_block_lines
-      where
-        job_name = Builds.job_name build_obj
 
-        summary_info_pieces = [
-            M.bold "Step:"
-          , M.quote $ MatchOccurrences._build_step match_obj
-          , M.parens $ T.intercalate " | " [
-                M.link "full log" $ LT.toStrict webserverBaseUrl <> "/api/view-log-full?build_id=" <> T.pack (show ubuild_id)
-              , M.link "pattern match details" $ LT.toStrict webserverBaseUrl <> "/build-details.html?build_id=" <> T.pack (show ubuild_id)
-              ]
-          ]
+gen_matched_build_section total_count idx build_with_log_context = [
+    M.heading 4 $ T.unwords [
+        circleci_image_link
+      , job_name
+      , M.parens $ T.pack $ MyUtils.renderFrac idx total_count
+      ]
+  , T.unwords summary_info_pieces
+  ] <> M.detailsExpanderForCode single_match_line code_block_lines
 
+  where
+    (CommitBuilds.BuildWithLogContext (CommitBuilds.NewCommitBuild storable_build match_obj _ _) (CommitBuilds.LogContext _ log_lines)) = build_with_log_context
 
-        code_block_lines = NE.toList $ M.codeBlockFromList $
-          -- NOTE: this commented-out code just renders the single matched line
---        pure $ MatchOccurrences._line_text match_obj
-          dropWhileEnd T.null $ map renderLogLineTuple log_lines
+    single_match_line = M.codeInlineHtml $ sanitizeLongLine $ MatchOccurrences._line_text match_obj
+    Builds.StorableBuild (DbHelpers.WithId ubuild_id universal_build) build_obj = storable_build
 
+    job_name = Builds.job_name build_obj
 
-        (Builds.NewBuildNumber provider_build_number) = Builds.provider_buildnum universal_build
-        circleci_icon = M.image "See CircleCI build" circleCISmallAvatarUrl
-        circleci_image_link = M.link circleci_icon $
-          circleCIBuildUrlPrefix <> T.pack (show provider_build_number)
+    -- TODO
+    optional_flakiness_indicator = if True
+--    optional_flakiness_indicator = if ScanPatterns.is_flaky xxxxx
+      then []
+      else []
+
+    summary_info_pieces = [
+        M.bold "Step:"
+      , M.quote $ MatchOccurrences._build_step match_obj
+      , M.parens $ T.intercalate " | " [
+         M.link "full log" $ LT.toStrict webserverBaseUrl <> "/api/view-log-full?build_id=" <> T.pack (show ubuild_id)
+        , M.link "pattern match details" $ LT.toStrict webserverBaseUrl <> "/build-details.html?build_id=" <> T.pack (show ubuild_id)
+        ]
+      ] ++ optional_flakiness_indicator
+
+    code_block_lines = NE.toList $ M.codeBlockFromList $
+      dropWhileEnd T.null $ map renderLogLineTuple log_lines
+
+    (Builds.NewBuildNumber provider_build_number) = Builds.provider_buildnum universal_build
+    circleci_icon = M.image "See CircleCI build" circleCISmallAvatarUrl
+    circleci_image_link = M.link circleci_icon $
+      circleCIBuildUrlPrefix <> T.pack (show provider_build_number)
 
 
 renderLogLineTuple = sanitizeLongLine . LT.toStrict . snd
