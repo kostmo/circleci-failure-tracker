@@ -50,32 +50,12 @@ data CommitPageInfo = CommitPageInfo {
 
 
 data BuildSummaryStats = NewBuildSummaryStats {
-    flaky_count                 :: Int -- ^ flaky count
-  , _upstream_breakages_info    :: SqlUpdate.UpstreamBreakagesInfo
+    _upstream_breakages_info    :: SqlUpdate.UpstreamBreakagesInfo
   , total_circleci_fail_joblist :: [Text]
   }
 
 
 flakinessPredicate = CommitBuilds._is_flaky . CommitBuilds._failure_mode . CommitBuilds.commit_build
-
-
-deriveSummaryStats ::
-     CommitPageInfo
-  -> SqlUpdate.UpstreamBreakagesInfo
-  -> [Text]
-  -> BuildSummaryStats
-deriveSummaryStats
-    commit_page_info
-    upstream_breakages_info
-    circleci_fail_joblist =
-
-  NewBuildSummaryStats
-    flaky_count
-    upstream_breakages_info
-    circleci_fail_joblist
-
-  where
-  flaky_count = length $ flaky_builds $ nonupstream $ pattern_matched_builds commit_page_info
 
 
 get_job_name_from_build_with_log_context (CommitBuilds.BuildWithLogContext (CommitBuilds.NewCommitBuild (Builds.StorableBuild _ build_obj) _ _ _) _) = Builds.job_name build_obj

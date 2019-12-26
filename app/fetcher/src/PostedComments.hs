@@ -8,6 +8,7 @@ import           Data.Text                  (Text)
 import           Data.Time                  (UTCTime)
 import           Database.PostgreSQL.Simple (FromRow)
 import           GHC.Generics
+import           GHC.Int                    (Int64)
 
 import qualified AuthStages
 import qualified Builds
@@ -22,6 +23,7 @@ data PostedComment = PostedComment {
   , _created_at        :: UTCTime
   , _updated_at        :: UTCTime
   , _revision_count    :: Int
+  , _comment_id        :: Int64
   } deriving (Generic, FromRow)
 
 instance ToJSON PostedComment where

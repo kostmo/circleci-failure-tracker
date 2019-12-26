@@ -520,6 +520,7 @@ apiPostedPRComments count = do
         , "created_at"
         , "updated_at"
         , "revision_count"
+        , "comment_id"
         ]
       , "FROM latest_created_pull_request_comment_revision"
       , "ORDER BY updated_at DESC"

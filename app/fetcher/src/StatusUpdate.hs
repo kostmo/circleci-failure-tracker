@@ -522,9 +522,7 @@ postCommitSummaryStatusInner
           previous_pr_comment
 
   where
-
-  build_summary_stats = StatusUpdateTypes.deriveSummaryStats
-    commit_page_info
+  build_summary_stats = StatusUpdateTypes.NewBuildSummaryStats
     upstream_breakages_info
     circleci_fail_joblist
 

@@ -104,7 +104,7 @@ genBuildFailuresTable ::
   -> [Text]
 genBuildFailuresTable
     (StatusUpdateTypes.CommitPageInfo pattern_matched_builds unmatched_builds)
-    (StatusUpdateTypes.NewBuildSummaryStats _ pre_broken_info _) =
+    (StatusUpdateTypes.NewBuildSummaryStats pre_broken_info _) =
 
      nonupstream_nonflaky_pattern_matched_section
   <> nonupstream_flaky_pattern_matched_section
@@ -159,7 +159,7 @@ genBuildFailuresTable
 
     nonupstream_flaky_pattern_matched_header = M.heading 3 $ T.unwords [
         ":snowflake:"
-      , MyUtils.pluralize (length nonupstream_nonflaky_breakages) "failure"
+      , MyUtils.pluralize (length nonupstream_flaky_breakages) "failure"
       , "recognized as flaky"
       ]
 
@@ -335,7 +335,7 @@ generateMiddleSections
   [summary_tree] ++ detailed_build_issues_section
   where
 
-    summary_tree = M.bulletTree $ genMetricsTreeVerbose ancestry_result build_summary_stats
+    summary_tree = M.bulletTree $ genMetricsTreeVerbose commit_page_info ancestry_result build_summary_stats
 
     build_failures_table_lines = genBuildFailuresTable commit_page_info build_summary_stats
 
@@ -355,12 +355,14 @@ generateMiddleSections
 
 
 genMetricsTreeVerbose ::
-     GadgitFetch.AncestryPropositionResponse
+     StatusUpdateTypes.CommitPageInfo
+  -> GadgitFetch.AncestryPropositionResponse
   -> StatusUpdateTypes.BuildSummaryStats
   -> Tr.Forest (NonEmpty Text)
 genMetricsTreeVerbose
+    commit_page_info
     ancestry_response
-    (StatusUpdateTypes.NewBuildSummaryStats flaky_count pre_broken_info all_failures) =
+    (StatusUpdateTypes.NewBuildSummaryStats pre_broken_info all_failures) =
   optional_kb_metric <> failures_introduced_in_pull_request <> flaky_bullet_tree
   where
 
@@ -440,7 +442,7 @@ genMetricsTreeVerbose
     pre_broken_set = SqlUpdate.inferred_upstream_caused_broken_jobs pre_broken_info
     upstream_broken_count = length pre_broken_set
     total_failcount = length all_failures
-    broken_in_pr_count = total_failcount - upstream_broken_count
+    broken_in_pr_count = total_failcount - upstream_broken_count - flaky_count
 
     bold_fraction a b = M.bold $ T.pack $ MyUtils.renderFrac a b
 
@@ -471,6 +473,9 @@ genMetricsTreeVerbose
           , "failures introduced in this PR"
           ]
       ]
+
+    flaky_count = length $ StatusUpdateTypes.flaky_builds $
+      StatusUpdateTypes.nonupstream $ StatusUpdateTypes.pattern_matched_builds commit_page_info
 
     flaky_bullet_tree = if flaky_count > 0
       then [

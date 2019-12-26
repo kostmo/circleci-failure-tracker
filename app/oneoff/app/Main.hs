@@ -77,7 +77,6 @@ mainAppCode args = do
     runReaderT (StatusUpdate.fetchCommitPageInfo upstream_breakages_info raw_commit validated_sha1) conn
 
   let build_summary_stats = StatusUpdateTypes.NewBuildSummaryStats
-        3
         upstream_breakages_info
         []
 
