@@ -2365,6 +2365,26 @@ data PostedPRComment = PostedPRComment {
   } deriving (Generic, FromRow)
 
 
+
+genPRPostedCommentQuery where_clauses = Q.qjoin [
+    "SELECT"
+  , Q.list [
+      "pr_number"
+    , "comment_id"
+    , "id"
+    , "sha1"
+    , "body"
+    , "created_at"
+    , "updated_at"
+    , "revision_count"
+    ]
+  , "FROM latest_created_pull_request_comment_revision"
+  , "WHERE"
+  , Q.qconjunction where_clauses
+  , "LIMIT 1;"
+  ]
+
+
 getPostedCommentForPR ::
      Builds.PullRequestNumber
   -> DbIO (Maybe PostedPRComment)
@@ -2374,22 +2394,19 @@ getPostedCommentForPR (Builds.PullRequestNumber pr_number) = do
     xs <- query conn sql $ Only pr_number
     return $ Safe.headMay xs
   where
-    sql = Q.qjoin [
-        "SELECT"
-      , Q.list [
-          "pr_number"
-        , "comment_id"
-        , "id"
-        , "sha1"
-        , "body"
-        , "created_at"
-        , "updated_at"
-        , "revision_count"
-        ]
-      , "FROM latest_created_pull_request_comment_revision"
-      , "WHERE pr_number = ?"
-      , "LIMIT 1;"
-      ]
+    sql = genPRPostedCommentQuery ["pr_number = ?"]
+
+
+getPostedCommentForSha1 ::
+     Builds.RawCommit
+  -> DbIO (Maybe PostedPRComment)
+getPostedCommentForSha1 (Builds.RawCommit commit_sha1) = do
+  conn <- ask
+  liftIO $ do
+    xs <- query conn sql $ Only commit_sha1
+    return $ Safe.headMay xs
+  where
+    sql = genPRPostedCommentQuery ["sha1 = ?"]
 
 
 data MaterializedViewRefreshInfo = MaterializedViewRefreshInfo {
@@ -3752,37 +3769,6 @@ getBestPatternMatches pat@(ScanPatterns.PatternId pattern_id) = do
     sql = Q.qjoin [
         commonQueryPrefixPatternMatches
       , "LIMIT 100;"
-      ]
-
-
-getPostedGithubStatus ::
-     DbHelpers.OwnerAndRepo
-  -> Builds.RawCommit
-  -> DbIO (Maybe (Text, Text))
-getPostedGithubStatus
-    (DbHelpers.OwnerAndRepo project repo)
-    (Builds.RawCommit sha1) = do
-
-  conn <- ask
-  liftIO $ do
-    putStrLn "Inside getPostedGithubStatus..."
-    xs <- query conn sql (sha1, project, repo)
-    putStrLn "Finishing getPostedGithubStatus..."
-    return $ Safe.headMay xs
-
-  where
-    sql = Q.qjoin [
-        "SELECT"
-      , "state, description"
-      , "FROM created_github_statuses"
-      , "WHERE"
-      , Q.qconjunction [
-          "sha1 = ?"
-        , "project = ?"
-        , "repo = ?"
-        ]
-      , "ORDER BY id DESC"
-      , "LIMIT 1;"
       ]
 
 

@@ -388,6 +388,10 @@ postCommitSummaryStatus
   liftIO $ D.debugStr "Checkpoint A"
 
   circleci_failed_job_names <- ExceptT $ flip runReaderT conn $ SqlRead.getFailedCircleCIJobNames sha1
+  liftIO $ D.debugList [
+      "CircleCI failed job names:"
+    , show circleci_failed_job_names
+    ]
 
   liftIO $ D.debugStr "Checkpoint B"
 
@@ -718,7 +722,6 @@ readGitHubStatusesAndScanAndPostSummaryForCommit
 
   liftIO $ D.debugList ["Finished getBuildsFromGithub"]
 
-
   case should_scan of
     ShouldScanLogs -> do
       liftIO $ D.debugList ["About to enter scanAndPost"]
@@ -866,9 +869,6 @@ handleStatusWebhook
 
     liftIO $ SqlWrite.insertReceivedGithubStatus synchronous_conn status_event
 
-    maybe_previously_posted_status <- liftIO $
-      flip runReaderT synchronous_conn $ SqlRead.getPostedGithubStatus owned_repo sha1
-
 
     -- On builds from the *master* branch,
     -- we may store the *successful* as well as the failed second-level
@@ -898,11 +898,10 @@ handleStatusWebhook
 
           return ()
 
+    maybe_previously_posted_status <- liftIO $ flip runReaderT synchronous_conn $ SqlRead.getPostedCommentForSha1 sha1
 
-    -- Do not act on receipt of statuses from the context I have created, or else
-    -- we may get stuck in an infinite notification loop
-    --
-    -- Also, if we haven't posted a summary status before, do not act unless the notification
+
+    -- If we haven't posted a PR comment before for this commit, do not act unless the notification
     -- was for a failed build.
     let will_post = is_failure_notification || not (null maybe_previously_posted_status)
 

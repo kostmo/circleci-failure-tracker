@@ -129,16 +129,12 @@ genBuildFailuresTable
     nonflaky_matched_builds_details_block = concat $
       zipWith (genMatchedBuildSection $ length nonupstream_nonflaky_breakages) [1..] nonupstream_nonflaky_breakages
 
-
-
     flaky_matched_builds_details_block = concat $
       zipWith (genMatchedBuildSection $ length nonupstream_flaky_breakages) [1..] nonupstream_flaky_breakages
-
 
     non_upstream_nonflaky_intro_text = M.colonize [
         "The following build failures do not appear to be due to upstream breakage"
       ]
-
 
     non_upstream_flaky_intro_text = M.colonize [
         "The following build failures have been detected as flaky and"
@@ -337,7 +333,11 @@ generateMiddleSections
   summary_header ++ [summary_tree] ++ detailed_build_issues_section
   where
 
-    (summary_header, summary_forrest) = genMetricsTreeVerbose commit_page_info ancestry_result build_summary_stats
+    (summary_header, summary_forrest) = genMetricsTreeVerbose
+      commit_page_info
+      ancestry_result
+      build_summary_stats
+
     summary_tree = M.bulletTree summary_forrest
 
     build_failures_table_lines = genBuildFailuresTable commit_page_info build_summary_stats
@@ -369,7 +369,11 @@ genMetricsTreeVerbose
 
   (summary_header, forrest_parts)
   where
-    forrest_parts = optional_kb_metric ++ introduced_failures_section ++ flaky_bullet_tree
+    forrest_parts = concat [
+        optional_kb_metric
+      , introduced_failures_section
+      , flaky_bullet_tree
+      ]
 
     summary_header = if broken_in_pr_count > 0
       then []
@@ -489,7 +493,9 @@ genMetricsTreeVerbose
       , "recognized as flaky :snowflake:"
       ]
 
-    flaky_bullet_tree_inner = Tr.Node flaky_bullet_tree_inner_heading [pure $ pure "Re-run these jobs?"]
+    flaky_bullet_tree_inner = Tr.Node
+      flaky_bullet_tree_inner_heading
+      [pure $ pure "Re-run these jobs?"]
 
 
 genGridViewSha1Link ::

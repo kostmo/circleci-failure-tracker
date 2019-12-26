@@ -14,6 +14,7 @@ import qualified CommentRender
 import qualified Constants
 import qualified DbHelpers
 import qualified DbPreparation
+import qualified DebugUtils                 as D
 import qualified GadgitFetch
 import qualified GadgitTest
 import qualified GitRev
@@ -21,7 +22,6 @@ import qualified SqlRead
 import qualified SqlUpdate
 import qualified StatusUpdate
 import qualified StatusUpdateTypes
-
 
 data CommandLineArgs = NewCommandLineArgs {
     dbHostname                :: String
@@ -54,14 +54,9 @@ mainAppCode args = do
 
   conn <- DbPreparation.prepareDatabase connection_data False
 
-
-
-  let commit_sha1_text = "9fb273510098ba5ee765bdbf0fac5c22d1abd65a"
+  let commit_sha1_text = "80a5bcd468c4fb4e2cf272a5677b13f9765ffcad"
       raw_commit = Builds.RawCommit commit_sha1_text
       validated_sha1 = fromRight (error "BAD") $ GitRev.validateSha1 commit_sha1_text
-
-  blah <- runReaderT (SqlRead.getRevisionBuilds validated_sha1) conn
-  let DbHelpers.BenchmarkedResponse _ revision_builds = fromRight (error "BAD2") blah
 
   blah2 <- flip runReaderT conn $ SqlUpdate.findKnownBuildBreakages
       oauth_access_token
@@ -73,9 +68,17 @@ mainAppCode args = do
   blah3 <- liftIO $
     runReaderT (StatusUpdate.fetchCommitPageInfo upstream_breakages_info raw_commit validated_sha1) conn
 
+
+  blah_circleci_failed_job_names <- flip runReaderT conn $ SqlRead.getFailedCircleCIJobNames raw_commit
+  let circleci_failed_job_names = fromRight (error "BAD9999") blah_circleci_failed_job_names
+  liftIO $ D.debugList [
+      "CircleCI failed job names:"
+    , show circleci_failed_job_names
+    ]
+
   let build_summary_stats = StatusUpdateTypes.NewBuildSummaryStats
         upstream_breakages_info
-        []
+        circleci_failed_job_names
 
 
   let commit_page_info = fromRight (error "BAD4") blah3
