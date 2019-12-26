@@ -91,13 +91,6 @@ circleCIContextPrefix :: Text
 circleCIContextPrefix = "ci/circleci: "
 
 
--- | Name is "Dr. CI" -- where doctor alludes to "diagnostician".
--- It is prefixed with an undescore so it appears first in the lexicographical
--- ordering in the faild builds list.
-myAppStatusContext :: Text
-myAppStatusContext = "_dr.ci"
-
-
 gitHubStatusFailureString = "failure"
 
 
@@ -259,9 +252,7 @@ getBuildsFromGithub
     , show $ length build_statuses_list_any_source
     ]
 
-  let statuses_list_not_mine = filter is_not_my_own_context build_statuses_list_any_source
-
-      succeeded_or_failed_statuses = filter ((`elem` conclusiveStatuses) . StatusEventQuery._state) statuses_list_not_mine
+  let succeeded_or_failed_statuses = filter ((`elem` conclusiveStatuses) . StatusEventQuery._state) build_statuses_list_any_source
 
       statuses_by_hostname = groupStatusesByHostname succeeded_or_failed_statuses
 
@@ -312,8 +303,6 @@ getBuildsFromGithub
   where
     storable_build_to_universal (Builds.StorableBuild (DbHelpers.WithId ubuild_id _ubuild) rbuild) =
       DbHelpers.WithTypedId (Builds.UniversalBuildId ubuild_id) rbuild
-
-    is_not_my_own_context = (/= myAppStatusContext) . LT.toStrict . StatusEventQuery._context
 
 
 scanAndPost ::
@@ -915,7 +904,7 @@ handleStatusWebhook
     --
     -- Also, if we haven't posted a summary status before, do not act unless the notification
     -- was for a failed build.
-    let will_post = is_not_my_own_context && (is_failure_notification || not (null maybe_previously_posted_status))
+    let will_post = is_failure_notification || not (null maybe_previously_posted_status)
 
     when will_post $ do
       _thread_id <- liftIO $ forkIO dr_ci_posting_computation
@@ -931,7 +920,6 @@ handleStatusWebhook
     notified_status_context_string = LT.unpack context_text
     notified_status_context_text = LT.toStrict context_text
 
-    is_not_my_own_context = notified_status_context_text /= myAppStatusContext
     sha1 = Builds.RawCommit $ LT.toStrict $ Webhooks.sha status_event
 
 

@@ -44,6 +44,7 @@ drCiIssueTrackerUrl :: Text
 drCiIssueTrackerUrl = "https://github.com/kostmo/circleci-failure-tracker/issues"
 
 
+viableCommitsHistoryUrl :: LT.Text
 viableCommitsHistoryUrl = webserverBaseUrl <> "/master-viable-commits.html"
 
 
@@ -126,21 +127,22 @@ genBuildFailuresTable
       ]
 
     nonflaky_matched_builds_details_block = concat $
-      zipWith (gen_matched_build_section $ length nonupstream_nonflaky_breakages) [1..] nonupstream_nonflaky_breakages
+      zipWith (genMatchedBuildSection $ length nonupstream_nonflaky_breakages) [1..] nonupstream_nonflaky_breakages
 
 
 
     flaky_matched_builds_details_block = concat $
-      zipWith (gen_matched_build_section $ length nonupstream_flaky_breakages) [1..] nonupstream_flaky_breakages
+      zipWith (genMatchedBuildSection $ length nonupstream_flaky_breakages) [1..] nonupstream_flaky_breakages
 
 
     non_upstream_nonflaky_intro_text = M.colonize [
-        "The following build failures don't appear to be due to upstream breakage"
+        "The following build failures do not appear to be due to upstream breakage"
       ]
 
 
     non_upstream_flaky_intro_text = M.colonize [
-        "The following build failures have been detected as flaky and may not be your fault"
+        "The following build failures have been detected as flaky and"
+      , M.bold "may not be your fault"
       ]
 
     nonupstream_nonflaky_pattern_matched_section = if null nonupstream_nonflaky_breakages
@@ -178,7 +180,8 @@ genBuildFailuresTable
     matched_upstream_builds_details_block = M.bulletTree $ map render_upstream_matched_failure_item upstream_breakages
 
     upstream_intro_text = M.colonize [
-        "These builds matched patterns, but were probably caused by upstream breakages"
+        "These builds matched patterns, but were probably"
+      , M.bold "caused by upstream breakages"
       ]
 
     upstream_matched_section = if null upstream_breakages
@@ -199,7 +202,7 @@ genBuildFailuresTable
         <> NE.toList (genUnmatchedBuildsTable pre_broken_set merge_base_commit unmatched_builds)
 
 
-gen_matched_build_section total_count idx build_with_log_context = [
+genMatchedBuildSection total_count idx build_with_log_context = [
     M.heading 4 $ T.unwords [
         circleci_image_link
       , job_name
@@ -238,6 +241,7 @@ gen_matched_build_section total_count idx build_with_log_context = [
       circleCIBuildUrlPrefix <> T.pack (show provider_build_number)
 
 
+renderLogLineTuple :: (a, LT.Text) -> Text
 renderLogLineTuple = sanitizeLongLine . LT.toStrict . snd
 
 
@@ -258,6 +262,7 @@ sanitizeLongLine line_text =
     carriage_return_chunks = T.split (== '\r') $ T.pack $ CircleCIParse.filterAnsiCursorMovement $ T.unpack line_text
 
 
+generateCommentFooter :: Maybe SqlRead.PostedPRComment -> [Text]
 generateCommentFooter maybe_previous_pr_comment =
   ["---", footer_section]
   where
@@ -285,14 +290,12 @@ generateCommentFooter maybe_previous_pr_comment =
     -- Note that using the current count of N comments as the revision count will be
     -- appropriate for the (N+1)th comment (the one that's about to be posted), because
     -- the first post doesn't count as a "revision".
-    optional_suffix = case maybe_previous_pr_comment of
-      Nothing -> []
-      Just previous_pr_comment -> [
-          M.italic $ M.sentence [
-            "This comment has been revised"
-          , MyUtils.pluralize (SqlRead._revision_count previous_pr_comment) "time"
-          ]
+    optional_suffix = flip (maybe []) maybe_previous_pr_comment $ \previous_pr_comment -> [
+        M.italic $ M.sentence [
+          "This comment has been revised"
+        , MyUtils.pluralize (SqlRead._revision_count previous_pr_comment) "time"
         ]
+      ]
 
     dr_ci_base_url = LT.toStrict webserverBaseUrl
     opt_out_url = dr_ci_base_url <> "/admin/comments-opt-out.html"
@@ -310,7 +313,6 @@ generateCommentMarkdown
 
   M.paragraphs $ [intro_section] ++ middle_sections ++ generateCommentFooter maybe_previous_pr_comment
   where
-
     intro_section = T.unlines [
         M.heading 2 ":pill: CircleCI build failures summary and remediations"
       , M.colonize [
@@ -332,10 +334,11 @@ generateMiddleSections
     commit_page_info
     (Builds.RawCommit sha1_text) =
 
-  [summary_tree] ++ detailed_build_issues_section
+  summary_header ++ [summary_tree] ++ detailed_build_issues_section
   where
 
-    summary_tree = M.bulletTree $ genMetricsTreeVerbose commit_page_info ancestry_result build_summary_stats
+    (summary_header, summary_forrest) = genMetricsTreeVerbose commit_page_info ancestry_result build_summary_stats
+    summary_tree = M.bulletTree summary_forrest
 
     build_failures_table_lines = genBuildFailuresTable commit_page_info build_summary_stats
 
@@ -358,15 +361,25 @@ genMetricsTreeVerbose ::
      StatusUpdateTypes.CommitPageInfo
   -> GadgitFetch.AncestryPropositionResponse
   -> StatusUpdateTypes.BuildSummaryStats
-  -> Tr.Forest (NonEmpty Text)
+  -> ([Text], Tr.Forest (NonEmpty Text))
 genMetricsTreeVerbose
     commit_page_info
     ancestry_response
     (StatusUpdateTypes.NewBuildSummaryStats pre_broken_info all_failures) =
-  optional_kb_metric <> failures_introduced_in_pull_request <> flaky_bullet_tree
-  where
 
-    (GadgitFetch.AncestryPropositionResponse (GadgitFetch.RefAncestryProposition _supposed_ancestor _supposed_descendant) ancestry_result) = ancestry_response
+  (summary_header, forrest_parts)
+  where
+    forrest_parts = optional_kb_metric ++ introduced_failures_section ++ flaky_bullet_tree
+
+    summary_header = if broken_in_pr_count > 0
+      then []
+      else [M.sentence [M.bold "None of the build failures appear to be your fault"]]
+
+    optional_kb_metric = [upstream_breakage_bullet_tree | not $ null pre_broken_set]
+    introduced_failures_section = [introduced_failures_section_inner | broken_in_pr_count > 0]
+    flaky_bullet_tree = [flaky_bullet_tree_inner | flaky_count > 0]
+
+    GadgitFetch.AncestryPropositionResponse _ ancestry_result = ancestry_response
 
     merge_base_commit = SqlUpdate.merge_base pre_broken_info
     Builds.RawCommit merge_base_sha1_text = merge_base_commit
@@ -374,7 +387,6 @@ genMetricsTreeVerbose
     definite_older_commit_advice = pure $ M.colonize [
         M.commaize [
           "Since your merge base"
---        , M.codeInline supposed_ancestor
         , "is older than"
         , M.codeInline viableBranchName
         ]
@@ -440,8 +452,10 @@ genMetricsTreeVerbose
 
 
     pre_broken_set = SqlUpdate.inferred_upstream_caused_broken_jobs pre_broken_info
+
     upstream_broken_count = length pre_broken_set
     total_failcount = length all_failures
+
     broken_in_pr_count = total_failcount - upstream_broken_count - flaky_count
 
     bold_fraction a b = M.bold $ T.pack $ MyUtils.renderFrac a b
@@ -461,30 +475,21 @@ genMetricsTreeVerbose
     upstream_breakage_bullet_tree = pure $
        upstream_brokenness_declaration :| rebase_advice_section
 
-
-    optional_kb_metric = if null pre_broken_set
-      then []
-      else [upstream_breakage_bullet_tree]
-
-
-    failures_introduced_in_pull_request = [
-        pure $ pure $ T.unwords [
-            bold_fraction broken_in_pr_count total_failcount
-          , "failures introduced in this PR"
-          ]
+    introduced_failures_section_inner = pure $ pure $ T.unwords [
+        bold_fraction broken_in_pr_count total_failcount
+      , "failures introduced in this PR"
       ]
 
     flaky_count = length $ StatusUpdateTypes.flaky_builds $
       StatusUpdateTypes.nonupstream $ StatusUpdateTypes.pattern_matched_builds commit_page_info
 
-    flaky_bullet_tree = if flaky_count > 0
-      then [
-        Tr.Node (pure $ T.unwords [
-            bold_fraction flaky_count total_failcount
-          , "recognized as flaky :snowflake:"
-          ]) [pure $ pure "Re-run these jobs?"]
-        ]
-      else []
+
+    flaky_bullet_tree_inner_heading = pure $ T.unwords [
+        bold_fraction flaky_count total_failcount
+      , "recognized as flaky :snowflake:"
+      ]
+
+    flaky_bullet_tree_inner = Tr.Node flaky_bullet_tree_inner_heading [pure $ pure "Re-run these jobs?"]
 
 
 genGridViewSha1Link ::

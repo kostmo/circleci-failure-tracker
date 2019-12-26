@@ -5,7 +5,6 @@ import           Control.Monad.Trans.Reader (runReaderT)
 import           Data.Either                (fromRight)
 import           Data.Text                  (Text)
 import qualified Data.Text                  as T
-import qualified Data.Text.Lazy             as LT
 import qualified Network.OAuth.OAuth2       as OAuth2
 import           Options.Applicative
 import           System.IO
@@ -15,13 +14,11 @@ import qualified CommentRender
 import qualified Constants
 import qualified DbHelpers
 import qualified DbPreparation
-import qualified DebugUtils                 as D
 import qualified GadgitFetch
 import qualified GadgitTest
 import qualified GitRev
 import qualified SqlRead
 import qualified SqlUpdate
-import qualified SqlWrite
 import qualified StatusUpdate
 import qualified StatusUpdateTypes
 
