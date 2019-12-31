@@ -10,10 +10,12 @@ import           Control.Monad.Trans.Except (ExceptT (ExceptT), except,
 import           Control.Monad.Trans.Reader (ask, runReaderT)
 import           Data.Aeson
 import           Data.Either.Utils          (maybeToEither)
-import           Data.Set                   (Set)
+import           Data.HashMap.Strict        (HashMap)
+import qualified Data.HashMap.Strict        as HashMap
 import qualified Data.Set                   as Set
 import           Data.Text                  (Text)
 import qualified Data.Text                  as T
+import           Data.Tuple                 (swap)
 import           Database.PostgreSQL.Simple
 import           GHC.Generics
 import qualified Network.OAuth.OAuth2       as OAuth2
@@ -83,7 +85,7 @@ instance ToJSON BuildInfoRetrievalBenchmarks where
 data UpstreamBreakagesInfo = UpstreamBreakagesInfo {
     merge_base :: Builds.RawCommit
   , manually_annotated_breakages :: [DbHelpers.WithId SqlRead.CodeBreakage]
-  , inferred_upstream_caused_broken_jobs :: Set Text
+  , inferred_upstream_breakages_by_job :: HashMap Text SqlRead.UpstreamBrokenJob
   }
 
 
@@ -302,5 +304,6 @@ findKnownBuildBreakages access_token owned_repo sha1 = do
     return $ UpstreamBreakagesInfo
       nearest_ancestor
       manually_annotated_breakages $
-        Set.fromList $
-          map SqlRead.extractJobName inferred_upstream_caused_broken_jobs
+        HashMap.fromList $ map
+          (swap . MyUtils.derivePair SqlRead.extractJobName)
+          inferred_upstream_caused_broken_jobs

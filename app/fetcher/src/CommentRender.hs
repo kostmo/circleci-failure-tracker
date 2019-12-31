@@ -3,15 +3,16 @@
 
 module CommentRender where
 
-import           Data.List          (dropWhileEnd, intersperse)
-import           Data.List.NonEmpty (NonEmpty ((:|)))
-import qualified Data.List.NonEmpty as NE
-import           Data.Set           (Set)
-import qualified Data.Set           as Set
-import           Data.Text          (Text)
-import qualified Data.Text          as T
-import qualified Data.Text.Lazy     as LT
-import qualified Data.Tree          as Tr
+import           Data.HashMap.Strict (HashMap)
+import qualified Data.HashMap.Strict as HashMap
+import           Data.List           (dropWhileEnd, intersperse)
+import           Data.List.NonEmpty  (NonEmpty ((:|)))
+import qualified Data.List.NonEmpty  as NE
+import           Data.Text           (Text)
+import qualified Data.Text           as T
+import qualified Data.Text.Lazy      as LT
+import qualified Data.Time.Format    as TF
+import qualified Data.Tree           as Tr
 
 import qualified Builds
 import qualified CircleCIParse
@@ -19,7 +20,7 @@ import qualified CommitBuilds
 import qualified Constants
 import qualified DbHelpers
 import qualified GadgitFetch
-import qualified Markdown           as M
+import qualified Markdown            as M
 import qualified MatchOccurrences
 import qualified MyUtils
 import qualified SqlRead
@@ -65,11 +66,11 @@ circleCIBuildUrlPrefix = "https://circleci.com/gh/pytorch/pytorch/"
 
 
 genUnmatchedBuildsTable ::
-     Set Text
+     HashMap Text SqlRead.UpstreamBrokenJob
   -> Builds.RawCommit
   -> [WebApi.UnmatchedBuild]
   -> NonEmpty Text
-genUnmatchedBuildsTable pre_broken_set merge_base_commit unmatched_builds =
+genUnmatchedBuildsTable pre_broken_jobs_map merge_base_commit unmatched_builds =
   M.table header_columns data_rows
   where
     header_columns = [
@@ -94,7 +95,7 @@ genUnmatchedBuildsTable pre_broken_set merge_base_commit unmatched_builds =
           , M.link "Broken upstream" $ genGridViewSha1Link 1 merge_base_commit $ Just job_name
           ]
 
-        upstream_brokenness_indicator = if Set.member job_name pre_broken_set
+        upstream_brokenness_indicator = if HashMap.member job_name pre_broken_jobs_map
           then upstream_brokenness_text
           else "New in PR"
 
@@ -113,7 +114,7 @@ genBuildFailuresTable
   <> pattern_unmatched_section
 
   where
-    pre_broken_set = SqlUpdate.inferred_upstream_caused_broken_jobs pre_broken_info
+    pre_broken_jobs_map = SqlUpdate.inferred_upstream_breakages_by_job pre_broken_info
     merge_base_commit = SqlUpdate.merge_base pre_broken_info
 
     StatusUpdateTypes.UpstreamBuildPartition upstream_breakages non_upstream_breakages_raw = pattern_matched_builds
@@ -169,11 +170,32 @@ genBuildFailuresTable
       ]
 
 
-    render_upstream_matched_failure_item x@(CommitBuilds.BuildWithLogContext (CommitBuilds.NewCommitBuild (Builds.StorableBuild (DbHelpers.WithId ubuild_id _universal_build) _build_obj) _match_obj _ _) _) =
-      pure $ pure $ M.link (StatusUpdateTypes.get_job_name_from_build_with_log_context x) $
-        LT.toStrict webserverBaseUrl <> "/build-details.html?build_id=" <> T.pack (show ubuild_id)
+    render_upstream_matched_failure_item (x@(CommitBuilds.BuildWithLogContext (CommitBuilds.NewCommitBuild (Builds.StorableBuild (DbHelpers.WithId ubuild_id _universal_build) _build_obj) _match_obj _ _) _), upstream_cause) =
+      pure $ pure $ T.unwords [
+          M.link link_label link_url
+        , breakage_span_words
+        ]
 
-    matched_upstream_builds_details_block = M.bulletTree $ map render_upstream_matched_failure_item upstream_breakages
+      where
+        ft = T.pack . TF.formatTime TF.defaultTimeLocale "%b %d"
+        breakage_span_words = T.unwords $ since_words ++ until_words
+        since_words =  [
+            "from"
+          , ft $ SqlRead._breakage_start_time upstream_cause
+          ]
+
+        until_words = case SqlRead._breakage_end_time upstream_cause of
+          Nothing -> []
+          Just z -> [
+              "until"
+            , ft z
+            ]
+
+        link_label = StatusUpdateTypes.get_job_name_from_build_with_log_context x
+        link_url = LT.toStrict webserverBaseUrl <> "/build-details.html?build_id=" <> T.pack (show ubuild_id)
+
+    matched_upstream_builds_details_block = M.bulletTree $
+      map render_upstream_matched_failure_item upstream_breakages
 
     upstream_intro_text = M.colonize [
         "These builds matched patterns, but were probably"
@@ -195,7 +217,7 @@ genBuildFailuresTable
     pattern_unmatched_section = if null unmatched_builds
       then mempty
       else pure pattern_unmatched_header
-        <> NE.toList (genUnmatchedBuildsTable pre_broken_set merge_base_commit unmatched_builds)
+        <> NE.toList (genUnmatchedBuildsTable pre_broken_jobs_map merge_base_commit unmatched_builds)
 
 
 genMatchedBuildSection total_count idx build_with_log_context = [
@@ -333,7 +355,7 @@ generateMiddleSections
   summary_header ++ [summary_tree] ++ detailed_build_issues_section
   where
 
-    (summary_header, summary_forrest) = genMetricsTreeVerbose
+    (summary_header, summary_forrest) = genMetricsTree
       commit_page_info
       ancestry_result
       build_summary_stats
@@ -357,12 +379,12 @@ generateMiddleSections
     dr_ci_commit_details_link = dr_ci_base_url <> "/commit-details.html?sha1=" <> sha1_text
 
 
-genMetricsTreeVerbose ::
+genMetricsTree ::
      StatusUpdateTypes.CommitPageInfo
   -> GadgitFetch.AncestryPropositionResponse
   -> StatusUpdateTypes.BuildSummaryStats
   -> ([Text], Tr.Forest (NonEmpty Text))
-genMetricsTreeVerbose
+genMetricsTree
     commit_page_info
     ancestry_response
     (StatusUpdateTypes.NewBuildSummaryStats pre_broken_info all_failures) =
@@ -379,7 +401,7 @@ genMetricsTreeVerbose
       then []
       else [M.sentence [M.bold "None of the build failures appear to be your fault"]]
 
-    optional_kb_metric = [upstream_breakage_bullet_tree | not $ null pre_broken_set]
+    optional_kb_metric = [upstream_breakage_bullet_tree | not $ HashMap.null pre_broken_jobs_map]
     introduced_failures_section = [introduced_failures_section_inner | broken_in_pr_count > 0]
     flaky_bullet_tree = [flaky_bullet_tree_inner | flaky_count > 0]
 
@@ -455,9 +477,9 @@ genMetricsTreeVerbose
       rebase_advice_children <> rebase_advice_footer
 
 
-    pre_broken_set = SqlUpdate.inferred_upstream_caused_broken_jobs pre_broken_info
+    pre_broken_jobs_map = SqlUpdate.inferred_upstream_breakages_by_job pre_broken_info
 
-    upstream_broken_count = length pre_broken_set
+    upstream_broken_count = HashMap.size pre_broken_jobs_map
     total_failcount = length all_failures
 
     broken_in_pr_count = total_failcount - upstream_broken_count - flaky_count
@@ -466,14 +488,16 @@ genMetricsTreeVerbose
 
     grid_view_url = genGridViewSha1Link 1 merge_base_commit Nothing
 
+    latest_upstream_breakage = maximum $ map SqlRead._breakage_start_time $ HashMap.elems pre_broken_jobs_map
+    latest_breakage_formatted_time = TF.formatTime TF.defaultTimeLocale "%b %d" latest_upstream_breakage
+
     upstream_brokenness_declaration = T.unwords [
         bold_fraction upstream_broken_count total_failcount
-      , "broken upstream at merge base"
+      , M.link "broken upstream" grid_view_url
+      , "at merge base"
       , T.take Constants.gitCommitPrefixLength merge_base_sha1_text
-      , M.parens $ T.unwords [
-          "see"
-        , M.link "grid view" grid_view_url
-        ]
+      , "since"
+      , T.pack latest_breakage_formatted_time
       ]
 
     upstream_breakage_bullet_tree = pure $

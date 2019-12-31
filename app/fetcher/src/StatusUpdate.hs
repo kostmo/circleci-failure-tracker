@@ -366,11 +366,11 @@ fetchCommitPageInfo pre_broken_info sha1 validated_sha1 = runExceptT $ do
   liftIO $ D.debugStr "Finishing fetchCommitPageInfo."
 
   return $ StatusUpdateTypes.CommitPageInfo
-    (StatusUpdateTypes.partitionMatchedBuilds pre_broken_set matched_builds_with_log_context)
+    (StatusUpdateTypes.partitionMatchedBuilds pre_broken_jobs_map matched_builds_with_log_context)
     unmatched_builds
 
   where
-    pre_broken_set = SqlUpdate.inferred_upstream_caused_broken_jobs pre_broken_info
+    pre_broken_jobs_map = SqlUpdate.inferred_upstream_breakages_by_job pre_broken_info
 
 
 postCommitSummaryStatus ::

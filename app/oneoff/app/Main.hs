@@ -54,7 +54,7 @@ mainAppCode args = do
 
   conn <- DbPreparation.prepareDatabase connection_data False
 
-  let commit_sha1_text = "80a5bcd468c4fb4e2cf272a5677b13f9765ffcad"
+  let commit_sha1_text = "845598d17d473c0d75485780fa78bf08ec48db54"
       raw_commit = Builds.RawCommit commit_sha1_text
       validated_sha1 = fromRight (error "BAD") $ GitRev.validateSha1 commit_sha1_text
 
