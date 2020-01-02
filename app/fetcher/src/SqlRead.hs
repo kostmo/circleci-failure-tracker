@@ -3756,6 +3756,8 @@ commonQueryPrefixPatternMatches = Q.qjoin [
     ]
   , "FROM best_pattern_match_augmented_builds"
   , "WHERE pattern_id = ?"
+  , "ORDER BY"
+  , "queued_at DESC"
   ]
 
 
@@ -3993,5 +3995,7 @@ getPatternOccurrenceRows (ScanPatterns.PatternId pattern_id) = do
       , "FROM matches_with_log_metadata"
       , "JOIN global_builds"
       , "ON matches_with_log_metadata.universal_build = global_builds.global_build_num"
-      , "WHERE pattern = ?;"
+      , "WHERE pattern = ?"
+      , "ORDER BY"
+      , "queued_at DESC"
       ]
