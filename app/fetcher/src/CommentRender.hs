@@ -467,7 +467,7 @@ genMetricsTree
       ]
 
     rebase_advice_intro = T.unwords [
-        "You may want to rebase on the"
+        "Please rebase on the"
       , M.codeInlineHtml viableBranchName
       , "branch"
       , M.parens "expand for instructions"

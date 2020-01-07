@@ -133,7 +133,7 @@ function plot_downstream_impact_by_week(html_element_id, series_list, stacking_t
 function downstream_impact_by_week(api_url) {
 
 //	const weeks_count = $('#weeks-count-input').val();
-	const weeks_count = 12; // TODO Create UI element
+	const weeks_count = 26; // TODO Create UI element
 
 
 	$("#scan-throbber2").show();

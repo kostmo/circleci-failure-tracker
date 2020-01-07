@@ -191,6 +191,9 @@ scottyApp
   get "/api/status-postings-by-day" $
     pure SqlRead.apiStatusPostingsByDay
 
+  get "/api/comment-postings-by-week" $
+    pure SqlRead.prCommentRevisionsByWeek
+
   get "/api/failed-commits-by-day" $
     pure SqlRead.apiFailedCommitsByDay
 

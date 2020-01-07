@@ -82,11 +82,23 @@ instance (ToJSON a, ToJSON b) => ToJSON (BenchmarkedResponse a b) where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
+
+newtype FieldAsRowWrapper a = FieldAsRowWrapper a
+  deriving Generic
+
+instance (ToJSON a) => ToJSON (FieldAsRowWrapper a) where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+instance (FromField a) => FromRow (FieldAsRowWrapper a) where
+  fromRow = FieldAsRowWrapper <$> field
+
+
+
 -- | TODO Use this for more weekly data
 data TimestampedDatum a = TimestampedDatum {
     _timestamp :: UTCTime
   , _record    :: a
-  } deriving Generic
+  } deriving (Eq, Ord, Generic)
 
 instance (ToJSON a) => ToJSON (TimestampedDatum a) where
   toJSON = genericToJSON JsonUtils.dropUnderscore

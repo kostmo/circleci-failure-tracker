@@ -1029,8 +1029,36 @@ apiStatusPostingsByDay = WebApi.ApiResponse . reverse <$> runQuery q
       "SELECT"
     , "created_at::date AS date, COUNT(*)"
     , "FROM created_github_statuses"
-    , "GROUP BY date ORDER BY date DESC OFFSET 1;"
+    , "GROUP BY date"
+    , "ORDER BY date DESC"
+    , "OFFSET 1;"
     ]
+
+
+-- | Skips the most recent week for accuracy
+-- Reversed from descending order because Highcharts expects
+-- the dates to be in ascending order
+prCommentRevisionsByWeek :: DbIO [DbHelpers.TimestampedDatum (DbHelpers.FieldAsRowWrapper Int)]
+prCommentRevisionsByWeek = do
+  conn <- ask
+  liftIO $ do
+    xs <- query_ conn sql
+    return $ reverse xs
+  where
+    sql = Q.qjoin [
+        "SELECT"
+      , Q.list [
+          "date_trunc('week', updated_at) AS week"
+        , "COUNT(*) AS occurrences"
+        ]
+      , "FROM created_pull_request_comment_revisions"
+      , "GROUP BY week"
+      , "ORDER BY week DESC"
+      , "OFFSET 1"
+      ]
+
+
+
 
 
 listBuilds :: Query -> DbIO [WebApi.BuildBranchRecord]

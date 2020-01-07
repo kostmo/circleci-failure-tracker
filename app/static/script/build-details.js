@@ -103,7 +103,6 @@ function populate_build_info(universal_build_id, parent_data) {
 		["Logs:", logview_items],
 		["Revision:", commit_links],
 		["Build step:", render_tag("i", data["step_name"])],
-		["Branch:", data["build"]["branch"]],
 		["Job name:", link(data["build"]["job_name"], "/job-details.html?job=" + data["build"]["job_name"])],
 		["Known breakage causes:", breakage_cause_items],
 		["Date:", moment(data["build"]["queued_at"]).fromNow()],
@@ -125,7 +124,6 @@ function populate_build_info(universal_build_id, parent_data) {
 
 		$("#all-matches-section").html(render_tag("p", render_tag("b", "Note:") + " Only 1 pattern match was found in the entire log."));
 		$("#all-matches-section").show();
-
 	}
 }
 

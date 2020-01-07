@@ -530,6 +530,32 @@ function bounds_go_back_one_week() {
 }
 
 
+function bounds_go_forward_one_week() {
+
+
+	const start_picker_initial_date = end_picker.getDate();
+
+
+	console.log("Setting", 7, "days forward from end date:", start_picker_initial_date);
+
+
+	setSpanDaysForward(start_picker_initial_date, 7);
+
+	const start_timestamp = start_picker.getDate().toISOString();
+	const end_timestamp = end_picker.getDate().toISOString();
+
+	const query_args_dict = {
+		"start-timestamp": start_timestamp,
+		"end-timestamp": end_timestamp,
+	};
+
+	requery_tables(query_args_dict);
+}
+
+
+
+
+
 // Ending at the most recent Sunday, show the 7 preceeding days
 function bounds_last_week() {
 
