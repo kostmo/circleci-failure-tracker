@@ -17,7 +17,7 @@ function dashboard_main() {
 	$.getJSON('/api/master-weekly-failure-stats', {"weeks": weeks_count}, function (data) {
 		$("#scan-throbber").hide();
 
-		plot_differentiated_master_failures(data);
+		plot_differentiated_master_failures(data["payload"]);
 	});
 
 
