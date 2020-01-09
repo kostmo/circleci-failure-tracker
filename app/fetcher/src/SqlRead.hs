@@ -109,13 +109,33 @@ wrapPattern ::
   -> Bool
   -> Maybe Int
   -> ScanPatterns.DbPattern
-wrapPattern pattern_id is_regex pattern_text is_nondeterministic description tags_list steps_list specificity is_retired maybe_lines_from_end =
+wrapPattern
+    pattern_id
+    is_regex
+    pattern_text
+    is_nondeterministic
+    description
+    tags_list
+    steps_list
+    specificity
+    is_retired
+    maybe_lines_from_end =
+
   DbHelpers.WithId pattern_id inner_pattern
   where
     expression_obj = constructExpression is_regex pattern_text is_nondeterministic
-    inner_pattern = ScanPatterns.NewPattern expression_obj description tags_list steps_list specificity is_retired maybe_lines_from_end
+
+    inner_pattern = ScanPatterns.NewPattern
+      expression_obj
+      description
+      tags_list
+      steps_list
+      specificity
+      is_retired
+      maybe_lines_from_end
 
 
+-- | TODO: Make this one query
 getPatterns :: Connection -> IO [ScanPatterns.DbPattern]
 getPatterns conn = do
 

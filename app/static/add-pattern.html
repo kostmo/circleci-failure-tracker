@@ -6,13 +6,26 @@
 
 <link href="/style.css" rel="stylesheet" type="text/css"></link>
 
-
 <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
 <script src="https://code.jquery.com/ui/1.12.1/jquery-ui.js"></script>
 
 <script src="/script/html-utils.js"></script>
 <script src="/script/tag-helpers.js"></script>
 <script src="/script/add-pattern.js"></script>
+
+<style type="text/css">
+.advanced-option {display: none}
+
+
+ul > li {
+	margin: 0.2em;
+}
+
+ul {
+	list-style-type: none
+}
+</style>
+
 </head>
 
 <body onload="main();">
@@ -22,52 +35,81 @@
 <form onsubmit="return false;">
 
 <h3>Immutable properties</h3>
-<p>This data cannot be changed after submitting; instead, a new pattern must be created while "retiring" the old one.</p>
+<p style="font-style: italic">This data cannot be changed after submitting; instead, a new pattern must be created while "retiring" the old one.</p>
 
-<label>Pattern: <input id="input-pattern-text" type="text" value="does not actually allow to resize" size="60"/></label>
-<br/>
-<label><input id="is-regex-checkbox" type="checkbox"/> is a regular expression (<abbr title="To avoid pathological performance issues, creation of regular expressions is limited to admins at this time."><span style="color: #808;">restricted to admins</span></abbr>)</label>
 
-<br/>
-<label>
-Applicable build steps:
+<ul>
+<li>
+	<label>Pattern: <input id="input-pattern-text" type="text" value="" size="60"/></label>
+</li>
 
-<select id="build-step-applicability-input"></select>
-</label>
-<button onclick="add_build_step();">Add</button>
+<li>
+	<label><input id="is-regex-checkbox" type="checkbox"/> is a regular expression (<abbr title="To avoid pathological performance issues, creation of regular expressions is limited to admins at this time."><span style="color: #808;">restricted to admins</span></abbr>)</label>
+</li>
 
-<div id="all-steps-applicable-indicator"><strong>&lt;currently applicable to all steps&gt;</strong></div>
-<div id="step-list-container" style="padding: .3em;"></div>
+<!-- This function has low usage and is confusing when it causes patterns not to be matched on different steps. -->
+<li>
+	<div class="advanced-option">
+		<label>
+		Applicable build steps:
 
-<br/>
-<label>Position from end: <input id="input-lines-from-end" type="text" value="" size="5"/> lines</label> <label><input id="is-using-lines-from-end-checkbox" type="checkbox"/> require position match</label>
+		<select id="build-step-applicability-input"></select>
+		</label>
+		<button onclick="add_build_step();">Add</button>
 
+		<div id="all-steps-applicable-indicator"><strong>&lt;currently applicable to all steps&gt;</strong></div>
+		<div id="step-list-container" style="padding: .3em;"></div>
+	</div>
+</li>
+
+<li>
+	<div class="advanced-option">
+		<label>Position from end: <input id="input-lines-from-end" type="text" value="" size="5"/> lines</label>
+
+		<div style="margin-left: 2em;">
+			<label><input id="is-using-lines-from-end-checkbox" type="checkbox"/> require position match</label>
+		</div>
+	</div>
+</li>
+</ul>
 
 <h3>Mutable properties</h3>
-<p>These can be edited later.</p>
+<p style="font-style: italic">These can be edited later.</p>
 
-<label>
-Description:
-<input id="input-pattern-description" type="textarea" value="" size="60"/>
-</label>
+<ul>
+<li>
+	<label>Description: <input id="input-pattern-description" type="textarea" value="" size="60"/></label>
+</li>
 
-<br/>
-<label>
-Specificity:
-<input id="specificity-input" type="number" value="1" min="1" max="100">
-</label>
-<br/>
-<label><input id="is-nondeterministic-checkbox" type="checkbox"/> regex produces nondeterministic values</label>
-<br/>
-<label>
-Tags:
-<input id="pattern-tag-input" type="text" value=""/></label> <button onclick="add_tag();">Add</button>
+<li>
+	<label>
+	Specificity:
+	<input id="specificity-input" type="number" value="1" min="1" max="100">
+	</label>
+</li>
 
-<div id="tag-list-container" style="padding: .3em;"></div>
+<li>
+<div class="advanced-option">
+	<label><input id="is-nondeterministic-checkbox" type="checkbox"/> <abbr title="Whether the regex matches nondeterministic content (e.g. timestamps or jittery values). This does not refer to patterns that match variable content but is reproducible across rebuilds.">regex produces nondeterministic values</abbr></label>
+</div>
+</li>
 
+<li>
+<div>
+	<label>
+	Tags:
+	<input id="pattern-tag-input" type="text" value=""/></label> <button onclick="add_tag();">Add</button>
+
+	<div id="tag-list-container" style="padding: .3em;"></div>
+</div>
+</li>
+</ul>
 
 <h3>Testing</h3>
-<button onclick="test_pattern();">Test on build ID</button> <label>#<input id="test-build-id" type="text" value="1040566"/></label> <button onclick="view_full_log();">View full log</button> <img id="mini-throbber" src="/images/animated-spinner.svg" style="width: 16px; vertical-align: middle; display: none;"/>
+<button onclick="test_pattern();">Test on build ID</button>
+<label>#<input id="test-build-id" type="text" value="1040566"/></label>
+<button onclick="view_full_log();">View full log</button>
+<img id="mini-throbber" src="/images/animated-spinner.svg" style="width: 16px; vertical-align: middle; display: none;"/>
 
 <div id="test-match-results-container"></div>
 
@@ -75,7 +117,7 @@ Tags:
 <button onclick="submit_pattern(this);">Submit</button> <img id="mini-throbber-submit" src="/images/animated-spinner.svg" style="width: 16px; vertical-align: middle; display: none;"/>
 </form>
 
-
+<div class="advanced-option">
 <hr/>
 <h2>Database backup</h2>
 
@@ -92,7 +134,7 @@ Tags:
 
 <input type="submit" value="Upload"/>
 </form>
-
+</div>
 
 <hr/>
 

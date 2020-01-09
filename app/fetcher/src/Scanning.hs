@@ -233,11 +233,37 @@ prepareScanResources conn maybe_initiator = do
   aws_sess <- Sess.newSession
   circle_sess <- Sess.newSession
 
-  pattern_records <- SqlRead.getPatterns conn
+  (time1, pattern_records) <- D.timeThisFloat $ SqlRead.getPatterns conn
+  D.debugList [
+      "Fetching all"
+    , show $ length pattern_records
+    , "patterns took"
+    , show time1
+    , "seconds"
+    ]
+
+
   let patterns_by_id = DbHelpers.to_dict pattern_records
 
-  latest_pattern_id <- SqlRead.getLatestPatternId conn
-  scan_id <- SqlWrite.insertScanId conn maybe_initiator latest_pattern_id
+  (time2, latest_pattern_id) <- D.timeThisFloat $ SqlRead.getLatestPatternId conn
+
+  D.debugList [
+      "Fetching latest pattern ID"
+    , show latest_pattern_id
+    , "took"
+    , show time2
+    , "seconds"
+    ]
+
+  (time3, scan_id) <- D.timeThisFloat $ SqlWrite.insertScanId conn maybe_initiator latest_pattern_id
+
+  D.debugList [
+      "Inserting Scan ID"
+    , show scan_id
+    , "took"
+    , show time3
+    , "seconds"
+    ]
 
   return $ ScanRecords.ScanCatchupResources
     scan_id
