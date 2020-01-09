@@ -242,7 +242,6 @@ prepareScanResources conn maybe_initiator = do
     , "seconds"
     ]
 
-
   let patterns_by_id = DbHelpers.to_dict pattern_records
 
   (time2, latest_pattern_id) <- D.timeThisFloat $ SqlRead.getLatestPatternId conn

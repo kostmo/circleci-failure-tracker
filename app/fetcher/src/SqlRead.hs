@@ -31,7 +31,7 @@ import           Database.PostgreSQL.Simple
 import           Database.PostgreSQL.Simple.FromField (FromField)
 import           Database.PostgreSQL.Simple.FromRow   (field, fromRow)
 import           Database.PostgreSQL.Simple.ToField   (ToField)
-import           Database.PostgreSQL.Simple.Types     (PGArray)
+import           Database.PostgreSQL.Simple.Types     (PGArray, fromPGArray)
 import           GHC.Generics
 import           GHC.Int                              (Int64)
 import qualified Safe
@@ -135,18 +135,24 @@ wrapPattern
       maybe_lines_from_end
 
 
--- | TODO: Make this one query
 getPatterns :: Connection -> IO [ScanPatterns.DbPattern]
 getPatterns conn = do
 
   patterns_rows <- query_ conn patterns_sql
 
-  forM patterns_rows $ \(pattern_id, is_regex, pattern_text, has_nondeterministic_values, description, specificity, is_retired, lines_from_end) -> do
+  forM patterns_rows $ \(pattern_id, is_regex, pattern_text, has_nondeterministic_values, description, specificity, is_retired, lines_from_end, tags_list, steps_list) ->
 
-    tags_list <- map (\(Only tag_text) -> tag_text) <$> query conn tags_sql (Only pattern_id)
-    steps_list <- map (\(Only step_text) -> step_text) <$> query conn applicable_steps_sql (Only pattern_id)
-
-    return $ wrapPattern pattern_id is_regex pattern_text has_nondeterministic_values description tags_list steps_list specificity is_retired lines_from_end
+    return $ wrapPattern
+      pattern_id
+      is_regex
+      pattern_text
+      has_nondeterministic_values
+      description
+      (fromPGArray tags_list)
+      (fromPGArray steps_list)
+      specificity
+      is_retired
+      lines_from_end
 
   where
     patterns_sql = Q.qjoin [
@@ -160,12 +166,11 @@ getPatterns conn = do
         , "specificity"
         , "is_retired"
         , "lines_from_end"
+        , "tags_array"
+        , "steps_array"
         ]
-      , "FROM patterns ORDER BY description;"
+      , "FROM patterns_rich ORDER BY description;"
       ]
-
-    tags_sql = "SELECT tag FROM pattern_tags WHERE pattern = ?;"
-    applicable_steps_sql = "SELECT step_name FROM pattern_step_applicability WHERE pattern = ?;"
 
 
 -- | Only searches for CircleCI builds
