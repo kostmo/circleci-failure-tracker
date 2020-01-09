@@ -553,9 +553,6 @@ function bounds_go_forward_one_week() {
 }
 
 
-
-
-
 // Ending at the most recent Sunday, show the 7 preceeding days
 function bounds_last_week() {
 

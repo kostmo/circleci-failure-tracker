@@ -1,6 +1,6 @@
 #!/bin/bash -xe
 
-./redeploy.sh
+./redeploy-frontend.sh
 
 
 pushd gh-notification-ingest

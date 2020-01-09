@@ -4,7 +4,7 @@ module SqlWrite where
 
 import           Control.Applicative               ((<|>))
 import           Control.Exception                 (throwIO)
-import           Control.Monad                     (unless)
+import           Control.Monad                     (unless, void)
 import           Control.Monad.IO.Class            (liftIO)
 import           Control.Monad.Trans.Except        (ExceptT (ExceptT), except,
                                                     runExceptT)
@@ -55,6 +55,12 @@ import qualified ScanRecords
 import qualified ScanUtils
 import qualified SqlRead
 import qualified Webhooks
+
+
+-- XXX This is required to avoid pathological expressions from being created
+-- that crash the server
+authorizedRegexCreatorUser :: Text
+authorizedRegexCreatorUser = "kostmo"
 
 
 pullRequestHeadsInsertionSql :: Query
@@ -677,8 +683,7 @@ storeBuildsList conn maybe_provider_scan_id builds_list = do
     , "build entries"
     ]
 
-  for builds_list $ \x ->
-    execute conn sql $ f x
+  for_ builds_list $ execute conn sql . f
 
   D.debugList [
       "Finishing storeBuildsList."
@@ -851,9 +856,8 @@ storeMatches scan_resources step@(Builds.NewBuildStepId build_step_id) (scan_tim
 
   count <- executeMany conn insertion_sql $ map to_tuple scoped_matches
 
-  unless (null scan_timeouts) $ do
-    runReaderT (recordTimeoutIncident scan_resources step scan_timeouts) conn
-    return ()
+  unless (null scan_timeouts) $
+    void $ flip runReaderT conn $ recordTimeoutIncident scan_resources step scan_timeouts
 
   D.debugList [
       "Finished storing"
@@ -1324,30 +1328,43 @@ updatePatternSpecificity (ScanPatterns.PatternId pattern_id) specificity = do
   conn <- ask
   liftIO $ Right <$> execute conn sql (specificity, pattern_id)
   where
-    sql = "UPDATE patterns SET specificity = ? WHERE id = ?;"
+    sql = Q.qjoin [
+        "UPDATE patterns"
+      , "SET specificity = ?"
+      , "WHERE id = ?;"
+      ]
 
 
 insertSinglePattern ::
      Either (ScanPatterns.Pattern, AuthStages.Username) (DbHelpers.WithAuthorship ScanPatterns.DbPattern)
-  -> SqlRead.DbIO Int64
-insertSinglePattern either_pattern = do
-  conn <- ask
-  liftIO $ do
-    [Only pattern_id] <- case maybe_id of
-      Nothing -> query conn pattern_insertion_sql (is_regex, pattern_text, description, is_retired, has_nondeterminisic_values, specificity, lines_from_end)
-      Just record_id -> query conn pattern_insertion_with_id_sql (record_id :: Int64, is_regex, pattern_text, description, is_retired, has_nondeterminisic_values, specificity, lines_from_end)
+  -> SqlRead.DbIO (Either Text Int64)
+insertSinglePattern either_pattern =
 
-    case maybe_timestamp of
-      Just timestamp -> execute conn authorship_insertion_with_timestamp_sql (pattern_id, author, timestamp)
-      Nothing -> execute conn authorship_insertion_sql (pattern_id, author)
+  if is_regex && author /= authorizedRegexCreatorUser
+    then return $ Left $ T.unwords [
+        "User"
+      , author
+      , "is not authorized to create regular expressions"
+      ]
 
-    for_ tags $ \tag ->
-      execute conn tag_insertion_sql (tag, pattern_id)
+    else do
+      conn <- ask
+      liftIO $ do
+        [Only pattern_id] <- case maybe_id of
+          Nothing -> query conn pattern_insertion_sql (is_regex, pattern_text, description, is_retired, has_nondeterminisic_values, specificity, lines_from_end)
+          Just record_id -> query conn pattern_insertion_with_id_sql (record_id :: Int64, is_regex, pattern_text, description, is_retired, has_nondeterminisic_values, specificity, lines_from_end)
 
-    for_ applicable_steps $ \applicable_step ->
-      execute conn applicable_step_insertion_sql (applicable_step, pattern_id)
+        case maybe_timestamp of
+          Just timestamp -> execute conn authorship_insertion_with_timestamp_sql (pattern_id, author, timestamp)
+          Nothing -> execute conn authorship_insertion_sql (pattern_id, author)
 
-    return pattern_id
+        for_ tags $ \tag ->
+          execute conn tag_insertion_sql (tag, pattern_id)
+
+        for_ applicable_steps $ \applicable_step ->
+          execute conn applicable_step_insertion_sql (applicable_step, pattern_id)
+
+        return $ Right pattern_id
 
   where
     pattern_text = ScanPatterns.patternText expression_obj
@@ -1857,7 +1874,7 @@ apiNewPatternWrapped ::
   -> SqlRead.AuthDbIO (Either Text Int64)
 apiNewPatternWrapped new_pattern = do
   SqlRead.AuthConnection conn user <- ask
-  liftIO $ runReaderT (apiNewPattern $ Left (new_pattern, user)) conn
+  liftIO $ flip runReaderT conn $ apiNewPattern $ Left (new_pattern, user)
 
 
 -- | TODO Is there a nicer way to propagate
@@ -1869,8 +1886,8 @@ apiNewPattern ::
 apiNewPattern new_pattern = do
   conn <- ask
   liftIO $ catchViolation catcher $ do
-    record_id <- runReaderT (insertSinglePattern new_pattern) conn
-    return $ Right record_id
+    either_record_id <- runReaderT (insertSinglePattern new_pattern) conn
+    return either_record_id
 
   where
     catcher _ (UniqueViolation some_error) = return $ Left $ "Insertion error: " <> T.pack (BS.unpack some_error)

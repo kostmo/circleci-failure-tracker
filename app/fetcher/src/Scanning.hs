@@ -151,13 +151,20 @@ rescanSingleBuild conn initiator build_to_scan = do
     , show build_to_scan
     ]
 
+  -- XXX This line seems to be slow!
   scan_resources <- prepareScanResources conn $ Just initiator
 
+  D.debugStr "Checkpoint A1"
+
   parent_build <- runReaderT (SqlRead.lookupUniversalBuild build_to_scan) conn
+
+  D.debugStr "Checkpoint A2"
 
   either_visitation_result <- getCircleCIFailedBuildInfo
     scan_resources
     (Builds.provider_buildnum $ DbHelpers.record parent_build)
+
+  D.debugStr "Checkpoint A3"
 
   -- Note that the Left/Right convention is backwards!
   case either_visitation_result of
@@ -174,11 +181,15 @@ rescanSingleBuild conn initiator build_to_scan = do
         Nothing
         [DbHelpers.WithTypedId build_to_scan build_obj]
 
+      D.debugStr "Checkpoint A4"
+
       scan_matches <- scanBuilds
         scan_resources
         RevisitScanned
         NoRefetchLog
         (Left $ Set.singleton build_to_scan)
+
+      D.debugStr "Checkpoint A5"
 
       let total_match_count = sum $ map (length . snd) scan_matches
       D.debugList [
@@ -519,7 +530,15 @@ scanLogText ::
   -> [ScanPatterns.DbPattern]
   -> IO ([ScanUtils.PatternScanTimeout], [ScanPatterns.ScanMatch])
 scanLogText lines_list patterns = do
-  result_tuples <- for input_pairs $ \num_line_pair -> do
+  D.debugList [
+      "Scanning"
+    , show $ length lines_list
+    , "lines for"
+    , show $ length patterns
+    , "patterns"
+    ]
+
+  (timing, result_tuples) <- D.timeThisFloat $ for input_pairs $ \num_line_pair -> do
     {-
     D.debugList [
         "Scanning Line number"
@@ -538,6 +557,16 @@ scanLogText lines_list patterns = do
 
     apply_patterns num_line_pair
 
+
+  D.debugList [
+      "Scanning"
+    , show $ length lines_list
+    , "lines for"
+    , show $ length patterns
+    , "patterns took"
+    , show timing
+    , "seconds"
+    ]
 
   let final_matches = concat $ filter (not . null) $ map snd result_tuples
 

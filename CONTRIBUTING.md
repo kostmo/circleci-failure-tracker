@@ -83,7 +83,7 @@ Deployment procedure
 
 In short, simply run:
 
-    ./redeploy.sh
+    ./redeploy-frontend.sh
 
 This requires that Elastic Beanstalk (the `eb` command) has been configured.
 

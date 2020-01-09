@@ -165,9 +165,9 @@ scottyApp
             , show $ length association_list
             , "associations"
             ]
-          Left msg -> D.debugList [
+          Left message -> D.debugList [
               "Failed retrieving PR assciations:"
-            , T.unpack msg
+            , T.unpack message
             ]
 
         D.debugStr "Finished association retrieval."
