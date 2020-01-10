@@ -2501,6 +2501,13 @@ CREATE VIEW public.global_builds_supplemental_github_notification_success WITH (
 ALTER TABLE public.global_builds_supplemental_github_notification_success OWNER TO postgres;
 
 --
+-- Name: VIEW global_builds_supplemental_github_notification_success; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.global_builds_supplemental_github_notification_success IS 'NOTE: This is a "pessimistic" interpretation; if there is a history of *any* build failing, even if the latest status notification is for success, then label the build as failed.';
+
+
+--
 -- Name: master_job_failure_spans_conservative; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -6388,7 +6395,7 @@ ALTER TABLE ONLY public.master_failure_mode_attributions
 --
 
 ALTER TABLE ONLY public.scanned_patterns
-    ADD CONSTRAINT fk_pattern FOREIGN KEY (newest_pattern) REFERENCES public.patterns(id);
+    ADD CONSTRAINT fk_pattern FOREIGN KEY (newest_pattern) REFERENCES public.patterns(id) ON DELETE CASCADE NOT VALID;
 
 
 --
@@ -6572,7 +6579,7 @@ ALTER TABLE ONLY public.master_failure_mode_attributions
 --
 
 ALTER TABLE ONLY public.pattern_authorship
-    ADD CONSTRAINT pattern_authorship_pattern_fkey FOREIGN KEY (pattern) REFERENCES public.patterns(id);
+    ADD CONSTRAINT pattern_authorship_pattern_fkey FOREIGN KEY (pattern) REFERENCES public.patterns(id) ON DELETE CASCADE NOT VALID;
 
 
 --

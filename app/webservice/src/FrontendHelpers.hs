@@ -70,6 +70,12 @@ patternFromParms = do
   mutable_pattern_parms <- getMutablePatternParms
 
   expression <- S.param "pattern"
+
+  liftIO $ D.debugList [
+      "Pattern expression is:"
+    , show expression
+    ]
+
   is_regex <- checkboxIsTrue <$> S.param "is_regex"
 
   use_lines_from_end <- checkboxIsTrue <$> S.param "use_lines_from_end"

@@ -32,7 +32,7 @@ ul {
 <span style="float: right;">[<a href="/">home</a>]</span>
 
 <h2>Add pattern</h2>
-<form onsubmit="return false;">
+<form onsubmit="return submit_pattern();" onkeypress="return event.keyCode != 13;">
 
 <h3>Immutable properties</h3>
 <p style="font-style: italic">This data cannot be changed after submitting; instead, a new pattern must be created while "retiring" the old one.</p>
@@ -114,7 +114,7 @@ ul {
 <div id="test-match-results-container"></div>
 
 <h3>Submission</h3>
-<button onclick="submit_pattern(this);">Submit</button> <img id="mini-throbber-submit" src="/images/animated-spinner.svg" style="width: 16px; vertical-align: middle; display: none;"/>
+<input type="submit" id="form-submit-button"/> <img id="mini-throbber-submit" src="/images/animated-spinner.svg" style="width: 16px; vertical-align: middle; display: none;"/>
 </form>
 
 <div class="advanced-option">

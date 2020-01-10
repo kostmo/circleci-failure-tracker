@@ -1874,7 +1874,12 @@ apiNewPatternWrapped ::
   -> SqlRead.AuthDbIO (Either Text Int64)
 apiNewPatternWrapped new_pattern = do
   SqlRead.AuthConnection conn user <- ask
-  liftIO $ flip runReaderT conn $ apiNewPattern $ Left (new_pattern, user)
+  response <- liftIO $ flip runReaderT conn $ apiNewPattern $ Left (new_pattern, user)
+  liftIO $ D.debugList [
+      "I got here with response:"
+    , show response
+    ]
+  return response
 
 
 -- | TODO Is there a nicer way to propagate
@@ -1884,10 +1889,12 @@ apiNewPattern ::
      Either (ScanPatterns.Pattern, AuthStages.Username) (DbHelpers.WithAuthorship ScanPatterns.DbPattern)
   -> SqlRead.DbIO (Either Text Int64)
 apiNewPattern new_pattern = do
+
+  liftIO $ D.debugStr "Inserting new pattern..."
+
   conn <- ask
-  liftIO $ catchViolation catcher $ do
-    either_record_id <- runReaderT (insertSinglePattern new_pattern) conn
-    return either_record_id
+  liftIO $ catchViolation catcher $
+    flip runReaderT conn $ insertSinglePattern new_pattern
 
   where
     catcher _ (UniqueViolation some_error) = return $ Left $ "Insertion error: " <> T.pack (BS.unpack some_error)

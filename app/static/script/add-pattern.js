@@ -78,49 +78,59 @@ function render_lists() {
 }
 
 
-function submit_pattern(submit_button) {
+function submit_pattern() {
+
+	const submit_button = $("#form-submit-button");
 
 	const pattern_data = gather_pattern_data();
 
-	const throbber_id = "#mini-throbber-submit";
+	if (!pattern_data["pattern"].trim()) {
+		alert("Cannot submit an empty pattern!");
+	} else {
 
-	$(submit_button).prop("disabled", true);
-	$(throbber_id).show();
-        $.post( {
-		url: "/api/new-pattern-insert",
-		data: add_redirect_path_to_query_parms(pattern_data),
-		error: function( data ) {
-			$(throbber_id).hide();
-			$(submit_button).prop("disabled", false);
-		},
-		success: function( data ) {
+		const throbber_id = "#mini-throbber-submit";
 
-			$(throbber_id).hide();
-			$(submit_button).prop("disabled", false);
+		submit_button.prop("disabled", true);
+		$(throbber_id).show();
+		$.post( {
+			url: "/api/new-pattern-insert",
+			data: add_redirect_path_to_query_parms(pattern_data),
+			error: function( data ) {
 
-			// TODO consolidate with "handle_submission_response()" in "html-utils.js"
-			if (data.success) {
-				alert("submitted pattern with ID: " + data.payload);
+				$(throbber_id).hide();
+				submit_button.prop("disabled", false);
+			},
+			success: function( data ) {
 
-				const build_id = get_build_id_from_url();
-				if (build_id != null) {
-					window.location.href = "/build-details.html?build_id=" + build_id;
+				$(throbber_id).hide();
+				submit_button.prop("disabled", false);
+
+				// TODO consolidate with "handle_submission_response()" in "html-utils.js"
+				if (data.success) {
+					alert("submitted pattern with ID: " + data.payload);
+
+					const build_id = get_build_id_from_url();
+					if (build_id != null) {
+						window.location.href = "/build-details.html?build_id=" + build_id;
+					} else {
+						window.location.href = "/";
+					}
+
 				} else {
-					window.location.href = "/";
-				}
-
-			} else {
-				if (data.error.details.authentication_failed) {
-					alert("Not logged in: " + data.error.message);
-					window.location.href = data.error.details.login_url;
-				} else if (data.error.details.database_failed) {
-					alert("Database error: " + data.error.message);
-				} else {
-					alert("Unknown error: " + data.error.message);
+					if (data.error.details.authentication_failed) {
+						alert("Not logged in: " + data.error.message);
+						window.location.href = data.error.details.login_url;
+					} else if (data.error.details.database_failed) {
+						alert("Database error: " + data.error.message);
+					} else {
+						alert("Unknown error: " + data.error.message);
+					}
 				}
 			}
-		}
-        });
+		});
+	}
+
+	return false;
 }
 
 
