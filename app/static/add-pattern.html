@@ -39,7 +39,6 @@ ul {
 <h3>Immutable properties</h3>
 <p style="font-style: italic">This data cannot be changed after submitting; instead, a new pattern must be created while "retiring" the old one.</p>
 
-
 <ul>
 <li>
 	<label>Pattern: <input id="input-pattern-text" type="text" value="" size="60"/></label>
@@ -57,7 +56,7 @@ ul {
 
 		<select id="build-step-applicability-input"></select>
 		</label>
-		<button onclick="add_build_step();">Add</button>
+		<button type="button" onclick="add_build_step();">Add</button>
 
 		<div id="all-steps-applicable-indicator"><strong>&lt;currently applicable to all steps&gt;</strong></div>
 		<div id="step-list-container" style="padding: .3em;"></div>
@@ -103,7 +102,7 @@ For build errors that span multiple lines, try to match against the the most uni
 <div>
 	<label>
 	Tags:
-	<input id="pattern-tag-input" type="text" value=""/></label> <button onclick="add_tag();">Add</button> (<a href="/patterns.html#tags">see all available</a>)
+	<input id="pattern-tag-input" type="text" value=""/></label> <button type="button" onclick="add_tag();">Add</button> (<a href="/patterns.html#tags">see all available</a>)
 
 	<div id="tag-list-container" style="padding: .3em;"></div>
 </div>
@@ -111,9 +110,9 @@ For build errors that span multiple lines, try to match against the the most uni
 </ul>
 
 <h3>Testing</h3>
-<button onclick="test_pattern();">Test on build ID</button>
+<button type="button" onclick="test_pattern();">Test on build ID</button>
 <label>#<input id="test-build-id" type="text" value="1040566"/></label>
-<button onclick="view_full_log();">View full log</button>
+<button type="button" onclick="view_full_log();">View full log</button>
 <img id="mini-throbber" src="/images/animated-spinner.svg" style="width: 16px; vertical-align: middle; display: none;"/>
 
 <div id="test-match-results-container"></div>

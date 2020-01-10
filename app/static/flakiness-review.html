@@ -61,25 +61,25 @@ Such a failure is additionally <em>recognized as flaky</em> if a predefined log-
 <li>
 <span style="margin-right: 1em;">
 Weeks:
-<button onclick="bounds_go_back_one_week();" title="Back another week">&larr;</button>
-<button onclick="bounds_last_week();" title="Ending at the most recent Sunday, show the 7 preceeding days">Last week</button>
-<button onclick="bounds_this_week();" title="From the most recent Sunday until today (may not be a full week)">This week</button>
-<button onclick="bounds_go_forward_one_week();" title="Forward another week">&rarr;</button>
+<button type="button" onclick="bounds_go_back_one_week();" title="Back another week">&larr;</button>
+<button type="button" onclick="bounds_last_week();" title="Ending at the most recent Sunday, show the 7 preceeding days">Last week</button>
+<button type="button" onclick="bounds_this_week();" title="From the most recent Sunday until today (may not be a full week)">This week</button>
+<button type="button" onclick="bounds_go_forward_one_week();" title="Forward another week">&rarr;</button>
 </span>
 
 <span>
 Days:
-<button onclick="bounds_yesterday();" title="Shows a full day">Yesterday</button>
-<button onclick="bounds_today();" title="May not show a full day">Today</button>
+<button type="button" onclick="bounds_yesterday();" title="Shows a full day">Yesterday</button>
+<button type="button" onclick="bounds_today();" title="May not show a full day">Today</button>
 </span>
 </li>
 
-<li><label>Last <input id="trailing-days-input" type="number" value="3" min="1" size="2"/> days</label> <button onclick="go_trailing_days();">Go</button></li>
+<li><label>Last <input id="trailing-days-input" type="number" value="3" min="1" size="2"/> days</label> <button type="button" onclick="go_trailing_days();">Go</button></li>
 
 <li>
 <label>From <input type="text" id="datepicker-start"/></label>
 <label>until <input type="text" id="datepicker-end"/></label>
-<button onclick="go_calendar_span();">Go</button>
+<button type="button" onclick="go_calendar_span();">Go</button>
 </li>
 </ul>
 
@@ -130,7 +130,7 @@ Days:
 
 	<div id="throbber-details-table" style="display: none;"><img src="/images/duck.gif"/></div>
 
-	<button id="rescan-failures-button" style="display: none;" onclick="rescan_selected_builds(this);">Rescan selected</button> <img id="mini-throbber" src="/images/animated-spinner.svg" style="width: 16px; vertical-align: middle; display: none;"/>
+	<button type="button" id="rescan-failures-button" style="display: none;" onclick="rescan_selected_builds(this);">Rescan selected</button> <img id="mini-throbber" src="/images/animated-spinner.svg" style="width: 16px; vertical-align: middle; display: none;"/>
 
 	<div id="failure-details-table"></div>
 </div>

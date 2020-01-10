@@ -17,6 +17,8 @@ function add_tag() {
 
 	const tag_val = $('#pattern-tag-input').val();
 	add_tag_val(tag_val);
+
+	return false;
 }
 
 
@@ -35,6 +37,8 @@ function add_build_step() {
 	}
 
 	render_lists();
+
+	return false;
 }
 
 
@@ -186,6 +190,8 @@ function view_full_log() {
 
 	const universal_build_id = $('#test-build-id').val();
 	window.open("/api/view-log-full?build_id=" + universal_build_id, '_blank');
+
+	return false;
 }
 
 

@@ -82,7 +82,7 @@ ul.commit-range-selector > li {
 <div style="float: right">
 <a href="/code-breakages.html">List known breakages</a>
 <br/>
-<button onclick="refresh_cache();">Refresh cache</button>
+<button type="button" onclick="refresh_cache();">Refresh cache</button>
 <br/>
 <i>last refresh: <span id="last-cache-update-time-container">...</span></i>
 <br/>
@@ -95,7 +95,7 @@ ul.commit-range-selector > li {
 count:
 <input id="count-input" type="number" value="25" min="1" max="100" size="3"/>
 </label>
-<button onclick="update_url_from_form();">Go</button>
+<button type="button" onclick="update_url_from_form();">Go</button>
 
 <p>Start position:</p>
 
@@ -106,7 +106,7 @@ count:
 	<input id="offset-input" type="number" value="0" min="0" size="3"/>
 	commits
 	</label>
-	<button onclick="next_page()">Next page</button> <button onclick="top_page()">Top</button>
+	<button type="button" onclick="next_page()">Next page</button> <button type="button" onclick="top_page()">Top</button>
 
 </li><li>
 
@@ -117,7 +117,7 @@ count:
 
 	<label><input type="radio" name="pagination-mode" value="start-by-commit-index"/> by index:</label>
 	<label>from <input id="commit-index-max" type="number" min="0" size="5"/></label> <label>down to <input id="commit-index-min" type="number" min="0" size="5"/></label>
-	<button id="button-get-current-indices" disabled="disabled">Get current indices</button>
+	<button type="button" id="button-get-current-indices" disabled="disabled">Get current indices</button>
 </li>
 </ul>
 
@@ -148,9 +148,9 @@ stuff goes here
 <div id="floating-selection-helper">
 
 <div id="floating-selection-helper-header"></div>
-<button id="floating-selection-helper-go-button">Annotate failure</button>
+<button type="button" id="floating-selection-helper-go-button">Annotate failure</button>
 
-<button id="floating-selection-helper-dismiss-button" onclick="$('#floating-selection-helper').hide();">Dismiss</button>
+<button type="button" id="floating-selection-helper-dismiss-button" onclick="$('#floating-selection-helper').hide();">Dismiss</button>
 
 </div>
 
@@ -158,8 +158,8 @@ stuff goes here
 <table><tr><td>
 
 	<p>Select breakages caused by this commit:</p>
-	<button id="dialog-select-all-button">Toggle select all</button>
-	<button id="dialog-select-none-button">Select none</button>
+	<button type="button" id="dialog-select-all-button">Toggle select all</button>
+	<button type="button" id="dialog-select-none-button">Select none</button>
 	<div id="broken-jobs-table"></div>
 
 </td><td style="padding-left: 1em;">
@@ -194,8 +194,8 @@ stuff goes here
 </table>
 
 
-<button id="dialog-submit-button">Submit</button>
-<button id="dialog-cancel-button">Cancel</button>
+<button type="button" id="dialog-submit-button">Submit</button>
+<button type="button" id="dialog-cancel-button">Cancel</button>
 
 </td></tr></table>
 </dialog>

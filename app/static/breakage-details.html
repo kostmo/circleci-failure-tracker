@@ -45,27 +45,27 @@
 <label for="breakage-mode-selector">Cause:</label>
 </th>
 <td><select id="breakage-mode-selector"/> <img id="mini-throbber-failure-modes" src="/images/animated-spinner.svg" style="width: 16px; vertical-align: middle"/></td>
-<td><button id="button-breakage-mode-update">Update</button></td>
+<td><button type="button" id="button-breakage-mode-update">Update</button></td>
 </tr></table>
 
 
-<button onclick="delete_callback();">Delete this breakage</button>
+<button type="button" onclick="delete_callback();">Delete this breakage</button>
 
 
 <h3>Cause</h3>
 
-<label>Update cause commit to: <input id="new-cause-sha1-field" type="text" size="40"/></label> <button onclick="update_cause_commit();">Go</button>
+<label>Update cause commit to: <input id="new-cause-sha1-field" type="text" size="40"/></label> <button type="button" onclick="update_cause_commit();">Go</button>
 
 <h3>Resolution</h3>
 
-<label>Update resolution commit to: <input id="new-resolution-sha1-field" type="text" size="40"/></label> <button onclick="update_resolution_commit();">Go</button>
+<label>Update resolution commit to: <input id="new-resolution-sha1-field" type="text" size="40"/></label> <button type="button" onclick="update_resolution_commit();">Go</button>
 <p>
 Convert to ongoing breakage: 
-<button onclick="delete_resolution();">Delete resolution</button>
+<button type="button" onclick="delete_resolution();">Delete resolution</button>
 </p>
 
 <h3>Affected Jobs</h3>
-<label>Add affected job: <input id="new-affected-job-field" type="text" size="50"/></label> <button onclick="add_affected_job();">Add</button>
+<label>Add affected job: <input id="new-affected-job-field" type="text" size="50"/></label> <button type="button" onclick="add_affected_job();">Add</button>
 
 <div id="affected-jobs-table" style="min-width: 400px; height: 400px; max-width: 600; margin: 0 auto"></div>
 
