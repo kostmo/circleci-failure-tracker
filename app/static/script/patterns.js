@@ -6,7 +6,7 @@ function requery_patterns() {
 
 function make_tag_histogram(container_id) {
 
-	$.getJSON("/api/tags", function (data) {
+	getJsonWithThrobber("#throbber-tags", "/api/tags", {}, function (data) {
 
 		const category_list = [];
 		const build_count_list = [];

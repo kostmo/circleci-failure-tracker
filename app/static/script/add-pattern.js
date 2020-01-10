@@ -301,12 +301,24 @@ function get_build_id_from_url() {
 }
 
 
+function load_username() {
+
+	post_inquiry("/api/get-logged-in-user", {}, function(data_payload) {
+
+		$("#username-placeholder").html(data_payload);
+	});
+}
+
+
 function main() {
 
 	$("#is-regex-checkbox").change(function(event) {
 		const checkbox = event.target;
 		$("#is-nondeterministic-checkbox").prop("disabled", !checkbox.checked);
 	});
+
+
+	load_username();
 
 	setup_autocomplete();
 	prepopulate_build_number();

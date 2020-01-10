@@ -129,6 +129,9 @@ scottyApp
 
     S.json $ WebApi.toJsonEither result
 
+  S.post "/api/get-logged-in-user" $
+    withAuth $ pure FrontendHelpers.getLoggedInUser
+
   S.post "/api/rescan-multiple-builds" $
     withAuth $
       Scanning.apiRescanBuilds
@@ -393,25 +396,33 @@ scottyApp
 
     S.json $ WebApi.toJsonEither json_result
 
-  get "/api/isolated-master-failures-by-day" $ fmap WebApi.toJsonEither . SqlRead.apiIsolatedMasterFailuresByDay <$> S.param "age-days"
+  get "/api/isolated-master-failures-by-day" $
+    fmap WebApi.toJsonEither . SqlRead.apiIsolatedMasterFailuresByDay
+      <$> S.param "age-days"
 
-  get "/api/isolated-failures-timespan-coarse-bins" $ fmap WebApi.toJsonEither . SqlRead.apiCoarseBinsIsolatedJobFailuresTimespan
+  get "/api/isolated-failures-timespan-coarse-bins" $
+    fmap WebApi.toJsonEither . SqlRead.apiCoarseBinsIsolatedJobFailuresTimespan
       <$> parseTimeRangeParms
 
-  get "/api/isolated-unmatched-failed-builds-master-commit-range" $ (fmap . fmap) WebApi.toJsonEither $
-    SqlRead.apiIsolatedUnmatchedBuildsMasterCommitRange <$> (DbHelpers.InclusiveNumericBounds <$> S.param "commit-id-min" <*> S.param "commit-id-max")
+  get "/api/isolated-unmatched-failed-builds-master-commit-range" $
+    (fmap . fmap) WebApi.toJsonEither $ SqlRead.apiIsolatedUnmatchedBuildsMasterCommitRange
+      <$> (DbHelpers.InclusiveNumericBounds <$> S.param "commit-id-min" <*> S.param "commit-id-max")
 
-  get "/api/isolated-failures-timespan-by-job" $ fmap WebApi.toJsonEither . SqlRead.apiIsolatedJobFailuresTimespan
+  get "/api/isolated-failures-timespan-by-job" $
+    fmap WebApi.toJsonEither . SqlRead.apiIsolatedJobFailuresTimespan
       <$> parseTimeRangeParms
 
-  get "/api/isolated-failures-timespan-by-pattern" $ fmap WebApi.toJsonEither . SqlRead.apiIsolatedPatternFailuresTimespan
+  get "/api/isolated-failures-timespan-by-pattern" $
+    fmap WebApi.toJsonEither . SqlRead.apiIsolatedPatternFailuresTimespan
       <$> parseTimeRangeParms
 
-  get "/api/master-job-failures-in-timespan" $ (fmap . fmap) WebApi.toJsonEither $ SqlRead.apiJobFailuresInTimespan
+  get "/api/master-job-failures-in-timespan" $
+    (fmap . fmap) WebApi.toJsonEither $ SqlRead.apiJobFailuresInTimespan
       <$> S.param "job"
       <*> (DbHelpers.InclusiveNumericBounds <$> S.param "commit-id-min" <*> S.param "commit-id-max")
 
-  get "/api/master-pattern-failures-in-timespan" $ (fmap . fmap) WebApi.toJsonEither $ SqlRead.apiPatternFailuresInTimespan
+  get "/api/master-pattern-failures-in-timespan" $
+    (fmap . fmap) WebApi.toJsonEither $ SqlRead.apiPatternFailuresInTimespan
       <$> (ScanPatterns.PatternId <$> S.param "pattern")
       <*> (DbHelpers.InclusiveNumericBounds <$> S.param "commit-id-min" <*> S.param "commit-id-max")
 
@@ -454,7 +465,8 @@ scottyApp
 
     x <- liftIO $ do
       conn <- DbHelpers.get_connection connection_data
-      runReaderT (SqlRead.apiNewPatternTest (Builds.UniversalBuildId buildnum) new_pattern) conn
+      flip runReaderT conn $ SqlRead.apiNewPatternTest (Builds.UniversalBuildId buildnum) new_pattern
+
     S.json $ WebApi.toJsonEither x
 
   S.get "/api/get-user-opt-out-settings" $
@@ -479,7 +491,7 @@ scottyApp
 
     either_log_result <- liftIO $ do
       conn <- DbHelpers.get_connection connection_data
-      runReaderT (SqlRead.retrieveLogFromBuildId universal_build_id) conn
+      flip runReaderT conn $ SqlRead.retrieveLogFromBuildId universal_build_id
 
     case either_log_result of
       Right logs  -> S.text logs

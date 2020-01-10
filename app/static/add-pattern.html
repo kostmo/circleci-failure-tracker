@@ -31,7 +31,9 @@ ul {
 <body onload="main();">
 <span style="float: right;">[<a href="/">home</a>]</span>
 
+
 <h2>Add pattern</h2>
+
 <form onsubmit="return submit_pattern();" onkeypress="return event.keyCode != 13;">
 
 <h3>Immutable properties</h3>
@@ -74,7 +76,7 @@ ul {
 </ul>
 
 <h3>Mutable properties</h3>
-<p style="font-style: italic">These can be edited later.</p>
+<p style="font-style: italic">These can be edited later, so don't worry about getting it right up front.</p>
 
 <ul>
 <li>
@@ -98,7 +100,7 @@ ul {
 <div>
 	<label>
 	Tags:
-	<input id="pattern-tag-input" type="text" value=""/></label> <button onclick="add_tag();">Add</button>
+	<input id="pattern-tag-input" type="text" value=""/></label> <button onclick="add_tag();">Add</button> (<a href="/patterns.html#tags">see all available</a>)
 
 	<div id="tag-list-container" style="padding: .3em;"></div>
 </div>
@@ -114,6 +116,9 @@ ul {
 <div id="test-match-results-container"></div>
 
 <h3>Submission</h3>
+
+<p>You are logged in as: <b id="username-placeholder"><img id="mini-throbber" src="/images/animated-spinner.svg" style="width: 16px; vertical-align: middle;"/></b></p>
+
 <input type="submit" id="form-submit-button"/> <img id="mini-throbber-submit" src="/images/animated-spinner.svg" style="width: 16px; vertical-align: middle; display: none;"/>
 </form>
 

@@ -41,8 +41,16 @@ function gen_master_timeline_commit_bounds_url(min_commit_idx, max_commit_idx, e
 
 function handle_submission_response(data) {
 
-	if (data.success) {
+	handle_submission_response_generic(data, function() {
 		location.reload();
+	});
+}
+
+
+function handle_submission_response_generic(data, success_callback) {
+
+	if (data.success) {
+		success_callback(data.payload);
 	} else {
 
 		if (data.error.details.authentication_failed) {
@@ -69,6 +77,18 @@ function post_modification(api_endpoint, data_dict) {
 }
 
 
+function post_inquiry(api_endpoint, data_dict, success_callback) {
+
+	$.post( {
+		url: api_endpoint,
+		data: add_redirect_path_to_query_parms(data_dict),
+		success: function( data ) {
+			handle_submission_response_generic(data, success_callback);
+		}
+	});
+}
+
+
 function get_url_path_for_redirect() {
 
 	const parsedUrl = new URL(window.location.href);
@@ -84,6 +104,7 @@ function get_commit_subject(msg) {
 function enclose_angle_brackets(x) {
 	return "<" + x + ">";
 }
+
 
 function render_tag(tag, content, attributes) {
 

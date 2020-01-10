@@ -23,6 +23,7 @@ import qualified Web.Scotty.Internal.Types  as ScottyTypes
 
 import qualified Auth
 import qualified AuthConfig
+import qualified AuthStages
 import qualified Builds
 import qualified Constants
 import qualified DbHelpers
@@ -184,6 +185,13 @@ getOffsetMode = do
     column_filtering_options
     (checkboxIsTrue should_use_uncached_annotations_text)
     offset_mode
+
+
+
+getLoggedInUser :: SqlRead.AuthDbIO (Either T.Text AuthStages.Username)
+getLoggedInUser = do
+  SqlRead.AuthConnection conn user <- ask
+  return $ Right user
 
 
 jsonDbGet :: ToJSON a =>
