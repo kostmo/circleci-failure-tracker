@@ -859,8 +859,12 @@ apiCommitJobs (Builds.RawCommit sha1) = do
         , "1"
         ]
       , "FROM master_failures_raw_causes_mview"
-      , "WHERE sha1 = ? AND NOT succeeded"
-      , "ORDER BY job_name;"
+      , "WHERE"
+      , Q.qconjunction [
+          "sha1 = ?"
+        , "NOT succeeded"
+        ]
+      , "ORDER BY job_name"
       ]
 
 
@@ -889,10 +893,14 @@ apiCommitRangeJobs (InclusiveSpan first_index last_index) = do
         , "provider"
         , "count(*) OVER (PARTITION BY job_name) AS job_occurrences"
         ]
-      , "FROM (SELECT sha1 FROM ordered_master_commits"
-      , "WHERE id >= ? AND id <= ?) foo"
-      , "JOIN build_failure_causes ON build_failure_causes.vcs_revision = foo.sha1"
-      , "WHERE NOT build_failure_causes.succeeded;"
+      , "FROM master_failures_raw_causes_mview"
+      , "WHERE"
+      , Q.qconjunction [
+          "commit_index >= ?"
+        , "commit_index <= ?"
+        , "NOT succeeded"
+        ]
+      , "ORDER BY job_name"
       ]
 
 

@@ -117,7 +117,9 @@ function get_context_menu_items_for_cell(cell) {
 			const textnode = document.createTextNode("Mark failure span");
 			node.appendChild(textnode);
 
-			node.addEventListener("click", function () {mark_failure_span(selected_data);});
+			node.addEventListener("click", function () {
+				mark_failure_span(selected_data);
+			});
 
 			context_menu_items.push(node);
 
@@ -267,18 +269,19 @@ function mark_failure_span(selected_data) {
 	const commit_sha1_by_index = {};
 
 	console.log("Grid selected row count: " + selected_data.length);
+
 	for (var datum of selected_data) {
 		selected_commit_indices.push(datum["commit_index"]);
 		commit_sha1_by_index[datum["commit_index"]] = datum["commit"];
 	}
 
 
-	console.log("Commit indices: " + selected_commit_indices);
+	console.log("Commit indices:", selected_commit_indices);
 
 	const min_commit_index = Math.min(...selected_commit_indices);
 	const max_commit_index = Math.max(...selected_commit_indices);
 
-	console.log("Min: " + min_commit_index + "; Max: " + max_commit_index);
+	console.log("Min:", min_commit_index, "Max:", max_commit_index);
 
 	const parms_string = $.param({
 		"first_index": min_commit_index,
@@ -1110,21 +1113,24 @@ function gen_timeline_table(element_id, fetched_data) {
 				row.getElement().style.color = "#777";
 			}
 		},
-		rowSelectionChanged: function(data, rows) {
+		rowSelectionChanged: function(selected_data, rows) {
 			//rows - array of row components for the selected rows in order of selection
 			//data - array of data objects for the selected rows in order of selection
 
 			if (rows.length) {
 				$("#floating-selection-helper").show();
 
-				const contiguous_indices = data.map(x => x["contiguous_commit_number"]);
+				const contiguous_indices = selected_data.map(x => x["contiguous_commit_number"]);
 				const min_index = Math.min(...contiguous_indices);
 				const max_index = Math.max(...contiguous_indices);
 				const spanned_row_count = 1 + max_index - min_index;
 
 				$("#floating-selection-helper-header").html("Row span: " + spanned_row_count);
 
-				$("#floating-selection-helper-go-button").click( function() {  mark_failure_span(data); } );
+				$("#floating-selection-helper-go-button").off().on('click', function() {
+					mark_failure_span(selected_data);
+				});
+
 			} else {
 				$("#floating-selection-helper").hide();
 			}
