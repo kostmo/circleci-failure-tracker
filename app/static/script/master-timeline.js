@@ -77,7 +77,7 @@ function get_timeline_data(parms) {
 
 
 			$("#button-get-current-indices").prop("disabled", false);
-			$("#button-get-current-indices").click(function() {
+			$("#button-get-current-indices").off().on('click', function() {
 				get_commit_indices(mydata.payload.content.commits);
 			});
 
@@ -313,11 +313,11 @@ function mark_failure_cause_common(api_url) {
 
 	const tabulator = gen_broken_jobs_table("broken-jobs-table", api_url);
 
-	$('#dialog-cancel-button').click(function(e) {
+	$('#dialog-cancel-button').off().on('click', function(e) {
 		document.getElementById("affected-jobs-dialog").close();
 	});
 
-	$('#dialog-select-all-button').click(function(e) {
+	$('#dialog-select-all-button').off().on('click', function(e) {
 		const rows = tabulator.getRows();
 		rows.forEach(function(row) {
 			row.toggleSelect();
@@ -325,7 +325,7 @@ function mark_failure_cause_common(api_url) {
 	});
 
 
-	$('#dialog-select-none-button').click(function(e) {
+	$('#dialog-select-none-button').off().on('click', function(e) {
 		const rows = tabulator.getRows();
 		rows.forEach(function(row) {
 			row.deselect();
@@ -336,7 +336,7 @@ function mark_failure_cause_common(api_url) {
 	setup_breakage_mode_selector();
 
 
-	$('#dialog-submit-button').click(function(e) {
+	$('#dialog-submit-button').off().on('click', function(e) {
 
 		const selectedData = tabulator.getSelectedData();
 
