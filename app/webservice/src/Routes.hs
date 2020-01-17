@@ -125,7 +125,7 @@ scottyApp
 
     result <- liftIO $ do
       mview_conn <- DbHelpers.get_connection mview_connection_data
-      runReaderT (SqlRead.refreshCachedMasterGrid view_name $ FrontendHelpers.checkboxIsTrue is_from_frontend) mview_conn
+      flip runReaderT mview_conn $ SqlRead.refreshCachedMasterGrid view_name $ FrontendHelpers.checkboxIsTrue is_from_frontend
 
     S.json $ WebApi.toJsonEither result
 
@@ -390,9 +390,8 @@ scottyApp
       conn <- DbHelpers.get_connection connection_data
       runExceptT $ do
         sha1 <- except $ GitRev.validateSha1 commit_sha1_text
-        ExceptT $ runReaderT
-          (SqlUpdate.countRevisionBuilds (AuthConfig.personal_access_token github_config) sha1)
-          conn
+        ExceptT $ flip runReaderT conn $
+          SqlUpdate.countRevisionBuilds (AuthConfig.personal_access_token github_config) sha1
 
     S.json $ WebApi.toJsonEither json_result
 
@@ -454,7 +453,7 @@ scottyApp
       sha1 <- except $ GitRev.validateSha1 commit_sha1_text
       either_result <- liftIO $ do
         conn <- DbHelpers.get_connection connection_data
-        runReaderT (SqlRead.getRevisionBuilds sha1) conn
+        flip runReaderT conn $ SqlRead.getRevisionBuilds sha1
       except either_result
 
     S.json $ WebApi.toJsonEither json_result

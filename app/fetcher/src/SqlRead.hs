@@ -394,7 +394,8 @@ canPostPullRequestComments conn (AuthStages.Username author) = do
   where
     sql = Q.qjoin [
         "SELECT COALESCE(disabled, FALSE) AS disabled"
-      , "FROM (SELECT ? AS myname) foo"
+      , "FROM"
+      , Q.aliasedSubquery "SELECT ? AS myname" "foo"
       , "LEFT JOIN pr_comment_posting_opt_outs"
       , "ON foo.myname = pr_comment_posting_opt_outs.username"
       , "LIMIT 1"
@@ -772,7 +773,12 @@ patternBuildStepOccurrences (ScanPatterns.PatternId patt) = do
         , "occurrence_count"
         ]
       , "FROM pattern_build_step_occurrences"
-      , "WHERE pattern = ? ORDER BY occurrence_count DESC, name ASC;"
+      , "WHERE pattern = ?"
+      , "ORDER BY"
+      , Q.list [
+          "occurrence_count DESC"
+        , "name ASC"
+        ]
       ]
 
 
@@ -896,8 +902,7 @@ apiCommitRangeJobs (InclusiveSpan first_index last_index) = do
       , "FROM master_failures_raw_causes_mview"
       , "WHERE"
       , Q.qconjunction [
-          "commit_index >= ?"
-        , "commit_index <= ?"
+          "int8range(?, ?, '[]') @> commit_index::int8"
         , "NOT succeeded"
         ]
       , "ORDER BY job_name"
@@ -916,15 +921,25 @@ getNextMasterCommit conn (Builds.RawCommit current_git_revision) = do
   where
     sql = Q.qjoin [
         "SELECT sha1 FROM ordered_master_commits"
-      , "WHERE id > (SELECT id FROM ordered_master_commits WHERE sha1 = ?)"
-      , "ORDER BY id ASC LIMIT 1;"
+      , "WHERE"
+      , "id > " <> Q.parens "SELECT id FROM ordered_master_commits WHERE sha1 = ?"
+      , "ORDER BY id ASC"
+      , "LIMIT 1;"
       ]
 
 
 apiJobs :: DbIO (WebApi.ApiResponse WebApi.JobApiRecord)
-apiJobs = WebApi.ApiResponse . map f <$> runQuery
-  "SELECT job_name, freq FROM job_failure_frequencies;"
+apiJobs = WebApi.ApiResponse . map f <$> runQuery q
+
   where
+    q = Q.qjoin [
+        "SELECT"
+      , Q.list [
+          "job_name"
+        , "freq"
+        ]
+      , "FROM job_failure_frequencies"
+      ]
     f (jobname, freq) = WebApi.JobApiRecord jobname [freq]
 
 
@@ -1037,9 +1052,19 @@ apiFailedCommitsByDay = WebApi.ApiResponse <$> runQuery q
   q = Q.qjoin [
       "SELECT"
     , "queued_at::date AS date, COUNT(*)"
-    , "FROM (SELECT vcs_revision, MAX(queued_at) queued_at FROM global_builds GROUP BY vcs_revision) foo"
+    , "FROM"
+    , Q.aliasedSubquery subquery "foo"
     , "GROUP BY date ORDER BY date ASC;"
     ]
+    where
+      subquery = Q.join [
+          "SELECT"
+        , Q.list [
+            "vcs_revision"
+          , "MAX(queued_at) queued_at"
+          ]
+        , "FROM global_builds GROUP BY vcs_revision"
+        ]
 
 
 -- | Note that Highcharts expects the dates to be in ascending order
@@ -1204,11 +1229,24 @@ apiTimeoutCommitBuilds (Builds.RawCommit sha1) = do
   where
     sql = Q.qjoin [
         "SELECT"
-      , "build_num, step_name, queued_at, job_name, branch, universal_build, ci_providers.icon_url, ci_providers.label"
+      , Q.list [
+          "build_num"
+        , "step_name"
+        , "queued_at"
+        , "job_name"
+        , "branch"
+        , "universal_build"
+        , "ci_providers.icon_url"
+        , "ci_providers.label"
+        ]
       , "FROM builds_join_steps"
       , "JOIN ci_providers"
       , "ON builds_join_steps.provider = ci_providers.id"
-      , "WHERE vcs_revision = ? AND is_timeout;"
+      , "WHERE"
+      , Q.qconjunction [
+          "vcs_revision = ?"
+        , "is_timeout"
+        ]
       ]
 
 
@@ -1345,10 +1383,10 @@ masterWeeklyFailureStats week_count = do
       ) = do
 
       unless sanity_check_is_failure_count_equal $
-        Left $ "Sanity check failed: sanity_check_is_failure_count_equal"
+        Left "Sanity check failed: sanity_check_is_failure_count_equal"
 
       unless sanity_check_total_is_successes_plus_failures $
-        Left $ "Sanity check failed: sanity_check_total_is_successes_plus_failures"
+        Left "Sanity check failed: sanity_check_total_is_successes_plus_failures"
 
       return $ WeeklyStats.MasterWeeklyStats
         commit_count
@@ -1463,7 +1501,10 @@ isMasterCommit (Builds.RawCommit sha1) = do
     [Only exists] <- query conn master_commit_retrieval_sql $ Only sha1
     return exists
   where
-    master_commit_retrieval_sql = "SELECT EXISTS (SELECT * FROM ordered_master_commits WHERE sha1 = ?);"
+    master_commit_retrieval_sql = Q.qjoin [
+        "SELECT EXISTS"
+      , Q.parens "SELECT * FROM ordered_master_commits WHERE sha1 = ?"
+      ]
 
 
 getAllMasterCommits :: Connection -> IO (Set Builds.RawCommit)
@@ -1508,7 +1549,8 @@ knownBreakageAffectedJobs cause_id = do
         "SELECT"
       , "reporter, reported_at, job"
       , "FROM code_breakage_affected_jobs"
-      , "WHERE cause = ? ORDER BY job ASC;"
+      , "WHERE cause = ?"
+      , "ORDER BY job ASC;"
       ]
 
 
@@ -1606,7 +1648,11 @@ getSpanningBreakages conn sha1 =
       , "FROM code_breakage_spans"
       , "LEFT JOIN code_breakage_affected_jobs"
       , "ON code_breakage_affected_jobs.cause = code_breakage_spans.cause_id"
-      , "WHERE cause_commit_index <= ? AND (resolved_commit_index IS NULL OR ? < resolved_commit_index)"
+      , "WHERE"
+      , Q.qconjunction [
+          "cause_commit_index <= ?"
+        , "(resolved_commit_index IS NULL OR ? < resolved_commit_index)"
+        ]
       , "GROUP BY code_breakage_spans.cause_id"
       ]
 
@@ -1660,7 +1706,11 @@ apiTagsHistogram = runQuery $ Q.qjoin [
   , "LEFT JOIN pattern_frequency_summary_partially_cached"
   , "ON pattern_frequency_summary_partially_cached.id = pattern_tags.pattern"
   , "GROUP BY tag"
-  , "ORDER BY pattern_count DESC, build_matches DESC;"
+  , "ORDER BY"
+  , Q.list [
+      "pattern_count DESC"
+    , "build_matches DESC"
+    ]
   ]
 
 
@@ -1708,7 +1758,7 @@ getAllMasterCommitPullRequests = runQuery $ Q.qjoin [
   , "sha1, github_pr_number"
   , "FROM master_ordered_commits_with_metadata"
   , "WHERE github_pr_number IS NOT NULL"
-  , "ORDER BY id DESC;"
+  , "ORDER BY id DESC"
   ]
 
 
@@ -1720,28 +1770,55 @@ getImplicatedMasterCommitPullRequests = runQuery $ Q.qjoin [
   , "cause_sha1, github_pr_number"
   , "FROM known_breakage_summaries_sans_impact"
   , "WHERE github_pr_number IS NOT NULL"
-  , "ORDER BY cause_commit_index DESC;"
+  , "ORDER BY cause_commit_index DESC"
   ]
 
 
 apiAutocompleteTags :: Text -> DbIO [Text]
 apiAutocompleteTags = listFlat1X $ Q.qjoin [
     "SELECT tag FROM"
-  , "(SELECT tag, COUNT(*) AS freq"
-  , "FROM pattern_tags"
-  , "GROUP BY tag ORDER BY freq DESC, tag ASC) foo"
-  , "WHERE tag ILIKE CONCAT(?,'%');"
+  , Q.aliasedSubquery inner_sql "foo"
+  , "WHERE tag ILIKE CONCAT(?,'%')"
   ]
+  where
+    inner_sql = Q.qjoin [
+        "SELECT"
+      , Q.list [
+          "tag"
+        , "COUNT(*) AS freq"
+        ]
+      , "FROM pattern_tags"
+      , "GROUP BY tag"
+      , "ORDER BY"
+      , Q.list [
+          "freq DESC"
+        , "tag ASC"
+        ]
+      ]
 
 
 apiAutocompleteSteps :: Text -> DbIO [Text]
 apiAutocompleteSteps = listFlat1X $ Q.qjoin [
     "SELECT name FROM"
-  , "(SELECT name, COUNT(*) AS freq FROM"
-  , "build_steps WHERE name IS NOT NULL"
-  , "GROUP BY name ORDER BY freq DESC, name ASC) foo"
-  , "WHERE name ILIKE CONCAT(?,'%');"
+  , Q.aliasedSubquery inner_sql "foo"
+  , "WHERE name ILIKE CONCAT(?,'%')"
   ]
+  where
+    inner_sql = Q.qjoin [
+        "SELECT"
+      , Q.list [
+          "name"
+        , "COUNT(*) AS freq"
+        ]
+      , "FROM build_steps"
+      , "WHERE name IS NOT NULL"
+      , "GROUP BY name"
+      , "ORDER BY"
+      , Q.list [
+          "freq DESC"
+        , "name ASC"
+        ]
+      ]
 
 
 apiListSteps :: DbIO [Text]
@@ -1749,7 +1826,11 @@ apiListSteps = listFlat $ Q.qjoin [
     "SELECT name FROM build_steps"
   , "WHERE name IS NOT NULL"
   , "GROUP BY name"
-  , "ORDER BY COUNT(*) DESC, name ASC;"
+  , "ORDER BY"
+  , Q.list [
+      "COUNT(*) DESC"
+    , "name ASC"
+    ]
   ]
 
 
@@ -1947,7 +2028,8 @@ getRevisionBuilds git_revision = do
   where
     sql = genBestBuildMatchQuery fields_to_fetch sql_where_conditions
 
-    catcher _ (PostgresHelpers.QueryCancelled some_error) = return $ Left $ "Query error in getRevisionBuilds: " <> T.pack (BS.unpack some_error)
+    catcher _ (PostgresHelpers.QueryCancelled some_error) = return $ Left $
+      "Query error in getRevisionBuilds: " <> T.pack (BS.unpack some_error)
     catcher e _                                  = throwIO e
 
 
@@ -1982,6 +2064,7 @@ getRevisionBuilds git_revision = do
       ]
 
 
+-- | Returns results in descending order of commit ID
 getMasterCommits ::
      Pagination.ParentOffsetMode
   -> DbIO (Either Text (DbHelpers.InclusiveNumericBounds Int64, [BuildResults.IndexedRichCommit]))
@@ -2115,7 +2198,11 @@ getMasterCommits parent_offset_mode = do
 
     sql_commit_id_bounds = Q.qjoin [
         commits_query_prefix
-      , "WHERE id >= ? AND id <= ?"
+      , "WHERE"
+      , Q.qconjunction [
+          "id >= ?"
+        , "id <= ?"
+        ]
       , "ORDER BY id DESC;"
       ]
 
@@ -2989,12 +3076,13 @@ getBreakageSpans commit_id_bounds = do
         "SELECT"
       , Q.list [
           "job_name"
-        , "int8range(?, ?, '[]') * failure_commit_id_range"
+        , "int8range(?, ?, '[]') * failure_commit_id_range AS commit_id_span"
         , "span_length"
         ]
       , "FROM master_job_failure_spans_conservative_mview"
       , "WHERE int8range(?, ?, '[]') && failure_commit_id_range"
       , "AND COALESCE(span_length > 1, TRUE)"
+      , "ORDER BY commit_id_span DESC"
       ]
 
 
@@ -3013,7 +3101,7 @@ apiMasterBuilds timeline_parms = do
 
     liftIO $ putStrLn "FOO A"
     (commits_list_time, (commit_id_bounds, master_commits)) <- D.timeThisFloat $
-      ExceptT $ runReaderT (getMasterCommits $ Pagination.offset_mode timeline_parms) conn
+      ExceptT $ flip runReaderT conn $ getMasterCommits $ Pagination.offset_mode timeline_parms
 
     liftIO $ putStrLn "FOO B"
 

@@ -129,7 +129,9 @@ function get_context_menu_items_for_cell(cell) {
 			const textnode = document.createTextNode("Mark failure start");
 			node.appendChild(textnode);
 
-			node.addEventListener("click", function () {mark_failure_cause(commit_sha1);});
+			node.addEventListener("click", function () {
+				mark_failure_cause(commit_sha1);
+			});
 
 			context_menu_items.push(node);
 		}
@@ -144,7 +146,9 @@ function get_context_menu_items_for_cell(cell) {
 			const textnode = document.createTextNode("Mark failure resolution");
 			node.appendChild(textnode);
 
-			node.addEventListener("click", function () {mark_failure_resolution(commit_sha1, open_breakages);});
+			node.addEventListener("click", function () {
+				mark_failure_resolution(commit_sha1, open_breakages);
+			});
 
 			context_menu_items.push(node);
 		}
@@ -222,6 +226,8 @@ function refresh_cache() {
 
 function mark_failure_resolution(commit_sha1, active_breakages) {
 
+	console.log("Calling 'mark_failure_resolution' with commit", commit_sha1);
+
 	console.log("Submitting resolution report. Active breakage count: " + active_breakages.length);
 
 	const cause_ids = active_breakages.map(breakage_obj => breakage_obj.start.db_id);
@@ -265,6 +271,9 @@ function handle_report_submission_response(data) {
 
 function mark_failure_span(selected_data) {
 
+
+	console.log("Calling 'mark_failure_span' with", selected_data.length, "items");
+
 	const selected_commit_indices = [];
 	const commit_sha1_by_index = {};
 
@@ -299,6 +308,8 @@ function mark_failure_span(selected_data) {
 
 
 function mark_failure_cause(commit_sha1) {
+
+	console.log("Calling 'mark_failure_cause' with commit", commit_sha1);
 
 	$("#breakage-span-start-commit").val(commit_sha1);
 
@@ -882,6 +893,12 @@ function define_downstream_stats_column() {
 				return downstream_count;
 			}
 		},
+		tooltip: function(cell) {
+
+			const commit_index = cell.getRow().getData()["commit_index"];
+			return "Commit index: " + commit_index;
+
+		},
 		resizable: false,
 		headerSort: false,
 	};
@@ -990,11 +1007,15 @@ function precompute_breakage_span_memberships(fetched_data) {
 		setDefault(spans_by_job_name, span_obj.job_name, []).push(span_obj.commit_id_span);
 	}
 
+	console.log("spans_by_job_name for binary_macos_wheel_3_6_cpu_build:", spans_by_job_name["binary_macos_wheel_3_6_cpu_build"]);
+
 	const reversed_displayed_commit_ids = [];
 	for (var commit_obj of fetched_data.commits) {
 		reversed_displayed_commit_ids.push(commit_obj.db_id);
 	}
 
+	// NOTE: See paired reverse below.
+	// These are returned by the DB in descending order, but the algorithm requires ascending.
 	reversed_displayed_commit_ids.reverse();
 
 
@@ -1002,6 +1023,10 @@ function precompute_breakage_span_memberships(fetched_data) {
 	for (var job_name of fetched_data.columns) {
 
 		const spans_for_column = spans_by_job_name[job_name] || [];
+
+		// NOTE: See paired reverse above.
+		// These are returned by the DB in descending order, but the algorithm requires ascending.
+		spans_for_column.reverse();
 
 		var displayed_commit_id_index = 0;
 
@@ -1025,6 +1050,9 @@ function precompute_breakage_span_memberships(fetched_data) {
 			break;
 		}
 	}
+
+
+	console.log("breakage_span_membership_by_commit_id_by_job_name for binary_macos_wheel_3_6_cpu_build:", breakage_span_membership_by_commit_id_by_job_name["binary_macos_wheel_3_6_cpu_build"]);
 
 	return breakage_span_membership_by_commit_id_by_job_name;
 }
