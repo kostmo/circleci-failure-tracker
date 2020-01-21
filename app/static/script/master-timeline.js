@@ -1007,8 +1007,6 @@ function precompute_breakage_span_memberships(fetched_data) {
 		setDefault(spans_by_job_name, span_obj.job_name, []).push(span_obj.commit_id_span);
 	}
 
-	console.log("spans_by_job_name for binary_macos_wheel_3_6_cpu_build:", spans_by_job_name["binary_macos_wheel_3_6_cpu_build"]);
-
 	const reversed_displayed_commit_ids = [];
 	for (var commit_obj of fetched_data.commits) {
 		reversed_displayed_commit_ids.push(commit_obj.db_id);
@@ -1050,9 +1048,6 @@ function precompute_breakage_span_memberships(fetched_data) {
 			break;
 		}
 	}
-
-
-	console.log("breakage_span_membership_by_commit_id_by_job_name for binary_macos_wheel_3_6_cpu_build:", breakage_span_membership_by_commit_id_by_job_name["binary_macos_wheel_3_6_cpu_build"]);
 
 	return breakage_span_membership_by_commit_id_by_job_name;
 }

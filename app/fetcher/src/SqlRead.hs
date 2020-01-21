@@ -270,8 +270,14 @@ lookupUniversalBuildFromProviderBuild conn (Builds.NewBuildNumber build_num) = d
         , "started_at"
         , "finished_at"
         ]
-      , "FROM global_builds WHERE build_number = ?"
-      , "ORDER BY provider DESC, global_build_num DESC LIMIT 1;"
+      , "FROM global_builds"
+      , "WHERE build_number = ?"
+      , "ORDER BY"
+      , Q.list [
+          "provider DESC"
+        , "global_build_num DESC"
+        ]
+      , "LIMIT 1;"
       ]
 
 
@@ -447,7 +453,8 @@ getRevisitableWhitelistedBuilds conn universal_build_ids = do
         , "succeeded"
         , "vcs_revision"
         ]
-      , "FROM unscanned_patterns WHERE universal_build IN ?;"
+      , "FROM unscanned_patterns"
+      , "WHERE universal_build IN ?;"
       ]
 
 
@@ -1054,10 +1061,11 @@ apiFailedCommitsByDay = WebApi.ApiResponse <$> runQuery q
     , "queued_at::date AS date, COUNT(*)"
     , "FROM"
     , Q.aliasedSubquery subquery "foo"
-    , "GROUP BY date ORDER BY date ASC;"
+    , "GROUP BY date"
+    , "ORDER BY date ASC"
     ]
     where
-      subquery = Q.join [
+      subquery = Q.qjoin [
           "SELECT"
         , Q.list [
             "vcs_revision"
@@ -1073,9 +1081,14 @@ apiStatusPostedCommitsByDay = WebApi.ApiResponse . reverse <$> runQuery q
   where
   q = Q.qjoin [
       "SELECT"
-    , "last_time::date AS date, COUNT(*)"
+    , Q.list [
+        "last_time::date AS date"
+      , "COUNT(*)"
+      ]
     , "FROM aggregated_github_status_postings"
-    , "GROUP BY date ORDER BY date DESC OFFSET 1;"
+    , "GROUP BY date"
+    , "ORDER BY date DESC"
+    , "OFFSET 1"
     ]
 
 
@@ -1439,9 +1452,13 @@ masterBreakageMonthlyStats = do
   where
     sql = Q.qjoin [
         "SELECT"
-      , "month, distinct_breakages, avoidable_count"
+      , Q.list [
+          "month"
+        , "distinct_breakages"
+        , "avoidable_count"
+        ]
       , "FROM code_breakage_monthly_aggregation"
-      , "ORDER BY month DESC;"
+      , "ORDER BY month DESC"
       ]
 
 
@@ -1547,7 +1564,11 @@ knownBreakageAffectedJobs cause_id = do
     f (reporter, reported_at, job) = DbHelpers.WithAuthorship reporter reported_at job
     sql = Q.qjoin [
         "SELECT"
-      , "reporter, reported_at, job"
+      , Q.list [
+          "reporter"
+        , "reported_at"
+        , "job"
+        ]
       , "FROM code_breakage_affected_jobs"
       , "WHERE cause = ?"
       , "ORDER BY job ASC;"
@@ -1755,7 +1776,10 @@ getPullRequestsByCurrentHead (Builds.RawCommit commit_sha1) = do
 getAllMasterCommitPullRequests :: DbIO [MasterCommitAndSourcePr]
 getAllMasterCommitPullRequests = runQuery $ Q.qjoin [
     "SELECT"
-  , "sha1, github_pr_number"
+  , Q.list [
+      "sha1"
+    , "github_pr_number"
+    ]
   , "FROM master_ordered_commits_with_metadata"
   , "WHERE github_pr_number IS NOT NULL"
   , "ORDER BY id DESC"
@@ -1767,7 +1791,10 @@ getAllMasterCommitPullRequests = runQuery $ Q.qjoin [
 getImplicatedMasterCommitPullRequests :: DbIO [MasterCommitAndSourcePr]
 getImplicatedMasterCommitPullRequests = runQuery $ Q.qjoin [
     "SELECT"
-  , "cause_sha1, github_pr_number"
+  , Q.list [
+      "cause_sha1"
+    , "github_pr_number"
+    ]
   , "FROM known_breakage_summaries_sans_impact"
   , "WHERE github_pr_number IS NOT NULL"
   , "ORDER BY cause_commit_index DESC"
@@ -2305,7 +2332,14 @@ apiMissingRequiredBuilds = runQuery sql
 
 apiLeftoverCodeBreakagesByCommit :: DbIO [CommitBreakageRegionCounts]
 apiLeftoverCodeBreakagesByCommit = runQuery $ Q.qjoin [
-    "SELECT id, vcs_revision, only_longitudinal_breakages, only_lateral_breakages, both_breakages"
+    "SELECT"
+  , Q.list [
+      "id"
+    , "vcs_revision"
+    , "only_longitudinal_breakages"
+    , "only_lateral_breakages"
+    , "both_breakages"
+    ]
   , "FROM master_unmarked_breakage_regions_by_commit;"
   ]
 
@@ -2596,7 +2630,8 @@ getScheduledJobNames = listFlat sql
   where
     sql = Q.qjoin [
         "SELECT"
-      , "job_name FROM job_schedule_discriminated_mview"
+      , "job_name"
+      , "FROM job_schedule_discriminated_mview"
       , "WHERE inferred_scheduled"
       , "ORDER BY job_name;"
       ]
@@ -3184,7 +3219,8 @@ apiMasterBuilds timeline_parms = do
         , "reversion_commit_id"
         ]
       , "FROM master_commit_reversion_spans_mview"
-      , "WHERE int8range(?, ?, '[]') && reversion_span"
+      , "WHERE"
+      , "int8range(?, ?, '[]') && reversion_span"
       , "ORDER BY reversion_commit_id DESC"
       ]
 
@@ -3466,7 +3502,8 @@ apiAnnotatedCodeBreakages should_use_uncached_annotations commit_id_bounds = do
       , Q.list annotatedCodeBreakagesFields
       , "FROM"
       , source_table
-      , "WHERE int8range(?, ?, '[]') && commit_index_span"
+      , "WHERE"
+      , "int8range(?, ?, '[]') && commit_index_span"
       , "ORDER BY cause_commit_index DESC;"
       ]
 
