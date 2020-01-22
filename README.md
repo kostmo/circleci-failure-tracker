@@ -101,3 +101,7 @@ Optimizations
 
 * Periodically fetches builds directly from CircleCI API to catch up on GitHub notifications that may have been dropped
 
+
+## Source attribution
+
+Aho-Corasick implementation is from here: https://github.com/channable/alfred-margaret

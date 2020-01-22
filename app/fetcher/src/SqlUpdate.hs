@@ -181,7 +181,7 @@ getBuildInfo access_token build@(Builds.UniversalBuildId build_id) = do
         , "finished_at"
         ]
       , "FROM builds_join_steps"
-      , "WHERE universal_build = ?;"
+      , "WHERE universal_build = ?"
       ]
 
 
@@ -263,7 +263,8 @@ countRevisionBuilds access_token git_revision = do
         , "succeeded"
         ]
       , "FROM build_failure_disjoint_causes_by_commit"
-      , "WHERE sha1 = ? LIMIT 1;"
+      , "WHERE sha1 = ?"
+      , "LIMIT 1"
       ]
 
 

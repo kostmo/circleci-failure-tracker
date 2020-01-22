@@ -323,13 +323,16 @@ scanAndPost
     owned_repo
     sha1 = do
 
+  scan_resources <- ExceptT $ first LT.fromStrict <$>
+    Scanning.prepareScanResources conn Scanning.PersistScanResult maybe_initiator
+
   liftIO $ do
 
-    scan_resources <- Scanning.prepareScanResources conn maybe_initiator
     DbHelpers.setSessionStatementTimeout conn Scanning.scanningStatementTimeoutSeconds
 
     Scanning.scanBuilds
       scan_resources
+      Scanning.OnlyUnscannedPatterns
       scan_revisitation_mode
       Scanning.NoRefetchLog
       (Left $ Set.fromList scannable_build_numbers)

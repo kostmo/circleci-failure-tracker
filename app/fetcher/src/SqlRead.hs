@@ -6,7 +6,7 @@
 module SqlRead where
 
 import           Control.Exception                    (throwIO)
-import           Control.Monad                        (forM, unless)
+import           Control.Monad                        (unless)
 import           Control.Monad.IO.Class               (liftIO)
 import           Control.Monad.Trans.Except           (ExceptT (ExceptT),
                                                        except, runExceptT)
@@ -15,7 +15,6 @@ import           Data.Aeson
 import qualified Data.ByteString.Char8                as BS
 import           Data.Either.Utils                    (maybeToEither)
 import           Data.List                            (partition, sort, sortOn)
-import           Data.List.Split                      (splitOn)
 import qualified Data.Maybe                           as Maybe
 import           Data.Scientific                      (Scientific)
 import           Data.Set                             (Set)
@@ -135,24 +134,26 @@ wrapPattern
       maybe_lines_from_end
 
 
-getPatterns :: Connection -> IO [ScanPatterns.DbPattern]
-getPatterns conn = do
+-- | Returned in descending order by ID
+getPatternsDescById :: Connection -> IO [ScanPatterns.DbPattern]
+getPatternsDescById conn = do
 
   patterns_rows <- query_ conn patterns_sql
 
-  forM patterns_rows $ \(pattern_id, is_regex, pattern_text, has_nondeterministic_values, description, specificity, is_retired, lines_from_end, tags_list, steps_list) ->
+  return $ flip map patterns_rows $
+    \(pattern_id, is_regex, pattern_text, has_nondeterministic_values, description, specificity, is_retired, lines_from_end, tags_list, steps_list) ->
 
-    return $ wrapPattern
-      pattern_id
-      is_regex
-      pattern_text
-      has_nondeterministic_values
-      description
-      (fromPGArray tags_list)
-      (fromPGArray steps_list)
-      specificity
-      is_retired
-      lines_from_end
+      wrapPattern
+        pattern_id
+        is_regex
+        pattern_text
+        has_nondeterministic_values
+        description
+        (fromPGArray tags_list)
+        (fromPGArray steps_list)
+        specificity
+        is_retired
+        lines_from_end
 
   where
     patterns_sql = Q.qjoin [
@@ -169,7 +170,8 @@ getPatterns conn = do
         , "tags_array"
         , "steps_array"
         ]
-      , "FROM patterns_rich ORDER BY description;"
+      , "FROM patterns_rich"
+      , "ORDER BY id DESC"
       ]
 
 
@@ -239,9 +241,12 @@ getUnvisitedBuildsForSha1 (Builds.RawCommit sha1) = do
         , "commit_sha1"
         ]
       , "FROM unvisited_builds"
-      , "WHERE provider = ?"
-      , "AND commit_sha1 = ?"
-      , "AND NOT succeeded"
+      , "WHERE"
+      , Q.qconjunction [
+          "provider = ?"
+        , "commit_sha1 = ?"
+        , "NOT succeeded"
+        ]
       , "ORDER BY universal_build_id DESC"
       ]
 
@@ -352,23 +357,9 @@ getGlobalBuild (Builds.UniversalBuildId global_build_num) = do
         , "started_at"
         , "finished_at"
         ]
-      , "FROM global_builds WHERE global_build_num = ?;"
+      , "FROM global_builds"
+      , "WHERE global_build_num = ?;"
       ]
-
-
--- | TODO Get rid of semicolon as delimiter!
--- See: cleanSemicolonDelimitedList, splitAggText
-common_xform (delimited_pattern_ids, step_id, step_name, universal_build_id, build_num, provider_id, build_namespace, succeeded, vcs_revision) =
-  ( Builds.NewBuildStepId step_id
-  , step_name
-  , DbHelpers.WithId universal_build_id $ Builds.UniversalBuild
-      (Builds.NewBuildNumber build_num)
-      provider_id
-      build_namespace
-      succeeded
-      (Builds.RawCommit vcs_revision)
-  , map read $ splitOn ";" delimited_pattern_ids
-  )
 
 
 data OptOutResponse = OptOutResponse {
@@ -427,23 +418,49 @@ userOptOutSettings = do
       ]
 
 
-getRevisitableWhitelistedBuilds ::
-     Connection
-  -> [Builds.UniversalBuildId]
-  -> IO [(Builds.BuildStepId, Text, DbHelpers.WithId Builds.UniversalBuild, [Int64])]
-getRevisitableWhitelistedBuilds conn universal_build_ids = do
-  D.debugList [
-      "Inside"
-    , "getRevisitableWhitelistedBuilds"
-    ]
+transformPatternRows row =
+  (tup1, fromPGArray pattern_ids_array)
+  where
 
-  map common_xform <$> query conn sql
-    (Only $ In $ map (\(Builds.UniversalBuildId x) -> x) universal_build_ids)
+    (   pattern_ids_array
+      , step_id
+      , step_name
+      , universal_build_id
+      , build_num
+      , provider_id
+      , build_namespace
+      , succeeded
+      , vcs_revision
+      ) = row
+
+    ubuild = DbHelpers.WithId universal_build_id $ Builds.UniversalBuild
+      (Builds.NewBuildNumber build_num)
+      provider_id
+      build_namespace
+      succeeded
+      (Builds.RawCommit vcs_revision)
+
+    tup1 = (Builds.NewBuildStepId step_id, step_name, ubuild)
+
+
+getRevisitableWhitelistedBuilds ::
+     [Builds.UniversalBuildId]
+  -> DbIO [((Builds.BuildStepId, Text, DbHelpers.WithId Builds.UniversalBuild), [Int64])]
+getRevisitableWhitelistedBuilds universal_build_ids = do
+  conn <- ask
+  liftIO $ do
+    D.debugList [
+        "Inside"
+      , "getRevisitableWhitelistedBuilds"
+      ]
+
+    map transformPatternRows <$> query conn sql
+      (Only $ In $ map (\(Builds.UniversalBuildId x) -> x) universal_build_ids)
   where
     sql = Q.qjoin [
         "SELECT"
       , Q.list [
-          "unscanned_patterns_delimited"
+          "unscanned_patterns_array"
         , "step_id"
         , "step_name"
         , "universal_build"
@@ -454,20 +471,20 @@ getRevisitableWhitelistedBuilds conn universal_build_ids = do
         , "vcs_revision"
         ]
       , "FROM unscanned_patterns"
-      , "WHERE universal_build IN ?;"
+      , "WHERE universal_build IN ?"
       ]
 
 
 getRevisitableBuilds ::
-     Connection
-  -> IO [(Builds.BuildStepId, Text, DbHelpers.WithId Builds.UniversalBuild, [Int64])]
-getRevisitableBuilds conn =
-  map common_xform <$> query_ conn sql
+  DbIO [((Builds.BuildStepId, Text, DbHelpers.WithId Builds.UniversalBuild), [Int64])]
+getRevisitableBuilds = do
+  conn <- ask
+  liftIO $ map transformPatternRows <$> query_ conn sql
   where
     sql = Q.qjoin [
         "SELECT"
       , Q.list [
-          "unscanned_patterns_delimited"
+          "unscanned_patterns_array"
         , "step_id"
         , "step_name"
         , "universal_build"
@@ -477,17 +494,8 @@ getRevisitableBuilds conn =
         , "succeeded"
         , "vcs_revision"
         ]
-      , "FROM unscanned_patterns;"
+      , "FROM unscanned_patterns"
       ]
-
-
--- | FIXME don't use partial "head"
-getLatestPatternId :: Connection -> IO ScanPatterns.PatternId
-getLatestPatternId conn =
-  head <$> query_ conn sql
-  where
-    sql = "SELECT id FROM patterns ORDER BY id DESC LIMIT 1;"
-
 
 
 data PullRequestBuildStats = PullRequestBuildStats {
@@ -616,7 +624,8 @@ apiAggregatePostedStatuses count = do
         , "last_time"
         , "EXTRACT(SECONDS FROM time_interval)"
         ]
-      , "FROM aggregated_github_status_postings LIMIT ?;"
+      , "FROM aggregated_github_status_postings"
+      , "LIMIT ?;"
       ]
 
 
@@ -804,7 +813,11 @@ patternBuildJobOccurrences (ScanPatterns.PatternId patt) = do
         ]
       , "FROM pattern_build_job_occurrences"
       , "WHERE pattern = ?"
-      , "ORDER BY occurrence_count DESC, job_name ASC;"
+      , "ORDER BY"
+      , Q.list [
+          "occurrence_count DESC"
+        , "job_name ASC"
+        ]
       ]
 
 
@@ -965,7 +978,8 @@ apiStep = WebApi.ApiResponse <$> runQuery q
         "step_name IS NOT NULL"
       , "step_name != ''"
       ]
-    , "GROUP BY step_name ORDER BY freq DESC;"
+    , "GROUP BY step_name"
+    , "ORDER BY freq DESC;"
     ]
 
 
@@ -1370,7 +1384,9 @@ masterWeeklyFailureStats week_count = do
         , "sanity_check_total_is_successes_plus_failures"
         ]
       , "FROM master_failures_weekly_aggregation_mview"
-      , "ORDER BY week DESC LIMIT ? OFFSET 1;"
+      , "ORDER BY week DESC"
+      , "LIMIT ?"
+      , "OFFSET 1;"
       ]
 
     f (
@@ -1507,7 +1523,8 @@ getLatestKnownMasterCommit conn = do
   where
     sql = Q.qjoin [
         "SELECT sha1 FROM ordered_master_commits"
-      , "ORDER BY id DESC LIMIT 1;"
+      , "ORDER BY id DESC"
+      , "LIMIT 1;"
       ]
 
 
@@ -2531,7 +2548,8 @@ getMostRecentProviderApiFetchedBuild provider_id branch_name = do
           "provider = ?"
         , "branch_filter = ?"
         ]
-      , "ORDER BY latest_queued_at DESC LIMIT 1;"
+      , "ORDER BY latest_queued_at DESC"
+      , "LIMIT 1;"
       ]
 
 
@@ -2673,8 +2691,11 @@ apiCleanestMasterCommits missing_threshold failing_threshold = do
         , "age_hours"
         ]
       , "FROM master_commit_job_success_completeness_mview"
-      , "WHERE not_succeeded_required_job_count <= ?"
-      , "AND failed_required_job_count <= ?"
+      , "WHERE"
+      , Q.qconjunction [
+          "not_succeeded_required_job_count <= ?"
+        , "failed_required_job_count <= ?"
+        ]
       , "ORDER BY"
       , Q.list [
           "commit_id DESC"
@@ -2933,7 +2954,12 @@ apiIsolatedPatternFailuresTimespan time_bounds = do
       , "foo"
       , "LEFT JOIN patterns_rich"
       , "ON patterns_rich.id = foo.pid"
-      , "ORDER BY has_pattern_match, isolated_count DESC, pattern_id DESC"
+      , "ORDER BY"
+      , Q.list [
+          "has_pattern_match"
+        , "isolated_count DESC"
+        , "pattern_id DESC"
+        ]
       ]
 
     inner_sql = Q.qjoin [
@@ -3084,8 +3110,11 @@ apiLatestViableMasterCommitLagCountHistory weeks_count end_time = do
         , "commit_count_behind"
         ]
       , "FROM viable_master_commit_age_history"
-      , "WHERE inserted_at > ?::timestamp - interval '? weeks'"
-      , "AND commit_count_behind IS NOT NULL"
+      , "WHERE"
+      , Q.qconjunction [
+          "inserted_at > ?::timestamp - interval '? weeks'"
+        , "commit_count_behind IS NOT NULL"
+        ]
       , "ORDER BY inserted_at DESC"
       ]
 
@@ -3115,8 +3144,11 @@ getBreakageSpans commit_id_bounds = do
         , "span_length"
         ]
       , "FROM master_job_failure_spans_conservative_mview"
-      , "WHERE int8range(?, ?, '[]') && failure_commit_id_range"
-      , "AND COALESCE(span_length > 1, TRUE)"
+      , "WHERE"
+      , Q.qconjunction [
+          "int8range(?, ?, '[]') && failure_commit_id_range"
+        , "COALESCE(span_length > 1, TRUE)"
+        ]
       , "ORDER BY commit_id_span DESC"
       ]
 
@@ -3338,13 +3370,22 @@ masterCommitsGranular :: DbIO ExplorableBreakageSpans
 masterCommitsGranular = do
   annotated_master_spans <- runQuery $ Q.qjoin [
       "SELECT"
-    , "github_pr_number, foreshadowed_by_pr_failures, start_date, end_date"
+    , Q.list [
+        "github_pr_number"
+      , "foreshadowed_by_pr_failures"
+      , "start_date"
+      , "end_date"
+      ]
     , "FROM code_breakage_nonoverlapping_spans_dated;"
     ]
 
   dirty_master_spans <- runQuery $ Q.qjoin [
       "SELECT"
-    , "group_index, breakage_start, breakage_end"
+    , Q.list [
+        "group_index"
+      , "breakage_start"
+      , "breakage_end"
+      ]
     , "FROM master_indiscriminate_failure_spans"
     , "ORDER BY breakage_start;"
     ]
@@ -3452,7 +3493,8 @@ apiListFailureModes = runQuery $ Q.qjoin [
     , "label"
     , "revertible"
     ]
-  , "FROM master_failure_modes ORDER BY id;"
+  , "FROM master_failure_modes"
+  , "ORDER BY id;"
   ]
 
 

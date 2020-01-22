@@ -1,8 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 import           Control.Monad.IO.Class     (liftIO)
+import           Control.Monad.Trans.Except (ExceptT (ExceptT), runExceptT)
 import           Control.Monad.Trans.Reader (runReaderT)
 import           Data.Either                (fromRight)
+import qualified Data.Set                   as Set
 import           Data.Text                  (Text)
 import qualified Data.Text                  as T
 import qualified Network.OAuth.OAuth2       as OAuth2
@@ -18,10 +20,12 @@ import qualified DebugUtils                 as D
 import qualified GadgitFetch
 import qualified GadgitTest
 import qualified GitRev
+import qualified Scanning
 import qualified SqlRead
 import qualified SqlUpdate
 import qualified StatusUpdate
 import qualified StatusUpdateTypes
+
 
 data CommandLineArgs = NewCommandLineArgs {
     dbHostname                :: String
@@ -47,30 +51,39 @@ myCliParser = NewCommandLineArgs
     <> help "Path to .git directory of repository, for use in computing merge bases")
 
 
-mainAppCode :: CommandLineArgs -> IO ()
-mainAppCode args = do
+benchmarkScan conn build_id = runExceptT $ do
 
-  hSetBuffering stdout LineBuffering
+  scan_resources <- ExceptT $ Scanning.prepareScanResources
+    conn
+    Scanning.NoPersist
+    Nothing
 
-  conn <- DbPreparation.prepareDatabase connection_data False
+  liftIO $ Scanning.scanBuilds
+    scan_resources
+    Scanning.ScanAllPatterns
+    Scanning.RevisitScanned
+    Scanning.NoRefetchLog
+    (Left $ Set.singleton build_id)
 
+
+testBotCommentGeneration oauth_access_token conn = do
   let commit_sha1_text = "845598d17d473c0d75485780fa78bf08ec48db54"
       raw_commit = Builds.RawCommit commit_sha1_text
-      validated_sha1 = fromRight (error "BAD") $ GitRev.validateSha1 commit_sha1_text
+      validated_sha1 = fromRight (error "BAD1") $ GitRev.validateSha1 commit_sha1_text
 
   blah2 <- flip runReaderT conn $ SqlUpdate.findKnownBuildBreakages
       oauth_access_token
       Constants.pytorchOwnedRepo
       raw_commit
 
-  let upstream_breakages_info = fromRight (error "BAD3") blah2
+  let upstream_breakages_info = fromRight (error "BAD2") blah2
 
   blah3 <- liftIO $
     runReaderT (StatusUpdate.fetchCommitPageInfo upstream_breakages_info raw_commit validated_sha1) conn
 
 
   blah_circleci_failed_job_names <- flip runReaderT conn $ SqlRead.getFailedCircleCIJobNames raw_commit
-  let circleci_failed_job_names = fromRight (error "BAD9999") blah_circleci_failed_job_names
+  let circleci_failed_job_names = fromRight (error "BAD3") blah_circleci_failed_job_names
   liftIO $ D.debugList [
       "CircleCI failed job names:"
     , show circleci_failed_job_names
@@ -105,9 +118,21 @@ mainAppCode args = do
       raw_commit
 
 
+mainAppCode :: CommandLineArgs -> IO ()
+mainAppCode args = do
+
+  hSetBuffering stdout LineBuffering
+
+  conn <- DbPreparation.prepareDatabase connection_data False
+
+
+
+  benchmarkScan conn $ Builds.UniversalBuildId 82047188
+
   putStrLn "============================="
+--  testBotCommentGeneration oauth_access_token conn
 
-
+  putStrLn "============================="
   GadgitTest.testGadgitApis
 
   putStrLn "============================="

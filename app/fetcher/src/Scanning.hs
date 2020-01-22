@@ -4,7 +4,8 @@ module Scanning where
 
 import           Control.Lens               hiding ((<.>))
 import           Control.Monad.IO.Class     (liftIO)
-import           Control.Monad.Trans.Except (ExceptT (ExceptT), runExceptT)
+import           Control.Monad.Trans.Except (ExceptT (ExceptT), except,
+                                             runExceptT)
 import           Control.Monad.Trans.Reader (ask, runReaderT)
 import           Data.Aeson                 (Value)
 import           Data.Aeson.Lens            (key, _Array, _Bool, _String)
@@ -12,6 +13,7 @@ import           Data.Bifunctor             (first)
 import           Data.Either                (partitionEithers)
 import qualified Data.Either                as Either
 import           Data.Either.Combinators    (rightToMaybe)
+import           Data.Either.Utils          (maybeToEither)
 import qualified Data.HashMap.Strict        as HashMap
 import           Data.List                  (intercalate)
 import qualified Data.Maybe                 as Maybe
@@ -58,29 +60,41 @@ data RevisitationMode = NoRevisit | RevisitScanned
 data LogRefetchMode = NoRefetchLog | RefetchLog
 
 
+data ScanResultPersistence =
+    PersistScanResult
+  | NoPersist
+
+
+data PatternCullingMode =
+    ScanAllPatterns
+  | OnlyUnscannedPatterns
+
+
 -- | Stores scan results to database and returns them.
 scanBuilds ::
      ScanRecords.ScanCatchupResources
+  -> PatternCullingMode
   -> RevisitationMode
   -> LogRefetchMode
   -> Either (Set Builds.UniversalBuildId) Int
   -> IO [(DbHelpers.WithId Builds.UniversalBuild, [ScanPatterns.ScanMatch])]
 scanBuilds
     scan_resources
+    pattern_culling_mode
     revisit
     refetch_logs
     whitelisted_builds_or_fetch_count = do
 
   rescan_matches <- case revisit of
     RevisitScanned -> do
-      visited_builds_list <- case whitelisted_builds_or_fetch_count of
-        Left whitelisted_build_ids -> SqlRead.getRevisitableWhitelistedBuilds
-          conn
-          (Set.toAscList whitelisted_build_ids)
-        Right _ -> SqlRead.getRevisitableBuilds conn
+      visited_builds_list <- flip runReaderT conn $ case whitelisted_builds_or_fetch_count of
+        Left whitelisted_build_ids -> SqlRead.getRevisitableWhitelistedBuilds $
+          Set.toAscList whitelisted_build_ids
+        Right _ -> SqlRead.getRevisitableBuilds
       let whitelisted_visited = visited_filter visited_builds_list
       rescanVisitedBuilds
         scan_resources
+        pattern_culling_mode
         refetch_logs
         whitelisted_visited
 
@@ -103,7 +117,7 @@ scanBuilds
     (visited_filter, unvisited_filter) = case whitelisted_builds_or_fetch_count of
       Right _ -> (id, id)
       Left whitelisted_builds -> (
-          filter $ \(_, _, buildnum, _) -> (Builds.UniversalBuildId $ DbHelpers.db_id buildnum) `Set.member` whitelisted_builds
+          filter $ \((_, _, buildnum), _) -> (Builds.UniversalBuildId $ DbHelpers.db_id buildnum) `Set.member` whitelisted_builds
         , filter $ \universal_build_with_id -> (Builds.UniversalBuildId $ DbHelpers.db_id universal_build_with_id) `Set.member` whitelisted_builds)
 
 
@@ -124,17 +138,19 @@ apiRescanBuilds ::
   -> SqlRead.AuthDbIO (Either T.Text Int)
 apiRescanBuilds scannable_build_numbers = do
   SqlRead.AuthConnection conn user <- ask
-  matches <- liftIO $ do
-    scan_resources <- prepareScanResources conn $ Just user
-    DbHelpers.setSessionStatementTimeout conn scanningStatementTimeoutSeconds
+  either_matches <- liftIO $ runExceptT $ do
+    scan_resources <- ExceptT $ prepareScanResources conn PersistScanResult $ Just user
+    liftIO $ do
+      DbHelpers.setSessionStatementTimeout conn scanningStatementTimeoutSeconds
 
-    scanBuilds
-      scan_resources
-      RevisitScanned
-      NoRefetchLog
-      (Left $ Set.fromList scannable_build_numbers)
+      scanBuilds
+        scan_resources
+        OnlyUnscannedPatterns
+        RevisitScanned
+        NoRefetchLog
+        (Left $ Set.fromList scannable_build_numbers)
 
-  return $ Right $ length matches
+  return $ length <$> either_matches
 
 
 -- | Does not re-download the log from AWS.
@@ -143,7 +159,7 @@ rescanSingleBuild ::
      Connection
   -> AuthStages.Username
   -> Builds.UniversalBuildId
-  -> IO ()
+  -> IO (Either T.Text ())
 rescanSingleBuild conn initiator build_to_scan = do
 
   D.debugList [
@@ -151,54 +167,56 @@ rescanSingleBuild conn initiator build_to_scan = do
     , show build_to_scan
     ]
 
-  -- XXX This line seems to be slow!
-  scan_resources <- prepareScanResources conn $ Just initiator
-
-  D.debugStr "Checkpoint A1"
 
   parent_build <- runReaderT (SqlRead.lookupUniversalBuild build_to_scan) conn
+  D.debugStr "Checkpoint A1"
 
-  D.debugStr "Checkpoint A2"
+  runExceptT $ do
+    scan_resources <- ExceptT $ prepareScanResources conn PersistScanResult $ Just initiator
 
-  either_visitation_result <- getCircleCIFailedBuildInfo
-    scan_resources
-    (Builds.provider_buildnum $ DbHelpers.record parent_build)
+    liftIO $ do
+      D.debugStr "Checkpoint A2"
 
-  D.debugStr "Checkpoint A3"
-
-  -- Note that the Left/Right convention is backwards!
-  case either_visitation_result of
-    Right _ -> return ()
-    Left (Builds.BuildWithStepFailure build_obj _step_failure) -> do
-
-      -- TODO It seems that this is irrelevant/redundant,
-      -- since we just looked up the build from the database!
-      --
-      -- Perhaps instead we need to *update fields* of the stored record
-      -- from information we obtained from an API fetch
-      SqlWrite.storeBuildsList
-        conn
-        Nothing
-        [DbHelpers.WithTypedId build_to_scan build_obj]
-
-      D.debugStr "Checkpoint A4"
-
-      scan_matches <- scanBuilds
+      either_visitation_result <- getCircleCIFailedBuildInfo
         scan_resources
-        RevisitScanned
-        NoRefetchLog
-        (Left $ Set.singleton build_to_scan)
+        (Builds.provider_buildnum $ DbHelpers.record parent_build)
 
-      D.debugStr "Checkpoint A5"
+      D.debugStr "Checkpoint A3"
 
-      let total_match_count = sum $ map (length . snd) scan_matches
-      D.debugList [
-          "Found"
-        , show total_match_count
-        , "matches across"
-        , show $ length scan_matches
-        , "builds."
-        ]
+      -- Note that the Left/Right convention is backwards!
+      case either_visitation_result of
+        Right _ -> return ()
+        Left (Builds.BuildWithStepFailure build_obj _step_failure) -> do
+
+          -- TODO It seems that this is irrelevant/redundant,
+          -- since we just looked up the build from the database!
+          --
+          -- Perhaps instead we need to *update fields* of the stored record
+          -- from information we obtained from an API fetch
+          SqlWrite.storeBuildsList
+            conn
+            Nothing
+            [DbHelpers.WithTypedId build_to_scan build_obj]
+
+          D.debugStr "Checkpoint A4"
+
+          scan_matches <- scanBuilds
+            scan_resources
+            OnlyUnscannedPatterns
+            RevisitScanned
+            NoRefetchLog
+            (Left $ Set.singleton build_to_scan)
+
+          D.debugStr "Checkpoint A5"
+
+          let total_match_count = sum $ map (length . snd) scan_matches
+          D.debugList [
+              "Found"
+            , show total_match_count
+            , "matches across"
+            , show $ length scan_matches
+            , "builds."
+            ]
 
 
 getSingleBuildUrl :: Builds.BuildNumber -> String
@@ -226,51 +244,58 @@ getStepFailure (step_index, step_val) =
 
 prepareScanResources ::
      Connection
+  -> ScanResultPersistence
   -> Maybe AuthStages.Username
-  -> IO ScanRecords.ScanCatchupResources
-prepareScanResources conn maybe_initiator = do
+  -> IO (Either T.Text ScanRecords.ScanCatchupResources)
+prepareScanResources conn scan_result_persistence maybe_initiator = do
 
   aws_sess <- Sess.newSession
   circle_sess <- Sess.newSession
 
-  (time1, pattern_records) <- D.timeThisFloat $ SqlRead.getPatterns conn
+  (time1, pattern_records_descending_by_id) <- D.timeThisFloat $ SqlRead.getPatternsDescById conn
   D.debugList [
       "Fetching all"
-    , show $ length pattern_records
+    , show $ length pattern_records_descending_by_id
     , "patterns took"
     , show time1
     , "seconds"
     ]
 
-  let patterns_by_id = DbHelpers.to_dict pattern_records
+  let patterns_by_id = DbHelpers.to_dict pattern_records_descending_by_id
 
-  (time2, latest_pattern_id) <- D.timeThisFloat $ SqlRead.getLatestPatternId conn
+  runExceptT $ do
+    latest_pattern <- except $ maybeToEither "No patterns in database!" $
+      Safe.headMay pattern_records_descending_by_id
 
-  D.debugList [
-      "Fetching latest pattern ID"
-    , show latest_pattern_id
-    , "took"
-    , show time2
-    , "seconds"
-    ]
+    let latest_pattern_id = ScanPatterns.PatternId $ DbHelpers.db_id latest_pattern
 
-  (time3, scan_id) <- D.timeThisFloat $ SqlWrite.insertScanId conn maybe_initiator latest_pattern_id
+    liftIO $ do
+      D.debugList [
+          "Fetched latest pattern ID"
+        , show latest_pattern_id
+        ]
 
-  D.debugList [
-      "Inserting Scan ID"
-    , show scan_id
-    , "took"
-    , show time3
-    , "seconds"
-    ]
+      possible_scan_id <- case scan_result_persistence of
+        PersistScanResult -> do
+          (time3, scan_id) <- D.timeThisFloat $ SqlWrite.insertScanId conn maybe_initiator latest_pattern_id
 
-  return $ ScanRecords.ScanCatchupResources
-    scan_id
-    latest_pattern_id
-    patterns_by_id $ ScanRecords.FetchingResources
-      conn
-      aws_sess
-      circle_sess
+          D.debugList [
+              "Inserting Scan ID"
+            , show scan_id
+            , "took"
+            , show time3
+            , "seconds"
+            ]
+          return $ ScanRecords.PersistedScanId $ ScanRecords.ScanId scan_id
+        NoPersist -> return $ ScanRecords.NoPersistedScanId
+
+      return $ ScanRecords.ScanCatchupResources
+        possible_scan_id
+        latest_pattern_id
+        patterns_by_id $ ScanRecords.FetchingResources
+          conn
+          aws_sess
+          circle_sess
 
 
 getPatternObjects ::
@@ -278,7 +303,18 @@ getPatternObjects ::
   -> [Int64]
   -> [ScanPatterns.DbPattern]
 getPatternObjects scan_resources =
-  Maybe.mapMaybe (\x -> DbHelpers.WithId x <$> HashMap.lookup x (ScanRecords.patterns_by_id scan_resources))
+  Maybe.mapMaybe $ \x -> DbHelpers.WithId x <$> HashMap.lookup x (ScanRecords.patterns_by_id scan_resources)
+
+
+filterApplicablePatterns :: T.Text -> [ScanPatterns.DbPattern] -> [ScanPatterns.DbPattern]
+filterApplicablePatterns step_name =
+  filter is_pattern_applicable
+  where
+    is_pattern_applicable p = not pat_is_retired && (null appl_steps || elem step_name appl_steps)
+      where
+      pat_record = DbHelpers.record p
+      pat_is_retired = ScanPatterns.is_retired pat_record
+      appl_steps = ScanPatterns.applicable_steps pat_record
 
 
 -- | This only scans patterns if they are applicable to the particular
@@ -307,12 +343,7 @@ catchupScan
     , "scannable patterns"
     ]
 
-  let is_pattern_applicable p = not pat_is_retired && (null appl_steps || elem step_name appl_steps)
-        where
-          pat_record = DbHelpers.record p
-          pat_is_retired = ScanPatterns.is_retired pat_record
-          appl_steps = ScanPatterns.applicable_steps pat_record
-      applicable_patterns = filter is_pattern_applicable scannable_patterns
+  let applicable_patterns = filterApplicablePatterns step_name scannable_patterns
 
   D.debugList [
       "\t\twith"
@@ -340,54 +371,90 @@ catchupScan
 
         matches_and_timeouts <- scanLogText lines_list applicable_patterns
 
-        let (timeout_list, matches) = matches_and_timeouts
-        D.debugList [
-            "Starting storeMatches with"
-          , show $ length matches
-          , "matches and"
-          , show $ length timeout_list
-          , "timeouts"
-          ]
+        case ScanRecords.NoPersistedScanId of
+          ScanRecords.NoPersistedScanId -> D.debugStr "Not storing scan results to database."
+          ScanRecords.PersistedScanId scan_id ->
+            flip runReaderT (ScanRecords.db_conn $ ScanRecords.fetching scan_resources) $
+              storeScanResult
+                scan_id
+                buildstep_id
+                maximum_pattern_id
+                matches_and_timeouts
 
-        D.timeThis $ SqlWrite.storeMatches scan_resources buildstep_id matches_and_timeouts
-
-        D.debugStr "Finished storeMatches"
+        return $ snd matches_and_timeouts
 
 
-        D.debugStr "Starting insertLatestPatternBuildScan"
+storeScanResult ::
+     ScanRecords.ScanId
+  -> Builds.BuildStepId
+  -> Int64
+  -> ([ScanUtils.PatternScanTimeout], [ScanPatterns.ScanMatch])
+  -> SqlRead.DbIO ()
+storeScanResult
+    scan_id
+    buildstep_id
+    maximum_pattern_id
+    matches_and_timeouts = do
 
-        D.timeThis $ SqlWrite.insertLatestPatternBuildScan
-          scan_resources
-          buildstep_id
-          maximum_pattern_id
+  liftIO $ D.debugList [
+      "Starting storeMatches with"
+    , show $ length matches
+    , "matches and"
+    , show $ length timeout_list
+    , "timeouts"
+    ]
 
-        D.debugStr "Finished insertLatestPatternBuildScan"
+  SqlWrite.storeMatches scan_id buildstep_id matches_and_timeouts
 
-        return matches
+  liftIO $ D.debugStr "Finished storeMatches"
+
+
+  liftIO $ D.debugStr "Starting insertLatestPatternBuildScan"
+
+  SqlWrite.insertLatestPatternBuildScan
+    scan_id
+    buildstep_id
+    maximum_pattern_id
+
+  liftIO $ D.debugStr "Finished insertLatestPatternBuildScan"
+
+  where
+    (timeout_list, matches) = matches_and_timeouts
 
 
 rescanVisitedBuilds ::
      ScanRecords.ScanCatchupResources
+  -> PatternCullingMode
   -> LogRefetchMode
-  -> [(Builds.BuildStepId, T.Text, DbHelpers.WithId Builds.UniversalBuild, [Int64])]
+  -> [((Builds.BuildStepId, T.Text, DbHelpers.WithId Builds.UniversalBuild), [Int64])]
   -> IO [(DbHelpers.WithId Builds.UniversalBuild, [ScanPatterns.ScanMatch])]
-rescanVisitedBuilds scan_resources should_refetch_logs visited_builds_list =
+rescanVisitedBuilds scan_resources pattern_culling_mode should_refetch_logs visited_builds_list =
 
-  for (zip [1::Int ..] visited_builds_list) $ \(idx, (build_step_id, step_name, universal_build_with_id, pattern_ids)) -> do
+  for (zip [1::Int ..] visited_builds_list) $ \(idx, tup) -> do
+
+    let ((build_step_id, step_name, universal_build_with_id), pattern_ids) = tup
+
     D.debugList [
         "Visiting"
-      , show idx ++ "/" ++ show visited_count
+      , MyUtils.renderFrac idx visited_count
       , "previously-visited builds"
       , MyUtils.parens (show (DbHelpers.db_id universal_build_with_id)) ++ "..."
       ]
+
+    let scannable_patterns_objs = case pattern_culling_mode of
+          ScanAllPatterns -> map (uncurry DbHelpers.WithId) $ HashMap.toList $
+            ScanRecords.patterns_by_id scan_resources
+          OnlyUnscannedPatterns -> getPatternObjects scan_resources pattern_ids
+
 
     either_matches <- catchupScan
       scan_resources
       should_refetch_logs
       build_step_id
       step_name
-      (universal_build_with_id, Nothing) $
-        getPatternObjects scan_resources pattern_ids
+      (universal_build_with_id, Nothing)
+      scannable_patterns_objs
+
 
     return (universal_build_with_id, Either.fromRight [] either_matches)
 
@@ -408,7 +475,7 @@ processUnvisitedBuilds scan_resources unvisited_builds_list =
   for (zip [1::Int ..] unvisited_builds_list) $ \(idx, universal_build_obj) -> do
     D.debugList [
         "Visiting"
-      , show idx ++ "/" ++ show unvisited_count
+      , MyUtils.renderFrac idx unvisited_count
       , "unvisited builds..."
       ]
 
@@ -558,7 +625,12 @@ scanLogText lines_list patterns = do
   D.debugList [
       "Scanning"
     , show $ length lines_list
-    , "lines for"
+    , "lines"
+    , MyUtils.parens $ unwords [
+        show $ sum $ map LT.length lines_list
+      , "chars"
+      ]
+    , "for"
     , show $ length patterns
     , "patterns"
     ]

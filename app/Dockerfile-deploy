@@ -7,7 +7,7 @@
 FROM ubuntu:16.04 as appbase
 
 RUN apt-get update \
-  && apt-get install -y libgmp10 libpq5 libssl1.0.0 libgssapi-krb5-2 libldap-2.4-2 netbase ca-certificates
+  && apt-get install -y libgmp10 libpq5 libssl1.0.0 libgssapi-krb5-2 libldap-2.4-2 netbase ca-certificates llvm
 
 
 # -------------------------------------------------------------------------------------------

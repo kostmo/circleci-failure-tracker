@@ -4,9 +4,10 @@
 module Routes where
 
 import           Control.Monad.IO.Class     (liftIO)
-import           Control.Monad.Trans.Except (runExceptT)
+import           Control.Monad.Trans.Except (ExceptT (ExceptT), runExceptT)
 import           Control.Monad.Trans.Reader (runReaderT)
 import           Data.Aeson                 (FromJSON, ToJSON)
+import           Data.Bifunctor             (first)
 import           Data.Text                  (Text)
 import qualified Data.Text                  as T
 import qualified Data.Text.Lazy             as LT
@@ -223,8 +224,6 @@ doStuff
     connection_data
     statementTimeoutSeconds
 
-  scan_resources <- Scanning.prepareScanResources conn Nothing
-
   universal_builds <- runReaderT
     (SqlRead.getUnvisitedBuildsForSha1 commit_sha1)
     conn
@@ -235,21 +234,28 @@ doStuff
     ]
 
 
+
+
+  runExceptT $ do
+
+    scan_resources <- ExceptT $ first LT.fromStrict <$>
+      Scanning.prepareScanResources conn Scanning.PersistScanResult Nothing
+
   -- TODO Replace this pair of functions with scanAndPost?
-  scan_matches <- Scanning.processUnvisitedBuilds
-    scan_resources
-    universal_builds
+    scan_matches <- liftIO $ Scanning.processUnvisitedBuilds
+      scan_resources
+      universal_builds
 
-  runExceptT $ StatusUpdate.postCommitSummaryStatus
-    conn
-    access_token
-    owned_repo
-    commit_sha1
+    StatusUpdate.postCommitSummaryStatus
+      conn
+      access_token
+      owned_repo
+      commit_sha1
 
-  D.debugList [
-      "Scan match count:"
-    , show $ length scan_matches
-    ]
+    liftIO $ D.debugList [
+        "Scan match count:"
+      , show $ length scan_matches
+      ]
 
 
   either_deletion_count <- runReaderT (SqlWrite.deleteSha1QueuePlaceholder commit_sha1) conn

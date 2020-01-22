@@ -621,13 +621,6 @@ storeHelper conn deduped_builds_list = do
 
       raw_filtered_insertion_records = filter (\(_, (_, SurrogateProviderIdUniversalPair x _)) -> Set.member x preservation_proxy_id_set) zipped_output0
 
-  {-
-  D.debugList [
-      "Will be inserting these:"
-    , show filtered_insertion_records
-    ]
-  -}
-
   let deduped_filtered_insertion_records = nubSortOn (Builds.getUniquenessConstraint . (\(SurrogateProviderIdUniversalPair _ x) -> x) . snd . snd) raw_filtered_insertion_records
 
   universal_build_insertion_output_rows <- returning
@@ -819,16 +812,19 @@ storeScanRecord provider_id branch_filter initiated_at maybe_eb_worker_event_id 
 
 -- | TODO record more details
 recordTimeoutIncident ::
-     ScanRecords.ScanCatchupResources
+     ScanRecords.ScanId
   -> Builds.BuildStepId
   -> [ScanUtils.PatternScanTimeout]
   -> SqlRead.DbIO Int64
-recordTimeoutIncident scan_resources (Builds.NewBuildStepId build_step_id) timeouts_list = do
+recordTimeoutIncident
+    (ScanRecords.ScanId scan_id)
+    (Builds.NewBuildStepId build_step_id)
+    timeouts_list = do
+
   conn <- ask
   [Only new_id] <- liftIO $ query conn sql (build_step_id, scan_id, length timeouts_list)
   return new_id
   where
-    scan_id = ScanRecords.scan_id scan_resources
 
     sql = Q.qjoin [
         "INSERT INTO scan_timeout_incidents"
@@ -842,35 +838,35 @@ recordTimeoutIncident scan_resources (Builds.NewBuildStepId build_step_id) timeo
 
 
 storeMatches ::
-     ScanRecords.ScanCatchupResources
+     ScanRecords.ScanId
   -> Builds.BuildStepId
   -> ([ScanUtils.PatternScanTimeout], [ScanPatterns.ScanMatch])
-  -> IO Int64
-storeMatches scan_resources step@(Builds.NewBuildStepId build_step_id) (scan_timeouts, scoped_matches) = do
+  -> SqlRead.DbIO Int64
+storeMatches scan_id_obj step@(Builds.NewBuildStepId build_step_id) (scan_timeouts, scoped_matches) = do
 
-  D.debugList [
-      "Now storing"
-    , show $ length scoped_matches
-    , show build_step_id ++ "..."
-    ]
+  conn <- ask
+  liftIO $ do
+    D.debugList [
+        "Now storing"
+      , show $ length scoped_matches
+      , show build_step_id ++ "..."
+      ]
 
-  count <- executeMany conn insertion_sql $ map to_tuple scoped_matches
+    count <- executeMany conn insertion_sql $ map to_tuple scoped_matches
 
-  unless (null scan_timeouts) $
-    void $ flip runReaderT conn $ recordTimeoutIncident scan_resources step scan_timeouts
+    unless (null scan_timeouts) $
+      void $ flip runReaderT conn $ recordTimeoutIncident scan_id_obj step scan_timeouts
 
-  D.debugList [
-      "Finished storing"
-    , show $ length scoped_matches
-    , "matches."
-    ]
+    D.debugList [
+        "Finished storing"
+      , show $ length scoped_matches
+      , "matches."
+      ]
 
-  return count
+    return count
 
   where
-    conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
-    scan_id = ScanRecords.scan_id scan_resources
-
+    ScanRecords.ScanId scan_id = scan_id_obj
     to_tuple match = (
         scan_id
       , build_step_id
@@ -1087,7 +1083,11 @@ markPostedGithubCommentAsDeleted ::
 markPostedGithubCommentAsDeleted conn (ApiPost.CommentId comment_id) =
   execute conn sql (Only comment_id)
   where
-    sql = "UPDATE created_pull_request_comments SET deleted = TRUE WHERE comment_id = ?;"
+    sql = Q.qjoin [
+        "UPDATE created_pull_request_comments"
+      , "SET deleted = TRUE"
+      , "WHERE comment_id = ?"
+      ]
 
 
 modifyPostedGithubComment ::
@@ -1134,7 +1134,7 @@ removePatternTag (ScanPatterns.PatternId pattern_id) tag = do
       , "WHERE"
       , Q.qconjunction [
           "pattern = ?"
-        , "tag = ?;"
+        , "tag = ?"
         ]
       ]
 
@@ -1177,7 +1177,10 @@ deleteSha1QueuePlaceholder (Builds.RawCommit sha1) = do
   conn <- ask
   liftIO $ Right <$> execute conn sql (Only sha1)
   where
-    sql = "DELETE FROM work_queues.queued_sha1_scans WHERE sha1 = ?;"
+    sql = Q.qjoin [
+        "DELETE FROM work_queues.queued_sha1_scans"
+      , "WHERE sha1 = ?"
+      ]
 
 
 deleteCodeBreakageJob ::
@@ -1188,7 +1191,14 @@ deleteCodeBreakageJob cause_id job = do
   conn <- ask
   liftIO $ Right <$> execute conn sql (cause_id, job)
   where
-    sql = "DELETE FROM code_breakage_affected_jobs WHERE cause = ? AND job = ?;"
+    sql = Q.qjoin [
+        "DELETE FROM code_breakage_affected_jobs"
+      , "WHERE"
+      , Q.qconjunction [
+          "cause = ?"
+        , "job = ?"
+        ]
+      ]
 
 
 updateCodeBreakageDescription ::
@@ -1509,26 +1519,28 @@ storeLogInfo
 
 
 insertLatestPatternBuildScan ::
-     ScanRecords.ScanCatchupResources
+     ScanRecords.ScanId
   -> Builds.BuildStepId
   -> Int64
-  -> IO ()
+  -> SqlRead.DbIO ()
 insertLatestPatternBuildScan
-    scan_resources
+    (ScanRecords.ScanId scan_id)
     (Builds.NewBuildStepId step_id)
     maximum_pattern_id = do
 
-  D.debugList [
-      "Now storing largest scanned pattern ID:"
-    , show maximum_pattern_id
-    ]
+  conn <- ask
+  liftIO $ do
+    D.debugList [
+        "Now storing largest scanned pattern ID:"
+      , show maximum_pattern_id
+      ]
 
-  execute conn sql (ScanRecords.scan_id scan_resources, step_id, maximum_pattern_id)
+    execute conn sql (scan_id, step_id, maximum_pattern_id)
 
-  D.debugList [
-      "Stored largest scanned pattern ID"
-    , show maximum_pattern_id ++ "."
-    ]
+    D.debugList [
+        "Stored largest scanned pattern ID"
+      , show maximum_pattern_id ++ "."
+      ]
 
   where
     sql = Q.qjoin [
@@ -1540,7 +1552,7 @@ insertLatestPatternBuildScan
         ]
       ]
 
-    conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
+
 
 
 insertBuildVisitation ::
@@ -1689,7 +1701,8 @@ apiCodeBreakageCauseInsert
         ]
       ]
 
-    catcher _ (UniqueViolation some_error) = return $ Left $ "Insertion error: " <> T.pack (BS.unpack some_error)
+    catcher _ (UniqueViolation some_error) = return $ Left $
+      "Insertion error: " <> T.pack (BS.unpack some_error)
     catcher e _                                  = throwIO e
 
 
@@ -1737,7 +1750,8 @@ apiCodeBreakageResolutionInsert
       , "RETURNING id;"
       ]
 
-    catcher _ (UniqueViolation some_error) = return $ Left $ "Insertion error: " <> T.pack (BS.unpack some_error)
+    catcher _ (UniqueViolation some_error) = return $ Left $
+      "Insertion error: " <> T.pack (BS.unpack some_error)
     catcher e _                                  = throwIO e
 
 
@@ -1834,7 +1848,8 @@ elaborateBuildFailure (Builds.UniversalBuildId build_id) = do
     [Only echoed_build_id] <- query conn sql (build_id, username)
     return echoed_build_id
   where
-    catcher _ (UniqueViolation some_error) = return $ Left $ "Insertion error: " <> T.pack (BS.unpack some_error)
+    catcher _ (UniqueViolation some_error) = return $ Left $
+      "Insertion error: " <> T.pack (BS.unpack some_error)
     catcher e _                                  = throwIO e
 
     sql = Q.qjoin [
@@ -1856,7 +1871,8 @@ promoteMatch (MatchOccurrences.MatchId match_id) = do
     [Only match_id] <- query conn sql (match_id, username)
     return match_id
   where
-    catcher _ (UniqueViolation some_error) = return $ Left $ "Insertion error: " <> T.pack (BS.unpack some_error)
+    catcher _ (UniqueViolation some_error) = return $ Left $
+      "Insertion error: " <> T.pack (BS.unpack some_error)
     catcher e _                                  = throwIO e
 
     sql = Q.qjoin [
@@ -1897,5 +1913,6 @@ apiNewPattern new_pattern = do
     flip runReaderT conn $ insertSinglePattern new_pattern
 
   where
-    catcher _ (UniqueViolation some_error) = return $ Left $ "Insertion error: " <> T.pack (BS.unpack some_error)
+    catcher _ (UniqueViolation some_error) = return $ Left $
+      "Insertion error: " <> T.pack (BS.unpack some_error)
     catcher e _                                  = throwIO e

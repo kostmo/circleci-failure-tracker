@@ -1,4 +1,6 @@
-import           Control.Concurrent  (getNumCapabilities)
+import           Control.Concurrent         (getNumCapabilities)
+import           Control.Monad.IO.Class     (liftIO)
+import           Control.Monad.Trans.Except (ExceptT (ExceptT), runExceptT)
 import           Options.Applicative
 import           System.IO
 
@@ -6,7 +8,7 @@ import qualified BuildRetrieval
 import qualified Constants
 import qualified DbHelpers
 import qualified DbPreparation
-import qualified DebugUtils          as D
+import qualified DebugUtils                 as D
 import qualified Scanning
 
 
@@ -61,20 +63,25 @@ mainAppCode args = do
     (branchName args)
     fetch_count
 
-  scan_resources <- Scanning.prepareScanResources conn $
-    Just Constants.defaultPatternAuthor
+  runExceptT $ do
+    scan_resources <- ExceptT $ Scanning.prepareScanResources conn Scanning.PersistScanResult $
+      Just Constants.defaultPatternAuthor
 
-  build_matches <- Scanning.scanBuilds
-    scan_resources
-    (if rescanVisited args then Scanning.RevisitScanned else Scanning.NoRevisit)
-    Scanning.NoRefetchLog
-    (Right fetch_count)
+    liftIO $ do
+      build_matches <- Scanning.scanBuilds
+        scan_resources
+        Scanning.OnlyUnscannedPatterns
+        (if rescanVisited args then Scanning.RevisitScanned else Scanning.NoRevisit)
+        Scanning.NoRefetchLog
+        (Right fetch_count)
 
-  D.debugList [
-      "Scanned"
-    , show $ length build_matches
-    , "builds."
-    ]
+      D.debugList [
+          "Scanned"
+        , show $ length build_matches
+        , "builds."
+        ]
+
+  return ()
 
   where
     fetch_count = buildCount args

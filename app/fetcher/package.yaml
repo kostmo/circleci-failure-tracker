@@ -57,6 +57,8 @@ library:
     - data-ordlist
     - attoparsec
     - extra
+    - deepseq
+    - primitive
 
 executables:
   run-scanner:
@@ -75,4 +77,5 @@ executables:
     - -with-rtsopts=-N4
     dependencies:
     - fetcher
-    - optparse-applicative
+    - optparse-applicative      
+    - transformers

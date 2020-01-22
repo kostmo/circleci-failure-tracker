@@ -31,8 +31,16 @@ data FetchingResources = FetchingResources {
   }
 
 
+newtype ScanId = ScanId Int64
+
+
+data ScanTracking =
+    PersistedScanId ScanId
+  | NoPersistedScanId
+
+
 data ScanCatchupResources = ScanCatchupResources {
-    scan_id           :: Int64
+    scan_id_tracking  :: ScanTracking
   , newest_pattern_id :: ScanPatterns.PatternId
   , patterns_by_id    :: HashMap Int64 ScanPatterns.Pattern
   , fetching          :: FetchingResources
