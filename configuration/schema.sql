@@ -1178,62 +1178,6 @@ COMMENT ON VIEW public.aggregated_breakage_causes_by_commit IS 'TODO: This view 
 
 
 --
--- Name: build_steps; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.build_steps (
-    id integer NOT NULL,
-    name text,
-    is_timeout boolean,
-    universal_build integer NOT NULL,
-    step_index integer DEFAULT '-1'::integer NOT NULL
-);
-
-
-ALTER TABLE public.build_steps OWNER TO postgres;
-
---
--- Name: TABLE build_steps; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON TABLE public.build_steps IS 'There should be zero or one build steps associated with a build, depending on whether the CircleCI JSON build structure indicates that one of the steps failed.
-
-This is known before the console logs are "scanned".';
-
-
---
--- Name: COLUMN build_steps.step_index; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON COLUMN public.build_steps.step_index IS 'Note that this numbering of steps is only implicit in the CircleCI API result; it is distinct from both the steps->actions->index field and the steps->actions->step field.';
-
-
---
--- Name: builds_join_steps; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.builds_join_steps WITH (security_barrier='false') AS
- SELECT build_steps.id AS step_id,
-    build_steps.name AS step_name,
-    global_builds.build_number AS build_num,
-    global_builds.vcs_revision,
-    global_builds.queued_at,
-    global_builds.job_name,
-    global_builds.branch,
-    build_steps.is_timeout,
-    build_steps.universal_build,
-    global_builds.provider,
-    global_builds.succeeded,
-    global_builds.build_namespace,
-    global_builds.started_at,
-    global_builds.finished_at
-   FROM (public.build_steps
-     JOIN public.global_builds ON ((build_steps.universal_build = global_builds.global_build_num)));
-
-
-ALTER TABLE public.builds_join_steps OWNER TO postgres;
-
---
 -- Name: match_failure_elaborations; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -1296,6 +1240,75 @@ This intermediate view eliminates those duplicate matches.
 
 BEWARE: At one point there was a problem with missing rows, due to misaligned DISTINCT criteria between this view and the best_match_*" views.';
 
+
+--
+-- Name: aggregated_build_matches_all; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.aggregated_build_matches_all AS
+ SELECT matches_distinct.pattern,
+    count(*) AS match_count
+   FROM public.matches_distinct
+  GROUP BY matches_distinct.pattern;
+
+
+ALTER TABLE public.aggregated_build_matches_all OWNER TO postgres;
+
+--
+-- Name: build_steps; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.build_steps (
+    id integer NOT NULL,
+    name text,
+    is_timeout boolean,
+    universal_build integer NOT NULL,
+    step_index integer DEFAULT '-1'::integer NOT NULL
+);
+
+
+ALTER TABLE public.build_steps OWNER TO postgres;
+
+--
+-- Name: TABLE build_steps; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.build_steps IS 'There should be zero or one build steps associated with a build, depending on whether the CircleCI JSON build structure indicates that one of the steps failed.
+
+This is known before the console logs are "scanned".';
+
+
+--
+-- Name: COLUMN build_steps.step_index; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.build_steps.step_index IS 'Note that this numbering of steps is only implicit in the CircleCI API result; it is distinct from both the steps->actions->index field and the steps->actions->step field.';
+
+
+--
+-- Name: builds_join_steps; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.builds_join_steps WITH (security_barrier='false') AS
+ SELECT build_steps.id AS step_id,
+    build_steps.name AS step_name,
+    global_builds.build_number AS build_num,
+    global_builds.vcs_revision,
+    global_builds.queued_at,
+    global_builds.job_name,
+    global_builds.branch,
+    build_steps.is_timeout,
+    build_steps.universal_build,
+    global_builds.provider,
+    global_builds.succeeded,
+    global_builds.build_namespace,
+    global_builds.started_at,
+    global_builds.finished_at
+   FROM (public.build_steps
+     JOIN public.global_builds ON ((build_steps.universal_build = global_builds.global_build_num)));
+
+
+ALTER TABLE public.builds_join_steps OWNER TO postgres;
 
 --
 -- Name: matches_for_build; Type: VIEW; Schema: public; Owner: postgres
@@ -1449,10 +1462,10 @@ COMMENT ON VIEW public.best_pattern_match_for_builds IS 'TODO: Fix computation o
 
 
 --
--- Name: aggregated_build_matches; Type: VIEW; Schema: public; Owner: postgres
+-- Name: aggregated_build_matches_best; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.aggregated_build_matches WITH (security_barrier='false') AS
+CREATE VIEW public.aggregated_build_matches_best WITH (security_barrier='false') AS
  SELECT best_pattern_match_for_builds.pattern_id AS pat,
     count(best_pattern_match_for_builds.universal_build) AS matching_build_count,
     max(global_builds.queued_at) AS most_recent,
@@ -1462,7 +1475,7 @@ CREATE VIEW public.aggregated_build_matches WITH (security_barrier='false') AS
   GROUP BY best_pattern_match_for_builds.pattern_id;
 
 
-ALTER TABLE public.aggregated_build_matches OWNER TO postgres;
+ALTER TABLE public.aggregated_build_matches_best OWNER TO postgres;
 
 --
 -- Name: created_github_statuses; Type: TABLE; Schema: public; Owner: postgres
@@ -2006,6 +2019,66 @@ ALTER TABLE public.circleci_config_yaml_hashes OWNER TO postgres;
 --
 
 COMMENT ON TABLE public.circleci_config_yaml_hashes IS 'NOTE: This is the root of the tree of foreign key relations among circleci config values.';
+
+
+--
+-- Name: circleci_test_reports; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.circleci_test_reports (
+    stored_at timestamp with time zone DEFAULT now() NOT NULL,
+    provider_build_surrogate_id integer NOT NULL
+);
+
+
+ALTER TABLE public.circleci_test_reports OWNER TO postgres;
+
+--
+-- Name: TABLE circleci_test_reports; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.circleci_test_reports IS 'This intermediate table simply indicates whether the test report has been retrieved.  Since it is possible that a build does not have a test report, we must use this table to distinguish between an unretrieved report and a nonexistent report.';
+
+
+--
+-- Name: circleci_test_results; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.circleci_test_results (
+    provider_build_surrogate_id integer NOT NULL,
+    id integer NOT NULL,
+    classname text,
+    file text,
+    result text,
+    run_time double precision,
+    message text,
+    source text,
+    source_type text
+);
+
+
+ALTER TABLE public.circleci_test_results OWNER TO postgres;
+
+--
+-- Name: circleci_test_results_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.circleci_test_results_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.circleci_test_results_id_seq OWNER TO postgres;
+
+--
+-- Name: circleci_test_results_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.circleci_test_results_id_seq OWNED BY public.circleci_test_results.id;
 
 
 --
@@ -4365,9 +4438,9 @@ ALTER TABLE public.patterns_augmented OWNER TO postgres;
 CREATE VIEW public.pattern_frequency_summary WITH (security_barrier='false') AS
  SELECT patterns_augmented.expression,
     patterns_augmented.description,
-    COALESCE(aggregated_build_matches.matching_build_count, (0)::bigint) AS matching_build_count,
-    aggregated_build_matches.most_recent,
-    aggregated_build_matches.earliest,
+    COALESCE(aggregated_build_matches_best.matching_build_count, (0)::bigint) AS matching_build_count,
+    aggregated_build_matches_best.most_recent,
+    aggregated_build_matches_best.earliest,
     patterns_augmented.id,
     patterns_augmented.regex,
     patterns_augmented.specificity,
@@ -4377,9 +4450,11 @@ CREATE VIEW public.pattern_frequency_summary WITH (security_barrier='false') AS
     patterns_augmented.total_scanned_builds,
     patterns_augmented.usually_last_line,
     patterns_augmented.position_likelihood,
-    patterns_augmented.has_nondeterministic_values
-   FROM (public.patterns_augmented
-     LEFT JOIN public.aggregated_build_matches ON ((patterns_augmented.id = aggregated_build_matches.pat)));
+    patterns_augmented.has_nondeterministic_values,
+    COALESCE(aggregated_build_matches_all.match_count, (0)::bigint) AS all_matching_build_count
+   FROM ((public.patterns_augmented
+     LEFT JOIN public.aggregated_build_matches_best ON ((patterns_augmented.id = aggregated_build_matches_best.pat)))
+     LEFT JOIN public.aggregated_build_matches_all ON ((patterns_augmented.id = aggregated_build_matches_all.pattern)));
 
 
 ALTER TABLE public.pattern_frequency_summary OWNER TO postgres;
@@ -5215,6 +5290,13 @@ ALTER TABLE ONLY public.ci_providers ALTER COLUMN id SET DEFAULT nextval('public
 
 
 --
+-- Name: circleci_test_results id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.circleci_test_results ALTER COLUMN id SET DEFAULT nextval('public.circleci_test_results_id_seq'::regclass);
+
+
+--
 -- Name: circleci_workflows_by_yaml_file id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
@@ -5467,6 +5549,22 @@ ALTER TABLE ONLY public.circleci_job_branch_filters
 
 ALTER TABLE ONLY public.circleci_workflow_jobs
     ADD CONSTRAINT circleci_job_schedules_pkey PRIMARY KEY (job_name, workflow);
+
+
+--
+-- Name: circleci_test_reports circleci_test_report_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.circleci_test_reports
+    ADD CONSTRAINT circleci_test_report_pkey PRIMARY KEY (provider_build_surrogate_id);
+
+
+--
+-- Name: circleci_test_results circleci_test_results_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.circleci_test_results
+    ADD CONSTRAINT circleci_test_results_pkey PRIMARY KEY (id);
 
 
 --
@@ -5863,6 +5961,13 @@ CREATE INDEX fk_sha1_thing ON public.code_breakage_resolution USING btree (sha1)
 --
 
 CREATE INDEX fk_tag_pattern ON public.pattern_tags USING btree (pattern);
+
+
+--
+-- Name: fk_test_report; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX fk_test_report ON public.circleci_test_results USING btree (provider_build_surrogate_id);
 
 
 --
@@ -6319,6 +6424,22 @@ ALTER TABLE ONLY public.circleci_expanded_config_yaml_hashes_by_commit
 
 
 --
+-- Name: circleci_test_reports circleci_test_report_provider_build_surrogate_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.circleci_test_reports
+    ADD CONSTRAINT circleci_test_report_provider_build_surrogate_id_fkey FOREIGN KEY (provider_build_surrogate_id) REFERENCES public.provider_build_numbers(id) ON DELETE CASCADE NOT VALID;
+
+
+--
+-- Name: circleci_test_results circleci_test_results_provider_build_surrogate_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.circleci_test_results
+    ADD CONSTRAINT circleci_test_results_provider_build_surrogate_id_fkey FOREIGN KEY (provider_build_surrogate_id) REFERENCES public.circleci_test_reports(provider_build_surrogate_id) ON DELETE CASCADE NOT VALID;
+
+
+--
 -- Name: code_breakage_affected_jobs code_breakage_affected_jobs_cause_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -6587,7 +6708,7 @@ ALTER TABLE ONLY public.pattern_authorship
 --
 
 ALTER TABLE ONLY public.pattern_step_applicability
-    ADD CONSTRAINT pattern_step_applicability_pattern_fkey FOREIGN KEY (pattern) REFERENCES public.patterns(id);
+    ADD CONSTRAINT pattern_step_applicability_pattern_fkey FOREIGN KEY (pattern) REFERENCES public.patterns(id) ON DELETE CASCADE NOT VALID;
 
 
 --
@@ -6983,20 +7104,6 @@ GRANT ALL ON TABLE public.aggregated_breakage_causes_by_commit TO logan;
 
 
 --
--- Name: TABLE build_steps; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.build_steps TO logan;
-
-
---
--- Name: TABLE builds_join_steps; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.builds_join_steps TO logan;
-
-
---
 -- Name: TABLE match_failure_elaborations; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -7016,6 +7123,28 @@ GRANT ALL ON TABLE public.matches TO logan;
 --
 
 GRANT ALL ON TABLE public.matches_distinct TO logan;
+
+
+--
+-- Name: TABLE aggregated_build_matches_all; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.aggregated_build_matches_all TO logan;
+GRANT SELECT ON TABLE public.aggregated_build_matches_all TO materialized_view_updater;
+
+
+--
+-- Name: TABLE build_steps; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.build_steps TO logan;
+
+
+--
+-- Name: TABLE builds_join_steps; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.builds_join_steps TO logan;
 
 
 --
@@ -7068,10 +7197,10 @@ GRANT ALL ON TABLE public.best_pattern_match_for_builds TO logan;
 
 
 --
--- Name: TABLE aggregated_build_matches; Type: ACL; Schema: public; Owner: postgres
+-- Name: TABLE aggregated_build_matches_best; Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON TABLE public.aggregated_build_matches TO logan;
+GRANT ALL ON TABLE public.aggregated_build_matches_best TO logan;
 
 
 --
@@ -7243,6 +7372,22 @@ GRANT SELECT ON TABLE public.circleci_config_job_dependencies TO materialized_vi
 --
 
 GRANT ALL ON TABLE public.circleci_config_yaml_hashes TO logan;
+
+
+--
+-- Name: TABLE circleci_test_reports; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.circleci_test_reports TO logan;
+GRANT SELECT ON TABLE public.circleci_test_reports TO materialized_view_updater;
+
+
+--
+-- Name: TABLE circleci_test_results; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.circleci_test_results TO logan;
+GRANT SELECT ON TABLE public.circleci_test_results TO materialized_view_updater;
 
 
 --
