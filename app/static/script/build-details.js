@@ -8,6 +8,66 @@ function prompt_promote_match(match_id) {
 }
 
 
+
+
+function gen_builds_table2(element_id, data_url, height_string, universal_build_id) {
+
+	const column_list = [
+		{title: "Line", field: "occurrence.line_number", width: 100,
+			formatter: function(cell, formatterParams, onRendered) {
+				return gen_line_number_from_data(cell.getRow().getData()["occurrence"]);
+			}
+		},
+		{title: "Match (" + render_tag("span", "click to show log context", {"style": "color: #0d0;"}) + ")",
+			field: "occurrence.line_text",
+			sorter: "string",
+			widthGrow: 8,
+			formatter: function(cell, formatterParams, onRendered) {
+				const row_data = cell.getRow().getData()["occurrence"];
+				return render_log_error_line_from_data(cell.getValue(), row_data);
+			},
+			cellClick: function(e, cell){
+
+				const row_data = cell.getRow().getData()["occurrence"];
+
+				const provider_build_number = row_data["build_number"];
+
+				const match_id = row_data["match_id"];
+				get_log_text(match_id, STANDARD_LOG_CONTEXT_LINECOUNT, universal_build_id, provider_build_number);
+			},
+		},
+		{title: "Pattern", field: "occurrence.pattern_id", formatter: "link",
+			formatterParams: {urlPrefix: "/pattern-details.html?pattern_id="},
+			width: 75,
+		},
+		{title: "Specificity", field: "pattern_info.specificity", width: 100,
+			formatter: function(cell, formatterParams, onRendered) {
+				const is_regex = cell.getRow().getData()["pattern_info"]["is_regex"];
+
+				if (is_regex) {
+					cell.getElement().style.backgroundColor = "#fbf4";
+				}
+
+				return cell.getValue();
+			},
+		},
+	];
+
+	const table = new Tabulator("#" + element_id, {
+		layout: "fitColumns",
+		placeholder: "No Data Set",
+		columns: column_list,
+		ajaxURL: data_url,
+		ajaxResponse: function(url, params, response) {
+			console.log("Loaded DB content for URL '" + data_url + "' in " + response.timing.toFixed(1) + " seconds.");
+			return response.content;
+		},
+	});
+}
+
+
+
+
 function gen_builds_table(element_id, data_url, height_string, universal_build_id, maybe_circleci_build_id) {
 
 	const column_list = [
@@ -230,12 +290,10 @@ function main() {
 	$("#full-log-link-container").html(local_logview_item_full);
 
 	get_build_info(universal_build_id);
-	gen_builds_table(
+	gen_builds_table2(
 		"best-build-matches-table",
 		"/api/best-build-match?build_id=" + universal_build_id,
-		null,
-		universal_build_id,
-		null);
+		universal_build_id);
 
 	gen_pattern_test_link(universal_build_id);
 }

@@ -3856,6 +3856,28 @@ dumpPatterns = map f <$> runQuery q
         lines_from_end
 
 
+data PatternInfoSpecifictySubset = PatternInfoSpecifictySubset {
+    _specificity :: Int
+  , _is_regex    :: Bool
+  } deriving (Generic, FromRow)
+
+instance ToJSON PatternInfoSpecifictySubset where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+data AugmentedPatternOccurrence a = AugmentedPatternOccurrence {
+    _occurrence   :: PatternOccurrence
+  , _pattern_info :: a
+  } deriving Generic
+
+instance (ToJSON a) => ToJSON (AugmentedPatternOccurrence a) where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+instance (FromRow a) => FromRow (AugmentedPatternOccurrence a) where
+  fromRow = AugmentedPatternOccurrence <$> fromRow <*> fromRow
+
+
 data PatternOccurrence = NewPatternOccurrence {
     _build_number       :: Builds.BuildNumber
   , _pattern_id         :: ScanPatterns.PatternId
@@ -3871,7 +3893,7 @@ data PatternOccurrence = NewPatternOccurrence {
   , _span_start         :: Int
   , _span_end           :: Int
   , _universal_build_id :: Builds.UniversalBuildId
-  } deriving Generic
+  } deriving (Generic, FromRow)
 
 instance ToJSON PatternOccurrence where
   toJSON = genericToJSON JsonUtils.dropUnderscore
@@ -3944,42 +3966,24 @@ apiStorageStats = fmap head $ runQuery $ Q.qjoin [
   ]
 
 
-patternOccurrenceTxForm pattern_id = f
-  where
-    -- TODO consolidate this transformation with "getPatternMatches"
-    f (buildnum, stepname, match_id, line_number, line_count, line_text, span_start, span_end, vcs_revision, queued_at, job_name, branch, universal_build_id) =
-     NewPatternOccurrence
-      buildnum
-      pattern_id
-      match_id
-      (Builds.RawCommit vcs_revision)
-      queued_at job_name
-      branch
-      stepname
-      line_number
-      line_count
-      line_text
-      span_start
-      span_end
-      universal_build_id
-
-
+-- | This is currently only used in one place: "getBestPatternMatches"
 commonQueryPrefixPatternMatches :: Query
 commonQueryPrefixPatternMatches = Q.qjoin [
     "SELECT"
   , Q.list [
       "build"
-    , "step_name"
+    , "pattern_id"
     , "match_id"
+    , "vcs_revision"
+    , "queued_at"
+    , "job_name"
+    , "branch"
+    , "step_name"
     , "line_number"
     , "line_count"
     , "line_text"
     , "span_start"
     , "span_end"
-    , "vcs_revision"
-    , "queued_at"
-    , "job_name"
-    , "branch"
     , "universal_build"
     ]
   , "FROM best_pattern_match_augmented_builds"
@@ -3990,15 +3994,18 @@ commonQueryPrefixPatternMatches = Q.qjoin [
 
 
 -- | Limit is arbitrary
-getBestPatternMatches :: ScanPatterns.PatternId -> DbIO [PatternOccurrence]
-getBestPatternMatches pat@(ScanPatterns.PatternId pattern_id) = do
+getBestPatternMatches ::
+     ScanPatterns.PatternId
+--  -> DbIO [AugmentedPatternOccurrence PatternInfoSpecifictySubset]
+  -> DbIO [PatternOccurrence]
+getBestPatternMatches (ScanPatterns.PatternId pattern_id) = do
   conn <- ask
-  liftIO $ map (patternOccurrenceTxForm pat) <$> query conn sql (Only pattern_id)
+  liftIO $ query conn sql $ Only pattern_id
 
   where
     sql = Q.qjoin [
         commonQueryPrefixPatternMatches
-      , "LIMIT 100;"
+      , "LIMIT 100"
       ]
 
 
@@ -4008,59 +4015,32 @@ getBestPatternMatches pat@(ScanPatterns.PatternId pattern_id) = do
 -- for multi-item lists.
 getBestBuildMatch ::
      Builds.UniversalBuildId
-  -> DbIO (DbHelpers.BenchmarkedResponse Float [PatternOccurrence])
-getBestBuildMatch ubuild_id@(Builds.UniversalBuildId build_id) = do
+  -> DbIO (DbHelpers.BenchmarkedResponse Float [AugmentedPatternOccurrence PatternInfoSpecifictySubset])
+getBestBuildMatch (Builds.UniversalBuildId build_id) = do
 
   conn <- ask
-  (timing, content) <- D.timeThisFloat $ liftIO $
-    map f <$> query conn sql (Only build_id)
+  (timing, content) <- D.timeThisFloat $ liftIO $ query conn sql $ Only build_id
 
   return $ DbHelpers.BenchmarkedResponse timing content
 
   where
-    f ( pattern_id
-      , build
-      , step_name
-      , match_id
-      , line_number
-      , line_count
-      , line_text
-      , span_start
-      , span_end
-      , vcs_revision
-      , queued_at
-      , job_name
-      , branch) = patternOccurrenceTxForm
-        (ScanPatterns.PatternId pattern_id)
-        ( build
-        , step_name
-        , match_id
-        , line_number
-        , line_count
-        , line_text
-        , span_start
-        , span_end
-        , vcs_revision
-        , queued_at
-        , job_name
-        , branch
-        , ubuild_id
-        )
-
     fields_to_fetch = [
-        "pattern_id"
-      , "build"
-      , "build_steps.name AS step_name"
+        "build"
+      , "pattern_id"
       , "match_id"
+      , "global_builds.vcs_revision"
+      , "queued_at"
+      , "job_name"
+      , "branch"
+      , "build_steps.name AS step_name"
       , "line_number"
       , "line_count"
       , "line_text"
       , "span_start"
       , "span_end"
-      , "global_builds.vcs_revision"
-      , "queued_at"
-      , "job_name"
-      , "branch"
+      , "global_builds.global_build_num"
+      , "specificity"
+      , "regex"
       ]
 
     sql_where_conditions = ["universal_build = ?"]
@@ -4126,7 +4106,7 @@ logContextFunc
         , "line_text"
         ]
       , "FROM matches"
-      , "WHERE id = ?;"
+      , "WHERE id = ?"
       ]
 
     errmsg = T.pack $ unwords [
@@ -4156,11 +4136,14 @@ getPatternMatches pattern_id =
         start
         end
         global_build_id
+
       where
         (Builds.NewBuild buildnum vcs_rev queued_at job_name branch _ _) = build_obj
         (ScanPatterns.NewMatchDetails line_text line_number (DbHelpers.StartEnd start end)) = match_details
 
 
+-- | Currently this is only used by the "getPatternMatches" function above,
+-- which uses a lot less info than this fetches.
 getPatternOccurrenceRows ::
      ScanPatterns.PatternId
   -> DbIO [(Builds.Build, Text, Int, MatchOccurrences.MatchId, ScanPatterns.MatchDetails, Builds.UniversalBuildId)]

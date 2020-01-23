@@ -378,7 +378,7 @@ catchupScan
 
         matches_and_timeouts <- scanLogText lines_list applicable_patterns
 
-        case ScanRecords.NoPersistedScanId of
+        case ScanRecords.scan_id_tracking scan_resources of
           ScanRecords.NoPersistedScanId -> D.debugStr "NOT storing scan results to database."
           ScanRecords.PersistedScanId scan_id ->
             flip runReaderT (ScanRecords.db_conn $ ScanRecords.fetching scan_resources) $
@@ -731,14 +731,16 @@ scanLogText lines_list patterns = do
       where
         pattern_length = T.length $ ScanPatterns.patternText $ ScanPatterns.expression $ DbHelpers.record db_pattern
 
-    apply_literal_patterns (line_number, line) = do
-      let my_matches = allMatches automaton $ LT.toStrict line
-          deduped_matches = nubSortOn (DbHelpers.db_id . Aho.matchValue) my_matches
-          wrapped_matches = map (aho_transformer line line_number) deduped_matches
-
-          -- We only want to keep one match per pattern per line.
-
+    apply_literal_patterns (line_number, line) =
       return ([], wrapped_matches)
+      where
+        my_matches = allMatches automaton $ LT.toStrict line
+
+        -- We only want to keep one match per pattern per line.
+        deduped_matches = nubSortOn (DbHelpers.db_id . Aho.matchValue) my_matches
+
+        wrapped_matches = map (aho_transformer line line_number) deduped_matches
+
 
     apply_regex_patterns pats line_tuple = do
       pattern_result_eithers <- for pats $ \pat -> do

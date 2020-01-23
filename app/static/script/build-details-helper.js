@@ -67,7 +67,7 @@ function gen_builds_table_columns(include_timeout_column) {
 					const start_idx = row_data["match"]["span_start"];
 					const end_idx = row_data["match"]["span_end"];
 							
-					return gen_error_cell_html_parameterized(cell, start_idx, end_idx);
+					return gen_error_cell_html_parameterized(cell.getValue(), start_idx, end_idx);
 				} else {
 					const universal_build_id = row_data["build"]["universal_build"]["db_id"];
 

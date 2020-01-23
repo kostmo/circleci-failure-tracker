@@ -2,12 +2,15 @@ const STANDARD_LOG_CONTEXT_LINECOUNT = 25;
 
 
 function gen_error_cell_html(cell) {
+	return render_log_error_line_from_data(cell.getValue(), cell.getRow().getData());
+}
 
-	const row_data = cell.getRow().getData();
+
+function render_log_error_line_from_data(line_text, row_data) {
 
 	const start_idx = row_data["span_start"];
 	const end_idx = row_data["span_end"];
-	return gen_error_cell_html_parameterized(cell, start_idx, end_idx);
+	return gen_error_cell_html_parameterized(line_text, start_idx, end_idx);
 }
 
 
@@ -142,7 +145,13 @@ function displayDialog() {
 
 function gen_line_number_cell_with_count(cell, line_count) {
 
-	const distance_from_start = cell.getValue() + 1;
+	return gen_line_number_from_data_with_count(cell.getValue(), line_count)
+}
+
+
+function gen_line_number_from_data_with_count(line_number_zero_indexed, line_count) {
+
+	const distance_from_start = line_number_zero_indexed + 1;
 	const distance_from_end = line_count - distance_from_start;
 	if (distance_from_end == 0) {
 		return "last";
@@ -152,14 +161,18 @@ function gen_line_number_cell_with_count(cell, line_count) {
 }
 
 
+function gen_line_number_from_data(row_data) {
+	return gen_line_number_from_data_with_count(row_data["line_number"], row_data["line_count"]);
+}
+
+
 function gen_line_number_cell(cell) {
 	const line_count = cell.getRow().getData()["line_count"];
 	return gen_line_number_cell_with_count(cell, line_count);
 }
 
 
-function gen_error_cell_html_parameterized(cell, start_idx, end_idx) {
-	const line_text = cell.getValue();
+function gen_error_cell_html_parameterized(line_text, start_idx, end_idx) {
 	const cell_html = render_tag("span", render_highlighted_line_text(line_text, start_idx, end_idx), {"style": "font-family: monospace;"});
 	return cell_html;
 }
