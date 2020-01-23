@@ -83,7 +83,7 @@ data MatchDetails = NewMatchDetails {
     line_text   :: LT.Text
   , line_number :: Int
   , span        :: !(DbHelpers.StartEnd Int)
-  } deriving Generic
+  } deriving (Show, Generic)
 
 instance ToJSON MatchDetails
 

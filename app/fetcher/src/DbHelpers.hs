@@ -39,7 +39,7 @@ boundsAsTuple = min_bound &&& max_bound
 data StartEnd a = StartEnd {
     _start :: !a
   , _end   :: !a
-  } deriving Generic
+  } deriving (Show, Generic)
 
 instance (ToJSON a) => ToJSON (StartEnd a) where
   toJSON = genericToJSON JsonUtils.dropUnderscore

@@ -2,30 +2,32 @@
 
 module Scanning where
 
-import           Control.Lens               hiding ((<.>))
-import           Control.Monad.IO.Class     (liftIO)
-import           Control.Monad.Trans.Except (ExceptT (ExceptT), except,
-                                             runExceptT)
-import           Control.Monad.Trans.Reader (ask, runReaderT)
-import           Data.Aeson                 (Value)
-import           Data.Aeson.Lens            (key, _Array, _Bool, _String)
-import           Data.Bifunctor             (first)
-import           Data.Either                (partitionEithers)
-import qualified Data.Either                as Either
-import           Data.Either.Combinators    (rightToMaybe)
-import           Data.Either.Utils          (maybeToEither)
-import qualified Data.HashMap.Strict        as HashMap
-import           Data.List                  (intercalate)
-import qualified Data.Maybe                 as Maybe
-import           Data.Set                   (Set)
-import qualified Data.Set                   as Set
-import qualified Data.Text                  as T
-import qualified Data.Text.Lazy             as LT
-import           Data.Traversable           (for)
-import           Database.PostgreSQL.Simple (Connection)
-import           GHC.Int                    (Int64)
-import           Network.Wreq               as NW
-import qualified Network.Wreq.Session       as Sess
+import           Control.Lens                    hiding ((<.>))
+import           Control.Monad.IO.Class          (liftIO)
+import           Control.Monad.Trans.Except      (ExceptT (ExceptT), except,
+                                                  runExceptT)
+import           Control.Monad.Trans.Reader      (ask, runReaderT)
+import           Data.Aeson                      (Value)
+import           Data.Aeson.Lens                 (key, _Array, _Bool, _String)
+import           Data.Bifunctor                  (first)
+import           Data.Either                     (partitionEithers)
+import qualified Data.Either                     as Either
+import           Data.Either.Combinators         (rightToMaybe)
+import           Data.Either.Utils               (maybeToEither)
+import qualified Data.HashMap.Strict             as HashMap
+import           Data.List                       (intercalate, partition)
+import           Data.List.Ordered               (nubSortOn)
+import qualified Data.Maybe                      as Maybe
+import           Data.Set                        (Set)
+import qualified Data.Set                        as Set
+import qualified Data.Text                       as T
+import qualified Data.Text.AhoCorasick.Automaton as Aho
+import qualified Data.Text.Lazy                  as LT
+import           Data.Traversable                (for)
+import           Database.PostgreSQL.Simple      (Connection)
+import           GHC.Int                         (Int64)
+import           Network.Wreq                    as NW
+import qualified Network.Wreq.Session            as Sess
 import qualified Safe
 
 import qualified AuthStages
@@ -34,13 +36,13 @@ import qualified CircleBuild
 import qualified CircleCIParse
 import qualified Constants
 import qualified DbHelpers
-import qualified DebugUtils                 as D
+import qualified DebugUtils                      as D
 import qualified FetchHelpers
 import qualified MyUtils
 import qualified ScanPatterns
 import qualified ScanRecords
 import qualified ScanUtils
-import           SillyMonoids               ()
+import           SillyMonoids                    ()
 import qualified SqlRead
 import qualified SqlWrite
 
@@ -358,21 +360,26 @@ catchupScan
     Just maximum_pattern_id -> runExceptT $ do
 
       liftIO $ D.debugStr "Starting getAndStoreLog"
-      lines_list <- ExceptT $ getAndStoreLog
-        scan_resources
-        overwrite_log
-        universal_build_obj
-        buildstep_id
-        maybe_console_output_url
+      (log_retrieval_time, lines_list) <- D.timeThisFloat $ ExceptT $
+        getAndStoreLog
+          scan_resources
+          overwrite_log
+          universal_build_obj
+          buildstep_id
+          maybe_console_output_url
 
       liftIO $ do
 
-        D.debugStr "Finished getAndStoreLog"
+        D.debugList [
+            "Finished getAndStoreLog in"
+          , show log_retrieval_time
+          , "seconds."
+          ]
 
         matches_and_timeouts <- scanLogText lines_list applicable_patterns
 
         case ScanRecords.NoPersistedScanId of
-          ScanRecords.NoPersistedScanId -> D.debugStr "Not storing scan results to database."
+          ScanRecords.NoPersistedScanId -> D.debugStr "NOT storing scan results to database."
           ScanRecords.PersistedScanId scan_id ->
             flip runReaderT (ScanRecords.db_conn $ ScanRecords.fetching scan_resources) $
               storeScanResult
@@ -445,7 +452,6 @@ rescanVisitedBuilds scan_resources pattern_culling_mode should_refetch_logs visi
           ScanAllPatterns -> map (uncurry DbHelpers.WithId) $ HashMap.toList $
             ScanRecords.patterns_by_id scan_resources
           OnlyUnscannedPatterns -> getPatternObjects scan_resources pattern_ids
-
 
     either_matches <- catchupScan
       scan_resources
@@ -635,7 +641,25 @@ scanLogText lines_list patterns = do
     , "patterns"
     ]
 
-  (timing, result_tuples) <- D.timeThisFloat $ for input_pairs $ \num_line_pair -> do
+
+  (literal_timing, literal_result_tuples) <- D.timeThisFloat $ for input_pairs $ \num_line_pair -> do
+
+    apply_literal_patterns num_line_pair
+--    apply_regex_patterns literal_patterns num_line_pair
+
+
+  D.debugList [
+      "Scanning"
+    , show $ length lines_list
+    , "lines for"
+    , show $ length literal_patterns
+    , "literal patterns took"
+    , show literal_timing
+    , "seconds"
+    ]
+
+
+  (regex_timing, regex_result_tuples) <- D.timeThisFloat $ for input_pairs $ \num_line_pair -> do
     {-
     D.debugList [
         "Scanning Line number"
@@ -652,28 +676,72 @@ scanLogText lines_list patterns = do
       ]
     -}
 
-    apply_patterns num_line_pair
-
+    apply_regex_patterns regex_patterns num_line_pair
 
   D.debugList [
       "Scanning"
     , show $ length lines_list
     , "lines for"
-    , show $ length patterns
-    , "patterns took"
-    , show timing
+    , show $ length regex_patterns
+    , "regex patterns took"
+    , show regex_timing
     , "seconds"
     ]
 
+
+  D.debugList [
+      "Total scan time:"
+    , show $ regex_timing + literal_timing
+    , "seconds"
+    ]
+
+
+  let result_tuples = literal_result_tuples ++ regex_result_tuples
   let final_matches = concat $ filter (not . null) $ map snd result_tuples
 
-  return (concatMap fst result_tuples, final_matches)
+  let final_result_tuple = (concatMap fst result_tuples, final_matches)
+
+  D.debugList [
+      "Found"
+    , show $ length final_matches
+    , "matches."
+--    , unlines $ map (show . ScanPatterns.match_details) final_matches
+    ]
+
+  return final_result_tuple
+
   where
 
+    (regex_patterns, literal_patterns) = partition (ScanPatterns.isRegex . ScanPatterns.expression . DbHelpers.record) patterns
+
+
     input_pairs = zip [0 ..] $ map LT.stripEnd lines_list
---    apply_patterns line_tuple = Maybe.mapMaybe (ScanUtils.applySinglePattern line_tuple) patterns
-    apply_patterns line_tuple = do
-      pattern_result_eithers <- for patterns $ \pat -> do
+
+
+    automaton = Aho.build $
+      map (\x -> (Aho.unpackUtf16 $ ScanPatterns.patternText $ ScanPatterns.expression $ DbHelpers.record x, x)) literal_patterns
+
+    allMatches = Aho.runText [] $ \matches match -> Aho.Step (match : matches)
+
+
+    aho_transformer line line_number (Aho.Match (Aho.CodeUnitIndex match_pos_end) db_pattern) =
+      ScanPatterns.NewScanMatch db_pattern $
+        ScanPatterns.NewMatchDetails line line_number $
+          DbHelpers.StartEnd (match_pos_end - pattern_length) match_pos_end
+      where
+        pattern_length = T.length $ ScanPatterns.patternText $ ScanPatterns.expression $ DbHelpers.record db_pattern
+
+    apply_literal_patterns (line_number, line) = do
+      let my_matches = allMatches automaton $ LT.toStrict line
+          deduped_matches = nubSortOn (DbHelpers.db_id . Aho.matchValue) my_matches
+          wrapped_matches = map (aho_transformer line line_number) deduped_matches
+
+          -- We only want to keep one match per pattern per line.
+
+      return ([], wrapped_matches)
+
+    apply_regex_patterns pats line_tuple = do
+      pattern_result_eithers <- for pats $ \pat -> do
         ans <- ScanUtils.applySinglePatternIO line_tuple pat
         case ans of
           Right blah -> do
