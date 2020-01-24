@@ -36,7 +36,10 @@ function update_resolution_commit() {
 	const new_resolution_commit = $("#new-resolution-sha1-field").val();
 
 	if (new_resolution_commit && confirm("Update resolution sha1 to " + new_resolution_commit + "?")) {
-		post_modification("/api/code-breakage-update-resolution-sha1", {"cause_id": cause_id, "resolution_sha1": new_resolution_commit});
+		post_modification("/api/code-breakage-update-resolution-sha1", {
+			"cause_id": cause_id,
+			"resolution_sha1": new_resolution_commit,
+		});
 	}
 }
 
@@ -47,7 +50,10 @@ function update_cause_commit() {
 	const new_cause_commit = $("#new-cause-sha1-field").val();
 
 	if (new_cause_commit && confirm("Update cause sha1 to " + new_cause_commit + "?")) {
-		post_modification("/api/code-breakage-update-cause-sha1", {"cause_id": cause_id, "cause_sha1": new_cause_commit});
+		post_modification("/api/code-breakage-update-cause-sha1", {
+			"cause_id": cause_id,
+			"cause_sha1": new_cause_commit,
+		});
 	}
 }
 
@@ -71,17 +77,29 @@ function gen_affected_jobs_table(element_id, cause_id) {
 
 					const job_name = cell.getRow().getData()["payload"];
 					if (confirm("Realy delete cause #" + cause_id + "?")) {
-						post_modification("/api/code-breakage-job-delete", {"cause_id": cause_id, "job": job_name});
+						post_modification("/api/code-breakage-job-delete", {
+							"cause_id": cause_id,
+							"job": job_name,
+						});
 					}
 				},
 			},
-			{title: "Job", field: "payload", sorter: "string"},
-			{title: "reported", width: 250, field: "created",
+			{title: "Job", field: "payload.job_name", sorter: "string"},
+			{title: "Success rate", field: "payload.succeeded_count", "width": 150,
 				formatter: function(cell, formatterParams, onRendered) {
 					const val = cell.getValue();
 
 					const row_data = cell.getRow().getData();
-					return moment(val).fromNow() + " by " + row_data["author"];
+					const built_count = row_data["payload"]["total_built_count"];
+					return val + " / " + built_count + " (" + (val*100.0/built_count).toFixed(1) + "%)";
+				},
+			},
+			{title: "Reported", width: 250, field: "created",
+				formatter: function(cell, formatterParams, onRendered) {
+					const val = cell.getValue();
+
+					const row_data = cell.getRow().getData();
+					return moment(val).fromNow() + " by " + render_tag("b", row_data["author"]);
 				},
 			},
 		],

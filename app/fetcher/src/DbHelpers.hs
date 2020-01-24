@@ -160,6 +160,10 @@ instance ToJSON a => ToJSON (WithAuthorship a)
 instance FromJSON a => FromJSON (WithAuthorship a)
 
 
+instance FromRow a => FromRow (WithAuthorship a) where
+  fromRow = WithAuthorship <$> field <*> field <*> fromRow
+
+
 data WithTypedId a b = WithTypedId {
     typed_id     :: a
   , typed_record :: b

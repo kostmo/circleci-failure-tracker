@@ -1571,24 +1571,42 @@ getMasterCommitIndex conn (Builds.RawCommit sha1) = do
     sql = "SELECT id FROM ordered_master_commits WHERE sha1 = ?;"
 
 
+
+data JobSpanWithSuccessStats = JobSpanWithSuccessStats {
+    _job_name          :: Text
+  , _total_built_count :: Int
+  , _succeeded_count   :: Int
+  } deriving (Generic, FromRow)
+
+instance ToJSON JobSpanWithSuccessStats where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
 knownBreakageAffectedJobs ::
      Int
-  -> DbIO [DbHelpers.WithAuthorship Text]
+  -> DbIO [DbHelpers.WithAuthorship JobSpanWithSuccessStats]
 knownBreakageAffectedJobs cause_id = do
   conn <- ask
-  liftIO $ map f <$> query conn sql (Only cause_id)
+  liftIO $ query conn sql $ Only cause_id
   where
-    f (reporter, reported_at, job) = DbHelpers.WithAuthorship reporter reported_at job
     sql = Q.qjoin [
         "SELECT"
       , Q.list [
           "reporter"
         , "reported_at"
-        , "job"
+        , "code_breakage_affected_jobs.job"
+        , "total_built_count"
+        , "succeeded_count"
         ]
       , "FROM code_breakage_affected_jobs"
-      , "WHERE cause = ?"
-      , "ORDER BY job ASC;"
+      , "JOIN code_breakage_job_failure_counts"
+      , "ON"
+      , Q.qconjunction [
+          "code_breakage_job_failure_counts.cause_id = code_breakage_affected_jobs.cause"
+        , "code_breakage_job_failure_counts.job = code_breakage_affected_jobs.job"
+        ]
+      , "WHERE code_breakage_affected_jobs.cause = ?"
+      , "ORDER BY code_breakage_affected_jobs.job ASC"
       ]
 
 
