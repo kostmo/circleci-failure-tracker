@@ -11,7 +11,12 @@ import logan_db_config
 
 
 # Assign this value before running the program
-SQS_QUEUE_URL = 'https://sqs.us-east-2.amazonaws.com/308535385114/awseb-e-ev8fq2dhbv-stack-AWSEBWorkerQueue-ABA62VCOU74N'
+# This URL should be obtained from the "log-scanning-worker" Elastic Beanstalk app here:
+#    https://us-east-2.console.aws.amazon.com/elasticbeanstalk/home?region=us-east-2#/environment/configuration?applicationName=pytorch-circle-log-scanner&environmentId=e-ev8fq2dhbv
+# Note that if the environment of the Elastic Beanstalk app is "rebuilt", then a new autegenerated
+# SQS queue with a new URL may be generated!
+# Then the URL below must be updated, and that queue must grant "SendMessage" permission!
+SQS_QUEUE_URL = 'https://sqs.us-east-2.amazonaws.com/308535385114/awseb-e-ev8fq2dhbv-stack-AWSEBWorkerQueue-6498WDUU0L6W'
 
 
 # Set up logging
@@ -75,6 +80,7 @@ def run(sha1_limit):
 
         print("Fetched %d rows from database..." % len(list(rows)))
 
+	enqueued_sha1s = []
         for i, (sha1_to_enqueue, is_master, last_event_time) in enumerate(rows):
 
             # Send some SQS messages
@@ -91,6 +97,8 @@ def run(sha1_limit):
                 cur.execute('INSERT INTO work_queues.queued_sha1_scans (sha1) VALUES (%s);', (sha1_to_enqueue,))
                 conn.commit()
 
+                enqueued_sha1s.append(sha1_to_enqueue)
+
         end = timer()
 
         execution_seconds = end - start
@@ -98,6 +106,9 @@ def run(sha1_limit):
 
         return {
             "elapsed_time_seconds": execution_seconds,
+            "unqueued_row_count": len(rows),
+            "enqueued_sha1_count": len(enqueued_sha1s),
+            "enqueued_sha1s": enqueued_sha1s,
         }
 
 
