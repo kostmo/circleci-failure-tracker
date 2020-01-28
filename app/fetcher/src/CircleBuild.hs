@@ -32,7 +32,10 @@ instance FromJSON SingleBuild
 
 
 data WorkflowChild = WorkflowChild {
-    job_name     :: Text
+    job_name      :: Text
+  , job_id        :: Text
+  , workflow_id   :: Text
+  , workflow_name :: Text
   } deriving (Show, Generic)
 
 instance FromJSON WorkflowChild
@@ -46,7 +49,10 @@ instance FromJSON BuildParametersChild where
   parseJSON = genericParseJSON JsonUtils.dropUnderscore
 
 
-toBuild :: Builds.BuildNumber -> SingleBuild -> Builds.Build
+toBuild ::
+     Builds.BuildNumber
+  -> SingleBuild
+  -> Builds.Build
 toBuild build_num single_build = Builds.NewBuild
   build_num
   (Builds.RawCommit $ vcs_revision single_build)

@@ -533,16 +533,19 @@ getCircleCIFailedBuildInfo scan_resources build_number = do
   return $ case either_r of
     Right r -> do
 
-      let steps_list = CircleBuild.steps r
-
       -- We expect to short circuit here and return a build step failure,
       -- but if we don't, we proceed
       -- to the NoFailedSteps return value.
-      first (Builds.BuildWithStepFailure $ CircleBuild.toBuild build_number r) $ mapM_ getStepFailure $ zip [0..] steps_list
+      first (Builds.BuildWithStepFailure $ CircleBuild.toBuild build_number r) $
+        mapM_ getStepFailure $ zip [0..] $ CircleBuild.steps r
+
       return ScanRecords.NoFailedSteps
 
     Left err_message -> do
-      let fail_string = "PROBLEM: Failed in getCircleCIFailedBuildInfo with message: " ++ err_message
+      let fail_string = unwords [
+              "PROBLEM: Failed in getCircleCIFailedBuildInfo with message:"
+            , err_message
+            ]
       return $ ScanRecords.NetworkProblem fail_string
 
   where
