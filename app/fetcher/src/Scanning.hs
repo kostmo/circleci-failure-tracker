@@ -170,55 +170,52 @@ rescanSingleBuild conn initiator build_to_scan = do
     , show build_to_scan
     ]
 
-
   parent_build <- runReaderT (SqlRead.lookupUniversalBuild build_to_scan) conn
   D.debugStr "Checkpoint A1"
 
   runExceptT $ do
     scan_resources <- ExceptT $ prepareScanResources conn PersistScanResult $ Just initiator
 
+    liftIO $ D.debugStr "Checkpoint A2"
+
+    visitation_result <- ExceptT $ first (const "This build did not have a failed step!") <$> getCircleCIFailedBuildInfo
+      scan_resources
+      (Builds.provider_buildnum $ DbHelpers.record parent_build)
+
+    liftIO $ D.debugStr "Checkpoint A3"
+
+    let (Builds.BuildWithStepFailure build_obj _step_failure) = visitation_result
+
+    -- TODO It seems that this is irrelevant/redundant,
+    -- since we just looked up the build from the database!
+    --
+    -- Perhaps instead we need to *update fields* of the stored record
+    -- from information we obtained from an API fetch
     liftIO $ do
-      D.debugStr "Checkpoint A2"
+      SqlWrite.storeBuildsList
+        conn
+        Nothing
+        [DbHelpers.WithTypedId build_to_scan build_obj]
 
-      either_visitation_result <- getCircleCIFailedBuildInfo
+      D.debugStr "Checkpoint A4"
+
+      scan_matches <- scanBuilds
         scan_resources
-        (Builds.provider_buildnum $ DbHelpers.record parent_build)
+        OnlyUnscannedPatterns
+        RevisitScanned
+        NoRefetchLog
+        (Left $ Set.singleton build_to_scan)
 
-      D.debugStr "Checkpoint A3"
+      D.debugStr "Checkpoint A5"
 
-      case either_visitation_result of
-        Left _ -> return ()
-        Right (Builds.BuildWithStepFailure build_obj _step_failure) -> do
-
-          -- TODO It seems that this is irrelevant/redundant,
-          -- since we just looked up the build from the database!
-          --
-          -- Perhaps instead we need to *update fields* of the stored record
-          -- from information we obtained from an API fetch
-          SqlWrite.storeBuildsList
-            conn
-            Nothing
-            [DbHelpers.WithTypedId build_to_scan build_obj]
-
-          D.debugStr "Checkpoint A4"
-
-          scan_matches <- scanBuilds
-            scan_resources
-            OnlyUnscannedPatterns
-            RevisitScanned
-            NoRefetchLog
-            (Left $ Set.singleton build_to_scan)
-
-          D.debugStr "Checkpoint A5"
-
-          let total_match_count = sum $ map (length . snd) scan_matches
-          D.debugList [
-              "Found"
-            , show total_match_count
-            , "matches across"
-            , show $ length scan_matches
-            , "builds."
-            ]
+      let total_match_count = sum $ map (length . snd) scan_matches
+      D.debugList [
+          "Found"
+        , show total_match_count
+        , "matches across"
+        , show $ length scan_matches
+        , "builds."
+        ]
 
 
 getSingleBuildUrl :: Builds.BuildNumber -> String
@@ -578,28 +575,26 @@ getAndStoreLog
   case maybe_console_log of
     Just console_log -> return $ Right $ LT.lines console_log  -- Log was already fetched
     Nothing -> runExceptT $ do
-      download_url <- ExceptT $ case maybe_failed_build_output of
-        Just failed_build_output -> return $ Right $ Builds.log_url failed_build_output
+      download_url <- case maybe_failed_build_output of
+        Just failed_build_output -> except $ Right $ Builds.log_url failed_build_output
         Nothing -> do
-          visitation_result <- getCircleCIFailedBuildInfo
+          visitation_result <- ExceptT $ first (const "This build did not have a failed step!") <$> getCircleCIFailedBuildInfo
             scan_resources
             (Builds.provider_buildnum $ DbHelpers.record universal_build)
 
-          case visitation_result of
-            Left _ -> return $ Left "This build didn't have a console log!"
-            Right (Builds.BuildWithStepFailure build_obj (Builds.NewBuildStepFailure _step_name _step_index mode)) -> do
+          let (Builds.BuildWithStepFailure build_obj (Builds.NewBuildStepFailure _step_name _step_index mode)) = visitation_result
 
-              -- Store the build metadata again, because the first time may have been
-              -- obtained through the GitHub notification, which lacks build duration
-              -- and branch name.
-              SqlWrite.storeBuildsList
-                conn
-                Nothing
-                [DbHelpers.WithTypedId universal_build_id build_obj]
+          -- Store the build metadata again, because the first time may have been
+          -- obtained through the GitHub notification, which lacks build duration
+          -- and branch name.
+          liftIO $ SqlWrite.storeBuildsList
+            conn
+            Nothing
+            [DbHelpers.WithTypedId universal_build_id build_obj]
 
-              return $ case mode of
-                Builds.BuildTimeoutFailure             -> Left "This build didn't have a console log because it was a timeout!"
-                Builds.ScannableFailure failure_output -> Right $ Builds.log_url failure_output
+          except $ case mode of
+              Builds.BuildTimeoutFailure             -> Left "This build didn't have a console log because it was a timeout!"
+              Builds.ScannableFailure failure_output -> Right $ Builds.log_url failure_output
 
       liftIO $ D.debugList [
           "Downloading log from:"
@@ -607,7 +602,6 @@ getAndStoreLog
         ]
 
       log_download_result <- ExceptT $ FetchHelpers.safeGetUrl $ Sess.get aws_sess $ T.unpack download_url
-
 
       parsed <- CircleCIParse.doLogParse scan_resources build_step_id log_download_result
 
