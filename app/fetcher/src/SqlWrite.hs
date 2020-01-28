@@ -942,13 +942,6 @@ insertRebuildTriggerEvent
 
   SqlRead.AuthConnection conn (AuthStages.Username author) <- ask
   let values_tuple = (universal_build_id, new_build_num, author)
-  liftIO $ D.debugList [
-      "MY SQL:"
-    , show sql
-    , "VALUES TUPLE:"
-    , show values_tuple
-    ]
-
   [Only x] <- liftIO $ query conn sql values_tuple
   return $ Right x
   where

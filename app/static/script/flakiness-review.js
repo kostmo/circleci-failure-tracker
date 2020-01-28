@@ -96,7 +96,7 @@ function make_timeline_chart(element_id, rows) {
                 type: 'line'
             },
             title: {
-                text: 'Isolated failures by day'
+                text: 'Isolated/flaky failures by day'
             },
             xAxis: {
                 type: 'datetime',
@@ -110,7 +110,7 @@ function make_timeline_chart(element_id, rows) {
             },
             yAxis: {
                 title: {
-                    text: 'Isolated failures fraction'
+                    text: 'Flaky failures fraction'
                 },
                 min: 0
             },
@@ -131,7 +131,7 @@ function make_timeline_chart(element_id, rows) {
             enabled: false
         },
         series: [{
-            name: "Isolated failures fraction",
+            name: "Flaky failures fraction",
             data: rows,
             }],
       });
@@ -254,16 +254,18 @@ function gen_pattern_matches_table(element_id, data_payload, height_string) {
 				}
 			},
 		},
+		{title: "Total", field: "total_flaky_or_isolated_count", width: 200,
+		},
+		{title: "Isolated failures", field: "isolated_failure_count", width: 150,
+		},
+		{title: "Recognized as flaky", field: "recognized_flaky_count", width: 200,
+		},
 		{title: "Network", field: "is_network", formatter: "tickCross", width: 100,
 			align: "center",
 			formatterParams: {
 				allowEmpty:true,
 				crossElement: false,
 			}
-		},
-		{title: "Isolated failures", field: "isolated_failure_count", width: 150,
-		},
-		{title: "Recognized as flaky", field: "recognized_flaky_count", width: 200,
 		},
 		{title: "Timeline Span", field: "min_commit_index",
 			formatter: function(cell, formatterParams, onRendered) {
@@ -344,6 +346,8 @@ function gen_jobs_table(element_id, data_payload, height_string) {
 
 	const column_list = [
 		{title: "Job", field: "job", width: 500,
+		},
+		{title: "Total", field: "total_flaky_or_isolated_count", width: 150,
 		},
 		{title: "Isolated failures", field: "isolated_failure_count", width: 150,
 		},

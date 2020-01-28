@@ -1045,7 +1045,9 @@ apiStatusNotificationsByHour hours = do
 
 
 -- | Note that Highcharts expects the dates to be in ascending order
-apiIsolatedMasterFailuresByDay :: Int -> DbIO (Either Text [(Day, Double)])
+apiIsolatedMasterFailuresByDay ::
+     Int
+  -> DbIO (Either Text [(Day, Double)])
 apiIsolatedMasterFailuresByDay day_count = do
   conn <- ask
   liftIO $ do
@@ -2734,26 +2736,9 @@ instance (ToJSON a) => ToJSON (ViableCommitAgeRecord a) where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
-
 data TimeRange =
     Bounded (DbHelpers.StartEnd UTCTime)
   | StartOnly UTCTime
-
-
-data FailuresByJobReviewCounts = FailuresByJobReviewCounts {
-    _job                    :: Text
-  , _isolated_failure_count :: Int
-  , _recognized_flaky_count :: Int
-  , _matched_count          :: Int
-  , _timeout_count          :: Int
-  , _min_commit_index       :: Int
-  , _max_commit_index       :: Int
-  , _min_commit_number      :: Int
-  , _max_commit_number      :: Int
-  } deriving (Generic, FromRow)
-
-instance ToJSON FailuresByJobReviewCounts where
-  toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
 queryParmsFromTimeRange :: TimeRange -> (UTCTime, Maybe UTCTime)
@@ -2786,7 +2771,6 @@ apiCoarseBinsIsolatedJobFailuresTimespan time_bounds = do
             , (WebApi.PieSliceApiRecord "Network" network_count)
             , (WebApi.PieSliceApiRecord "Other match" other_count)
             , (WebApi.PieSliceApiRecord "Unmatched" unmatched_count)
-
             ]
 
       unless sanity_check_consistent_total $
@@ -2832,8 +2816,7 @@ apiCoarseBinsIsolatedJobFailuresTimespan time_bounds = do
       , "ON master_failures_raw_causes_mview.commit_index = master_ordered_commits_with_metadata_mview.id"
       , "WHERE"
       , Q.qconjunction [
-          "is_serially_isolated"
-        , "NOT succeeded"
+          "is_isolated_or_flaky_failure"
         , "tstzrange(?::timestamp, ?::timestamp) @> committer_date"
         ]
       ]
@@ -2876,6 +2859,23 @@ apiIsolatedUnmatchedBuildsMasterCommitRange
       ]
 
 
+data FailuresByJobReviewCounts = FailuresByJobReviewCounts {
+    _job                           :: Text
+  , _isolated_failure_count        :: Int
+  , _recognized_flaky_count        :: Int
+  , _total_flaky_or_isolated_count :: Int
+  , _matched_count                 :: Int
+  , _timeout_count                 :: Int
+  , _min_commit_index              :: Int
+  , _max_commit_index              :: Int
+  , _min_commit_number             :: Int
+  , _max_commit_number             :: Int
+  } deriving (Generic, FromRow)
+
+instance ToJSON FailuresByJobReviewCounts where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
 apiIsolatedJobFailuresTimespan ::
      TimeRange
   -> DbIO (Either Text [FailuresByJobReviewCounts])
@@ -2894,6 +2894,7 @@ apiIsolatedJobFailuresTimespan time_bounds = do
           "job_name"
         , "SUM(is_serially_isolated::int) AS isolated_count"
         , "SUM(is_flaky::int) AS recognized_flaky_count"
+        , "COUNT(*) AS total_flaky_or_isolated_count"
         , "SUM(is_matched::int) AS matched_count"
         , "SUM(is_timeout::int) AS timeout_count"
         , "MIN(master_failures_raw_causes_mview.commit_index) AS min_commit_index"
@@ -2906,8 +2907,7 @@ apiIsolatedJobFailuresTimespan time_bounds = do
       , "ON master_failures_raw_causes_mview.commit_index = master_ordered_commits_with_metadata_mview.id"
       , "WHERE"
       , Q.qconjunction [
-          "is_serially_isolated"
-        , "NOT succeeded"
+          "is_isolated_or_flaky_failure"
         , Q.qjoin [
             "tstzrange(?::timestamp, ?::timestamp)"
           , "@> master_ordered_commits_with_metadata_mview.committer_date"
@@ -2919,17 +2919,18 @@ apiIsolatedJobFailuresTimespan time_bounds = do
 
 
 data FailuresByPatternReviewCounts = FailuresByPatternReviewCounts {
-    _pattern_id             :: Maybe ScanPatterns.PatternId
-  , _expression             :: Maybe Text
-  , _isolated_failure_count :: Int
-  , _recognized_flaky_count :: Int
-  , _matched_count          :: Int
-  , _min_commit_index       :: Int
-  , _max_commit_index       :: Int
-  , _min_commit_number      :: Int
-  , _max_commit_number      :: Int
-  , _has_pattern_match      :: Bool
-  , _is_network             :: Bool
+    _pattern_id                    :: Maybe ScanPatterns.PatternId
+  , _expression                    :: Maybe Text
+  , _isolated_failure_count        :: Int
+  , _recognized_flaky_count        :: Int
+  , _total_flaky_or_isolated_count :: Int
+  , _matched_count                 :: Int
+  , _min_commit_index              :: Int
+  , _max_commit_index              :: Int
+  , _min_commit_number             :: Int
+  , _max_commit_number             :: Int
+  , _has_pattern_match             :: Bool
+  , _is_network                    :: Bool
   } deriving (Generic, FromRow)
 
 instance ToJSON FailuresByPatternReviewCounts where
@@ -2942,11 +2943,9 @@ apiIsolatedPatternFailuresTimespan ::
 apiIsolatedPatternFailuresTimespan time_bounds = do
   conn <- ask
   liftIO $ do
-
     rows <- query conn sql query_parms
     return $ Right rows
   where
-
     query_parms = case time_bounds of
       Bounded (DbHelpers.StartEnd start_time end_time) -> (start_time, Just end_time)
       StartOnly start_time -> (start_time, Nothing)
@@ -2958,6 +2957,7 @@ apiIsolatedPatternFailuresTimespan time_bounds = do
         , "patterns_rich.expression"
         , "isolated_count"
         , "recognized_flaky_count"
+        , "total_flaky_or_isolated_count"
         , "matched_count"
         , "min_commit_index"
         , "max_commit_index"
@@ -2985,6 +2985,7 @@ apiIsolatedPatternFailuresTimespan time_bounds = do
           "pattern_id AS pid"
         , "SUM(master_failures_raw_causes_mview.is_serially_isolated::int) AS isolated_count"
         , "SUM(master_failures_raw_causes_mview.is_flaky::int) AS recognized_flaky_count"
+        , "COUNT(*) AS total_flaky_or_isolated_count"
         , "SUM(master_failures_raw_causes_mview.is_matched::int) AS matched_count"
         , "MIN(master_failures_raw_causes_mview.commit_index) AS min_commit_index"
         , "MAX(master_failures_raw_causes_mview.commit_index) AS max_commit_index"
@@ -2996,8 +2997,7 @@ apiIsolatedPatternFailuresTimespan time_bounds = do
       , "ON master_failures_raw_causes_mview.commit_index = master_ordered_commits_with_metadata_mview.id"
       , "WHERE"
       , Q.qconjunction [
-          "master_failures_raw_causes_mview.is_serially_isolated"
-        , "NOT master_failures_raw_causes_mview.succeeded"
+          "master_failures_raw_causes_mview.is_isolated_or_flaky_failure"
         , "NOT master_failures_raw_causes_mview.is_idiopathic"
         , "NOT master_failures_raw_causes_mview.is_timeout"
         , "tstzrange(?::timestamp, ?::timestamp) @> master_ordered_commits_with_metadata_mview.committer_date"
@@ -3010,7 +3010,10 @@ apiJobFailuresInTimespan ::
      Text -- ^ job name
   -> DbHelpers.InclusiveNumericBounds Int64
   -> DbIO (Either Text [CommitBuilds.CommitBuild])
-apiJobFailuresInTimespan job_name (DbHelpers.InclusiveNumericBounds lower_commit_id upper_commit_id) = do
+apiJobFailuresInTimespan
+    job_name
+    (DbHelpers.InclusiveNumericBounds lower_commit_id upper_commit_id) = do
+
   conn <- ask
   liftIO $ do
     rows <- query conn sql query_parms
@@ -3054,8 +3057,7 @@ genMasterFailureDetailsQuery extra_where_condition =
       , "ON ci_providers.id = master_failures_raw_causes_mview.provider"
       , "WHERE"
       , Q.qconjunction [
-          "master_failures_raw_causes_mview.is_serially_isolated"
-        , "NOT master_failures_raw_causes_mview.succeeded"
+          "master_failures_raw_causes_mview.is_isolated_or_flaky_failure"
         , "int8range(?, ?, '[]') @> master_failures_raw_causes_mview.commit_index::int8"
         , extra_where_condition
         ]

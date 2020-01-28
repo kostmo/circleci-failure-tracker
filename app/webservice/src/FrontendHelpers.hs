@@ -195,9 +195,11 @@ facilitateJobRebuild ::
   -> Builds.UniversalBuildId
   -> SqlRead.AuthDbIO (Either T.Text Int64)
 facilitateJobRebuild circleci_api_token universal_build_id = do
-  dbauth@(SqlRead.AuthConnection conn user) <- ask
+  dbauth@(SqlRead.AuthConnection conn _user) <- ask
   liftIO $ fmap (first T.pack) $ runExceptT $ do
-    storable_build <- ExceptT $ fmap (first T.unpack) $ flip runReaderT conn $ SqlRead.getGlobalBuild universal_build_id
+    storable_build <- ExceptT $ fmap (first T.unpack) $
+      flip runReaderT conn $ SqlRead.getGlobalBuild universal_build_id
+
     let provider_build_num = Builds.build_id $ Builds.build_record storable_build
 
     circleci_response <- CircleTrigger.rebuildCircleJobStandalone
@@ -211,7 +213,7 @@ facilitateJobRebuild circleci_api_token universal_build_id = do
 
 getLoggedInUser :: SqlRead.AuthDbIO (Either T.Text AuthStages.Username)
 getLoggedInUser = do
-  SqlRead.AuthConnection conn user <- ask
+  SqlRead.AuthConnection _conn user <- ask
   return $ Right user
 
 
