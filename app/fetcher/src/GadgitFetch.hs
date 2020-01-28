@@ -38,7 +38,6 @@ instance (FromJSON a) => FromJSON (GadgitResponse a) where
   parseJSON = genericParseJSON JsonUtils.dropUnderscore
 
 
-
 data PullRequestHeadAssociationInnerResponse = PullRequestHeadAssociationInnerResponse {
     _pr_number :: Builds.PullRequestNumber
   , _output    :: GadgitResponse Builds.RawCommit
@@ -50,7 +49,8 @@ instance FromJSON PullRequestHeadAssociationInnerResponse where
 
 processResult :: (a -> w) -> GadgitResponse a -> Either String w
 processResult f decoded_json = if _success decoded_json
-    then maybeToEither "API indicates success but has no result!" $ f <$> _result decoded_json
+    then maybeToEither "API indicates success but has no result!" $
+      f <$> _result decoded_json
     else Left $ unwords [
         "Webservice error:"
       , Maybe.fromMaybe "<none>" $ _error decoded_json

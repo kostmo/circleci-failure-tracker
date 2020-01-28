@@ -24,7 +24,9 @@
 <span style="float: right;">[<a href="/">home</a>]</span>
 <h2>Build info</h2>
 
-<button type="button" onclick="rescan_build();">Rescan build</button>
+<button type="button" onclick="rescan_build(this);">Rescan build</button>
+<button type="button" onclick="rebuild_job(this);">Rebuild</button>
+
 <br/>
 <span id="full-log-link-container"></span>
 <div id="scan-throbber" style="display: none;"><div>Scanning...</div><img src="/images/duck.gif"/></div>

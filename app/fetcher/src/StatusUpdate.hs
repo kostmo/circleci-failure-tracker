@@ -505,6 +505,7 @@ postCommitSummaryStatusInner
           owned_repo
           conn
           sha1
+          False
           middle_sections
           pr_number
 
@@ -513,6 +514,7 @@ postCommitSummaryStatusInner
           owned_repo
           conn
           sha1
+          False
           middle_sections
           pr_number
           previous_pr_comment
@@ -554,6 +556,7 @@ postInitialComment ::
   -> DbHelpers.OwnerAndRepo
   -> Connection
   -> Builds.RawCommit
+  -> Bool -- ^ was new push
   -> [Text]
   -> Builds.PullRequestNumber
   -> ExceptT LT.Text IO Int64
@@ -562,6 +565,7 @@ postInitialComment
     owned_repo
     conn
     sha1
+    was_new_push
     pr_comment_middle_sections
     pr_number = do
 
@@ -576,6 +580,7 @@ postInitialComment
     owned_repo
     sha1
     pr_number
+    was_new_push
     comment_post_result
 
   where
@@ -590,6 +595,7 @@ updateCommentOrFallback ::
   -> DbHelpers.OwnerAndRepo
   -> Connection
   -> Builds.RawCommit
+  -> Bool -- ^ was new push
   -> [Text]
   -> Builds.PullRequestNumber
   -> SqlRead.PostedPRComment
@@ -599,6 +605,7 @@ updateCommentOrFallback
     owned_repo
     conn
     sha1
+    was_new_push
     middle_sections
     pr_number
     previous_pr_comment = do
@@ -614,6 +621,7 @@ updateCommentOrFallback
       liftIO $ SqlWrite.modifyPostedGithubComment
         conn
         sha1
+        was_new_push
         comment_update_result
 
     -- If the comment was deleted, we need to re-post one.
@@ -628,6 +636,7 @@ updateCommentOrFallback
         owned_repo
         conn
         sha1
+        was_new_push
         middle_sections
         pr_number
 
@@ -663,6 +672,7 @@ wipeCommentForUpdatedPr
     owned_repo
     conn
     new_pr_head_commit
+    True
     [middle_sections]
     pr_number
     previous_pr_comment

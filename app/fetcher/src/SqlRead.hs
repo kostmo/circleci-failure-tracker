@@ -327,7 +327,6 @@ lookupUniversalBuild (Builds.UniversalBuildId universal_build_num) = do
       ]
 
 
--- | XXX This is a partial function
 getGlobalBuild ::
      Builds.UniversalBuildId
   -> DbIO (Either Text Builds.StorableBuild)

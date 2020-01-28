@@ -35,6 +35,7 @@ data CommandLineArgs = NewCommandLineArgs {
   , gitHubClientSecret        :: Text
   , gitHubPersonalAccessToken :: Text
   , gitHubWebhookSecret       :: Text
+  , circleciApiToken          :: String
   , runningLocally            :: Bool
   , adminPassword             :: Text
   , noForceSSL                :: Bool
@@ -93,6 +94,7 @@ mainAppCode args = do
     credentials_data = Routes.SetupData
       static_base
       github_config
+      (circleciApiToken args)
       connection_data
       connection_data_mview
 
@@ -152,6 +154,9 @@ myCliParser = NewCommandLineArgs
     <> help "For debugging purposes. This will be removed eventually")
   <*> strOption   (long "github-webhook-secret" <> metavar "GITHUB_WEBHOOK_SECRET"
     <> help "GitHub webhook secret")
+
+  <*> strOption   (long "circleci-api-token" <> metavar "CIRCLECI_API_TOKEN"
+    <> help "CircleCI API token for triggering rebuilds")
   <*> switch      (long "local"
     <> help "Webserver is being run locally, so don't redirect HTTP to HTTPS")
   <*> strOption   (long "admin-password" <> metavar "ADMIN_PASSWORD"

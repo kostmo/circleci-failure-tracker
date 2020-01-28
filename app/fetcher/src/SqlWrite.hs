@@ -913,7 +913,7 @@ insertSingleCIProvider conn hostname = do
     sql_insert = Q.qjoin [
         "INSERT INTO ci_providers"
       , Q.insertionValues ["hostname"]
-      , "RETURNING id;"
+      , "RETURNING id"
       ]
 
 
@@ -930,6 +930,38 @@ data BeanstalkCronHeaders = BeanstalkCronHeaders {
   , scheduled_at :: UTCTime
   , sender_id    :: TL.Text
   } deriving Show
+
+
+insertRebuildTriggerEvent ::
+     Builds.UniversalBuildId
+  -> Builds.BuildNumber
+  -> SqlRead.AuthDbIO (Either String Int64)
+insertRebuildTriggerEvent
+    (Builds.UniversalBuildId universal_build_id)
+    (Builds.NewBuildNumber new_build_num) = do
+
+  SqlRead.AuthConnection conn (AuthStages.Username author) <- ask
+  let values_tuple = (universal_build_id, new_build_num, author)
+  liftIO $ D.debugList [
+      "MY SQL:"
+    , show sql
+    , "VALUES TUPLE:"
+    , show values_tuple
+    ]
+
+  [Only x] <- liftIO $ query conn sql values_tuple
+  return $ Right x
+  where
+
+    sql = Q.qjoin [
+        "INSERT INTO rebuild_trigger_events"
+      , Q.insertionValues [
+          "universal_build"
+        , "reported_new_provider_build_id"
+        , "initiator"
+        ]
+      , "RETURNING id"
+      ]
 
 
 insertEbWorkerStart ::
@@ -959,7 +991,7 @@ insertEbWorkerStart conn web_request_path label maybe_beanstalk_headers = do
         , "scheduled_at"
         , "sender_id"
         ]
-      , "RETURNING id;"
+      , "RETURNING id"
       ]
 
 
@@ -1028,7 +1060,7 @@ insertReceivedGithubStatus conn (Webhooks.GitHubStatusEvent sha name description
         , "context"
         , "created_at"
         ]
-      , "RETURNING id;"
+      , "RETURNING id"
       ]
 
 
@@ -1039,8 +1071,9 @@ commentBodyInsertionSql = Q.qjoin [
     , "body"
     , "updated_at"
     , "sha1"
+    , "was_new_push"
     ]
-  , "RETURNING id;"
+  , "RETURNING id"
   ]
 
 
@@ -1049,6 +1082,7 @@ insertPostedGithubComment ::
   -> DbHelpers.OwnerAndRepo
   -> Builds.RawCommit -- ^ only used for logging
   -> Builds.PullRequestNumber
+  -> Bool -- ^ was new push
   -> ApiPost.CommentPostResult
   -> IO Int64
 insertPostedGithubComment
@@ -1056,11 +1090,14 @@ insertPostedGithubComment
     (DbHelpers.OwnerAndRepo owner repo)
     (Builds.RawCommit sha1)
     (Builds.PullRequestNumber pull_request_number)
+    was_new_push
     (ApiPost.CommentPostResult comment_id body created_at updated_at) = do
 
   execute conn comment_insertion_sql (comment_id, owner, repo, pull_request_number, created_at)
 
-  [Only comment_revision_id] <- query conn commentBodyInsertionSql (comment_id, body, updated_at, sha1)
+  [Only comment_revision_id] <- query conn commentBodyInsertionSql
+    (comment_id, body, updated_at, sha1, was_new_push)
+
   return comment_revision_id
 
   where
@@ -1093,14 +1130,18 @@ markPostedGithubCommentAsDeleted conn (ApiPost.CommentId comment_id) =
 modifyPostedGithubComment ::
      Connection
   -> Builds.RawCommit -- ^ only used for logging
+  -> Bool -- ^ was new push
   -> ApiPost.CommentPostResult
   -> IO Int64
 modifyPostedGithubComment
     conn
     (Builds.RawCommit sha1)
+    was_new_push
     (ApiPost.CommentPostResult comment_id body _created_at updated_at) = do
 
-  [Only comment_revision_id] <- query conn commentBodyInsertionSql (comment_id, body, updated_at, sha1)
+  [Only comment_revision_id] <- query conn commentBodyInsertionSql
+    (comment_id, body, updated_at, sha1, was_new_push)
+
   return comment_revision_id
 
 
@@ -1146,7 +1187,7 @@ deleteCodeBreakage cause_id = do
   conn <- ask
   liftIO $ Right <$> execute conn sql (Only cause_id)
   where
-    sql = "DELETE FROM code_breakage_cause WHERE id = ?;"
+    sql = "DELETE FROM code_breakage_cause WHERE id = ?"
 
 
 deleteStaleSha1QueueEntries ::
@@ -1166,7 +1207,7 @@ deleteStaleSha1QueueEntries = do
         , "RETURNING *"
         ]
       , "SELECT count(*)"
-      , "FROM deleted;"
+      , "FROM deleted"
       ]
 
 
@@ -1209,7 +1250,7 @@ updateCodeBreakageDescription cause_id description = do
   conn <- ask
   liftIO $ Right <$> execute conn sql (description, cause_id)
   where
-    sql = "UPDATE code_breakage_cause SET description = ? WHERE id = ?;"
+    sql = "UPDATE code_breakage_cause SET description = ? WHERE id = ?"
 
 
 updateCodeBreakageResolutionSha1 ::
@@ -1220,7 +1261,7 @@ updateCodeBreakageResolutionSha1 cause_id (Builds.RawCommit sha1) = do
   conn <- ask
   liftIO $ Right <$> execute conn sql (sha1, cause_id)
   where
-    sql = "UPDATE code_breakage_resolution SET sha1 = ? WHERE cause = ?;"
+    sql = "UPDATE code_breakage_resolution SET sha1 = ? WHERE cause = ?"
 
 
 updateCodeBreakageCauseSha1 ::
@@ -1231,7 +1272,7 @@ updateCodeBreakageCauseSha1 cause_id (Builds.RawCommit sha1) = do
   conn <- ask
   liftIO $ Right <$> execute conn sql (sha1, cause_id)
   where
-    sql = "UPDATE code_breakage_cause SET sha1 = ? WHERE id = ?;"
+    sql = "UPDATE code_breakage_cause SET sha1 = ? WHERE id = ?"
 
 
 deleteCodeBreakageResolution ::
@@ -1241,7 +1282,7 @@ deleteCodeBreakageResolution cause_id = do
   conn <- ask
   liftIO $ Right <$> execute conn sql (Only cause_id)
   where
-    sql = "DELETE FROM code_breakage_resolution WHERE cause = ?;"
+    sql = "DELETE FROM code_breakage_resolution WHERE cause = ?"
 
 
 addCodeBreakageJobName ::
@@ -1327,7 +1368,11 @@ updatePatternDescription (ScanPatterns.PatternId pattern_id) description = do
   conn <- ask
   liftIO $ Right <$> execute conn sql (description, pattern_id)
   where
-    sql = "UPDATE patterns SET description = ? WHERE id = ?;"
+    sql = Q.qjoin [
+        "UPDATE patterns"
+      , "SET description = ?"
+      , "WHERE id = ?"
+      ]
 
 
 updatePatternSpecificity ::
@@ -1341,7 +1386,7 @@ updatePatternSpecificity (ScanPatterns.PatternId pattern_id) specificity = do
     sql = Q.qjoin [
         "UPDATE patterns"
       , "SET specificity = ?"
-      , "WHERE id = ?;"
+      , "WHERE id = ?"
       ]
 
 
@@ -1401,7 +1446,7 @@ insertSinglePattern either_pattern =
         , "specificity"
         , "lines_from_end"
         ]
-      , "RETURNING id;"
+      , "RETURNING id"
       ]
 
     pattern_insertion_with_id_sql = Q.qjoin [
@@ -1416,7 +1461,7 @@ insertSinglePattern either_pattern =
         , "specificity"
         , "lines_from_end"
         ]
-      , "RETURNING id;"
+      , "RETURNING id"
       ]
 
     tag_insertion_sql = Q.qjoin [
@@ -1584,7 +1629,7 @@ insertBuildVisitation scan_resources (ubuild, visitation_result) = do
           "name = excluded.name"
         , "is_timeout = excluded.is_timeout"
         ]
-      , "RETURNING id;"
+      , "RETURNING id"
       ]
 
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
@@ -1606,7 +1651,7 @@ insertScanId conn maybe_initiator (ScanPatterns.PatternId pattern_id)  = do
           "latest_pattern_id"
         , "initiator"
         ]
-      , "RETURNING id;"
+      , "RETURNING id"
       ]
 
 
@@ -1747,7 +1792,7 @@ apiCodeBreakageResolutionInsert
         , "cause"
         , "reporter"
         ]
-      , "RETURNING id;"
+      , "RETURNING id"
       ]
 
     catcher _ (UniqueViolation some_error) = return $ Left $
@@ -1763,7 +1808,11 @@ retirePattern conn (ScanPatterns.PatternId pattern_id) = do
   execute conn sql (True, pattern_id)
   return ()
   where
-    sql = "UPDATE patterns SET is_retired = ? WHERE id = ?;"
+    sql = Q.qjoin [
+        "UPDATE patterns"
+      , "SET is_retired = ?"
+      , "WHERE id = ?"
+      ]
 
 
 data PatternFieldOverrides = PatternFieldOverrides {
@@ -1835,7 +1884,7 @@ copyPattern
         , "lines_from_end"
         ]
       , "FROM patterns_augmented"
-      , "WHERE id = ?;"
+      , "WHERE id = ?"
       ]
 
 
@@ -1858,7 +1907,7 @@ elaborateBuildFailure (Builds.UniversalBuildId build_id) = do
           "universal_build"
         , "author"
         ]
-      , "RETURNING universal_build;"
+      , "RETURNING universal_build"
       ]
 
 
@@ -1881,7 +1930,7 @@ promoteMatch (MatchOccurrences.MatchId match_id) = do
           "match"
         , "author"
         ]
-      , "RETURNING match;"
+      , "RETURNING match"
       ]
 
 

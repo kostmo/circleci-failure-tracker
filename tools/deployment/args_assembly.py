@@ -32,7 +32,8 @@ def generate_app_nondefault_cli_arglist(
         app_credentials_json,
         db_credentials_json,
         db_mview_credentials_json,
-        personal_token,
+        github_personal_access_token,
+        circleci_api_token,
         is_notification_ingester,
         no_force_ssl):
 
@@ -43,6 +44,8 @@ def generate_app_nondefault_cli_arglist(
         app_credentials_json["github-client-secret"],
         "--github-webhook-secret",
         app_credentials_json["github-webhook-secret"],
+        "--circleci-api-token",
+        circleci_api_token,
         "--db-hostname",
         db_credentials_json["db-hostname"],
         "--db-username",
@@ -56,7 +59,7 @@ def generate_app_nondefault_cli_arglist(
         "--admin-password",
         app_credentials_json["admin-password"],
         "--github-personal-access-token",
-        personal_token,
+        github_personal_access_token,
     ]
 
     if no_force_ssl:

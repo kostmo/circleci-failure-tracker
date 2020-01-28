@@ -272,9 +272,44 @@ function rescan_build(button) {
 		error: function( data ) {
 			$("#scan-throbber").hide();
 			alert("Server error!");
+
 		},
         });
 }
+
+
+function rebuild_job(button) {
+
+	const universal_build_id = get_build_number();
+
+	$(button).prop("disabled", true);
+	$("#scan-throbber").show();
+
+        $.post({
+		url: "/api/rebuild-single-job",
+		data: {
+			"build": universal_build_id,
+			"login_redirect_path": get_url_path_for_redirect(),
+		},
+		success: function( data ) {
+
+			$(button).prop("disabled", false);
+			$("#scan-throbber").hide();
+
+			handle_submission_response_generic(data, function() {
+				console.log("submitted...");
+			});
+
+			$(button).prop("disabled", false);
+		},
+		error: function( data ) {
+			$("#scan-throbber").hide();
+			alert("Server error!");
+			$(button).prop("disabled", false);
+		},
+        });
+}
+
 
 
 function get_build_number() {

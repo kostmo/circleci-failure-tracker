@@ -146,7 +146,7 @@ itemToBuild json = (b, did_succeed)
 
 getBuildListUrl :: String -> String
 getBuildListUrl branch_name = intercalate "/"
-  [ Constants.circleci_api_base
+  [ Constants.circleciApiBase
   , "tree"
   , branch_name
   ]

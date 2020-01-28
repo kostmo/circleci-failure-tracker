@@ -49,8 +49,8 @@ pytorchOwnedRepo = DbHelpers.OwnerAndRepo
   repoName
 
 
-circleci_api_base :: String
-circleci_api_base = intercalate "/"
+circleciApiBase :: String
+circleciApiBase = intercalate "/"
   [ "https://circleci.com/api/v1.1/project/github"
   , projectName
   , repoName

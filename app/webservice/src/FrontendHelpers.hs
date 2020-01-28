@@ -17,6 +17,7 @@ import qualified Data.Text                  as T
 import qualified Data.Text.Lazy             as LT
 import qualified Data.Vault.Lazy            as Vault
 import           Database.PostgreSQL.Simple (Connection)
+import           GHC.Int                    (Int64)
 import           Network.Wai.Session        (Session)
 import qualified Web.Scotty                 as S
 import qualified Web.Scotty.Internal.Types  as ScottyTypes
@@ -25,6 +26,8 @@ import qualified Auth
 import qualified AuthConfig
 import qualified AuthStages
 import qualified Builds
+import qualified CircleApi
+import qualified CircleTrigger
 import qualified Constants
 import qualified DbHelpers
 import qualified DbInsertion
@@ -174,7 +177,7 @@ getOffsetMode = do
             (Pagination.Count offset_count)
             commit_count
 
-    maybe_successful_column_suppression = if (checkboxIsTrue should_suppress_fully_successful_columns_text)
+    maybe_successful_column_suppression = if checkboxIsTrue should_suppress_fully_successful_columns_text
       then Just max_columns_suppress_successful
       else Nothing
     column_filtering_options = Pagination.ColumnFilteringOptions
@@ -186,6 +189,24 @@ getOffsetMode = do
     (checkboxIsTrue should_use_uncached_annotations_text)
     offset_mode
 
+
+facilitateJobRebuild ::
+     CircleApi.CircleCIApiToken
+  -> Builds.UniversalBuildId
+  -> SqlRead.AuthDbIO (Either T.Text Int64)
+facilitateJobRebuild circleci_api_token universal_build_id = do
+  dbauth@(SqlRead.AuthConnection conn user) <- ask
+  liftIO $ fmap (first T.pack) $ runExceptT $ do
+    storable_build <- ExceptT $ fmap (first T.unpack) $ flip runReaderT conn $ SqlRead.getGlobalBuild universal_build_id
+    let provider_build_num = Builds.build_id $ Builds.build_record storable_build
+
+    circleci_response <- CircleTrigger.rebuildCircleJobStandalone
+      circleci_api_token
+      provider_build_num
+
+    ExceptT $ flip runReaderT dbauth $ SqlWrite.insertRebuildTriggerEvent
+      universal_build_id
+      (CircleTrigger.build_num circleci_response)
 
 
 getLoggedInUser :: SqlRead.AuthDbIO (Either T.Text AuthStages.Username)

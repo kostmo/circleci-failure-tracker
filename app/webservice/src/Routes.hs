@@ -29,6 +29,7 @@ import qualified Auth
 import qualified AuthConfig
 import qualified BuildRetrieval
 import qualified Builds
+import qualified CircleApi
 import qualified DbHelpers
 import qualified FrontendHelpers
 import qualified GitRev
@@ -47,6 +48,7 @@ import qualified WebApi
 data SetupData = SetupData {
     _setup_static_base           :: String
   , _setup_github_config         :: AuthConfig.GithubConfig
+  , _circleci_api_token          :: CircleApi.CircleCIApiToken
   , _setup_connection_data       :: DbHelpers.DbConnectionData
   , _setup_mview_connection_data :: DbHelpers.DbConnectionData -- ^ for updating materialized views
   }
@@ -67,7 +69,7 @@ scottyApp ::
 scottyApp
     logger
     (PersistenceData cache session store)
-    (SetupData static_base github_config connection_data mview_connection_data) = do
+    (SetupData static_base github_config circleci_api_token connection_data mview_connection_data) = do
 
   S.middleware $ logRequestsWith $
     \logger_t -> logger $ localDomain logger_domain_identifier logger_t
@@ -141,6 +143,10 @@ scottyApp
     withAuth $
       Scanning.rescanSingleBuildWrapped
         <$> (Builds.UniversalBuildId <$> S.param "build")
+
+  S.post "/api/rebuild-single-job" $
+    withAuth $ FrontendHelpers.facilitateJobRebuild circleci_api_token
+      <$> (Builds.UniversalBuildId <$> S.param "build")
 
   S.post "/api/promote-match" $
     withAuth $
@@ -553,7 +559,6 @@ scottyApp
       SqlWrite.addCodeBreakageJobName
         <$> S.param "cause_id"
         <*> S.param "job_name"
-
 
   S.get "/favicon.ico" $ do
     S.setHeader "Content-Type" "image/x-icon"

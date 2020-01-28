@@ -223,7 +223,7 @@ rescanSingleBuild conn initiator build_to_scan = do
 
 getSingleBuildUrl :: Builds.BuildNumber -> String
 getSingleBuildUrl (Builds.NewBuildNumber build_number) = intercalate "/"
-  [ Constants.circleci_api_base
+  [ Constants.circleciApiBase
   , show build_number
   ]
 
@@ -604,7 +604,7 @@ getAndStoreLog
       log_download_result <- ExceptT $ FetchHelpers.safeGetUrl $ Sess.get aws_sess $ T.unpack download_url
 
 
-      parsed <- CircleCIParse.doParse scan_resources build_step_id log_download_result
+      parsed <- CircleCIParse.doLogParse scan_resources build_step_id log_download_result
 
       liftIO $ D.debugStr "Finished getAndStoreLog."
 

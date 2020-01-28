@@ -78,12 +78,12 @@ takeUntilSizeRec accepted threshold (x:xs) =
 -- | Note that we must use incremental JSON parsing here,
 -- as the console logs (spread across multiple JSON elements)
 -- may be multiple gigabytes.
-doParse :: MonadIO m =>
+doLogParse :: MonadIO m =>
      ScanRecords.ScanCatchupResources
   -> Builds.BuildStepId
   -> HttpClient.Response ByteString
   -> m [LT.Text]
-doParse scan_resources build_step_id log_download_result = do
+doLogParse scan_resources build_step_id log_download_result = do
 
   let maybe_header_size :: Maybe Integer
       maybe_header_size = do

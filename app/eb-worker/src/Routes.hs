@@ -53,6 +53,7 @@ instance FromJSON SqsBuildScanMessage
 data SetupData = SetupData {
     _setup_static_base           :: String
   , _setup_github_config         :: AuthConfig.GithubConfig
+  , _circleci_api_token          :: String
   , _setup_connection_data       :: DbHelpers.DbConnectionData
   , _setup_mview_connection_data :: DbHelpers.DbConnectionData -- ^ for updating materialized views
   }
@@ -109,7 +110,7 @@ scottyApp ::
   -> ScottyTypes.ScottyT LT.Text IO ()
 scottyApp
     _logger
-    (SetupData _static_base github_config connection_data _mview_connection_data) = do
+    (SetupData _static_base github_config _circleci_api_token connection_data _mview_connection_data) = do
 
 
   S.post "/worker/scheduled-work" $ do

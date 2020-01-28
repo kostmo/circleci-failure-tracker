@@ -85,13 +85,15 @@ function gen_affected_jobs_table(element_id, cause_id) {
 				},
 			},
 			{title: "Job", field: "payload.job_name", sorter: "string"},
-			{title: "Success rate", field: "payload.succeeded_count", "width": 150,
+			{title: "Failure rate", field: "payload.succeeded_count", sorter: "number", "width": 150,
 				formatter: function(cell, formatterParams, onRendered) {
-					const val = cell.getValue();
+					const success_count = cell.getValue();
 
 					const row_data = cell.getRow().getData();
 					const built_count = row_data["payload"]["total_built_count"];
-					return val + " / " + built_count + " (" + (val*100.0/built_count).toFixed(1) + "%)";
+
+					const failure_count = built_count - success_count;
+					return failure_count + " / " + built_count + " (" + (failure_count*100.0/built_count).toFixed(1) + "%)";
 				},
 			},
 			{title: "Reported", width: 250, field: "created",
@@ -139,8 +141,6 @@ function main() {
 	const jquery_selector_element = setup_breakage_mode_selector();
 
 	$.getJSON('/api/code-breakage-mode-single', {"cause_id": cause_id}, function (mydata) {
-
-		console.log("mydata: " + JSON.stringify(mydata))
 		jquery_selector_element.val(mydata);
 	});
 

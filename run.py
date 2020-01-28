@@ -21,6 +21,9 @@ def parse_args():
     parser.add_argument('--personal-access-token-file', dest='personal_token_file',
                         default=os.path.join(DEFAULT_CREDENTIALS_DIRECTORY, "github-personal-access-token.txt"),
                         help='File containing GitHub personal access token')
+    parser.add_argument('--circleci-api-token-file', dest='circleci_api_token_file',
+                        default=os.path.join(DEFAULT_CREDENTIALS_DIRECTORY, "circleci-api-token.txt"),
+                        help='File containing GitHub personal access token')
 
     # Note: the "local" credentials use "github-client-id" and "github-client-secret" for
     # the GitHub app named "circleci-failure-attribution-dev", while
@@ -78,13 +81,15 @@ if __name__ == "__main__":
 
     with open(app_credentials_json_path) as fh_app, open(db_credentials_json_path) as fh_db, open(db_mview_credentials_json_path) as fh_mview_db:
 
-        personal_access_token = open(options.personal_token_file).read().strip()
+        github_personal_access_token = open(options.personal_token_file).read().strip()
+        circleci_api_token = open(options.circleci_api_token_file).read().strip()
 
         nondefault_cli_arglist = args_assembly.generate_app_nondefault_cli_arglist(
             json.load(fh_app),
             json.load(fh_db),
             json.load(fh_mview_db),
-            personal_access_token,
+            github_personal_access_token,
+            circleci_api_token,
             options.notification_ingester,
             options.no_force_ssl)
 

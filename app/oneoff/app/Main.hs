@@ -12,6 +12,8 @@ import           Options.Applicative
 import           System.IO
 
 import qualified Builds
+import qualified CircleApi
+import qualified CircleTrigger
 import qualified CommentRender
 import qualified Constants
 import qualified DbHelpers
@@ -30,6 +32,7 @@ import qualified StatusUpdateTypes
 data CommandLineArgs = NewCommandLineArgs {
     dbHostname                :: String
   , dbPassword                :: String
+  , circleciApiToken          :: String
   , rescanVisited             :: Bool
   , gitHubPersonalAccessToken :: Text
   , repoGitDir                :: FilePath
@@ -43,6 +46,8 @@ myCliParser = NewCommandLineArgs
   <*> strOption   (long "db-password" <> value "logan01" <> metavar "DATABASE_PASSWORD"
     <> help "Password for database user")
    -- Note: this is not the production password; this default is only for local testing
+  <*> strOption   (long "circleci-api-token" <> metavar "CIRCLECI_API_TOKEN"
+    <> help "CircleCI API token for triggering rebuilds")
   <*> switch      (long "rescan"
     <> help "Rescan previously visited builds")
   <*> strOption   (long "github-personal-access-token" <> metavar "GITHUB_PERSONAL_ACCESS_TOKEN"
@@ -126,8 +131,18 @@ mainAppCode args = do
   conn <- DbPreparation.prepareDatabase connection_data False
 
 
+--  benchmarkScan conn $ Builds.UniversalBuildId 82047188
 
-  benchmarkScan conn $ Builds.UniversalBuildId 82047188
+
+  blah0 <- runExceptT $ CircleTrigger.rebuildCircleJobStandalone
+    (CircleApi.CircleCIApiToken $ T.pack $ circleciApiToken args)
+    (Builds.NewBuildNumber 4335779)
+
+--  let foo = fromRight (error "BAD0") blah0
+  D.debugList [
+      "FOO"
+    , show blah0
+    ]
 
   putStrLn "============================="
 --  testBotCommentGeneration oauth_access_token conn

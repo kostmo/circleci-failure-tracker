@@ -44,7 +44,6 @@ data CommentPostResult = CommentPostResult {
 instance FromJSON CommentPostResult
 
 
-
 newtype CommentId = CommentId Int64
 
 getPRCommentEditUrl ::
@@ -92,7 +91,9 @@ postPullRequestComment
 
   where
     opts = NW.defaults
-      & NW.header "Authorization" .~ ["token " <> encodeUtf8 personal_access_token]
+      & NW.header "Authorization" .~ [
+        "token " <> encodeUtf8 personal_access_token
+      ]
 
     json_to_post = toJSON $ CommentBodyContainer comment_body
     url_string = getPRCommentCreationUrl owned_repo pull_request_number
@@ -117,7 +118,9 @@ updatePullRequestComment
 
   where
     opts = NW.defaults
-      & NW.header "Authorization" .~ ["token " <> encodeUtf8 personal_access_token]
+      & NW.header "Authorization" .~ [
+        "token " <> encodeUtf8 personal_access_token
+      ]
 
     json_to_post = toJSON $ CommentBodyContainer comment_body
 
