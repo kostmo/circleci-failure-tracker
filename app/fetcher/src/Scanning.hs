@@ -12,6 +12,7 @@ import           Data.Aeson.Lens                 (key, _Array, _Bool, _String)
 import           Data.Bifunctor                  (first)
 import           Data.Either                     (partitionEithers)
 import qualified Data.Either                     as Either
+import           Data.Either.Combinators         (swapEither)
 import           Data.Either.Combinators         (rightToMaybe)
 import           Data.Either.Utils               (maybeToEither)
 import qualified Data.HashMap.Strict             as HashMap
@@ -185,10 +186,9 @@ rescanSingleBuild conn initiator build_to_scan = do
 
       D.debugStr "Checkpoint A3"
 
-      -- Note that the Left/Right convention is backwards!
       case either_visitation_result of
-        Right _ -> return ()
-        Left (Builds.BuildWithStepFailure build_obj _step_failure) -> do
+        Left _ -> return ()
+        Right (Builds.BuildWithStepFailure build_obj _step_failure) -> do
 
           -- TODO It seems that this is irrelevant/redundant,
           -- since we just looked up the build from the database!
@@ -493,8 +493,8 @@ processUnvisitedBuilds scan_resources unvisited_builds_list =
     build_step_id <- SqlWrite.insertBuildVisitation scan_resources pair
 
     either_matches <- case visitation_result of
-      Right _ -> return $ Right []
-      Left (Builds.BuildWithStepFailure _build_obj (Builds.NewBuildStepFailure step_name _step_index mode)) -> case mode of
+      Left _ -> return $ Right []
+      Right (Builds.BuildWithStepFailure _build_obj (Builds.NewBuildStepFailure step_name _step_index mode)) -> case mode of
         Builds.BuildTimeoutFailure             -> return $ Right []
         Builds.ScannableFailure failure_output -> catchupScan
           scan_resources
@@ -520,7 +520,7 @@ processUnvisitedBuilds scan_resources unvisited_builds_list =
 getCircleCIFailedBuildInfo ::
      ScanRecords.ScanCatchupResources
   -> Builds.BuildNumber
-  -> IO (Either Builds.BuildWithStepFailure ScanRecords.UnidentifiedBuildFailure)
+  -> IO (Either ScanRecords.UnidentifiedBuildFailure Builds.BuildWithStepFailure)
 getCircleCIFailedBuildInfo scan_resources build_number = do
 
   D.debugList ["Fetching from:", fetch_url]
@@ -530,23 +530,25 @@ getCircleCIFailedBuildInfo scan_resources build_number = do
     jsonified_r <- NW.asJSON r
     return $ jsonified_r ^. NW.responseBody
 
-  return $ case either_r of
-    Right r -> do
+  let inverted_result = case either_r of
+        Right r -> do
 
-      -- We expect to short circuit here and return a build step failure,
-      -- but if we don't, we proceed
-      -- to the NoFailedSteps return value.
-      first (Builds.BuildWithStepFailure $ CircleBuild.toBuild build_number r) $
-        mapM_ getStepFailure $ zip [0..] $ CircleBuild.steps r
+          -- We expect to short circuit here and return a build step failure,
+          -- but if we don't, we proceed
+          -- to the NoFailedSteps return value.
+          first (Builds.BuildWithStepFailure $ CircleBuild.toBuild build_number r) $
+            mapM_ getStepFailure $ zip [0..] $ CircleBuild.steps r
 
-      return ScanRecords.NoFailedSteps
+          return ScanRecords.NoFailedSteps
 
-    Left err_message -> do
-      let fail_string = unwords [
-              "PROBLEM: Failed in getCircleCIFailedBuildInfo with message:"
-            , err_message
-            ]
-      return $ ScanRecords.NetworkProblem fail_string
+        Left err_message -> do
+          let fail_string = unwords [
+                  "PROBLEM: Failed in getCircleCIFailedBuildInfo with message:"
+                , err_message
+                ]
+          return $ ScanRecords.NetworkProblem fail_string
+
+  return $ swapEither inverted_result
 
   where
     fetch_url = getSingleBuildUrl build_number
@@ -584,8 +586,8 @@ getAndStoreLog
             (Builds.provider_buildnum $ DbHelpers.record universal_build)
 
           case visitation_result of
-            Right _ -> return $ Left "This build didn't have a console log!"
-            Left (Builds.BuildWithStepFailure build_obj (Builds.NewBuildStepFailure _step_name _step_index mode)) -> do
+            Left _ -> return $ Left "This build didn't have a console log!"
+            Right (Builds.BuildWithStepFailure build_obj (Builds.NewBuildStepFailure _step_name _step_index mode)) -> do
 
               -- Store the build metadata again, because the first time may have been
               -- obtained through the GitHub notification, which lacks build duration

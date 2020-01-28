@@ -1500,11 +1500,11 @@ restorePatterns pattern_list = do
 
 
 stepFailureToTuple ::
-     (Builds.UniversalBuildId, Either Builds.BuildWithStepFailure ScanRecords.UnidentifiedBuildFailure)
+     (Builds.UniversalBuildId, Either ScanRecords.UnidentifiedBuildFailure Builds.BuildWithStepFailure)
   -> (Maybe Text, Bool, Int64, Int)
 stepFailureToTuple (Builds.UniversalBuildId universal_buildnum, visitation_result) = case visitation_result of
-  Right _ -> (Nothing, False, universal_buildnum, -1)
-  Left (Builds.BuildWithStepFailure _build_obj (Builds.NewBuildStepFailure stepname step_index mode)) -> let
+  Left _ -> (Nothing, False, universal_buildnum, -1)
+  Right (Builds.BuildWithStepFailure _build_obj (Builds.NewBuildStepFailure stepname step_index mode)) -> let
     is_timeout = case mode of
       Builds.BuildTimeoutFailure              -> True
       Builds.ScannableFailure _failure_output -> False
@@ -1591,11 +1591,9 @@ insertLatestPatternBuildScan
       ]
 
 
-
-
 insertBuildVisitation ::
      ScanRecords.ScanCatchupResources
-  -> (DbHelpers.WithId Builds.UniversalBuild, Either Builds.BuildWithStepFailure ScanRecords.UnidentifiedBuildFailure)
+  -> (DbHelpers.WithId Builds.UniversalBuild, Either ScanRecords.UnidentifiedBuildFailure Builds.BuildWithStepFailure)
   -> IO Builds.BuildStepId
 insertBuildVisitation scan_resources (ubuild, visitation_result) = do
 
