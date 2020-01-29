@@ -178,13 +178,14 @@ rescanSingleBuild conn initiator build_to_scan = do
 
     liftIO $ D.debugStr "Checkpoint A2"
 
-    visitation_result <- ExceptT $ first (const "This build did not have a failed step!") <$> getCircleCIFailedBuildInfo
-      scan_resources
-      (Builds.provider_buildnum $ DbHelpers.record parent_build)
+    visitation_result <- ExceptT $
+      first (const "This build did not have a failed step!") <$> getCircleCIFailedBuildInfo
+        scan_resources
+        (Builds.provider_buildnum $ DbHelpers.record parent_build)
 
     liftIO $ D.debugStr "Checkpoint A3"
 
-    let (Builds.BuildWithStepFailure build_obj _step_failure) = visitation_result
+    let Builds.BuildWithStepFailure build_obj _step_failure = visitation_result
 
     -- TODO It seems that this is irrelevant/redundant,
     -- since we just looked up the build from the database!
@@ -192,8 +193,7 @@ rescanSingleBuild conn initiator build_to_scan = do
     -- Perhaps instead we need to *update fields* of the stored record
     -- from information we obtained from an API fetch
     liftIO $ do
-      SqlWrite.storeBuildsList
-        conn
+      flip runReaderT conn $ SqlWrite.storeBuildsList
         Nothing
         [DbHelpers.WithTypedId build_to_scan build_obj]
 
@@ -482,17 +482,20 @@ processUnvisitedBuilds scan_resources unvisited_builds_list =
       , "unvisited builds..."
       ]
 
-    visitation_result <- getCircleCIFailedBuildInfo
+    either_visitation_result <- getCircleCIFailedBuildInfo
       scan_resources
       (Builds.provider_buildnum $ DbHelpers.record universal_build_obj)
 
-    let pair = (universal_build_obj, visitation_result)
+    let pair = (universal_build_obj, either_visitation_result)
     build_step_id <- SqlWrite.insertBuildVisitation scan_resources pair
 
-    either_matches <- case visitation_result of
-      Left _ -> return $ Right []
-      Right (Builds.BuildWithStepFailure _build_obj (Builds.NewBuildStepFailure step_name _step_index mode)) -> case mode of
-        Builds.BuildTimeoutFailure             -> return $ Right []
+    either_matches <- runExceptT $ do
+      visitation_result <- except $
+        first (const "This build did not have a failed step!") either_visitation_result
+      let Builds.BuildWithStepFailure _build_obj (Builds.NewBuildStepFailure step_name _step_index mode) = visitation_result
+
+      ExceptT $ case mode of
+        Builds.BuildTimeoutFailure             -> return $ Left "Build timed out, therefore has no log"
         Builds.ScannableFailure failure_output -> catchupScan
           scan_resources
           RefetchLog -- Re-download parameter is irrelevant, since this is the first time visiting the build
@@ -501,6 +504,7 @@ processUnvisitedBuilds scan_resources unvisited_builds_list =
           (universal_build_obj, Just failure_output) $
             ScanRecords.getPatternsWithId scan_resources
 
+    -- xxx
     return (universal_build_obj, Either.fromRight [] either_matches)
 
   where
@@ -570,7 +574,7 @@ getAndStoreLog
 
   maybe_console_log <- case overwrite of
     RefetchLog   -> return Nothing
-    NoRefetchLog -> runReaderT (SqlRead.readLog build_step_id) conn
+    NoRefetchLog -> flip runReaderT conn $ SqlRead.readLog build_step_id
 
   case maybe_console_log of
     Just console_log -> return $ Right $ LT.lines console_log  -- Log was already fetched
@@ -578,17 +582,17 @@ getAndStoreLog
       download_url <- case maybe_failed_build_output of
         Just failed_build_output -> except $ Right $ Builds.log_url failed_build_output
         Nothing -> do
-          visitation_result <- ExceptT $ first (const "This build did not have a failed step!") <$> getCircleCIFailedBuildInfo
-            scan_resources
-            (Builds.provider_buildnum $ DbHelpers.record universal_build)
+          visitation_result <- ExceptT $
+            first (const "This build did not have a failed step!") <$> getCircleCIFailedBuildInfo
+              scan_resources
+              (Builds.provider_buildnum $ DbHelpers.record universal_build)
 
-          let (Builds.BuildWithStepFailure build_obj (Builds.NewBuildStepFailure _step_name _step_index mode)) = visitation_result
+          let Builds.BuildWithStepFailure build_obj (Builds.NewBuildStepFailure _step_name _step_index mode) = visitation_result
 
           -- Store the build metadata again, because the first time may have been
           -- obtained through the GitHub notification, which lacks build duration
           -- and branch name.
-          liftIO $ SqlWrite.storeBuildsList
-            conn
+          liftIO $ flip runReaderT conn $ SqlWrite.storeBuildsList
             Nothing
             [DbHelpers.WithTypedId universal_build_id build_obj]
 
@@ -641,10 +645,8 @@ scanLogText lines_list patterns = do
     ]
 
 
-  (literal_timing, literal_result_tuples) <- D.timeThisFloat $ for input_pairs $ \num_line_pair -> do
-
-    apply_literal_patterns num_line_pair
---    apply_regex_patterns literal_patterns num_line_pair
+  (literal_timing, literal_result_tuples) <- D.timeThisFloat $
+    for input_pairs apply_literal_patterns
 
 
   D.debugList [
@@ -696,26 +698,22 @@ scanLogText lines_list patterns = do
 
 
   let result_tuples = literal_result_tuples ++ regex_result_tuples
-  let final_matches = concat $ filter (not . null) $ map snd result_tuples
-
-  let final_result_tuple = (concatMap fst result_tuples, final_matches)
+      final_matches = concat $ filter (not . null) $ map snd result_tuples
+      final_result_tuple = (concatMap fst result_tuples, final_matches)
 
   D.debugList [
       "Found"
     , show $ length final_matches
     , "matches."
---    , unlines $ map (show . ScanPatterns.match_details) final_matches
     ]
 
   return final_result_tuple
 
   where
-
-    (regex_patterns, literal_patterns) = partition (ScanPatterns.isRegex . ScanPatterns.expression . DbHelpers.record) patterns
-
+    is_regex_pattern = ScanPatterns.isRegex . ScanPatterns.expression . DbHelpers.record
+    (regex_patterns, literal_patterns) = partition is_regex_pattern patterns
 
     input_pairs = zip [0 ..] $ map LT.stripEnd lines_list
-
 
     automaton = Aho.build $
       map (\x -> (Aho.unpackUtf16 $ ScanPatterns.patternText $ ScanPatterns.expression $ DbHelpers.record x, x)) literal_patterns

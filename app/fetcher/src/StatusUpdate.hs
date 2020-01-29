@@ -295,7 +295,7 @@ getBuildsFromGithub
     ]
 
 
-  liftIO $ SqlWrite.storeBuildsList conn Nothing $
+  liftIO $ flip runReaderT conn $ SqlWrite.storeBuildsList Nothing $
     map storable_build_to_universal second_level_storable_builds
 
   return (scannable_build_numbers, circleci_failcount)

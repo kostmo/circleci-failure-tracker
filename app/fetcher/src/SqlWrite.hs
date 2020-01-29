@@ -73,7 +73,8 @@ pullRequestHeadsInsertionSql = Q.qjoin [
     ]
   , "ON CONFLICT"
   , "ON CONSTRAINT pull_request_heads_pr_number_head_sha1_key"
-  , "DO UPDATE SET timestamp = NOW();"
+  , "DO UPDATE"
+  , "SET timestamp = NOW()"
   ]
 
 
@@ -97,7 +98,7 @@ sqlInsertUniversalBuild = Q.qjoin [
       "provider = excluded.provider" -- This field to update is arbitrarily chosen,
                  -- just so that the "id" field can be returned.
     ]
-  , "RETURNING id;"
+  , "RETURNING id"
   ]
 
 
@@ -260,7 +261,7 @@ findMasterAncestorWithPrecomputation
     cached_merge_bases_sql = Q.qjoin [
         "SELECT master_commit"
       , "FROM cached_master_merge_base"
-      , "WHERE branch_commit = ?;"
+      , "WHERE branch_commit = ?"
       ]
 
     merge_base_insertion_sql = Q.qjoin [
@@ -538,20 +539,18 @@ data SurrogateProviderIdUniversalPair = SurrogateProviderIdUniversalPair {
 --
 -- TODO for now, this function is only called from the standalone scanner application.
 storeCircleCiBuildsList ::
-     Connection
-  -> UTCTime -- ^ fetch initiation time
+     UTCTime -- ^ fetch initiation time
   -> Text -- ^ branch name
   -> Maybe Int64 -- ^ EB worker event ID
   -> [(Builds.Build, Bool)]
-  -> IO Int64
+  -> SqlRead.DbIO Int64
 storeCircleCiBuildsList
-    conn
     fetch_initiation_timestamp
     branch_name
     maybe_eb_worker_event_id
     builds_list_with_possible_duplicates = do
 
-  zipped_output1 <- storeHelper conn $ map (\x -> ((), x)) deduped_builds_list
+  zipped_output1 <- storeHelper $ map (\x -> ((), x)) deduped_builds_list
 
   let zipped_output2 = map
         (\(Builds.StorableBuild (DbHelpers.WithId ubuild_id _ubuild) rbuild) -> DbHelpers.WithTypedId (Builds.UniversalBuildId ubuild_id) rbuild)
@@ -563,11 +562,9 @@ storeCircleCiBuildsList
         fetch_initiation_timestamp
         maybe_eb_worker_event_id
 
-  ci_scan_id <- runReaderT store_scan_record conn
+  ci_scan_id <- store_scan_record
 
-  retval <- storeBuildsList conn (Just ci_scan_id) zipped_output2
-
-  return retval
+  storeBuildsList (Just ci_scan_id) zipped_output2
 
   where
     deduped_builds_list = nubSort builds_list_with_possible_duplicates
@@ -576,11 +573,10 @@ storeCircleCiBuildsList
 -- | NOTE: The output list may be shorter than the input list due to
 -- filtering/deduplication.
 storeHelper ::
-     Connection
-  -> [(a, (Builds.Build, Bool))]
-  -> IO [(a, Builds.StorableBuild)]
-storeHelper conn deduped_builds_list = do
-
+     [(a, (Builds.Build, Bool))]
+  -> SqlRead.DbIO [(a, Builds.StorableBuild)]
+storeHelper deduped_builds_list = do
+ conn <- ask
   -- First, insert/deduplicate provider build numbers.
   -- The output list should be the same length as the
   -- input list, since the input list is *already supposed
@@ -590,6 +586,7 @@ storeHelper conn deduped_builds_list = do
   -- "provider number surrogate id" generated (or retrieved)
   -- by the database.
 
+ liftIO $ do
   provider_build_insertion_output_rows <- returning
     conn
     sqlInsertProviderBuild
@@ -664,23 +661,23 @@ storeHelper conn deduped_builds_list = do
 --
 -- Need to make sure that legit values are not overwritten with NULL
 storeBuildsList ::
-     Connection
-  -> Maybe Int64
+     Maybe Int64
   -> [DbHelpers.WithTypedId Builds.UniversalBuildId Builds.Build]
-  -> IO Int64
-storeBuildsList conn maybe_provider_scan_id builds_list = do
+  -> SqlRead.DbIO Int64
+storeBuildsList maybe_provider_scan_id builds_list = do
+  conn <- ask
+  liftIO $ do
+    D.debugList [
+        "Inside storeBuildsList to update"
+      , show $ length builds_list
+      , "build entries"
+      ]
 
-  D.debugList [
-      "Inside storeBuildsList to update"
-    , show $ length builds_list
-    , "build entries"
-    ]
+    for_ builds_list $ execute conn sql . f
 
-  for_ builds_list $ execute conn sql . f
-
-  D.debugList [
-      "Finishing storeBuildsList."
-    ]
+    D.debugList [
+        "Finishing storeBuildsList."
+      ]
 
   return $ fromIntegral $ length builds_list
 
@@ -775,7 +772,7 @@ createPatternRemediation
         , "github_issue_number"
         , "info_url"
         ]
-      , "RETURNING id;"
+      , "RETURNING id"
       ]
 
     pattern_assoc_insertion_sql = Q.qjoin [
@@ -806,7 +803,7 @@ storeScanRecord provider_id branch_filter initiated_at maybe_eb_worker_event_id 
         , "initiated_at"
         , "eb_worker_event"
         ]
-      , "RETURNING id;"
+      , "RETURNING id"
       ]
 
 
@@ -833,7 +830,7 @@ recordTimeoutIncident
         , "scan_id"
         , "timeout_count"
         ]
-      , "RETURNING id;"
+      , "RETURNING id"
       ]
 
 
@@ -907,7 +904,7 @@ insertSingleCIProvider conn hostname = do
         "SELECT id"
       , "FROM ci_providers"
       , "WHERE hostname = ?"
-      , "LIMIT 1;"
+      , "LIMIT 1"
       ]
 
     sql_insert = Q.qjoin [
