@@ -236,15 +236,11 @@ jsonDbGet connection_data endpoint_path f =
 
 -- | Compare to: "postWithAuthentication"
 jsonAuthorizedDbInteract2 :: ToJSON a =>
-     DbHelpers.DbConnectionData
-  -> Vault.Key (Session IO String String)
-  -> AuthConfig.GithubConfig
+     AuthHelperBundle
   -> ScottyTypes.ActionT LT.Text IO (ReaderT SqlRead.AuthConnection IO (Either Text a))
   -> ScottyTypes.ActionT LT.Text IO ()
 jsonAuthorizedDbInteract2
-    connection_data
-    session
-    github_config
+    (AuthHelperBundle connection_data session github_config third_party_creds)
     f = do
 
   liftIO $ D.debugList ["I am here AAA"]
@@ -273,6 +269,7 @@ jsonAuthorizedDbInteract2
       rq
       session
       github_config
+      third_party_creds
       callback_func
 
   liftIO $ D.debugList ["I am here FFF"]
@@ -281,15 +278,11 @@ jsonAuthorizedDbInteract2
 
 
 jsonAuthorizedDbInteract :: ToJSON a =>
-     DbHelpers.DbConnectionData
-  -> Vault.Key (Session IO String String)
-  -> AuthConfig.GithubConfig
+     AuthHelperBundle
   -> ScottyTypes.ActionT LT.Text IO (ReaderT Connection IO (Either Text a))
   -> ScottyTypes.ActionT LT.Text IO ()
 jsonAuthorizedDbInteract
-    connection_data
-    session
-    github_config
+    (AuthHelperBundle connection_data session github_config third_party_creds)
     f = do
 
   liftIO $ D.debugList ["I am here 1"]
@@ -316,6 +309,7 @@ jsonAuthorizedDbInteract
       rq
       session
       github_config
+      third_party_creds
       callback_func
 
   liftIO $ D.debugList ["I am here 5"]
@@ -323,16 +317,20 @@ jsonAuthorizedDbInteract
   S.json $ WebApi.toJsonEither insertion_result
 
 
+data AuthHelperBundle = AuthHelperBundle {
+    conn_data               :: DbHelpers.DbConnectionData
+  , session_vault           :: Vault.Key (Session IO String String)
+  , github_conf             :: AuthConfig.GithubConfig
+  , third_party_credentials :: CircleApi.ThirdPartyAuth
+  }
+
+
 breakageCauseReport ::
-     DbHelpers.DbConnectionData
-  -> Vault.Key (Session IO String String)
-  -> AuthConfig.GithubConfig
+     AuthHelperBundle
   -> DbHelpers.DbConnectionData
   -> ScottyTypes.ActionT LT.Text IO ()
 breakageCauseReport
-    connection_data
-    session
-    github_config
+    (AuthHelperBundle connection_data session github_config third_party_creds)
     mview_connection_data = do
 
   breakage_sha1 <- S.param "cause_sha1"
@@ -377,21 +375,18 @@ breakageCauseReport
       rq
       session
       github_config
+      third_party_creds
       callback_func
 
   S.json $ WebApi.toJsonEither insertion_result
 
 
 breakageResolutionReport ::
-     DbHelpers.DbConnectionData
-  -> Vault.Key (Session IO String String)
-  -> AuthConfig.GithubConfig
+     AuthHelperBundle
   -> DbHelpers.DbConnectionData
   -> ScottyTypes.ActionT LT.Text IO ()
 breakageResolutionReport
-    connection_data
-    session
-    github_config
+    (AuthHelperBundle connection_data session github_config third_party_creds)
     mview_connection_data = do
 
   sha1 <- S.param "sha1"
@@ -421,6 +416,7 @@ breakageResolutionReport
       rq
       session
       github_config
+      third_party_creds
       callback_func
 
   S.json $ WebApi.toJsonEither insertion_result
@@ -448,15 +444,11 @@ requireAdminToken connection_data github_config f = do
 
 
 postWithAuthentication :: ToJSON a =>
-     DbHelpers.DbConnectionData
-  -> AuthConfig.GithubConfig
-  -> Vault.Key (Session IO String String)
+     AuthHelperBundle
   -> ScottyTypes.ActionT LT.Text IO (ReaderT SqlRead.AuthConnection IO (Either Text a))
   -> ScottyTypes.ActionT LT.Text IO ()
 postWithAuthentication
-    connection_data
-    github_config
-    session
+    (AuthHelperBundle connection_data session github_config third_party_creds)
     f = do
 
   liftIO $ D.debugList ["HELLO AAA"]
@@ -481,6 +473,7 @@ postWithAuthentication
     rq
     session
     github_config
+    third_party_creds
     callback_func
 
   liftIO $ D.debugList ["HELLO EEE"]

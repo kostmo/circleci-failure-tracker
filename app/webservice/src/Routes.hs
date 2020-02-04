@@ -56,7 +56,6 @@ data SetupData = SetupData {
   }
 
 
-
 data PersistenceData = PersistenceData {
     _setup_cache   :: Types.CacheStore
   , _setup_session :: Vault.Key (Session IO String String)
@@ -116,16 +115,12 @@ scottyApp
 
   S.post "/api/code-breakage-resolution-report" $
     FrontendHelpers.breakageResolutionReport
-      connection_data
-      session
-      github_config
+      (FrontendHelpers.AuthHelperBundle connection_data session github_config third_party_creds)
       mview_connection_data
 
   S.post "/api/code-breakage-cause-report" $
     FrontendHelpers.breakageCauseReport
-      connection_data
-      session
-      github_config
+      (FrontendHelpers.AuthHelperBundle connection_data session github_config third_party_creds)
       mview_connection_data
 
   S.post "/api/refresh-materialized-view" $ do
@@ -487,9 +482,7 @@ scottyApp
 
   S.get "/api/get-user-opt-out-settings" $
     FrontendHelpers.jsonAuthorizedDbInteract2
-      connection_data
-      session
-      github_config $
+      (FrontendHelpers.AuthHelperBundle connection_data session github_config third_party_creds) $
         pure SqlRead.userOptOutSettings
 
   S.post "/api/update-user-opt-out-settings" $
@@ -594,15 +587,15 @@ scottyApp
     get x = FrontendHelpers.jsonDbGet connection_data x
 
     post x y = S.post x $
-      FrontendHelpers.jsonAuthorizedDbInteract connection_data session github_config y
+      FrontendHelpers.jsonAuthorizedDbInteract
+        (FrontendHelpers.AuthHelperBundle connection_data session github_config third_party_creds)
+        y
 
     withAuth :: ToJSON a =>
          ScottyTypes.ActionT LT.Text IO (SqlRead.AuthDbIO (Either Text a))
       -> ScottyTypes.ActionT LT.Text IO ()
     withAuth = FrontendHelpers.postWithAuthentication
-      connection_data
-      github_config
-      session
+      (FrontendHelpers.AuthHelperBundle connection_data session github_config third_party_creds)
 
     logger_domain_identifier = if AuthConfig.is_local github_config
       then "localhost"

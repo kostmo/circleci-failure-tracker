@@ -52,6 +52,7 @@ data AuthenticationFailureStageInfo =
   | FailUsernameDetermination
   | FailLoginRequired
   | FailOrgMembership Username Text
+  | FailGitHubAppTokenExchange Text
   deriving Show
 
 instance ToJSON AuthenticationFailureStageInfo where
@@ -71,6 +72,7 @@ getErrorMessage (FailMembershipDetermination msg) = "Could not determine org mem
 getErrorMessage FailUsernameDetermination = "Could not determine username."
 getErrorMessage FailLoginRequired = "token lookup failed; you need to log in!"
 getErrorMessage (FailOrgMembership (Username username_text) x) = "User \"" <> username_text <> "\" is not a member of the organization \"" <> x <> "\"!"
+getErrorMessage (FailGitHubAppTokenExchange msg) = "Backend issue with GitHub App token: " <> msg
 
 
 

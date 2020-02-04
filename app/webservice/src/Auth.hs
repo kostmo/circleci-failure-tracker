@@ -35,6 +35,8 @@ import           Web.Scotty.Internal.Types
 
 import qualified AuthConfig
 import qualified AuthStages
+import qualified CircleApi
+import qualified CircleAuth
 import qualified Constants
 import qualified DebugUtils                 as D
 import qualified Github
@@ -61,14 +63,20 @@ getAuthenticatedUserByToken ::
      TL.Text -- ^ redirect path
   -> OAuth2.AccessToken -- ^ token
   -> AuthConfig.GithubConfig
+  -> OAuth2.AccessToken
   -> (AuthStages.Username -> IO (Either a b))
   -> IO (Either (AuthStages.BackendFailure a) b)
-getAuthenticatedUserByToken redirect_path wrapped_token github_config callback = do
+getAuthenticatedUserByToken
+    redirect_path
+    wrapped_user_token
+    github_config
+    github_app_auth_token
+    callback = do
 
   D.debugList ["PLACE A"]
   mgr <- newManager tlsManagerSettings
   D.debugList ["PLACE B"]
-  let api_support_data = GithubApiFetch.GitHubApiSupport mgr wrapped_token
+  let api_support_data = GithubApiFetch.GitHubApiSupport mgr wrapped_user_token
 
   runExceptT $ do
     liftIO $ D.debugList ["PLACE C"]
@@ -82,7 +90,7 @@ getAuthenticatedUserByToken redirect_path wrapped_token github_config callback =
     is_org_member <- ExceptT $ do
 
       liftIO $ D.debugList ["PLACE E"]
-      either_membership <- isOrgMember wrapped_token username_text
+      either_membership <- isOrgMember github_app_auth_token username_text
 
       liftIO $ D.debugList ["PLACE F"]
       return $ first (wrapLoginErr login_url) either_membership
@@ -108,18 +116,32 @@ getAuthenticatedUser ::
   -> Request
   -> Vault.Key (Session IO String String)
   -> AuthConfig.GithubConfig
+  -> CircleApi.ThirdPartyAuth
   -> (AuthStages.Username -> IO (Either a b))
   -> IO (Either (AuthStages.BackendFailure a) b)
-getAuthenticatedUser redirect_path rq session github_config callback = do
+getAuthenticatedUser
+    redirect_path
+    rq
+    session
+    github_config
+    third_party_auth
+    callback = do
 
   u <- sessionLookup githubAuthTokenSessionKey
   case u of
     Nothing -> return $ Left $ wrapLoginErr login_url AuthStages.FailLoginRequired
-    Just api_token -> getAuthenticatedUserByToken
-      redirect_path
-      (OAuth2.AccessToken $ T.pack api_token)
-      github_config
-      callback
+    Just api_token -> runExceptT $ do
+
+      github_app_token <- ExceptT $
+        fmap (first $ \x -> AuthStages.AuthFailure $ AuthStages.AuthenticationFailure Nothing $ AuthStages.FailGitHubAppTokenExchange $ T.pack x) $
+          CircleAuth.getGitHubAppInstallationToken $ CircleApi.jwt_signer third_party_auth
+
+      ExceptT $ getAuthenticatedUserByToken
+        redirect_path
+        (OAuth2.AccessToken $ T.pack api_token)
+        github_config
+        (CircleAuth.token github_app_token)
+        callback
 
   where
     Just (sessionLookup, _sessionInsert) = Vault.lookup session $ vault rq
