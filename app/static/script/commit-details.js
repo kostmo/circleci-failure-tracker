@@ -180,6 +180,9 @@ function rescan_commit(button) {
 	$(button).prop("disabled", true);
 	$("#scan-throbber").show();
 
+
+	console.log("Starting rescan_commit...");
+
         $.post({
 		url: "/api/rescan-commit",
 		data: {
@@ -187,6 +190,8 @@ function rescan_commit(button) {
 			"login_redirect_path": get_url_path_for_redirect(),
 		},
 		success: function( data ) {
+
+			console.log("Got success response from rescan_commit:", data);
 
 			$(button).prop("disabled", false);
 			$("#scan-throbber").hide();

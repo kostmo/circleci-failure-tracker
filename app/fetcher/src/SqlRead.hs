@@ -3143,14 +3143,7 @@ getBreakageSpans ::
   -> DbIO [BuildResults.JobFailureSpan]
 getBreakageSpans commit_id_bounds = do
   conn <- ask
-  liftIO $ do
-    D.debugList [
-        "SQL:"
-      , show job_failure_spans_sql
-      , "PARMS:"
-      , show parms_tuple
-      ]
-    query conn job_failure_spans_sql parms_tuple
+  liftIO $ query conn job_failure_spans_sql parms_tuple
   where
     bounds_tuple = DbHelpers.boundsAsTuple commit_id_bounds
     parms_tuple = (fst bounds_tuple, snd bounds_tuple, fst bounds_tuple, snd bounds_tuple)
@@ -3185,39 +3178,25 @@ apiMasterBuilds timeline_parms = do
   conn <- ask
   liftIO $ runExceptT $ do
 
-    liftIO $ putStrLn "FOO A"
     (commits_list_time, (commit_id_bounds, master_commits)) <- D.timeThisFloat $
       ExceptT $ flip runReaderT conn $ getMasterCommits $ Pagination.offset_mode timeline_parms
-
-    liftIO $ putStrLn "FOO B"
 
     let commit_bounds_tuple = DbHelpers.boundsAsTuple commit_id_bounds
 
     (code_breakages_time, code_breakage_ranges) <- D.timeThisFloat $ liftIO $
       runReaderT (apiAnnotatedCodeBreakages should_use_uncached_annotations commit_id_bounds) conn
 
-    liftIO $ putStrLn "FOO C"
-
     (job_failure_spans_time, job_failure_spans) <- D.timeThisFloat $
       liftIO $ runReaderT (getBreakageSpans commit_id_bounds) conn
-
-    liftIO $ putStrLn "FOO D"
 
     (reversion_spans_time, reversion_spans) <- D.timeThisFloat $
       liftIO $ query conn reversion_spans_sql commit_bounds_tuple
 
-    liftIO $ putStrLn "FOO E"
-
     (builds_list_time, completed_builds) <- D.timeThisFloat $
       liftIO $ query conn builds_list_sql commit_bounds_tuple
 
-
-    liftIO $ putStrLn "FOO F"
-
     (disjoint_statuses_time, disjoint_statuses) <- D.timeThisFloat $
       liftIO $ query conn disjoint_statuses_sql commit_bounds_tuple
-
-    liftIO $ putStrLn "FOO G"
 
     let (successful_builds, failed_builds) = partition
           (BuildResults.isSuccess . BuildResults._failure_mode)
@@ -3291,7 +3270,8 @@ apiMasterBuilds timeline_parms = do
       , "FROM github_status_events_circleci_success"
       , "JOIN ordered_master_commits"
       , "ON ordered_master_commits.sha1 = github_status_events_circleci_success.sha1"
-      , "WHERE int8range(?, ?, '[]') @> ordered_master_commits.id::int8"
+      , "WHERE"
+      , "int8range(?, ?, '[]') @> ordered_master_commits.id::int8"
       ]
 
 
@@ -3340,7 +3320,8 @@ apiMasterBuilds timeline_parms = do
         , "cluster_member_count"
         ]
       , "FROM master_failures_raw_causes_mview"
-      , "WHERE int8range(?, ?, '[]') @> commit_index::int8"
+      , "WHERE"
+      , "int8range(?, ?, '[]') @> commit_index::int8"
       ]
 
 
@@ -3406,7 +3387,7 @@ masterCommitsGranular = do
       , "breakage_end"
       ]
     , "FROM master_indiscriminate_failure_spans"
-    , "ORDER BY breakage_start;"
+    , "ORDER BY breakage_start"
     ]
 
   return $ ExplorableBreakageSpans
@@ -3424,7 +3405,6 @@ data JobScheduleStats = JobScheduleStats {
 
 instance ToJSON JobScheduleStats where
   toJSON = genericToJSON JsonUtils.dropUnderscore
-
 
 
 data GitHubCircleCIStatusEvent = GitHubCircleCIStatusEvent {
@@ -3477,7 +3457,7 @@ apiJobScheduleStats = runQuery $ Q.qjoin [
     , "circular_time_of_day_average"
     ]
   , "FROM job_schedule_statistics_mview"
-  , "WHERE build_count > 1;"
+  , "WHERE build_count > 1"
   ]
 
 
@@ -3500,7 +3480,7 @@ apiDetectedCodeBreakages = runQuery $ Q.qjoin [
     , "modal_last_commit"
     ]
   , "FROM master_contiguous_failure_blocks_with_commits"
-  , "ORDER BY first_commit_id DESC;"
+  , "ORDER BY first_commit_id DESC"
   ]
 
 
@@ -3513,7 +3493,7 @@ apiListFailureModes = runQuery $ Q.qjoin [
     , "revertible"
     ]
   , "FROM master_failure_modes"
-  , "ORDER BY id;"
+  , "ORDER BY id"
   ]
 
 
@@ -3565,7 +3545,7 @@ apiAnnotatedCodeBreakages should_use_uncached_annotations commit_id_bounds = do
       , source_table
       , "WHERE"
       , "int8range(?, ?, '[]') && commit_index_span"
-      , "ORDER BY cause_commit_index DESC;"
+      , "ORDER BY cause_commit_index DESC"
       ]
 
 
@@ -3585,7 +3565,7 @@ sqlPrefixAnnotatedCodeBreakagesWithImpact = Q.qjoin [
 apiAnnotatedCodeBreakagesWithImpact :: DbIO [BuildResults.BreakageSpan Text BuildResults.BreakageImpactStats]
 apiAnnotatedCodeBreakagesWithImpact = runQuery $ Q.qjoin [
     sqlPrefixAnnotatedCodeBreakagesWithImpact
-  , "ORDER BY cause_commit_index DESC;"
+  , "ORDER BY cause_commit_index DESC"
   ]
 
 
@@ -3604,7 +3584,7 @@ apiCodeBreakagesModeSingle cause_id = do
         "SELECT"
       , "mode_id"
       , "FROM latest_master_failure_mode_attributions"
-      , "WHERE cause_id = ?;"
+      , "WHERE cause_id = ?"
       ]
 
 
@@ -3617,7 +3597,7 @@ apiAnnotatedCodeBreakagesWithImpactSingle cause_id = do
   where
     sql = Q.qjoin [
         sqlPrefixAnnotatedCodeBreakagesWithImpact
-      , "WHERE cause_id = ?;"
+      , "WHERE cause_id = ?"
       ]
 
 
@@ -3632,13 +3612,13 @@ apiBreakageAuthorStats = runQuery $ Q.qjoin [
     , "cumulative_spanned_master_commits"
     ]
   , "FROM upstream_breakage_author_stats"
-  , "ORDER BY distinct_breakage_count DESC;"
+  , "ORDER BY distinct_breakage_count DESC"
   ]
 
 
 apiBrokenCommitsWithoutMetadata :: DbIO [Builds.RawCommit]
 apiBrokenCommitsWithoutMetadata = runQuery
-  "SELECT vcs_revision FROM broken_commits_without_metadata;"
+  "SELECT vcs_revision FROM broken_commits_without_metadata"
 
 
 getLatestMasterCommitWithMetadata :: DbIO (Either Text Builds.RawCommit)
@@ -3655,7 +3635,31 @@ getLatestMasterCommitWithMetadata = do
       , "ON ordered_master_commits.sha1 = commit_metadata.sha1"
       , "WHERE commit_metadata.sha1 IS NOT NULL"
       , "ORDER BY ordered_master_commits.id DESC"
-      , "LIMIT 1;"
+      , "LIMIT 1"
+      ]
+
+
+getProviderSurrogateIdFromUniversalBuild ::
+     Builds.UniversalBuildId
+  -> DbIO (Either Text Int64)
+getProviderSurrogateIdFromUniversalBuild (Builds.UniversalBuildId ubuild_id) = do
+  conn <- ask
+  liftIO $ do
+    xs <- query conn sql $ Only ubuild_id
+    return $ maybeToEither err_msg $ Safe.headMay $
+      map (\(Only x) -> x) xs
+  where
+    err_msg = T.unwords [
+        "build"
+      , T.pack $ show ubuild_id
+      , "not in database"
+      ]
+
+    sql = Q.qjoin [
+        "SELECT"
+      , "provider_build_surrogate"
+      , "FROM universal_builds"
+      , "WHERE id = ?"
       ]
 
 

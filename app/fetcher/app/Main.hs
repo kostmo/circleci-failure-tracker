@@ -1,10 +1,15 @@
 import           Control.Concurrent         (getNumCapabilities)
 import           Control.Monad.IO.Class     (liftIO)
-import           Control.Monad.Trans.Except (ExceptT (ExceptT), runExceptT)
+import           Control.Monad.Trans.Except (ExceptT (ExceptT), except,
+                                             runExceptT)
+import qualified Data.ByteString            as B
+import qualified Data.Text                  as T
 import           Options.Applicative
 import           System.IO
 
 import qualified BuildRetrieval
+import qualified CircleApi
+import qualified CircleAuth
 import qualified Constants
 import qualified DbHelpers
 import qualified DbPreparation
@@ -13,13 +18,15 @@ import qualified Scanning
 
 
 data CommandLineArgs = NewCommandLineArgs {
-    buildCount    :: Int
-  , branchName    :: [String]
-  , dbHostname    :: String
-  , dbUsername    :: String
-  , dbPassword    :: String
-  , wipeDatabase  :: Bool
-  , rescanVisited :: Bool
+    buildCount          :: Int
+  , branchName          :: [String]
+  , dbHostname          :: String
+  , dbUsername          :: String
+  , dbPassword          :: String
+  , circleciApiToken    :: String
+  , gitHubAppPemContent :: B.ByteString
+  , wipeDatabase        :: Bool
+  , rescanVisited       :: Bool
   }
 
 
@@ -36,6 +43,10 @@ myCliParser = NewCommandLineArgs
   <*> strOption   (long "db-password" <> value "logan01" <> metavar "DATABASE_PASSWORD"
     <> help "Password for database user")
    -- Note: this is not the production password; this default is only for local testing
+  <*> strOption   (long "circleci-api-token" <> metavar "CIRCLECI_API_TOKEN"
+    <> help "CircleCI API token for triggering rebuilds")
+  <*> strOption   (long "github-app-rsa-pem" <> metavar "GITHUB_APP_RSA_PEM"
+    <> help "GitHub App PEM file content")
   <*> switch      (long "wipe"
     <> help "Wipe database content before beginning")
   <*> switch      (long "rescan"
@@ -64,8 +75,16 @@ mainAppCode args = do
     fetch_count
 
   runExceptT $ do
-    scan_resources <- ExceptT $ Scanning.prepareScanResources conn Scanning.PersistScanResult $
-      Just Constants.defaultPatternAuthor
+    rsa_signer <- except $ CircleAuth.loadRsaKey $ gitHubAppPemContent args
+    let third_party_auth = CircleApi.ThirdPartyAuth
+          (CircleApi.CircleCIApiToken $ T.pack $ circleciApiToken args)
+          rsa_signer
+
+    scan_resources <- ExceptT $ Scanning.prepareScanResources
+      third_party_auth
+      conn
+      Scanning.PersistScanResult $
+        Just Constants.defaultPatternAuthor
 
     liftIO $ do
       build_matches <- Scanning.scanBuilds

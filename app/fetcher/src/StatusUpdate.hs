@@ -44,6 +44,8 @@ import qualified ApiPost
 import qualified AuthConfig
 import qualified AuthStages
 import qualified Builds
+import qualified CircleApi
+import qualified CircleAuth
 import qualified CommentRender
 import qualified CommitBuilds
 import qualified Constants
@@ -58,6 +60,7 @@ import qualified MyUtils
 import qualified PullRequestWebhooks
 import qualified PushWebhooks
 import qualified Scanning
+import qualified ScanRecords
 import qualified SqlRead
 import qualified SqlUpdate
 import qualified SqlWrite
@@ -229,21 +232,19 @@ extractUniversalBuild commit provider_with_id status_object = case DbHelpers.rec
 
 
 getBuildsFromGithub ::
-     Connection
-  -> OAuth2.AccessToken
+     ScanRecords.FetchingResources
   -> DbHelpers.OwnerAndRepo
   -> SuccessRecordStorageMode
   -> Builds.RawCommit
   -> ExceptT LT.Text IO ([Builds.UniversalBuildId], Int)
 getBuildsFromGithub
-    conn
-    access_token
+    fetch_resources
     owned_repo
     store_provider_specific_success_records
     sha1 = do
 
   build_statuses_list_any_source <- ExceptT $ GithubApiFetch.getBuildStatuses
-    access_token
+    (CircleAuth.token $ ScanRecords.github_auth_token fetch_resources)
     owned_repo
     sha1
 
@@ -301,34 +302,26 @@ getBuildsFromGithub
   return (scannable_build_numbers, circleci_failcount)
 
   where
+    conn = ScanRecords.db_conn fetch_resources
     storable_build_to_universal (Builds.StorableBuild (DbHelpers.WithId ubuild_id _ubuild) rbuild) =
       DbHelpers.WithTypedId (Builds.UniversalBuildId ubuild_id) rbuild
 
 
 scanAndPost ::
-     Connection
-  -> OAuth2.AccessToken
-  -> Maybe AuthStages.Username -- ^ scan initiator
+     ScanRecords.ScanCatchupResources
   -> Scanning.RevisitationMode
   -> [Builds.UniversalBuildId]
   -> DbHelpers.OwnerAndRepo
   -> Builds.RawCommit
   -> ExceptT LT.Text IO ()
 scanAndPost
-    conn
-    access_token
-    maybe_initiator
+    scan_resources
     scan_revisitation_mode
     scannable_build_numbers
     owned_repo
     sha1 = do
 
-  scan_resources <- ExceptT $ first LT.fromStrict <$>
-    Scanning.prepareScanResources conn Scanning.PersistScanResult maybe_initiator
-
   liftIO $ do
-
-    DbHelpers.setSessionStatementTimeout conn Scanning.scanningStatementTimeoutSeconds
 
     Scanning.scanBuilds
       scan_resources
@@ -340,8 +333,7 @@ scanAndPost
     D.debugList ["About to enter postCommitSummaryStatus"]
 
   postCommitSummaryStatus
-    conn
-    access_token
+    (ScanRecords.fetching scan_resources)
     owned_repo
     sha1
 
@@ -356,7 +348,7 @@ fetchCommitPageInfo pre_broken_info sha1 validated_sha1 = runExceptT $ do
   liftIO $ D.debugStr "Fetching revision builds"
   DbHelpers.BenchmarkedResponse _ revision_builds <- ExceptT $ SqlRead.getRevisionBuilds validated_sha1
 
-  matched_builds_with_log_context <- for revision_builds $ \x -> do
+  matched_builds_with_log_context <- for revision_builds $ \x ->
     ExceptT $ (fmap . fmap) (CommitBuilds.BuildWithLogContext x) $
       SqlRead.logContextFunc 0
         (MatchOccurrences._match_id $ CommitBuilds._match x)
@@ -377,14 +369,12 @@ fetchCommitPageInfo pre_broken_info sha1 validated_sha1 = runExceptT $ do
 
 
 postCommitSummaryStatus ::
-     Connection
-  -> OAuth2.AccessToken
+     ScanRecords.FetchingResources
   -> DbHelpers.OwnerAndRepo
   -> Builds.RawCommit
   -> ExceptT LT.Text IO ()
 postCommitSummaryStatus
-    conn
-    access_token
+    fetching_resources
     owned_repo
     sha1@(Builds.RawCommit commit_sha1_text) = do
 
@@ -425,8 +415,11 @@ postCommitSummaryStatus
     sha1
 
   liftIO $ D.debugStr "Checkpoint Z"
-
   return x
+
+  where
+    conn = ScanRecords.db_conn fetching_resources
+    access_token = CircleAuth.token $ ScanRecords.github_auth_token fetching_resources
 
 
 fetchAndCachePrAuthor ::
@@ -703,8 +696,8 @@ data ScanLogsMode =
 -- * Scan each CircleCI build that needs to be scanned.
 -- * For each match, check if that match's pattern is tagged as "flaky".
 readGitHubStatusesAndScanAndPostSummaryForCommit ::
-     Connection
-  -> OAuth2.AccessToken
+     CircleApi.ThirdPartyAuth
+  -> Connection
   -> Maybe AuthStages.Username -- ^ scan initiator
   -> DbHelpers.OwnerAndRepo
   -> SuccessRecordStorageMode
@@ -713,8 +706,8 @@ readGitHubStatusesAndScanAndPostSummaryForCommit ::
   -> Scanning.RevisitationMode
   -> ExceptT LT.Text IO ()
 readGitHubStatusesAndScanAndPostSummaryForCommit
+    third_party_auth
     conn
-    access_token
     maybe_initiator
     owned_repo
     should_store_second_level_success_records
@@ -726,9 +719,17 @@ readGitHubStatusesAndScanAndPostSummaryForCommit
     current_time <- Clock.getCurrentTime
     D.debugList ["Processing at", show current_time]
 
+  liftIO $ DbHelpers.setSessionStatementTimeout conn Scanning.scanningStatementTimeoutSeconds
+
+  scan_resources <- ExceptT $ first LT.fromStrict <$>
+    Scanning.prepareScanResources
+      third_party_auth
+      conn
+      Scanning.PersistScanResult
+      maybe_initiator
+
   (scannable_build_numbers, _circleci_failcount) <- getBuildsFromGithub
-    conn
-    access_token
+    (ScanRecords.fetching scan_resources)
     owned_repo
     should_store_second_level_success_records
     sha1
@@ -740,9 +741,7 @@ readGitHubStatusesAndScanAndPostSummaryForCommit
       liftIO $ D.debugList ["About to enter scanAndPost"]
 
       scanAndPost
-        conn
-        access_token
-        maybe_initiator
+        scan_resources
         should_revisit_scanned
         scannable_build_numbers
         owned_repo
@@ -752,12 +751,12 @@ readGitHubStatusesAndScanAndPostSummaryForCommit
 
 handlePullRequestWebhook ::
      DbHelpers.DbConnectionData
-  -> OAuth2.AccessToken
+  -> CircleApi.ThirdPartyAuth
   -> PullRequestWebhooks.GitHubPullRequestEvent
   -> IO (Either LT.Text Int64)
 handlePullRequestWebhook
     db_connection_data
-    access_token
+    third_party_auth
     (PullRequestWebhooks.GitHubPullRequestEvent actn pr_number@(Builds.PullRequestNumber pr_num) pr_obj) = do
 
   D.debugList [
@@ -781,9 +780,15 @@ handlePullRequestWebhook
 
       case maybe_old_pr_comment of
         Nothing -> return $ Right ()
-        Just previous_comment@(SqlRead.PostedPRComment _ _ _ comment_sha1 _ _ _ _) -> do
+        Just previous_comment@(SqlRead.PostedPRComment _ _ _ comment_sha1 _ _ _ _) ->
           if comment_sha1 /= new_pr_head_commit
-          then runExceptT $
+          then runExceptT $ do
+
+            let rsa_signer = CircleApi.jwt_signer third_party_auth
+            github_auth_token <- ExceptT $ first (LT.fromStrict . T.pack) <$>
+              CircleAuth.getGitHubAppInstallationToken rsa_signer
+
+            let access_token = CircleAuth.token github_auth_token
 
             wipeCommentForUpdatedPr
               access_token
@@ -807,12 +812,12 @@ handlePullRequestWebhook
 
 handlePushWebhook ::
      DbHelpers.DbConnectionData
-  -> OAuth2.AccessToken
+  -> CircleApi.ThirdPartyAuth
   -> PushWebhooks.GitHubPushEvent
   -> IO (Either LT.Text (Int64, Int64))
 handlePushWebhook
     db_connection_data
-    access_token
+    third_party_auth
     push_event = do
 
   D.debugList [
@@ -827,10 +832,15 @@ handlePushWebhook
       putStrLn "This was the master branch!"
       conn <- DbHelpers.get_connection db_connection_data
 
-      first LT.fromStrict <$> SqlWrite.populateLatestMasterCommits
-        conn
-        access_token
-        owned_repo
+      fmap (first LT.fromStrict) $ runExceptT $ do
+
+        access_token_container <- ExceptT $ first T.pack <$> CircleAuth.getGitHubAppInstallationToken (CircleApi.jwt_signer third_party_auth)
+        let access_token = CircleAuth.token access_token_container
+
+        ExceptT $ SqlWrite.populateLatestMasterCommits
+          conn
+          access_token
+          owned_repo
   else
     return $ Right mempty
 
@@ -846,13 +856,13 @@ handlePushWebhook
 
 handleStatusWebhook ::
      DbHelpers.DbConnectionData
-  -> OAuth2.AccessToken
+  -> CircleApi.ThirdPartyAuth
   -> Maybe AuthStages.Username
   -> Webhooks.GitHubStatusEvent
   -> IO (Either LT.Text Bool)
 handleStatusWebhook
     db_connection_data
-    access_token
+    third_party_auth
     maybe_initiator
     status_event = do
 
@@ -899,8 +909,8 @@ handleStatusWebhook
             -- the statuses for that commit, scan the build logs, and post
             -- post a summary as a GitHub status notification.
             readGitHubStatusesAndScanAndPostSummaryForCommit
+              third_party_auth
               conn
-              access_token
               maybe_initiator
               owned_repo
               (if is_master_commit then StatusUpdate.ShouldStoreDetailedSuccessRecords else StatusUpdate.NoStoreDetailedSuccessRecords)
@@ -936,10 +946,10 @@ handleStatusWebhook
 
 
 githubEventEndpoint ::
-     DbHelpers.DbConnectionData
-  -> AuthConfig.GithubConfig
+     Constants.ProviderConfigs
   -> ActionT LT.Text IO ()
-githubEventEndpoint connection_data github_config = do
+githubEventEndpoint
+    (Constants.ProviderConfigs github_config third_party_auth connection_data) = do
 
   maybe_signature_header <- S.header "X-Hub-Signature"
   rq_body <- S.body
@@ -969,7 +979,7 @@ githubEventEndpoint connection_data github_config = do
 
             handleStatusWebhook
               connection_data
-              (AuthConfig.personal_access_token github_config)
+              third_party_auth
               Nothing
               body_json
 
@@ -987,7 +997,7 @@ githubEventEndpoint connection_data github_config = do
 
             handlePullRequestWebhook
               connection_data
-              (AuthConfig.personal_access_token github_config)
+              third_party_auth
               body_json
 
             D.debugStr "Handled pull_request event."
@@ -1004,7 +1014,7 @@ githubEventEndpoint connection_data github_config = do
 
             handlePushWebhook
               connection_data
-              (AuthConfig.personal_access_token github_config)
+              third_party_auth
               body_json
 
             D.debugStr "Handled push event."

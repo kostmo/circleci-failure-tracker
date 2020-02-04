@@ -40,6 +40,7 @@ import qualified ApiPost
 import qualified AuthStages
 import qualified Breakages
 import qualified Builds
+import qualified CircleTest
 import qualified Commits
 import qualified Constants
 import qualified DbHelpers
@@ -57,8 +58,8 @@ import qualified SqlRead
 import qualified Webhooks
 
 
--- XXX This is required to avoid pathological expressions from being created
--- that crash the server
+-- XXX This is required to avoid creation of pathological expressions
+-- that could crash the server
 authorizedRegexCreatorUser :: Text
 authorizedRegexCreatorUser = "kostmo"
 
@@ -359,6 +360,76 @@ storeCachedMergeBases conn merge_base_records =
           "branch_commit"
         , "master_commit"
         , "distance"
+        ]
+      ]
+
+    catcher _ (UniqueViolation some_error) = return $ Left $
+      "Insertion error: " <> T.pack (BS.unpack some_error)
+    catcher e _                            = throwIO e
+
+
+storeCircleTestResults ::
+     Connection
+  -> Builds.UniversalBuildId
+  -> CircleTest.CircleCISingleTestsParent
+  -> IO (Either Text Int64)
+storeCircleTestResults
+    conn
+    universal_build
+    (CircleTest.CircleCISingleTestsParent test_results) = runExceptT $ do
+
+  provider_surrogate_id <- ExceptT $ flip runReaderT conn $
+    SqlRead.getProviderSurrogateIdFromUniversalBuild universal_build
+
+  ExceptT $ catchViolation catcher $ do
+    [Only echoed_provider_surrogate_id] <- query conn parent_test_insertion_sql $ Only provider_surrogate_id
+
+    let f p = (
+            echoed_provider_surrogate_id :: Int64
+          , classname
+          , file
+          , name
+          , result
+          , run_time
+          , message
+          , source
+          , source_type
+          )
+          where
+            CircleTest.CircleCISingleTestResult
+              classname
+              file
+              name
+              result
+              run_time
+              message
+              source
+              source_type = p
+
+    count <- executeMany conn single_test_insertion_sql $ map f test_results
+    return $ Right count
+
+  where
+    parent_test_insertion_sql = Q.qjoin [
+        "INSERT INTO circleci_test_reports"
+      , Q.insertionValues [
+          "provider_build_surrogate_id"
+        ],
+        "RETURNING provider_build_surrogate_id"
+      ]
+
+    single_test_insertion_sql = Q.qjoin [
+        "INSERT INTO circleci_test_results"
+      , Q.insertionValues [
+          "provider_build_surrogate_id"
+        , "classname"
+        , "file"
+        , "name"
+        , "result"
+        , "run_time"
+        , "message"
+        , "source"
+        , "source_type"
         ]
       ]
 
@@ -931,14 +1002,14 @@ data BeanstalkCronHeaders = BeanstalkCronHeaders {
 
 insertRebuildTriggerEvent ::
      Builds.UniversalBuildId
-  -> Builds.BuildNumber
+  -> Text
   -> SqlRead.AuthDbIO (Either String Int64)
 insertRebuildTriggerEvent
     (Builds.UniversalBuildId universal_build_id)
-    (Builds.NewBuildNumber new_build_num) = do
+    msg = do
 
   SqlRead.AuthConnection conn (AuthStages.Username author) <- ask
-  let values_tuple = (universal_build_id, new_build_num, author)
+  let values_tuple = (universal_build_id, msg, author)
   [Only x] <- liftIO $ query conn sql values_tuple
   return $ Right x
   where
@@ -947,7 +1018,7 @@ insertRebuildTriggerEvent
         "INSERT INTO rebuild_trigger_events"
       , Q.insertionValues [
           "universal_build"
-        , "reported_new_provider_build_id"
+        , "message"
         , "initiator"
         ]
       , "RETURNING id"

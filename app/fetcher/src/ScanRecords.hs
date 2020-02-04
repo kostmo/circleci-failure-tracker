@@ -7,6 +7,8 @@ import           Database.PostgreSQL.Simple (Connection)
 import           GHC.Int                    (Int64)
 import qualified Network.Wreq.Session       as Sess
 
+import qualified CircleApi
+import qualified CircleAuth
 import qualified DbHelpers
 import qualified ScanPatterns
 
@@ -25,9 +27,11 @@ data LogInfo = LogInfo {
 
 
 data FetchingResources = FetchingResources {
-    db_conn     :: Connection
-  , aws_sess    :: Sess.Session
-  , circle_sess :: Sess.Session
+    circle_token      :: CircleApi.CircleCIApiToken
+  , db_conn           :: Connection
+  , aws_sess          :: Sess.Session
+  , circle_sess       :: Sess.Session
+  , github_auth_token :: CircleAuth.AppInstallationTokenResponse
   }
 
 

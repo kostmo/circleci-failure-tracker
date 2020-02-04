@@ -46,13 +46,14 @@ Local testing
 ===========
 
 Several credentials strings are required for the app.
-These can be stored as JSON files in your own private repository:
+These can be stored as JSON files and raw text files in your own private repository:
 
 * `app-credentials-local.json`
 * `app-credentials-remote.json`
 * `database-credentials-local.json`
 * `database-credentials-remote.json`
-* `github-personal-access-token.txt`
+* `circleci-failure-attribution.private-key.pem`
+* `circleci-api-token.txt`
 
 Given the right credentials, one may use this command to build and run locally using the production database:
 

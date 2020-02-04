@@ -7,6 +7,8 @@ WEBAPP_BINARY_NAME = "my-webapp"
 
 WEBAPP_INTERNAL_PORT = 3001
 
+def double_quote(foo):
+	return '"' + foo + '"'
 
 def generate_dockerrun_aws_json(output_path, nondefault_cli_arglist, entrypoint_override=None):
 
@@ -21,7 +23,7 @@ def generate_dockerrun_aws_json(output_path, nondefault_cli_arglist, entrypoint_
             }
         ],
         "Entrypoint": os.path.join("/opt/app", entrypoint_override if entrypoint_override else WEBAPP_BINARY_NAME),
-        "Command": " ".join(nondefault_cli_arglist),
+        "Command": " ".join(map(double_quote, nondefault_cli_arglist)),
     }
 
     with open(output_path, "w") as fh:
@@ -32,7 +34,7 @@ def generate_app_nondefault_cli_arglist(
         app_credentials_json,
         db_credentials_json,
         db_mview_credentials_json,
-        github_personal_access_token,
+        github_app_pem_content,
         circleci_api_token,
         is_notification_ingester,
         no_force_ssl):
@@ -58,8 +60,8 @@ def generate_app_nondefault_cli_arglist(
         db_mview_credentials_json["db-password"],
         "--admin-password",
         app_credentials_json["admin-password"],
-        "--github-personal-access-token",
-        github_personal_access_token,
+        "--github-app-rsa-pem",
+        github_app_pem_content,
     ]
 
     if no_force_ssl:

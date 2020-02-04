@@ -30,7 +30,9 @@ import qualified AuthConfig
 import qualified BuildRetrieval
 import qualified Builds
 import qualified CircleApi
+import qualified Constants
 import qualified DbHelpers
+import qualified DebugUtils                      as D
 import qualified FrontendHelpers
 import qualified GitRev
 import qualified JsonUtils
@@ -48,10 +50,11 @@ import qualified WebApi
 data SetupData = SetupData {
     _setup_static_base           :: String
   , _setup_github_config         :: AuthConfig.GithubConfig
-  , _circleci_api_token          :: CircleApi.CircleCIApiToken
+  , _third_party_creds           :: CircleApi.ThirdPartyAuth
   , _setup_connection_data       :: DbHelpers.DbConnectionData
   , _setup_mview_connection_data :: DbHelpers.DbConnectionData -- ^ for updating materialized views
   }
+
 
 
 data PersistenceData = PersistenceData {
@@ -69,7 +72,7 @@ scottyApp ::
 scottyApp
     logger
     (PersistenceData cache session store)
-    (SetupData static_base github_config circleci_api_token connection_data mview_connection_data) = do
+    (SetupData static_base github_config third_party_creds connection_data mview_connection_data) = do
 
   S.middleware $ logRequestsWith $
     \logger_t -> logger $ localDomain logger_domain_identifier logger_t
@@ -104,8 +107,12 @@ scottyApp
   S.get "/logout" $ Auth.logoutH cache
 
 
+  S.post "/api/github-event" $ StatusUpdate.githubEventEndpoint $
+    Constants.ProviderConfigs
+      github_config
+      third_party_creds
+      connection_data
 
-  S.post "/api/github-event" $ StatusUpdate.githubEventEndpoint connection_data github_config
 
   S.post "/api/code-breakage-resolution-report" $
     FrontendHelpers.breakageResolutionReport
@@ -136,16 +143,16 @@ scottyApp
 
   S.post "/api/rescan-multiple-builds" $
     withAuth $
-      Scanning.apiRescanBuilds
+      Scanning.apiRescanBuilds third_party_creds
         <$> S.jsonData
 
   S.post "/api/rescan-build" $
     withAuth $
-      Scanning.rescanSingleBuildWrapped
+      Scanning.rescanSingleBuildWrapped third_party_creds
         <$> (Builds.UniversalBuildId <$> S.param "build")
 
   S.post "/api/rebuild-single-job" $
-    withAuth $ FrontendHelpers.facilitateJobRebuild circleci_api_token
+    withAuth $ FrontendHelpers.facilitateJobRebuild (CircleApi.circle_api_token third_party_creds)
       <$> (Builds.UniversalBuildId <$> S.param "build")
 
   S.post "/api/promote-match" $
@@ -160,7 +167,7 @@ scottyApp
 
   S.post "/api/rescan-commit" $
     withAuth $
-      FrontendHelpers.rescanCommitCallback github_config
+      FrontendHelpers.rescanCommitCallback third_party_creds
         <$> (Builds.RawCommit <$> S.param "sha1")
 
   S.post "/api/populate-master-commits" $
@@ -368,8 +375,8 @@ scottyApp
     SqlRead.getBestBuildMatch . Builds.UniversalBuildId <$> S.param "build_id"
 
   get "/api/single-build-info" $
-    fmap WebApi.toJsonEither . SqlUpdate.getBuildInfo (AuthConfig.personal_access_token github_config) . Builds.UniversalBuildId
-    <$> S.param "build_id"
+    fmap WebApi.toJsonEither . SqlUpdate.getBuildInfo third_party_creds . Builds.UniversalBuildId
+      <$> S.param "build_id"
 
   get "/api/list-build-github-status-events" $
     SqlRead.apiGitHubNotificationsForBuild
@@ -397,7 +404,9 @@ scottyApp
       runExceptT $ do
         sha1 <- except $ GitRev.validateSha1 commit_sha1_text
         ExceptT $ flip runReaderT conn $
-          SqlUpdate.countRevisionBuilds (AuthConfig.personal_access_token github_config) sha1
+          SqlUpdate.countRevisionBuilds
+            third_party_creds
+            sha1
 
     S.json $ WebApi.toJsonEither json_result
 
@@ -454,6 +463,8 @@ scottyApp
     SqlRead.isMasterCommit . Builds.RawCommit <$> S.param "sha1"
 
   S.get "/api/commit-builds" $ do
+    liftIO $ D.debugList ["fetching AAA"]
+
     commit_sha1_text <- S.param "sha1"
     json_result <- runExceptT $ do
       sha1 <- except $ GitRev.validateSha1 commit_sha1_text
@@ -475,8 +486,11 @@ scottyApp
     S.json $ WebApi.toJsonEither x
 
   S.get "/api/get-user-opt-out-settings" $
-    FrontendHelpers.jsonAuthorizedDbInteract2 connection_data session github_config $
-      pure SqlRead.userOptOutSettings
+    FrontendHelpers.jsonAuthorizedDbInteract2
+      connection_data
+      session
+      github_config $
+        pure SqlRead.userOptOutSettings
 
   S.post "/api/update-user-opt-out-settings" $
     withAuth $ SqlWrite.updateUserOptOutSettings <$> S.param "enabled"

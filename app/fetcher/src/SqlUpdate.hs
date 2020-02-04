@@ -9,6 +9,7 @@ import           Control.Monad.Trans.Except (ExceptT (ExceptT), except,
                                              runExceptT)
 import           Control.Monad.Trans.Reader (ask, runReaderT)
 import           Data.Aeson
+import           Data.Bifunctor             (first)
 import           Data.Either.Utils          (maybeToEither)
 import           Data.HashMap.Strict        (HashMap)
 import qualified Data.HashMap.Strict        as HashMap
@@ -23,6 +24,8 @@ import qualified Safe
 
 import qualified Builds
 import qualified BuildSteps
+import qualified CircleApi
+import qualified CircleAuth
 import qualified Constants
 import qualified DbHelpers
 import qualified DebugUtils                 as D
@@ -32,10 +35,6 @@ import qualified MyUtils
 import qualified QueryUtils                 as Q
 import qualified SqlRead
 import qualified SqlWrite
-
-
-pytorchRepoOwner :: DbHelpers.OwnerAndRepo
-pytorchRepoOwner = DbHelpers.OwnerAndRepo Constants.projectName Constants.repoName
 
 
 data CommitInfoCounts = NewCommitInfoCounts {
@@ -90,10 +89,12 @@ data UpstreamBreakagesInfo = UpstreamBreakagesInfo {
 
 
 getBuildInfo ::
-     OAuth2.AccessToken
+     CircleApi.ThirdPartyAuth
   -> Builds.UniversalBuildId
   -> SqlRead.DbIO (Either Text (DbHelpers.BenchmarkedResponse BuildInfoRetrievalBenchmarks SingleBuildInfo))
-getBuildInfo access_token build@(Builds.UniversalBuildId build_id) = do
+getBuildInfo
+    (CircleApi.ThirdPartyAuth _ jwt_signer)
+    build@(Builds.UniversalBuildId build_id) = do
 
   -- TODO Replace this with SQL COUNT()
   DbHelpers.BenchmarkedResponse best_match_retrieval_timing matches <- SqlRead.getBuildPatternMatches build
@@ -123,9 +124,15 @@ getBuildInfo access_token build@(Builds.UniversalBuildId build_id) = do
       let sha1 = Builds.vcs_revision $ BuildSteps.build step_container
           job_name = Builds.job_name $ BuildSteps.build step_container
 
+      github_token_wrapper <- ExceptT $ fmap (first T.pack) $
+        CircleAuth.getGitHubAppInstallationToken jwt_signer
+
       -- TODO Replace this!
       (breakages_retrieval_timing, UpstreamBreakagesInfo _ breakages _) <- D.timeThisFloat $ ExceptT $
-        flip runReaderT conn $ findKnownBuildBreakages access_token pytorchRepoOwner sha1
+        flip runReaderT conn $ findKnownBuildBreakages
+          (CircleAuth.token github_token_wrapper)
+          Constants.pytorchRepoOwner
+          sha1
 
       let applicable_breakages = filter (Set.member job_name . SqlRead._jobs . DbHelpers.record) breakages
 
@@ -195,10 +202,13 @@ instance ToJSON RevisionBuildCountBenchmarks where
 
 
 countRevisionBuilds ::
-     OAuth2.AccessToken
+     CircleApi.ThirdPartyAuth
   -> GitRev.GitSha1
   -> SqlRead.DbIO (Either Text (DbHelpers.BenchmarkedResponse RevisionBuildCountBenchmarks CommitInfo))
-countRevisionBuilds access_token git_revision = do
+countRevisionBuilds
+    (CircleApi.ThirdPartyAuth _ jwt_signer)
+    git_revision = do
+
   conn <- ask
 
   liftIO $ D.debugList [
@@ -210,6 +220,9 @@ countRevisionBuilds access_token git_revision = do
   (row_retrieval_time, rows) <- D.timeThisFloat $ liftIO $ query conn aggregate_causes_sql only_commit
 
   liftIO $ runExceptT $ do
+
+    github_token_wrapper <- ExceptT $ fmap (first T.pack) $
+      CircleAuth.getGitHubAppInstallationToken jwt_signer
 
     let err = T.pack $ unwords [
             "No entries in"
@@ -230,8 +243,12 @@ countRevisionBuilds access_token git_revision = do
       ) <- except $ maybeToEither err $ Safe.headMay rows
 
     -- TODO Replace this
-    (known_broken_determination_time, UpstreamBreakagesInfo _ breakages _) <- D.timeThisFloat $ ExceptT $
-      flip runReaderT conn $ findKnownBuildBreakages access_token pytorchRepoOwner $ Builds.RawCommit sha1
+    (known_broken_determination_time, UpstreamBreakagesInfo _ breakages _) <- D.timeThisFloat $
+      ExceptT $ flip runReaderT conn $
+        findKnownBuildBreakages
+          (CircleAuth.token github_token_wrapper)
+          Constants.pytorchRepoOwner $
+            Builds.RawCommit sha1
 
     return $ DbHelpers.BenchmarkedResponse
       (RevisionBuildCountBenchmarks row_retrieval_time known_broken_determination_time) $

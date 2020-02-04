@@ -18,8 +18,8 @@ DEFAULT_CREDENTIALS_DIRECTORY = os.path.join(THIS_DIRECTORY, "../circleci-failur
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Run webapp locally')
-    parser.add_argument('--personal-access-token-file', dest='personal_token_file',
-                        default=os.path.join(DEFAULT_CREDENTIALS_DIRECTORY, "github-personal-access-token.txt"),
+    parser.add_argument('--github-app-pem-filepath', dest='github_app_pem_filepath',
+                        default=os.path.join(DEFAULT_CREDENTIALS_DIRECTORY, "circleci-failure-attribution.private-key.pem"),
                         help='File containing GitHub personal access token')
     parser.add_argument('--circleci-api-token-file', dest='circleci_api_token_file',
                         default=os.path.join(DEFAULT_CREDENTIALS_DIRECTORY, "circleci-api-token.txt"),
@@ -81,14 +81,14 @@ if __name__ == "__main__":
 
     with open(app_credentials_json_path) as fh_app, open(db_credentials_json_path) as fh_db, open(db_mview_credentials_json_path) as fh_mview_db:
 
-        github_personal_access_token = open(options.personal_token_file).read().strip()
+        github_app_pem_content = open(options.github_app_pem_filepath).read().strip()
         circleci_api_token = open(options.circleci_api_token_file).read().strip()
 
         nondefault_cli_arglist = args_assembly.generate_app_nondefault_cli_arglist(
             json.load(fh_app),
             json.load(fh_db),
             json.load(fh_mview_db),
-            github_personal_access_token,
+            github_app_pem_content,
             circleci_api_token,
             options.notification_ingester,
             options.no_force_ssl)
@@ -113,6 +113,6 @@ if __name__ == "__main__":
 
             command_string = " ".join(cli_args)
             print("Executing command:", command_string)
-            subprocess.check_call(command_string, shell=True, cwd="app")
+            subprocess.check_call(cli_args, cwd="app")
 
 

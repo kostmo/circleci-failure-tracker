@@ -202,13 +202,17 @@ facilitateJobRebuild circleci_api_token universal_build_id = do
 
     let provider_build_num = Builds.build_id $ Builds.build_record storable_build
 
-    circleci_response <- CircleTrigger.rebuildCircleJobStandalone
+    circleci_response <- CircleTrigger.rebuildCircleJobInWorkflow
       circleci_api_token
       provider_build_num
 
-    ExceptT $ flip runReaderT dbauth $ SqlWrite.insertRebuildTriggerEvent
-      universal_build_id
-      (CircleTrigger.build_num circleci_response)
+    result <- ExceptT $ flip runReaderT dbauth $
+      SqlWrite.insertRebuildTriggerEvent
+        universal_build_id
+        (CircleTrigger.message circleci_response)
+
+    liftIO $ D.debugStr "Submitted rebuild request."
+    return result
 
 
 getLoggedInUser :: SqlRead.AuthDbIO (Either T.Text AuthStages.Username)
@@ -243,15 +247,26 @@ jsonAuthorizedDbInteract2
     github_config
     f = do
 
+  liftIO $ D.debugList ["I am here AAA"]
+
   func <- f
+
+  liftIO $ D.debugList ["I am here BBB"]
 
   let callback_func user_alias = do
         conn <- DbHelpers.get_connection connection_data
         runReaderT func $ SqlRead.AuthConnection conn user_alias
 
+  liftIO $ D.debugList ["I am here CCC"]
+
   login_redirect_path <- S.param "login_redirect_path"
 
+  liftIO $ D.debugList ["I am here DDD"]
+
   rq <- S.request
+
+  liftIO $ D.debugList ["I am here EEE"]
+
   insertion_result <- liftIO $
     Auth.getAuthenticatedUser
       login_redirect_path
@@ -259,6 +274,8 @@ jsonAuthorizedDbInteract2
       session
       github_config
       callback_func
+
+  liftIO $ D.debugList ["I am here FFF"]
 
   S.json $ WebApi.toJsonEither insertion_result
 
@@ -275,7 +292,11 @@ jsonAuthorizedDbInteract
     github_config
     f = do
 
+  liftIO $ D.debugList ["I am here 1"]
+
   func <- f
+
+  liftIO $ D.debugList ["I am here 2"]
 
   let callback_func _user_alias = do
         conn <- DbHelpers.get_connection connection_data
@@ -283,7 +304,12 @@ jsonAuthorizedDbInteract
 
   login_redirect_path <- S.param "login_redirect_path"
 
+  liftIO $ D.debugList ["I am here 3"]
+
   rq <- S.request
+
+  liftIO $ D.debugList ["I am here 4"]
+
   insertion_result <- liftIO $
     Auth.getAuthenticatedUser
       login_redirect_path
@@ -291,6 +317,8 @@ jsonAuthorizedDbInteract
       session
       github_config
       callback_func
+
+  liftIO $ D.debugList ["I am here 5"]
 
   S.json $ WebApi.toJsonEither insertion_result
 
@@ -431,20 +459,31 @@ postWithAuthentication
     session
     f = do
 
+  liftIO $ D.debugList ["HELLO AAA"]
+
   func <- f
+
+  liftIO $ D.debugList ["HELLO BBB"]
+
   let callback_func user_alias = do
         conn <- DbHelpers.get_connection connection_data
         runReaderT func $ SqlRead.AuthConnection conn user_alias
 
   login_redirect_path <- S.param "login_redirect_path"
 
+  liftIO $ D.debugList ["HELLO CCC"]
+
   rq <- S.request
+
+  liftIO $ D.debugList ["HELLO DDD"]
   insertion_result <- liftIO $ Auth.getAuthenticatedUser
     login_redirect_path
     rq
     session
     github_config
     callback_func
+
+  liftIO $ D.debugList ["HELLO EEE"]
 
   S.json $ DbInsertion.toInsertionResponse
     login_redirect_path
@@ -453,10 +492,10 @@ postWithAuthentication
 
 
 rescanCommitCallback :: (MonadIO m) =>
-     AuthConfig.GithubConfig
+     CircleApi.ThirdPartyAuth
   -> Builds.RawCommit
   -> ReaderT SqlRead.AuthConnection m (Either Text Text)
-rescanCommitCallback github_config commit = do
+rescanCommitCallback third_party_auth commit = do
   SqlRead.AuthConnection conn user_alias <- ask
 
   liftIO $ do
@@ -465,8 +504,8 @@ rescanCommitCallback github_config commit = do
 
     run_result <- runExceptT $
       StatusUpdate.readGitHubStatusesAndScanAndPostSummaryForCommit
+        third_party_auth
         conn
-        (AuthConfig.personal_access_token github_config)
         (Just user_alias)
         owned_repo
         StatusUpdate.ShouldStoreDetailedSuccessRecords

@@ -9,8 +9,10 @@ import qualified Data.HashMap.Strict     as Map
 
 import           Types
 
+
 initCacheStore :: IO CacheStore
 initCacheStore = newMVar Map.empty
+
 
 removeKey :: CacheStore -> IDPLabel -> IO ()
 removeKey store idpKey = do
@@ -19,12 +21,14 @@ removeKey store idpKey = do
   putMVar store m2
   where updateIdpData idpD = Just $ idpD { loginUser = Nothing }
 
+
 lookupKey :: CacheStore
           -> IDPLabel
           -> IO (Maybe IDPData)
 lookupKey store idpKey = do
   m1 <- tryReadMVar store
   return $ maybe Nothing (Map.lookup idpKey) m1
+
 
 insertIDPData :: CacheStore -> IDPData -> IO ()
 insertIDPData store val = do

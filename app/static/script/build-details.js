@@ -272,7 +272,6 @@ function rescan_build(button) {
 		error: function( data ) {
 			$("#scan-throbber").hide();
 			alert("Server error!");
-
 		},
         });
 }

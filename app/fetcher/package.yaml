@@ -59,6 +59,9 @@ library:
     - extra
     - deepseq
     - primitive
+    - jwt
+    - crypto-pubkey-openssh
+    - crypto-pubkey-types
 
 executables:
   run-scanner:
@@ -78,4 +81,6 @@ executables:
     dependencies:
     - fetcher
     - optparse-applicative      
+    - text
     - transformers
+    - bytestring

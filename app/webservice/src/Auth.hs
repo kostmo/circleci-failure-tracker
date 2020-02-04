@@ -36,6 +36,7 @@ import           Web.Scotty.Internal.Types
 import qualified AuthConfig
 import qualified AuthStages
 import qualified Constants
+import qualified DebugUtils                 as D
 import qualified Github
 import qualified GithubApiFetch
 import           Session
@@ -48,11 +49,11 @@ githubAuthTokenSessionKey :: String
 githubAuthTokenSessionKey = "github_api_token"
 
 
-wrap_login_err ::
+wrapLoginErr ::
      T.Text
   -> AuthStages.AuthenticationFailureStageInfo
   -> AuthStages.BackendFailure a
-wrap_login_err login_url =
+wrapLoginErr login_url =
   AuthStages.AuthFailure . AuthStages.AuthenticationFailure (Just $ AuthStages.LoginUrl login_url True)
 
 
@@ -64,21 +65,36 @@ getAuthenticatedUserByToken ::
   -> IO (Either (AuthStages.BackendFailure a) b)
 getAuthenticatedUserByToken redirect_path wrapped_token github_config callback = do
 
+  D.debugList ["PLACE A"]
   mgr <- newManager tlsManagerSettings
+  D.debugList ["PLACE B"]
   let api_support_data = GithubApiFetch.GitHubApiSupport mgr wrapped_token
 
   runExceptT $ do
+    liftIO $ D.debugList ["PLACE C"]
+
     Types.LoginUser _login_name login_alias <- ExceptT $
-      first (const $ wrap_login_err login_url AuthStages.FailUsernameDetermination) <$> GithubApiFetch.fetchUser api_support_data
+      first (const $ wrapLoginErr login_url AuthStages.FailUsernameDetermination) <$> GithubApiFetch.fetchUser api_support_data
+
+    liftIO $ D.debugList ["PLACE D"]
 
     let username_text = TL.toStrict login_alias
     is_org_member <- ExceptT $ do
-      either_membership <- isOrgMember (AuthConfig.personal_access_token github_config) username_text
-      return $ first (wrap_login_err login_url) either_membership
+
+      liftIO $ D.debugList ["PLACE E"]
+      either_membership <- isOrgMember wrapped_token username_text
+
+      liftIO $ D.debugList ["PLACE F"]
+      return $ first (wrapLoginErr login_url) either_membership
+
+    liftIO $ D.debugList ["PLACE G"]
 
     unless is_org_member $ except $
-      Left $ AuthStages.AuthFailure $ AuthStages.AuthenticationFailure (Just $ AuthStages.LoginUrl login_url True)
-        $ AuthStages.FailOrgMembership (AuthStages.Username username_text) $ T.pack Constants.projectName
+      Left $ AuthStages.AuthFailure $
+        AuthStages.AuthenticationFailure (Just $ AuthStages.LoginUrl login_url True)
+          $ AuthStages.FailOrgMembership (AuthStages.Username username_text) $ T.pack Constants.projectName
+
+    liftIO $ D.debugList ["PLACE H"]
 
     ExceptT $ fmap (first AuthStages.DbFailure) $
       callback $ AuthStages.Username username_text
@@ -98,7 +114,7 @@ getAuthenticatedUser redirect_path rq session github_config callback = do
 
   u <- sessionLookup githubAuthTokenSessionKey
   case u of
-    Nothing -> return $ Left $ wrap_login_err login_url AuthStages.FailLoginRequired
+    Nothing -> return $ Left $ wrapLoginErr login_url AuthStages.FailLoginRequired
     Just api_token -> getAuthenticatedUserByToken
       redirect_path
       (OAuth2.AccessToken $ T.pack api_token)
@@ -202,7 +218,10 @@ isOrgMemberInner either_response = case either_response of
 
 -- | Alternate (user-centric) API endpoint is:
 -- https://developer.github.com/v3/orgs/members/#get-your-organization-membership
-isOrgMember :: OAuth2.AccessToken -> T.Text -> IO (Either AuthStages.AuthenticationFailureStageInfo Bool)
+isOrgMember ::
+     OAuth2.AccessToken
+  -> T.Text
+  -> IO (Either AuthStages.AuthenticationFailureStageInfo Bool)
 isOrgMember wrapped_token username = do
   mgr <- newManager tlsManagerSettings
 

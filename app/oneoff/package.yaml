@@ -29,4 +29,5 @@ executables:
     - optparse-applicative
     - containers
     - transformers
+    - bytestring
 

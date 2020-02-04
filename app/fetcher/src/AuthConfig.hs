@@ -16,13 +16,12 @@ import qualified Utils
 
 
 data GithubConfig = NewGithubConfig {
-    is_local              :: Bool
-  , client_id             :: Text
-  , client_secret         :: Text
-  , personal_access_token :: AccessToken
-  , webhook_secret        :: Text
-  , admin_password        :: Text
-  , no_force_ssl          :: Bool
+    is_local       :: Bool
+  , client_id      :: Text
+  , client_secret  :: Text
+  , webhook_secret :: Text
+  , admin_password :: Text
+  , no_force_ssl   :: Bool
   }
 
 

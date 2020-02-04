@@ -16,12 +16,12 @@ FROM karl-base:latest as build
 COPY stack.yaml /opt/build/
 
 COPY webservice /opt/build/webservice
-COPY web-lambda /opt/build/web-lambda
 COPY log-postgres /opt/build/log-postgres
 COPY fetcher /opt/build/fetcher
 COPY markdown-dsl /opt/build/markdown-dsl
-COPY oneoff /opt/build/oneoff
 COPY eb-worker /opt/build/eb-worker
+#COPY oneoff /opt/build/oneoff
+#COPY web-lambda /opt/build/web-lambda
 
 WORKDIR /opt/build
 

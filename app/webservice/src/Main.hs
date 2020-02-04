@@ -1,5 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+import qualified Data.ByteString                                 as B
+import           Data.Either                                     (fromRight)
 import qualified Data.Maybe                                      as Maybe
 import           Data.Text                                       (Text)
 import qualified Data.Text                                       as T
@@ -9,7 +11,6 @@ import           Database.PostgreSQL.PQTypes.Internal.Connection (ConnectionSett
                                                                   unConnectionSource)
 import           Log.Backend.PostgreSQL                          (withPgLogger)
 import           Log.Monad                                       (runLogT)
-import qualified Network.OAuth.OAuth2                            as OAuth2
 import           Network.Wai.Session.ClientSession               (clientsessionStore)
 import           Options.Applicative
 import           System.Environment                              (lookupEnv)
@@ -23,27 +24,28 @@ import qualified Web.Scotty                                      as S
 
 import qualified AuthConfig
 import qualified CircleApi
+import qualified CircleAuth
 import qualified DbHelpers
 import qualified Routes
 import qualified Session
 
 
 data CommandLineArgs = NewCommandLineArgs {
-    serverPort                :: Int
-  , staticBase                :: String
-  , dbHostname                :: String
-  , dbUsername                :: String
-  , dbPassword                :: String
-  , dbMviewUsername           :: String
-  , dbMviewPassword           :: String
-  , gitHubClientID            :: Text
-  , gitHubClientSecret        :: Text
-  , gitHubPersonalAccessToken :: Text
-  , gitHubWebhookSecret       :: Text
-  , circleciApiToken          :: String
-  , runningLocally            :: Bool
-  , adminPassword             :: Text
-  , noForceSSL                :: Bool
+    serverPort          :: Int
+  , staticBase          :: String
+  , dbHostname          :: String
+  , dbUsername          :: String
+  , dbPassword          :: String
+  , dbMviewUsername     :: String
+  , dbMviewPassword     :: String
+  , gitHubClientID      :: Text
+  , gitHubClientSecret  :: Text
+  , gitHubAppPemContent :: B.ByteString
+  , gitHubWebhookSecret :: Text
+  , circleciApiToken    :: String
+  , runningLocally      :: Bool
+  , adminPassword       :: Text
+  , noForceSSL          :: Bool
   }
 
 
@@ -89,6 +91,22 @@ mainAppCode args = do
 
   postgres_logging_connection_uri <- getPostgresLoggingUri connection_data
 
+
+
+  let github_rsa_signer = fromRight (error "Failed to load RSA key for GitHub app") $ CircleAuth.loadRsaKey $ gitHubAppPemContent args
+
+      third_party_auth = CircleApi.ThirdPartyAuth
+        (CircleApi.CircleCIApiToken $ T.pack $ circleciApiToken args)
+        github_rsa_signer
+
+      credentials_data = Routes.SetupData
+        static_base
+        github_config
+        third_party_auth
+        connection_data
+        connection_data_mview
+
+
   let persistence_data = Routes.PersistenceData cache session store
 
   with_logger postgres_logging_connection_uri $ \logger ->
@@ -105,21 +123,12 @@ mainAppCode args = do
         Nothing
         []
 
-    credentials_data = Routes.SetupData
-      static_base
-      github_config
-      (CircleApi.CircleCIApiToken $ T.pack $ circleciApiToken args)
-      connection_data
-      connection_data_mview
-
     static_base = staticBase args
 
-    access_token = OAuth2.AccessToken $ gitHubPersonalAccessToken args
     github_config = AuthConfig.NewGithubConfig
       (runningLocally args)
       (gitHubClientID args)
       (gitHubClientSecret args)
-      access_token
       (gitHubWebhookSecret args)
       (adminPassword args)
       (noForceSSL args)
@@ -164,7 +173,7 @@ myCliParser = NewCommandLineArgs
     <> help "Client ID for GitHub app")
   <*> strOption   (long "github-client-secret" <> metavar "GITHUB_CLIENT_SECRET"
     <> help "Client secret for GitHub app")
-  <*> strOption   (long "github-personal-access-token" <> metavar "GITHUB_PERSONAL_ACCESS_TOKEN"
+  <*> strOption   (long "github-app-rsa-pem" <> metavar "GITHUB_APP_RSA_PEM"
     <> help "For debugging purposes. This will be removed eventually")
   <*> strOption   (long "github-webhook-secret" <> metavar "GITHUB_WEBHOOK_SECRET"
     <> help "GitHub webhook secret")

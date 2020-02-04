@@ -1,8 +1,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 import           Control.Monad.IO.Class     (liftIO)
-import           Control.Monad.Trans.Except (ExceptT (ExceptT), runExceptT)
+import           Control.Monad.Trans.Except (ExceptT (ExceptT), except,
+                                             runExceptT)
 import           Control.Monad.Trans.Reader (runReaderT)
+import           Data.Bifunctor             (first)
+import qualified Data.ByteString            as B
 import           Data.Either                (fromRight)
 import qualified Data.Set                   as Set
 import           Data.Text                  (Text)
@@ -13,6 +16,7 @@ import           System.IO
 
 import qualified Builds
 import qualified CircleApi
+import qualified CircleAuth
 import qualified CircleTrigger
 import qualified CommentRender
 import qualified Constants
@@ -30,12 +34,12 @@ import qualified StatusUpdateTypes
 
 
 data CommandLineArgs = NewCommandLineArgs {
-    dbHostname                :: String
-  , dbPassword                :: String
-  , circleciApiToken          :: String
-  , rescanVisited             :: Bool
-  , gitHubPersonalAccessToken :: Text
-  , repoGitDir                :: FilePath
+    dbHostname          :: String
+  , dbPassword          :: String
+  , circleciApiToken    :: String
+  , rescanVisited       :: Bool
+  , gitHubAppPemContent :: B.ByteString
+  , repoGitDir          :: FilePath
   }
 
 
@@ -50,15 +54,16 @@ myCliParser = NewCommandLineArgs
     <> help "CircleCI API token for triggering rebuilds")
   <*> switch      (long "rescan"
     <> help "Rescan previously visited builds")
-  <*> strOption   (long "github-personal-access-token" <> metavar "GITHUB_PERSONAL_ACCESS_TOKEN"
-    <> help "For debugging purposes. This will be removed eventually")
+  <*> strOption   (long "github-app-rsa-pem" <> metavar "GITHUB_APP_RSA_PEM"
+    <> help "GitHub App PEM file content")
   <*> strOption   (long "repo-git-dir" <> metavar "GIT_DIR"
     <> help "Path to .git directory of repository, for use in computing merge bases")
 
 
-benchmarkScan conn build_id = runExceptT $ do
+benchmarkScan circle_token conn build_id = runExceptT $ do
 
   scan_resources <- ExceptT $ Scanning.prepareScanResources
+    circle_token
     conn
     Scanning.NoPersist
     Nothing
@@ -83,8 +88,8 @@ testBotCommentGeneration oauth_access_token conn = do
 
   let upstream_breakages_info = fromRight (error "BAD2") blah2
 
-  blah3 <- liftIO $
-    runReaderT (StatusUpdate.fetchCommitPageInfo upstream_breakages_info raw_commit validated_sha1) conn
+  blah3 <- liftIO $ flip runReaderT conn $
+    StatusUpdate.fetchCommitPageInfo upstream_breakages_info raw_commit validated_sha1
 
 
   blah_circleci_failed_job_names <- flip runReaderT conn $ SqlRead.getFailedCircleCIJobNames raw_commit
@@ -123,6 +128,18 @@ testBotCommentGeneration oauth_access_token conn = do
       raw_commit
 
 
+
+testCircleCIRebuild circletoken = do
+  blah0 <- runExceptT $ CircleTrigger.rebuildCircleJobInWorkflow
+    circletoken
+    (Builds.NewBuildNumber 4370733)
+
+--  let foo = fromRight (error "BAD0") blah0
+  D.debugList [
+      "FOO"
+    , show blah0
+    ]
+
 mainAppCode :: CommandLineArgs -> IO ()
 mainAppCode args = do
 
@@ -131,18 +148,33 @@ mainAppCode args = do
   conn <- DbPreparation.prepareDatabase connection_data False
 
 
---  benchmarkScan conn $ Builds.UniversalBuildId 82047188
+--  benchmarkScan circletoken conn $ Builds.UniversalBuildId 82047188
 
 
-  blah0 <- runExceptT $ CircleTrigger.rebuildCircleJobStandalone
-    (CircleApi.CircleCIApiToken $ T.pack $ circleciApiToken args)
-    (Builds.NewBuildNumber 4335779)
+  output <- runExceptT $ do
+    rsa_signer <- except $ CircleAuth.loadRsaKey $ gitHubAppPemContent args
+    let third_party_auth = CircleApi.ThirdPartyAuth
+          (CircleApi.CircleCIApiToken $ T.pack $ circleciApiToken args)
+          rsa_signer
 
---  let foo = fromRight (error "BAD0") blah0
+    scan_resources <- ExceptT $ Scanning.prepareScanResources
+      third_party_auth
+      conn
+      Scanning.NoPersist
+      Nothing
+
+    ExceptT $ fmap (first T.pack) $ CircleAuth.getGitHubAppInstallationToken rsa_signer
+
+
+
   D.debugList [
-      "FOO"
-    , show blah0
+    "Token response:"
+    , show output
     ]
+
+--  testCircleCIRebuild circletoken
+
+
 
   putStrLn "============================="
 --  testBotCommentGeneration oauth_access_token conn
@@ -171,9 +203,8 @@ mainAppCode args = do
   return ()
 
   where
+    circletoken = CircleApi.CircleCIApiToken $ T.pack $ circleciApiToken args
     git_repo_dir = repoGitDir args
-
-    oauth_access_token = OAuth2.AccessToken $ gitHubPersonalAccessToken args
 
     connection_data = DbHelpers.NewDbConnectionData {
         DbHelpers.dbHostname = dbHostname args

@@ -12,11 +12,10 @@ import           Data.Aeson.Lens                 (key, _Array, _Bool, _String)
 import           Data.Bifunctor                  (first)
 import           Data.Either                     (partitionEithers)
 import qualified Data.Either                     as Either
-import           Data.Either.Combinators         (swapEither)
-import           Data.Either.Combinators         (rightToMaybe)
+import           Data.Either.Combinators         (rightToMaybe, swapEither)
 import           Data.Either.Utils               (maybeToEither)
 import qualified Data.HashMap.Strict             as HashMap
-import           Data.List                       (intercalate, partition)
+import           Data.List                       (partition)
 import           Data.List.Ordered               (nubSortOn)
 import qualified Data.Maybe                      as Maybe
 import           Data.Set                        (Set)
@@ -27,15 +26,16 @@ import qualified Data.Text.Lazy                  as LT
 import           Data.Traversable                (for)
 import           Database.PostgreSQL.Simple      (Connection)
 import           GHC.Int                         (Int64)
-import           Network.Wreq                    as NW
 import qualified Network.Wreq.Session            as Sess
 import qualified Safe
 
 import qualified AuthStages
 import qualified Builds
+import qualified CircleApi
+import qualified CircleAuth
 import qualified CircleBuild
 import qualified CircleCIParse
-import qualified Constants
+import qualified CircleTest
 import qualified DbHelpers
 import qualified DebugUtils                      as D
 import qualified FetchHelpers
@@ -125,11 +125,13 @@ scanBuilds
 
 
 rescanSingleBuildWrapped ::
-     Builds.UniversalBuildId
+     CircleApi.ThirdPartyAuth
+  -> Builds.UniversalBuildId
   -> SqlRead.AuthDbIO (Either a T.Text)
-rescanSingleBuildWrapped build_to_scan = do
+rescanSingleBuildWrapped third_party_auth build_to_scan = do
   SqlRead.AuthConnection conn user <- ask
   liftIO $ rescanSingleBuild
+    third_party_auth
     conn
     user
     build_to_scan
@@ -137,12 +139,18 @@ rescanSingleBuildWrapped build_to_scan = do
 
 
 apiRescanBuilds ::
-     [Builds.UniversalBuildId]
+     CircleApi.ThirdPartyAuth
+  -> [Builds.UniversalBuildId]
   -> SqlRead.AuthDbIO (Either T.Text Int)
-apiRescanBuilds scannable_build_numbers = do
+apiRescanBuilds third_party_auth scannable_build_numbers = do
   SqlRead.AuthConnection conn user <- ask
   either_matches <- liftIO $ runExceptT $ do
-    scan_resources <- ExceptT $ prepareScanResources conn PersistScanResult $ Just user
+    scan_resources <- ExceptT $ prepareScanResources
+      third_party_auth
+      conn
+      PersistScanResult
+      $ Just user
+
     liftIO $ do
       DbHelpers.setSessionStatementTimeout conn scanningStatementTimeoutSeconds
 
@@ -159,11 +167,12 @@ apiRescanBuilds scannable_build_numbers = do
 -- | Does not re-download the log from AWS.
 -- However, does re-fetch build info from CircleCI.
 rescanSingleBuild ::
-     Connection
+     CircleApi.ThirdPartyAuth
+  -> Connection
   -> AuthStages.Username
   -> Builds.UniversalBuildId
   -> IO (Either T.Text ())
-rescanSingleBuild conn initiator build_to_scan = do
+rescanSingleBuild third_party_auth conn initiator build_to_scan = do
 
   D.debugList [
       "Rescanning build:"
@@ -174,7 +183,11 @@ rescanSingleBuild conn initiator build_to_scan = do
   D.debugStr "Checkpoint A1"
 
   runExceptT $ do
-    scan_resources <- ExceptT $ prepareScanResources conn PersistScanResult $ Just initiator
+    scan_resources <- ExceptT $ prepareScanResources
+      third_party_auth
+      conn
+      PersistScanResult
+      $ Just initiator
 
     liftIO $ D.debugStr "Checkpoint A2"
 
@@ -218,13 +231,6 @@ rescanSingleBuild conn initiator build_to_scan = do
         ]
 
 
-getSingleBuildUrl :: Builds.BuildNumber -> String
-getSingleBuildUrl (Builds.NewBuildNumber build_number) = intercalate "/"
-  [ Constants.circleciApiBase
-  , show build_number
-  ]
-
-
 getStepFailure :: (Int, Value) -> Either Builds.BuildStepFailure ()
 getStepFailure (step_index, step_val) =
   mapM_ get_failure my_array
@@ -242,11 +248,16 @@ getStepFailure (step_index, step_val) =
 
 
 prepareScanResources ::
-     Connection
+     CircleApi.ThirdPartyAuth
+  -> Connection
   -> ScanResultPersistence
   -> Maybe AuthStages.Username
   -> IO (Either T.Text ScanRecords.ScanCatchupResources)
-prepareScanResources conn scan_result_persistence maybe_initiator = do
+prepareScanResources
+    (CircleApi.ThirdPartyAuth circle_token jwt_signer)
+    conn
+    scan_result_persistence
+    maybe_initiator = do
 
   aws_sess <- Sess.newSession
   circle_sess <- Sess.newSession
@@ -268,6 +279,8 @@ prepareScanResources conn scan_result_persistence maybe_initiator = do
 
     let latest_pattern_id = ScanPatterns.PatternId $ DbHelpers.db_id latest_pattern
 
+    github_auth_token <- ExceptT $ first T.pack <$> CircleAuth.getGitHubAppInstallationToken jwt_signer
+
     liftIO $ do
       D.debugList [
           "Fetched latest pattern ID"
@@ -286,15 +299,17 @@ prepareScanResources conn scan_result_persistence maybe_initiator = do
             , "seconds"
             ]
           return $ ScanRecords.PersistedScanId $ ScanRecords.ScanId scan_id
-        NoPersist -> return $ ScanRecords.NoPersistedScanId
+        NoPersist -> return ScanRecords.NoPersistedScanId
 
       return $ ScanRecords.ScanCatchupResources
         possible_scan_id
         latest_pattern_id
         patterns_by_id $ ScanRecords.FetchingResources
+          circle_token
           conn
           aws_sess
           circle_sess
+          github_auth_token
 
 
 getPatternObjects ::
@@ -305,7 +320,10 @@ getPatternObjects scan_resources =
   Maybe.mapMaybe $ \x -> DbHelpers.WithId x <$> HashMap.lookup x (ScanRecords.patterns_by_id scan_resources)
 
 
-filterApplicablePatterns :: T.Text -> [ScanPatterns.DbPattern] -> [ScanPatterns.DbPattern]
+filterApplicablePatterns ::
+     T.Text
+  -> [ScanPatterns.DbPattern]
+  -> [ScanPatterns.DbPattern]
 filterApplicablePatterns step_name =
   filter is_pattern_applicable
   where
@@ -377,15 +395,17 @@ catchupScan
 
         case ScanRecords.scan_id_tracking scan_resources of
           ScanRecords.NoPersistedScanId -> D.debugStr "NOT storing scan results to database."
-          ScanRecords.PersistedScanId scan_id ->
-            flip runReaderT (ScanRecords.db_conn $ ScanRecords.fetching scan_resources) $
-              storeScanResult
-                scan_id
-                buildstep_id
-                maximum_pattern_id
-                matches_and_timeouts
+          ScanRecords.PersistedScanId scan_id -> flip runReaderT conn $
+            storeScanResult
+              scan_id
+              buildstep_id
+              maximum_pattern_id
+              matches_and_timeouts
 
         return $ snd matches_and_timeouts
+
+  where
+    conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
 
 
 storeScanResult ::
@@ -426,29 +446,31 @@ storeScanResult
     (timeout_list, matches) = matches_and_timeouts
 
 
+-- | TODO: Consolidate some logic with "processUnvisitedBuilds"
 rescanVisitedBuilds ::
      ScanRecords.ScanCatchupResources
   -> PatternCullingMode
   -> LogRefetchMode
   -> [((Builds.BuildStepId, T.Text, DbHelpers.WithId Builds.UniversalBuild), [Int64])]
   -> IO [(DbHelpers.WithId Builds.UniversalBuild, [ScanPatterns.ScanMatch])]
-rescanVisitedBuilds scan_resources pattern_culling_mode should_refetch_logs visited_builds_list =
+rescanVisitedBuilds
+    scan_resources
+    pattern_culling_mode
+    should_refetch_logs
+    visited_builds_list =
 
-  for (zip [1::Int ..] visited_builds_list) $ \(idx, tup) -> do
+  for (zip [1::Int ..] visited_builds_list) process
 
-    let ((build_step_id, step_name, universal_build_with_id), pattern_ids) = tup
+  where
+  visited_count = length visited_builds_list
 
+  process (idx, tup) = do
     D.debugList [
         "Visiting"
       , MyUtils.renderFrac idx visited_count
       , "previously-visited builds"
-      , MyUtils.parens (show (DbHelpers.db_id universal_build_with_id)) ++ "..."
+      , MyUtils.parens (show $ DbHelpers.db_id universal_build_with_id) ++ "..."
       ]
-
-    let scannable_patterns_objs = case pattern_culling_mode of
-          ScanAllPatterns -> map (uncurry DbHelpers.WithId) $ HashMap.toList $
-            ScanRecords.patterns_by_id scan_resources
-          OnlyUnscannedPatterns -> getPatternObjects scan_resources pattern_ids
 
     either_matches <- catchupScan
       scan_resources
@@ -458,11 +480,15 @@ rescanVisitedBuilds scan_resources pattern_culling_mode should_refetch_logs visi
       (universal_build_with_id, Nothing)
       scannable_patterns_objs
 
-
     return (universal_build_with_id, Either.fromRight [] either_matches)
 
-  where
-    visited_count = length visited_builds_list
+    where
+      ((build_step_id, step_name, universal_build_with_id), pattern_ids) = tup
+
+      scannable_patterns_objs = case pattern_culling_mode of
+        ScanAllPatterns -> map (uncurry DbHelpers.WithId) $ HashMap.toList $
+          ScanRecords.patterns_by_id scan_resources
+        OnlyUnscannedPatterns -> getPatternObjects scan_resources pattern_ids
 
 
 -- | This function stores a record to the database
@@ -504,7 +530,6 @@ processUnvisitedBuilds scan_resources unvisited_builds_list =
           (universal_build_obj, Just failure_output) $
             ScanRecords.getPatternsWithId scan_resources
 
-    -- xxx
     return (universal_build_obj, Either.fromRight [] either_matches)
 
   where
@@ -524,12 +549,10 @@ getCircleCIFailedBuildInfo ::
   -> IO (Either ScanRecords.UnidentifiedBuildFailure Builds.BuildWithStepFailure)
 getCircleCIFailedBuildInfo scan_resources build_number = do
 
-  D.debugList ["Fetching from:", fetch_url]
-
-  either_r <- runExceptT $ do
-    r <- ExceptT $ FetchHelpers.safeGetUrl $ Sess.getWith opts sess fetch_url
-    jsonified_r <- NW.asJSON r
-    return $ jsonified_r ^. NW.responseBody
+  either_r <- CircleBuild.getCircleCIBuildPayload
+    (ScanRecords.circle_token $ ScanRecords.fetching scan_resources)
+    sess
+    build_number
 
   let inverted_result = case either_r of
         Right r -> do
@@ -550,14 +573,27 @@ getCircleCIFailedBuildInfo scan_resources build_number = do
           return $ ScanRecords.NetworkProblem fail_string
 
   return $ swapEither inverted_result
-
   where
-    fetch_url = getSingleBuildUrl build_number
-    opts = defaults & header "Accept" .~ [Constants.jsonMimeType]
     sess = ScanRecords.circle_sess $ ScanRecords.fetching scan_resources
 
 
--- | This function strips all ANSI escape codes from the console log before storage.
+-- | TODO Finish me
+storeTestResults ::
+     ScanRecords.ScanCatchupResources
+  -> DbHelpers.WithTypedId  Builds.UniversalBuildId Builds.UniversalBuild
+  -> IO (Either String Int64)
+storeTestResults scan_resources (DbHelpers.WithTypedId ubuild_id universal_build) = runExceptT $ do
+  test_parent <- CircleTest.getCircleTestResults scan_resources provider_build_num
+  ExceptT $ first T.unpack <$> SqlWrite.storeCircleTestResults conn ubuild_id test_parent
+  where
+    conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
+    provider_build_num = Builds.provider_buildnum universal_build
+
+
+-- | This function strips all ANSI escape codes from
+-- the console log before storage.
+--
+-- This function also retrieves test results!
 getAndStoreLog ::
      ScanRecords.ScanCatchupResources
   -> LogRefetchMode

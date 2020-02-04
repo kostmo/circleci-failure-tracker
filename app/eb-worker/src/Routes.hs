@@ -26,10 +26,13 @@ import qualified Web.Scotty.Internal.Types  as ScottyTypes
 import qualified AuthConfig
 import qualified BuildRetrieval
 import qualified Builds
+import qualified CircleApi
+import qualified CircleAuth
 import qualified Constants
 import qualified DbHelpers
 import qualified DebugUtils                 as D
 import qualified Scanning
+import qualified ScanRecords
 import qualified SqlRead
 import qualified SqlWrite
 import qualified StatusUpdate
@@ -53,7 +56,7 @@ instance FromJSON SqsBuildScanMessage
 data SetupData = SetupData {
     _setup_static_base           :: String
   , _setup_github_config         :: AuthConfig.GithubConfig
-  , _circleci_api_token          :: String
+  , _third_party_creds           :: CircleApi.ThirdPartyAuth
   , _setup_connection_data       :: DbHelpers.DbConnectionData
   , _setup_mview_connection_data :: DbHelpers.DbConnectionData -- ^ for updating materialized views
   }
@@ -110,8 +113,7 @@ scottyApp ::
   -> ScottyTypes.ScottyT LT.Text IO ()
 scottyApp
     _logger
-    (SetupData _static_base github_config _circleci_api_token connection_data _mview_connection_data) = do
-
+    (SetupData _static_base github_config third_party_auth connection_data _mview_connection_data) = do
 
   S.post "/worker/scheduled-work" $ do
 
@@ -180,8 +182,6 @@ scottyApp
 
   S.post "/worker/scan-sha1" $ do
 
-
-
     liftIO $ do
       current_time <- Clock.getCurrentTime
       D.debugList [
@@ -197,7 +197,7 @@ scottyApp
 
       liftIO $ doStuff
         connection_data
-        (AuthConfig.personal_access_token github_config)
+        third_party_auth
         (DbHelpers.OwnerAndRepo Constants.projectName Constants.repoName)
         body_json
 
@@ -206,13 +206,13 @@ scottyApp
 
 doStuff ::
      DbHelpers.DbConnectionData
-  -> OAuth2.AccessToken
+  -> CircleApi.ThirdPartyAuth
   -> DbHelpers.OwnerAndRepo
   -> SqsBuildScanMessage
   -> IO ()
 doStuff
     connection_data
-    access_token
+    third_party_auth
     owned_repo
     body_json = do
 
@@ -235,12 +235,14 @@ doStuff
     ]
 
 
-
-
   runExceptT $ do
 
-    scan_resources <- ExceptT $ first LT.fromStrict <$>
-      Scanning.prepareScanResources conn Scanning.PersistScanResult Nothing
+    scan_resources <- ExceptT $ fmap (first LT.fromStrict) $
+      Scanning.prepareScanResources
+        third_party_auth
+        conn
+        Scanning.PersistScanResult
+        Nothing
 
   -- TODO Replace this pair of functions with scanAndPost?
     scan_matches <- liftIO $ Scanning.processUnvisitedBuilds
@@ -248,8 +250,7 @@ doStuff
       universal_builds
 
     StatusUpdate.postCommitSummaryStatus
-      conn
-      access_token
+      (ScanRecords.fetching scan_resources)
       owned_repo
       commit_sha1
 

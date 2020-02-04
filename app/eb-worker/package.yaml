@@ -15,6 +15,7 @@ executables:
     - -W
     - -Wall
     - -fwarn-tabs
+    - -O2
     - -fhpc
     - -threaded
     dependencies:
