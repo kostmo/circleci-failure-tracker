@@ -131,10 +131,6 @@ redirectToHomeM :: ActionM ()
 redirectToHomeM = redirect "/"
 
 
-redirectToPathM :: TL.Text -> ActionM ()
-redirectToPathM = redirect
-
-
 errorM :: TL.Text -> ActionM ()
 errorM = throwError . ActionError
 
@@ -181,7 +177,7 @@ fetchTokenAndUser redirect_path c github_config code session_insert = do
       result <- liftIO $ tryFetchUser github_config code session_insert
 
       case result of
-        Right luser -> updateIdp c idpData luser >> redirectToPathM redirect_path
+        Right luser -> updateIdp c idpData luser >> redirect redirect_path
         Left err    -> errorM $ "fetchTokenAndUser: " `TL.append` err
 
   where lookIdp c1 idp1 = liftIO $ lookupKey c1 (idpLabel idp1)
@@ -196,17 +192,18 @@ tryFetchUser ::
   -> IO (Either TL.Text LoginUser)
 tryFetchUser github_config code session_insert = do
   mgr <- newManager tlsManagerSettings
-  token <- OAuth2.fetchAccessToken mgr (AuthConfig.githubKey github_config) (OAuth2.ExchangeToken $ TL.toStrict code)
 
-  case token of
-    Right at -> do
-      let access_token_object = OAuth2.accessToken at
-          access_token_string = T.unpack $ OAuth2.atoken access_token_object
+  runExceptT $ do
+    at <- ExceptT $ first process_err <$> OAuth2.fetchAccessToken mgr (AuthConfig.githubKey github_config) (OAuth2.ExchangeToken $ TL.toStrict code)
 
-      liftIO $ session_insert access_token_string
-      GithubApiFetch.fetchUser $ GithubApiFetch.GitHubApiSupport mgr access_token_object
+    let access_token_object = OAuth2.accessToken at
+        access_token_string = T.unpack $ OAuth2.atoken access_token_object
 
-    Left e   -> return $ Left $ TL.pack $ "tryFetchUser: cannot fetch asses token. error detail: " ++ show e
+    liftIO $ session_insert access_token_string
+    ExceptT $ GithubApiFetch.fetchUser $ GithubApiFetch.GitHubApiSupport mgr access_token_object
+
+  where
+    process_err e = TL.pack $ "tryFetchUser: cannot fetch asses token. error detail: " ++ show e
 
 
 isOrgMemberInner ::
