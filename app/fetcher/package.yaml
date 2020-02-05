@@ -62,6 +62,7 @@ library:
     - jwt
     - crypto-pubkey-openssh
     - crypto-pubkey-types
+    - base64-bytestring
 
 executables:
   run-scanner:

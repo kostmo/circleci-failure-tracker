@@ -8,7 +8,9 @@ import           Control.Lens               hiding (iat, (<.>))
 import           Control.Monad.IO.Class     (liftIO)
 import           Control.Monad.Trans.Except (ExceptT (ExceptT), runExceptT)
 import           Data.Aeson
+import           Data.Bifunctor             (first)
 import qualified Data.ByteString            as B
+import           Data.ByteString.Base64     as B64
 import           Data.Either.Utils          (maybeToEither)
 import           Data.List                  (intercalate)
 import qualified Data.Text                  as T
@@ -34,10 +36,10 @@ instance FromJSON AppInstallationTokenResponse
 
 
 loadRsaKey :: B.ByteString -> Either T.Text JWT.Signer
-loadRsaKey pem_content =
-  maybeToEither "no key" $ JWT.RSAPrivateKey <$> rsa_secret
-  where
-    rsa_secret = readRsaSecret pem_content
+loadRsaKey pem_content_base64 = do
+  decoded_pem <- first T.pack $ B64.decode pem_content_base64
+  let maybe_rsa_secret = readRsaSecret decoded_pem
+  maybeToEither "no key" $ JWT.RSAPrivateKey <$> maybe_rsa_secret
 
 
 getGitHubAppInstallationToken ::

@@ -1,5 +1,6 @@
 import os
 import json
+import base64
 
 
 WEBAPP_BINARY_NAME = "my-webapp"
@@ -7,8 +8,6 @@ WEBAPP_BINARY_NAME = "my-webapp"
 
 WEBAPP_INTERNAL_PORT = 3001
 
-def double_quote(foo):
-	return '"' + foo + '"'
 
 def generate_dockerrun_aws_json(output_path, nondefault_cli_arglist, entrypoint_override=None):
 
@@ -23,7 +22,7 @@ def generate_dockerrun_aws_json(output_path, nondefault_cli_arglist, entrypoint_
             }
         ],
         "Entrypoint": os.path.join("/opt/app", entrypoint_override if entrypoint_override else WEBAPP_BINARY_NAME),
-        "Command": " ".join(map(double_quote, nondefault_cli_arglist)),
+        "Command": " ".join(nondefault_cli_arglist),
     }
 
     with open(output_path, "w") as fh:
@@ -61,7 +60,7 @@ def generate_app_nondefault_cli_arglist(
         "--admin-password",
         app_credentials_json["admin-password"],
         "--github-app-rsa-pem",
-        github_app_pem_content,
+        base64.b64encode(github_app_pem_content.encode('ascii')).decode(),
     ]
 
     if no_force_ssl:
