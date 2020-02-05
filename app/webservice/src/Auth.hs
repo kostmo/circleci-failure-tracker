@@ -19,7 +19,6 @@ import           Control.Monad.Trans.Except (ExceptT (ExceptT), except,
                                              runExceptT)
 import           Data.Bifunctor
 import qualified Data.ByteString.Char8      as BSU
-import qualified Data.ByteString.Lazy       as LBS
 import           Data.Maybe
 import qualified Data.Text                  as T
 import qualified Data.Text.Lazy             as TL
@@ -38,7 +37,6 @@ import qualified AuthStages
 import qualified CircleApi
 import qualified CircleAuth
 import qualified Constants
-import qualified DebugUtils                 as D
 import qualified Github
 import qualified GithubApiFetch
 import           Session
@@ -73,39 +71,20 @@ getAuthenticatedUserByToken
     github_app_auth_token
     callback = do
 
-  D.debugList ["PLACE A"]
   mgr <- newManager tlsManagerSettings
-  D.debugList ["PLACE B"]
   let api_support_data = GithubApiFetch.GitHubApiSupport mgr wrapped_user_token
 
   runExceptT $ do
-    liftIO $ D.debugList ["PLACE C"]
-
     Types.LoginUser _login_name login_alias <- ExceptT $
       first (const $ wrapLoginErr login_url AuthStages.FailUsernameDetermination) <$> GithubApiFetch.fetchUser api_support_data
 
-    liftIO $ D.debugList ["PLACE D"]
+    let username_obj = AuthStages.Username $ TL.toStrict login_alias
 
-    let username_text = TL.toStrict login_alias
-    is_org_member <- ExceptT $ do
-
-      liftIO $ D.debugList ["PLACE E"]
-      either_membership <- isOrgMember github_app_auth_token username_text
-
-      liftIO $ D.debugList ["PLACE F"]
-      return $ first (wrapLoginErr login_url) either_membership
-
-    liftIO $ D.debugList ["PLACE G"]
-
-    unless is_org_member $ except $
-      Left $ AuthStages.AuthFailure $
-        AuthStages.AuthenticationFailure (Just $ AuthStages.LoginUrl login_url True)
-          $ AuthStages.FailOrgMembership (AuthStages.Username username_text) $ T.pack Constants.projectName
-
-    liftIO $ D.debugList ["PLACE H"]
+    ExceptT $ first (wrapLoginErr login_url) <$>
+      isOrgMember github_app_auth_token username_obj
 
     ExceptT $ fmap (first AuthStages.DbFailure) $
-      callback $ AuthStages.Username username_text
+      callback username_obj
 
   where
     login_url = AuthConfig.getLoginUrl redirect_path github_config
@@ -230,33 +209,31 @@ tryFetchUser github_config code session_insert = do
     Left e   -> return $ Left $ TL.pack $ "tryFetchUser: cannot fetch asses token. error detail: " ++ show e
 
 
--- | The Github API for this returns an empty response, using
--- status codes 204 or 404 to represent success or failure, respectively.
-isOrgMemberInner :: OAuth2.OAuth2Result TL.Text LBS.ByteString -> Bool
-isOrgMemberInner either_response = case either_response of
-  Left (OAuth2.OAuth2Error _either_parsed_err _maybe_description _maybe_uri) -> False
-  Right _ -> True
+isOrgMemberInner ::
+     AuthStages.Username
+  -> OAuth2.OAuth2Error TL.Text
+  -> AuthStages.AuthenticationFailureStageInfo
+isOrgMemberInner u = const $ AuthStages.FailOrgMembership u $ T.pack Constants.projectName
 
 
 -- | Alternate (user-centric) API endpoint is:
 -- https://developer.github.com/v3/orgs/members/#get-your-organization-membership
 isOrgMember ::
      OAuth2.AccessToken
-  -> T.Text
-  -> IO (Either AuthStages.AuthenticationFailureStageInfo Bool)
-isOrgMember wrapped_token username = do
+  -> AuthStages.Username
+  -> IO (Either AuthStages.AuthenticationFailureStageInfo ())
+isOrgMember wrapped_token username@(AuthStages.Username username_text) = do
   mgr <- newManager tlsManagerSettings
 
-  -- Note: This query is currently using a Personal Access Token from a pytorch org member.
-  -- TODO This must be converted to an App token.
-  let api_support_data = GithubApiFetch.GitHubApiSupport mgr wrapped_token
+  runExceptT $ do
+    membership_query_uri <- except $ first txform_err1 either_membership_query_uri
 
-  case either_membership_query_uri of
-    Left _x -> return $ Left $ AuthStages.FailMembershipDetermination $ "Bad URL: " <> url_string
-    Right membership_query_uri -> do
-      either_response <- OAuth2.authGetBS mgr wrapped_token membership_query_uri
-      return $ Right $ isOrgMemberInner either_response
+    -- The Github API for this returns an empty response, using
+    -- status codes 204 or 404 to represent success or failure, respectively.
+    ExceptT $ fmap void $ first (isOrgMemberInner username) <$> OAuth2.authGetBS mgr wrapped_token membership_query_uri
 
   where
-    url_string = "https://api.github.com/orgs/" <> T.pack Constants.projectName <> "/members/" <> username
+    txform_err1 = const $ AuthStages.FailMembershipDetermination $ "Bad URL: " <> url_string
+
+    url_string = "https://api.github.com/orgs/" <> T.pack Constants.projectName <> "/members/" <> username_text
     either_membership_query_uri = parseURI strictURIParserOptions $ BSU.pack $ T.unpack url_string

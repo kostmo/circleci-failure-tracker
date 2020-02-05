@@ -1,23 +1,26 @@
 
 function load_opt_out_status() {
 
-	getJsonWithThrobber("#throbber", "/api/get-user-opt-out-settings", {"login_redirect_path": get_url_path_for_redirect()}, function (data) {
+	getJsonWithThrobber("#throbber", "/api/get-user-opt-out-settings", {
+			"login_redirect_path": get_url_path_for_redirect(),
+		}, function (data) {
 
-		if (data["success"]) {
+			if (data["success"]) {
 
-			$("#username-container").html(data.payload.user);
-			$('#checkbox-comment-posting-enabled').prop('checked', !(data.payload.content && data.payload.content["disabled"]));
+				$("#username-container").html(data.payload.user);
+				$('#checkbox-comment-posting-enabled').prop('checked', !(data.payload.content && data.payload.content["disabled"]));
 
-			$('#options-form').show();
+				$('#options-form').show();
 
-		} else {
+			} else {
 
-			// TODO consolidate this error handling with "handle_submission_response()" from "html-utils.js"
-			if (data.error.details.authentication_failed) {
-				window.location.href = data.error.details.login_url;
+				// TODO consolidate this error handling with "handle_submission_response()" from "html-utils.js"
+				if (data.error.details.authentication_failed) {
+					window.location.href = data.error.details.login_url;
+				}
 			}
 		}
-	});
+	);
 }
 
 

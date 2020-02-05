@@ -243,25 +243,15 @@ jsonAuthorizedDbInteract2
     (AuthHelperBundle connection_data session github_config third_party_creds)
     f = do
 
-  liftIO $ D.debugList ["I am here AAA"]
-
   func <- f
-
-  liftIO $ D.debugList ["I am here BBB"]
 
   let callback_func user_alias = do
         conn <- DbHelpers.get_connection connection_data
         runReaderT func $ SqlRead.AuthConnection conn user_alias
 
-  liftIO $ D.debugList ["I am here CCC"]
-
   login_redirect_path <- S.param "login_redirect_path"
 
-  liftIO $ D.debugList ["I am here DDD"]
-
   rq <- S.request
-
-  liftIO $ D.debugList ["I am here EEE"]
 
   insertion_result <- liftIO $
     Auth.getAuthenticatedUser
@@ -271,8 +261,6 @@ jsonAuthorizedDbInteract2
       github_config
       third_party_creds
       callback_func
-
-  liftIO $ D.debugList ["I am here FFF"]
 
   S.json $ WebApi.toJsonEither insertion_result
 
@@ -285,11 +273,7 @@ jsonAuthorizedDbInteract
     (AuthHelperBundle connection_data session github_config third_party_creds)
     f = do
 
-  liftIO $ D.debugList ["I am here 1"]
-
   func <- f
-
-  liftIO $ D.debugList ["I am here 2"]
 
   let callback_func _user_alias = do
         conn <- DbHelpers.get_connection connection_data
@@ -297,11 +281,7 @@ jsonAuthorizedDbInteract
 
   login_redirect_path <- S.param "login_redirect_path"
 
-  liftIO $ D.debugList ["I am here 3"]
-
   rq <- S.request
-
-  liftIO $ D.debugList ["I am here 4"]
 
   insertion_result <- liftIO $
     Auth.getAuthenticatedUser
@@ -311,8 +291,6 @@ jsonAuthorizedDbInteract
       github_config
       third_party_creds
       callback_func
-
-  liftIO $ D.debugList ["I am here 5"]
 
   S.json $ WebApi.toJsonEither insertion_result
 
