@@ -692,8 +692,8 @@ CREATE VIEW public.master_built_commit_groups WITH (security_barrier='false') AS
             ordered_master_commits.id AS commit_id,
             ordered_master_commits.sha1
            FROM (public.ordered_master_commits
-             LEFT JOIN ( SELECT DISTINCT universal_builds.commit_sha1
-                   FROM public.universal_builds) foo ON ((foo.commit_sha1 = ordered_master_commits.sha1)))) bar;
+             LEFT JOIN ( SELECT DISTINCT global_builds.vcs_revision AS commit_sha1
+                   FROM public.global_builds) foo ON ((foo.commit_sha1 = ordered_master_commits.sha1)))) bar;
 
 
 ALTER TABLE public.master_built_commit_groups OWNER TO postgres;
@@ -1103,7 +1103,8 @@ CREATE VIEW public.code_breakage_spans WITH (security_barrier='false') AS
     foo.commit_number AS cause_commit_number,
     bar.commit_number AS resolution_commit_number,
     (bar.commit_number - foo.commit_number) AS spanned_commit_count,
-    meta1.github_pr_number
+    meta1.github_pr_number,
+    int8range((foo.commit_id)::bigint, (bar.commit_id)::bigint) AS affected_commit_id_range
    FROM (((( SELECT code_breakage_cause.reporter,
             code_breakage_cause.reported_at,
             code_breakage_cause.id AS cause_id,
@@ -1144,7 +1145,7 @@ CREATE VIEW public.master_commit_known_breakage_causes WITH (security_barrier='f
  SELECT ordered_master_commits.sha1,
     code_breakage_spans.cause_id
    FROM (public.ordered_master_commits
-     JOIN public.code_breakage_spans ON ((int8range((code_breakage_spans.cause_commit_index)::bigint, (code_breakage_spans.resolved_commit_index)::bigint) @> (ordered_master_commits.id)::bigint)))
+     JOIN public.code_breakage_spans ON ((code_breakage_spans.affected_commit_id_range @> (ordered_master_commits.id)::bigint)))
   ORDER BY ordered_master_commits.id DESC;
 
 
@@ -1734,7 +1735,8 @@ CREATE VIEW public.known_broken_builds WITH (security_barrier='false') AS
  SELECT global_builds_1.global_build_num AS universal_build,
     count(*) AS cause_count,
     string_agg((foo.cause_id)::text, ';'::text) AS causes,
-    min(foo.cause_id) AS first_cause
+    min(foo.cause_id) AS first_cause,
+    array_agg(foo.cause_id) AS causes_array
    FROM (public.global_builds global_builds_1
      JOIN ( SELECT master_commit_known_breakage_causes.sha1,
             code_breakage_affected_jobs.job,
@@ -2154,6 +2156,42 @@ COMMENT ON VIEW public.code_breakage_failing_pr_jobs IS 'TODO: Get rid of "fores
 
 
 --
+-- Name: code_breakage_job_failure_counts; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.code_breakage_job_failure_counts AS
+ SELECT foo.cause_id,
+    foo.job,
+    count(foo.succeeded_supplemental) AS total_built_count,
+    sum((foo.succeeded_supplemental)::integer) AS succeeded_count
+   FROM ( SELECT master_commit_known_breakage_causes.sha1,
+            code_breakage_affected_jobs.job,
+            master_commit_known_breakage_causes.cause_id,
+            COALESCE(global_builds.succeeded, github_success.did_succeed) AS succeeded_supplemental
+           FROM (((public.master_commit_known_breakage_causes
+             JOIN public.code_breakage_affected_jobs ON ((code_breakage_affected_jobs.cause = master_commit_known_breakage_causes.cause_id)))
+             LEFT JOIN public.global_builds ON (((global_builds.vcs_revision = master_commit_known_breakage_causes.sha1) AND (global_builds.job_name = code_breakage_affected_jobs.job))))
+             LEFT JOIN ( SELECT true AS did_succeed,
+                    github_status_events_circleci_success.sha1,
+                    github_status_events_circleci_success.created_at,
+                    github_status_events_circleci_success.job_name_extracted,
+                    github_status_events_circleci_success.build_number_extracted,
+                    github_status_events_circleci_success.state
+                   FROM public.github_status_events_circleci_success) github_success ON (((github_success.sha1 = master_commit_known_breakage_causes.sha1) AND (github_success.job_name_extracted = code_breakage_affected_jobs.job))))) foo
+  GROUP BY foo.cause_id, foo.job;
+
+
+ALTER TABLE public.code_breakage_job_failure_counts OWNER TO postgres;
+
+--
+-- Name: VIEW code_breakage_job_failure_counts; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.code_breakage_job_failure_counts IS 'The success-coalescing logic is borrowed from view "global_builds_supplemental_github_notification_success" but re-implemented here for performance reasons.
+';
+
+
+--
 -- Name: known_breakage_summaries_sans_impact; Type: VIEW; Schema: public; Owner: logan
 --
 
@@ -2475,7 +2513,8 @@ CREATE TABLE public.created_pull_request_comment_revisions (
     comment_id integer NOT NULL,
     body text,
     updated_at timestamp with time zone NOT NULL,
-    sha1 character(40)
+    sha1 character(40),
+    was_new_push boolean DEFAULT false NOT NULL
 );
 
 
@@ -3254,7 +3293,8 @@ CREATE VIEW public.latest_created_pull_request_comment_revision WITH (security_b
     created_pull_request_comments.created_at,
     created_pull_request_comments.pr_number,
     created_pull_request_comment_revisions.sha1,
-    pull_request_static_metadata.github_user_login
+    pull_request_static_metadata.github_user_login,
+    created_pull_request_comment_revisions.was_new_push
    FROM (((( SELECT created_pull_request_comment_revisions_1.comment_id,
             max(created_pull_request_comment_revisions_1.id) AS latest_revision_id,
             count(created_pull_request_comment_revisions_1.id) AS revision_count
@@ -3596,7 +3636,8 @@ CREATE VIEW public.master_failures_raw_causes WITH (security_barrier='false') AS
     build_failure_causes.started_at,
     build_failure_causes.finished_at,
     build_failure_causes.maybe_is_scheduled,
-    build_failure_causes.is_network
+    build_failure_causes.is_network,
+    ((build_failure_causes.is_flaky OR (master_detected_adjacent_breakages.universal_build IS NULL)) AND (NOT build_failure_causes.succeeded)) AS is_isolated_or_flaky_failure
    FROM (((public.ordered_master_commits
      JOIN public.build_failure_causes ON ((build_failure_causes.vcs_revision = ordered_master_commits.sha1)))
      LEFT JOIN public.best_pattern_match_augmented_builds ON ((build_failure_causes.global_build = best_pattern_match_augmented_builds.universal_build)))
@@ -3652,7 +3693,8 @@ CREATE MATERIALIZED VIEW public.master_failures_raw_causes_mview AS
     master_failures_raw_causes.started_at,
     master_failures_raw_causes.finished_at,
     master_failures_raw_causes.maybe_is_scheduled,
-    master_failures_raw_causes.is_network
+    master_failures_raw_causes.is_network,
+    master_failures_raw_causes.is_isolated_or_flaky_failure
    FROM public.master_failures_raw_causes
   WITH NO DATA;
 
@@ -3672,7 +3714,7 @@ CREATE VIEW public.master_daily_isolated_failures_cached WITH (security_barrier=
             ELSE ((foo.isolated_failure_count)::double precision / (foo.total_build_count)::double precision)
         END AS isolated_failure_fraction
    FROM ( SELECT (timezone('America/Los_Angeles'::text, m2.committer_date))::date AS date_california_time,
-            sum(((master_failures_raw_causes_mview.is_serially_isolated AND (NOT master_failures_raw_causes_mview.succeeded)))::integer) AS isolated_failure_count,
+            sum((master_failures_raw_causes_mview.is_isolated_or_flaky_failure)::integer) AS isolated_failure_count,
             count(*) AS total_build_count
            FROM (public.master_failures_raw_causes_mview
              JOIN public.master_ordered_commits_with_metadata_mview m2 ON ((master_failures_raw_causes_mview.commit_index = m2.id)))
@@ -4741,10 +4783,10 @@ CREATE VIEW public.pr_merge_time_build_statuses WITH (security_barrier='false') 
  SELECT pr_merge_time_heads_for_master_commits.master_commit,
     pr_merge_time_heads_for_master_commits.github_pr_number,
     pr_merge_time_heads_for_master_commits.pr_head_commit,
-    universal_builds.id AS global_build,
-    universal_builds.succeeded
+    global_builds.global_build_num AS global_build,
+    global_builds.succeeded
    FROM (public.pr_merge_time_heads_for_master_commits
-     LEFT JOIN public.universal_builds ON ((pr_merge_time_heads_for_master_commits.pr_head_commit = universal_builds.commit_sha1)));
+     LEFT JOIN public.global_builds ON ((pr_merge_time_heads_for_master_commits.pr_head_commit = global_builds.vcs_revision)));
 
 
 ALTER TABLE public.pr_merge_time_build_statuses OWNER TO postgres;
@@ -4898,6 +4940,44 @@ ALTER TABLE public.pull_requests_with_missing_heads OWNER TO postgres;
 --
 
 COMMENT ON VIEW public.pull_requests_with_missing_heads IS 'NOTE: It is OK that this query references the "pull_request_heads" table directly instead of "pr_current_heads", because we are only checking for the *existence* of pull requests in the "pull_request_heads" table; it doesn''t matter which head is associated with a given PR.';
+
+
+--
+-- Name: rebuild_trigger_events; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.rebuild_trigger_events (
+    id integer NOT NULL,
+    universal_build integer NOT NULL,
+    reported_new_provider_build_id integer,
+    initiator text,
+    inserted_at timestamp with time zone DEFAULT now() NOT NULL,
+    message text
+);
+
+
+ALTER TABLE public.rebuild_trigger_events OWNER TO postgres;
+
+--
+-- Name: rebuild_trigger_events_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.rebuild_trigger_events_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.rebuild_trigger_events_id_seq OWNER TO postgres;
+
+--
+-- Name: rebuild_trigger_events_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.rebuild_trigger_events_id_seq OWNED BY public.rebuild_trigger_events.id;
 
 
 --
@@ -5395,6 +5475,13 @@ ALTER TABLE ONLY public.pull_request_heads ALTER COLUMN id SET DEFAULT nextval('
 
 
 --
+-- Name: rebuild_trigger_events id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.rebuild_trigger_events ALTER COLUMN id SET DEFAULT nextval('public.rebuild_trigger_events_id_seq'::regclass);
+
+
+--
 -- Name: scan_timeout_incidents id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
@@ -5808,6 +5895,14 @@ ALTER TABLE ONLY public.pull_request_static_metadata
 
 
 --
+-- Name: rebuild_trigger_events rebuild_trigger_events_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.rebuild_trigger_events
+    ADD CONSTRAINT rebuild_trigger_events_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: remediations_patterns remediations_patterns_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5971,6 +6066,13 @@ CREATE INDEX fk_test_report ON public.circleci_test_results USING btree (provide
 
 
 --
+-- Name: fk_universal_build_rebuild; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX fk_universal_build_rebuild ON public.rebuild_trigger_events USING btree (universal_build);
+
+
+--
 -- Name: fki_bre; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -6129,6 +6231,13 @@ CREATE INDEX fki_idx_comment_id ON public.created_pull_request_comment_revisions
 --
 
 CREATE INDEX fki_idx_remed_patterns ON public.remediations_patterns USING btree (pattern);
+
+
+--
+-- Name: global_build_idx_uniq; Type: INDEX; Schema: public; Owner: materialized_view_updater
+--
+
+CREATE UNIQUE INDEX global_build_idx_uniq ON public.master_failures_raw_causes_mview USING btree (global_build DESC NULLS LAST);
 
 
 --
@@ -6342,13 +6451,6 @@ CREATE INDEX idx_step_name ON public.build_steps USING btree (name);
 
 
 --
--- Name: idx_unique_mview_global_build2; Type: INDEX; Schema: public; Owner: materialized_view_updater
---
-
-CREATE UNIQUE INDEX idx_unique_mview_global_build2 ON public.master_failures_raw_causes_mview USING btree (global_build DESC NULLS LAST);
-
-
---
 -- Name: idx_universal_builds_sha1; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -6370,10 +6472,10 @@ CREATE UNIQUE INDEX idx_upsteream_breakages_weekly_week ON public.upstream_break
 
 
 --
--- Name: mview_commit_index2; Type: INDEX; Schema: public; Owner: materialized_view_updater
+-- Name: mview_commit_index3; Type: INDEX; Schema: public; Owner: materialized_view_updater
 --
 
-CREATE INDEX mview_commit_index2 ON public.master_failures_raw_causes_mview USING btree (commit_index);
+CREATE INDEX mview_commit_index3 ON public.master_failures_raw_causes_mview USING btree (commit_index);
 
 
 --
@@ -6717,6 +6819,14 @@ ALTER TABLE ONLY public.pattern_step_applicability
 
 ALTER TABLE ONLY public.pattern_tags
     ADD CONSTRAINT pattern_tags_pattern_fkey FOREIGN KEY (pattern) REFERENCES public.patterns(id);
+
+
+--
+-- Name: rebuild_trigger_events rebuild_trigger_events_universal_build_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.rebuild_trigger_events
+    ADD CONSTRAINT rebuild_trigger_events_universal_build_fkey FOREIGN KEY (universal_build) REFERENCES public.universal_builds(id) NOT VALID;
 
 
 --
@@ -7391,6 +7501,13 @@ GRANT SELECT ON TABLE public.circleci_test_results TO materialized_view_updater;
 
 
 --
+-- Name: SEQUENCE circleci_test_results_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE public.circleci_test_results_id_seq TO logan;
+
+
+--
 -- Name: SEQUENCE circleci_workflows_by_commit_id_seq; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -7409,6 +7526,14 @@ GRANT ALL ON SEQUENCE public.code_breakage_cause_id_seq TO logan;
 --
 
 GRANT ALL ON TABLE public.code_breakage_failing_pr_jobs TO logan;
+
+
+--
+-- Name: TABLE code_breakage_job_failure_counts; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.code_breakage_job_failure_counts TO logan;
+GRANT SELECT ON TABLE public.code_breakage_job_failure_counts TO materialized_view_updater;
 
 
 --
@@ -7564,6 +7689,13 @@ GRANT SELECT ON TABLE public.downstream_build_failures_from_upstream_inferred_br
 
 GRANT ALL ON TABLE public.failure_remediations TO logan;
 GRANT SELECT ON TABLE public.failure_remediations TO materialized_view_updater;
+
+
+--
+-- Name: SEQUENCE failure_remediations_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE public.failure_remediations_id_seq TO logan;
 
 
 --
@@ -8112,6 +8244,21 @@ GRANT ALL ON SEQUENCE public.pull_request_heads_id_seq TO logan;
 
 GRANT ALL ON TABLE public.pull_requests_with_missing_heads TO logan;
 GRANT SELECT ON TABLE public.pull_requests_with_missing_heads TO materialized_view_updater;
+
+
+--
+-- Name: TABLE rebuild_trigger_events; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.rebuild_trigger_events TO logan;
+GRANT SELECT ON TABLE public.rebuild_trigger_events TO materialized_view_updater;
+
+
+--
+-- Name: SEQUENCE rebuild_trigger_events_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE public.rebuild_trigger_events_id_seq TO logan;
 
 
 --

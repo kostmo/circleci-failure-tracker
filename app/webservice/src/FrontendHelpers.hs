@@ -202,14 +202,14 @@ facilitateJobRebuild circleci_api_token universal_build_id = do
 
     let provider_build_num = Builds.build_id $ Builds.build_record storable_build
 
-    circleci_response <- CircleTrigger.rebuildCircleJobInWorkflow
+    circleci_responses <- CircleTrigger.rebuildCircleJobsInWorkflow
       circleci_api_token
-      provider_build_num
+      [provider_build_num]
 
     result <- ExceptT $ flip runReaderT dbauth $
       SqlWrite.insertRebuildTriggerEvent
         universal_build_id
-        (CircleTrigger.message circleci_response)
+        (T.intercalate "; " $ map (CircleTrigger.message . snd)  circleci_responses)
 
     liftIO $ D.debugStr "Submitted rebuild request."
     return result
@@ -429,23 +429,15 @@ postWithAuthentication
     (AuthHelperBundle connection_data session github_config third_party_creds)
     f = do
 
-  liftIO $ D.debugList ["HELLO AAA"]
-
   func <- f
-
-  liftIO $ D.debugList ["HELLO BBB"]
-
   let callback_func user_alias = do
         conn <- DbHelpers.get_connection connection_data
         runReaderT func $ SqlRead.AuthConnection conn user_alias
 
   login_redirect_path <- S.param "login_redirect_path"
 
-  liftIO $ D.debugList ["HELLO CCC"]
-
   rq <- S.request
 
-  liftIO $ D.debugList ["HELLO DDD"]
   insertion_result <- liftIO $ Auth.getAuthenticatedUser
     login_redirect_path
     rq
@@ -453,8 +445,6 @@ postWithAuthentication
     github_config
     third_party_creds
     callback_func
-
-  liftIO $ D.debugList ["HELLO EEE"]
 
   S.json $ DbInsertion.toInsertionResponse
     login_redirect_path

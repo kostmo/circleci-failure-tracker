@@ -4,6 +4,7 @@
 module CircleTrigger where
 
 import           Control.Lens               hiding ((<.>))
+import           Control.Monad              (forM)
 import           Control.Monad.IO.Class     (liftIO)
 import           Control.Monad.Trans.Except (ExceptT (ExceptT), except)
 import           Data.Aeson
@@ -21,6 +22,7 @@ import qualified CircleApi
 import qualified CircleBuild
 import qualified Constants
 import qualified FetchHelpers
+import qualified MyUtils
 
 
 data CircleBuildRetryResponse = CircleBuildRetryResponse {
@@ -92,38 +94,69 @@ data RebuildPayload = RebuildPayload {
 instance ToJSON RebuildPayload
 
 
-rebuildCircleJobInWorkflow ::
+getWorkflowObject ::
      CircleApi.CircleCIApiToken
+  -> Sess.Session
   -> Builds.BuildNumber
-  -> ExceptT String IO CircleV2BuildRetryResponse
-rebuildCircleJobInWorkflow
-    tok@(CircleApi.CircleCIApiToken circleci_api_token)
-    provider_build_num = do
-
-  circle_sess <- liftIO Sess.newSession
+  -> ExceptT String IO CircleBuild.WorkflowChild
+getWorkflowObject tok circle_sess provider_build_num = do
   single_build <- ExceptT $ CircleBuild.getCircleCIBuildPayload tok circle_sess provider_build_num
+  except $ maybeToEither "CircleCI build record has no workflow data!" $ CircleBuild.workflows single_build
 
-  workflow_obj <- except $ maybeToEither "CircleCI build record has no workflow data!" $ CircleBuild.workflows single_build
 
-  let rebuild_url = intercalate "/" [
-          "https://circleci.com/api/v2/workflow"
-        , T.unpack $ CircleBuild.workflow_id workflow_obj
-        , "rerun"
-        ]
-
-      job_ids = [CircleBuild.job_id workflow_obj]
+rebuildJobsBatch ::
+     CircleApi.CircleCIApiToken
+  -> Text
+  -> [Text]
+  -> ExceptT String IO CircleV2BuildRetryResponse
+rebuildJobsBatch
+  (CircleApi.CircleCIApiToken circleci_api_token)
+  workflow_id
+  job_id_list = do
 
   api_response <- ExceptT $ FetchHelpers.safeGetUrl $
-    NW.postWith opts rebuild_url $ toJSON $ RebuildPayload job_ids
+    NW.postWith opts rebuild_url $ toJSON $ RebuildPayload job_id_list
 
   r <- NW.asJSON api_response
   return $ r ^. NW.responseBody
+
   where
+    rebuild_url = intercalate "/" [
+        "https://circleci.com/api/v2/workflow"
+      , T.unpack workflow_id
+      , "rerun"
+      ]
 
     opts = NW.defaults
       & NW.header "Accept" .~ [Constants.jsonMimeType]
       & NW.header "'Content-Type" .~ [Constants.jsonMimeType]
       & NW.param "circle-token" .~ [circleci_api_token]
+
+
+rebuildCircleJobsInWorkflow ::
+     CircleApi.CircleCIApiToken
+  -> [Builds.BuildNumber]
+  -> ExceptT String IO [([(Builds.BuildNumber, Text)], CircleV2BuildRetryResponse)]
+rebuildCircleJobsInWorkflow
+    tok
+    provider_build_numbers = do
+
+  circle_sess <- liftIO Sess.newSession
+  build_num_workflow_obj_pairs <- forM provider_build_numbers $
+    sequenceA . MyUtils.derivePair (getWorkflowObject tok circle_sess)
+
+  let jobs_by_workflow = MyUtils.binTuplesByFirst $ map
+        (\x -> (CircleBuild.workflow_id $ snd x, (fst x, CircleBuild.job_id $ snd x)))
+        build_num_workflow_obj_pairs
+
+  forM jobs_by_workflow $ \(workflow_id, build_num_job_id_pairs) -> do
+    response <- rebuildJobsBatch
+      tok
+      workflow_id
+      (map snd build_num_job_id_pairs)
+    return (build_num_job_id_pairs, response)
+
+
 
 
 

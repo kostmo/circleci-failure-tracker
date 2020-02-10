@@ -19,6 +19,7 @@ import           Control.Monad.Trans.Except (ExceptT (ExceptT), except,
                                              runExceptT)
 import           Data.Bifunctor
 import qualified Data.ByteString.Char8      as BSU
+import           Data.Either.Utils          (maybeToEither)
 import           Data.Maybe
 import qualified Data.Text                  as T
 import qualified Data.Text.Lazy             as TL
@@ -83,8 +84,7 @@ getAuthenticatedUserByToken
     ExceptT $ first (wrapLoginErr login_url) <$>
       isOrgMember github_app_auth_token username_obj
 
-    ExceptT $ fmap (first AuthStages.DbFailure) $
-      callback username_obj
+    ExceptT $ first AuthStages.DbFailure <$> callback username_obj
 
   where
     login_url = AuthConfig.getLoginUrl redirect_path github_config
@@ -106,24 +106,26 @@ getAuthenticatedUser
     third_party_auth
     callback = do
 
-  u <- sessionLookup githubAuthTokenSessionKey
-  case u of
-    Nothing -> return $ Left $ wrapLoginErr login_url AuthStages.FailLoginRequired
-    Just api_token -> runExceptT $ do
+  maybe_token <- sessionLookup githubAuthTokenSessionKey
 
-      github_app_token <- ExceptT $
-        fmap (first $ \x -> AuthStages.AuthFailure $ AuthStages.AuthenticationFailure Nothing $ AuthStages.FailGitHubAppTokenExchange $ T.pack x) $
-          CircleAuth.getGitHubAppInstallationToken $ CircleApi.jwt_signer third_party_auth
+  runExceptT $ do
+    user_token <- except $ token_lookup_err maybe_token
 
-      ExceptT $ getAuthenticatedUserByToken
-        redirect_path
-        (OAuth2.AccessToken $ T.pack api_token)
-        github_config
-        (CircleAuth.token github_app_token)
-        callback
+    github_app_token <- ExceptT $ fmap (first install_token_err) $
+      CircleAuth.getGitHubAppInstallationToken $ CircleApi.jwt_signer third_party_auth
+
+    ExceptT $ getAuthenticatedUserByToken
+      redirect_path
+      (OAuth2.AccessToken $ T.pack user_token)
+      github_config
+      (CircleAuth.token github_app_token)
+      callback
 
   where
     Just (sessionLookup, _sessionInsert) = Vault.lookup session $ vault rq
+    token_lookup_err = maybeToEither $ wrapLoginErr login_url AuthStages.FailLoginRequired
+    install_token_err = AuthStages.AuthFailure . AuthStages.AuthenticationFailure Nothing . AuthStages.FailGitHubAppTokenExchange . T.pack
+
     login_url = AuthConfig.getLoginUrl redirect_path github_config
 
 
@@ -141,10 +143,14 @@ logoutH c = do
   let idpP = paramValue "idp" pas
   when (null idpP) redirectToHomeM
   let idp = Github.Github
-  liftIO (removeKey c (idpLabel idp)) >> redirectToHomeM
+  liftIO (removeKey c $ idpLabel idp) >> redirectToHomeM
 
 
-callbackH :: CacheStore -> AuthConfig.GithubConfig -> (String -> IO ()) -> ActionT TL.Text IO ()
+callbackH ::
+     CacheStore
+  -> AuthConfig.GithubConfig
+  -> (String -> IO ())
+  -> ActionT TL.Text IO ()
 callbackH c github_config session_insert = do
   pas <- params
   let codeP = paramValue "code" pas
@@ -164,7 +170,7 @@ fetchTokenAndUser ::
      TL.Text
   -> CacheStore
   -> AuthConfig.GithubConfig
-  -> TL.Text           -- ^ code
+  -> TL.Text -- ^ code
   -> (String -> IO ())
   -> ActionM ()
 fetchTokenAndUser redirect_path c github_config code session_insert = do
@@ -180,7 +186,7 @@ fetchTokenAndUser redirect_path c github_config code session_insert = do
         Right luser -> updateIdp c idpData luser >> redirect redirect_path
         Left err    -> errorM $ "fetchTokenAndUser: " `TL.append` err
 
-  where lookIdp c1 idp1 = liftIO $ lookupKey c1 (idpLabel idp1)
+  where lookIdp c1 idp1 = liftIO $ lookupKey c1 $ idpLabel idp1
         updateIdp c1 oldIdpData luser = liftIO $ insertIDPData c1 (oldIdpData {loginUser = Just luser })
         idp = Github.Github
 
@@ -194,23 +200,31 @@ tryFetchUser github_config code session_insert = do
   mgr <- newManager tlsManagerSettings
 
   runExceptT $ do
-    at <- ExceptT $ first process_err <$> OAuth2.fetchAccessToken mgr (AuthConfig.githubKey github_config) (OAuth2.ExchangeToken $ TL.toStrict code)
+    at <- ExceptT $ first process_err <$>
+      OAuth2.fetchAccessToken mgr
+        (AuthConfig.githubKey github_config)
+        (OAuth2.ExchangeToken $ TL.toStrict code)
 
     let access_token_object = OAuth2.accessToken at
         access_token_string = T.unpack $ OAuth2.atoken access_token_object
 
     liftIO $ session_insert access_token_string
-    ExceptT $ GithubApiFetch.fetchUser $ GithubApiFetch.GitHubApiSupport mgr access_token_object
+    ExceptT $ GithubApiFetch.fetchUser $
+      GithubApiFetch.GitHubApiSupport mgr access_token_object
 
   where
-    process_err e = TL.pack $ "tryFetchUser: cannot fetch asses token. error detail: " ++ show e
+    process_err e = TL.pack $ unwords [
+        "tryFetchUser: cannot fetch asses token. error detail:"
+      , show e
+      ]
 
 
 isOrgMemberInner ::
      AuthStages.Username
   -> OAuth2.OAuth2Error TL.Text
   -> AuthStages.AuthenticationFailureStageInfo
-isOrgMemberInner u = const $ AuthStages.FailOrgMembership u $ T.pack Constants.projectName
+isOrgMemberInner u = const $ AuthStages.FailOrgMembership u $
+  T.pack Constants.projectName
 
 
 -- | Alternate (user-centric) API endpoint is:
@@ -227,10 +241,14 @@ isOrgMember wrapped_token username@(AuthStages.Username username_text) = do
 
     -- The Github API for this returns an empty response, using
     -- status codes 204 or 404 to represent success or failure, respectively.
-    ExceptT $ fmap void $ first (isOrgMemberInner username) <$> OAuth2.authGetBS mgr wrapped_token membership_query_uri
+    ExceptT $ fmap void $ first (isOrgMemberInner username) <$>
+      OAuth2.authGetBS mgr wrapped_token membership_query_uri
 
   where
-    txform_err1 = const $ AuthStages.FailMembershipDetermination $ "Bad URL: " <> url_string
+    txform_err1 = const $ AuthStages.FailMembershipDetermination $
+      "Bad URL: " <> url_string
 
     url_string = "https://api.github.com/orgs/" <> T.pack Constants.projectName <> "/members/" <> username_text
-    either_membership_query_uri = parseURI strictURIParserOptions $ BSU.pack $ T.unpack url_string
+
+    either_membership_query_uri = parseURI strictURIParserOptions $
+      BSU.pack $ T.unpack url_string
