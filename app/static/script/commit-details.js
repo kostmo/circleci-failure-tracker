@@ -237,9 +237,6 @@ function main() {
 	gen_unmatched_build_list("/api/idiopathic-failed-builds-for-commit?sha1=" + commit_sha1, "container-idiopathic-failures");
 	gen_unmatched_build_list("/api/timed-out-builds-for-commit?sha1=" + commit_sha1, "container-timeout-failures");
 
-	gen_postings_table("status-postings-table", "/api/posted-statuses-for-commit?sha1=" + commit_sha1, null);
-
-
 	gen_upstream_breakages_table("container-inferred-upstream-broken-jobs", "/api/upstream-broken-jobs-for-commit?sha1=" + commit_sha1);
 }
 

@@ -48,7 +48,6 @@ import qualified MatchOccurrences
 import qualified MyUtils
 import qualified Pagination
 import qualified PostedComments
-import qualified PostedStatuses
 import qualified PostgresHelpers
 import qualified QueryUtils                           as Q
 import qualified ScanPatterns
@@ -569,27 +568,6 @@ apiPostedPRComments count = do
       ]
 
 
-apiPostedStatusesByCommit ::
-     Builds.RawCommit
-  -> DbIO [PostedStatuses.PostedStatus]
-apiPostedStatusesByCommit (Builds.RawCommit sha1) = do
-  conn <- ask
-  liftIO $ query conn sql $ Only sha1
-  where
-    sql = Q.qjoin [
-        "SELECT"
-      , Q.list [
-          "sha1"
-        , "description"
-        , "state"
-        , "created_at"
-        ]
-      , "FROM created_github_statuses"
-      , "WHERE sha1 = ?"
-      , "ORDER BY created_at DESC"
-      ]
-
-
 data WeeklyFailingMergedPullRequests = WeeklyFailingMergedPullRequests {
     _total_pr_count              :: Int
   , _failing_pr_count            :: Int
@@ -962,7 +940,7 @@ apiDeterministicFailureModes = WebApi.ApiResponse <$> runQuery q
       , "freq"
       ]
     , "FROM"
-    , "(" <> inner_q <> ") foo"
+    , Q.aliasedSubquery inner_q "foo"
     , "JOIN master_failure_modes"
     , "ON foo.failure_mode_id = master_failure_modes.id"
     ]
@@ -1076,23 +1054,6 @@ apiFailedCommitsByDay = WebApi.ApiResponse <$> runQuery q
           ]
         , "FROM global_builds GROUP BY vcs_revision"
         ]
-
-
--- | Note that Highcharts expects the dates to be in ascending order
-apiStatusPostedCommitsByDay :: DbIO (WebApi.ApiResponse (Day, Int))
-apiStatusPostedCommitsByDay = WebApi.ApiResponse . reverse <$> runQuery q
-  where
-  q = Q.qjoin [
-      "SELECT"
-    , Q.list [
-        "last_time::date AS date"
-      , "COUNT(*)"
-      ]
-    , "FROM aggregated_github_status_postings"
-    , "GROUP BY date"
-    , "ORDER BY date DESC"
-    , "OFFSET 1"
-    ]
 
 
 -- | Note that Highcharts expects the dates to be in ascending order
@@ -1681,8 +1642,7 @@ getSpanningBreakages conn sha1 =
         , "COALESCE(jobs, ''::text) AS jobs"
         ]
       , "FROM"
-      , Q.parens inner_q
-      , "foo"
+      , Q.aliasedSubquery inner_q "foo"
       , "JOIN code_breakage_cause"
       , "ON foo.cause_id = code_breakage_cause.id;"
       ]
@@ -1699,7 +1659,7 @@ getSpanningBreakages conn sha1 =
       , "WHERE"
       , Q.qconjunction [
           "cause_commit_index <= ?"
-        , "(resolved_commit_index IS NULL OR ? < resolved_commit_index)"
+        , Q.parens "resolved_commit_index IS NULL OR ? < resolved_commit_index"
         ]
       , "GROUP BY code_breakage_spans.cause_id"
       ]

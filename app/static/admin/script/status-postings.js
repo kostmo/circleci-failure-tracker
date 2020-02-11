@@ -72,9 +72,6 @@ function main() {
 
 	gen_comment_postings_table("comment-postings-table", "/api/posted-pr-comments?count=50", "400px");
 
-	gen_time_plot('container-status-commits-by-day', '/api/status-posted-commits-by-day', "Unique commits annotated", "day");
-
-
 	regen_status_notifications_timeline();
 }
 

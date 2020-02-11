@@ -196,9 +196,6 @@ scottyApp
   get "/api/master-downstream-commits" $
     SqlRead.apiMasterDownstreamCommits . Builds.RawCommit <$> S.param "sha1"
 
-  get "/api/status-posted-commits-by-day" $
-    pure SqlRead.apiStatusPostedCommitsByDay
-
   get "/api/status-postings-by-day" $
     pure SqlRead.apiStatusPostingsByDay
 
@@ -301,9 +298,6 @@ scottyApp
 
   get "/api/posted-pr-comments" $
     SqlRead.apiPostedPRComments <$> S.param "count"
-
-  get "/api/posted-statuses-for-commit" $
-    SqlRead.apiPostedStatusesByCommit . Builds.RawCommit <$> S.param "sha1"
 
   get "/api/upstream-broken-jobs-for-commit" $
     SqlRead.getInferredSpanningBrokenJobsBetter . Builds.RawCommit <$> S.param "sha1"
