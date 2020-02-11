@@ -117,6 +117,10 @@ function gen_builds_table(element_id, data_url, height_string) {
 				return cell.getValue().toFixed(1);
 			},
 		},
+		{title: "Latest exec. time (s)", field: "latest_duration", width: 200, formatter: function(cell, formatterParams, onRendered) {
+				return cell.getValue().toFixed(1);
+			},
+		},
 
 	];
 

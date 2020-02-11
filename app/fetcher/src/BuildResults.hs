@@ -124,13 +124,14 @@ instance FromRow DetectedBreakageModes where
 
 
 data SimpleBuildStatus = SimpleBuildStatus {
-    _build               :: Builds.Build
-  , _failure_mode        :: FailureMode
-  , _is_flaky            :: Bool
-  , _is_known_broken     :: Bool
-  , _detected_breakages  :: DetectedBreakageModes
-  , _is_isolated_failure :: Bool
-  , _universal_build     :: DbHelpers.WithId Builds.UniversalBuild
+    _build                           :: Builds.Build
+  , _failure_mode                    :: FailureMode
+  , _is_flaky                        :: Bool
+  , _is_empirically_determined_flaky :: Bool
+  , _is_known_broken                 :: Bool
+  , _detected_breakages              :: DetectedBreakageModes
+  , _is_isolated_failure             :: Bool
+  , _universal_build                 :: DbHelpers.WithId Builds.UniversalBuild
 --  , _ci_provider         :: DbHelpers.WithId Builds.CiProvider
   } deriving Generic
 

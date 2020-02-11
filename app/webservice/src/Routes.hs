@@ -458,7 +458,6 @@ scottyApp
     SqlRead.isMasterCommit . Builds.RawCommit <$> S.param "sha1"
 
   S.get "/api/commit-builds" $ do
-    liftIO $ D.debugList ["fetching AAA"]
 
     commit_sha1_text <- S.param "sha1"
     json_result <- runExceptT $ do

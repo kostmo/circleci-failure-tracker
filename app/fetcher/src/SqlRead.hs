@@ -2427,6 +2427,7 @@ instance FromRow BuildResults.SimpleBuildStatus where
     span_end <- field
     specificity <- field
     is_serially_isolated <- field
+    is_empirically_determined_flaky <- field
 
     maybe_started_at <- field
     maybe_finished_at <- field
@@ -2436,6 +2437,7 @@ instance FromRow BuildResults.SimpleBuildStatus where
     build_namespace <- field
 
     detected_directional_breakages <- fromRow
+
 
     let
       failure_mode
@@ -2481,6 +2483,7 @@ instance FromRow BuildResults.SimpleBuildStatus where
       build_obj
       failure_mode
       is_flaky
+      is_empirically_determined_flaky
       is_known_broken
       detected_directional_breakages
       is_serially_isolated
@@ -2634,6 +2637,7 @@ data MaterializedViewRefreshInfo = MaterializedViewRefreshInfo {
   , _average_execution_time :: Double
   , _event_count            :: Int
   , _latest_age_seconds     :: Double
+  , _latest_duration        :: Double
   } deriving (Generic, FromRow)
 
 instance ToJSON MaterializedViewRefreshInfo where
@@ -2651,6 +2655,7 @@ apiMaterializedViewRefreshes = runQuery sql
           , "average_execution_time"
           , "event_count"
           , "EXTRACT(EPOCH FROM latest_age) AS latest_age_seconds"
+          , "latest_duration"
           ]
       , "FROM lambda_logging.materialized_view_refresh_event_stats"
       , "ORDER BY latest_age;"
@@ -3217,6 +3222,11 @@ apiMasterBuilds timeline_parms = do
             in Set.union failed_job_names $ Set.fromList $ take successful_column_cap $
                  Set.toAscList strictly_successful_jobs
 
+        -- Even though we've fetched all these builds from the DB,
+        -- we don't bother to send builds to the client that won't
+        -- be displayed.
+        filtered_builds_list = filter ((`Set.member` filtered_job_names) . Builds.job_name . BuildResults._build) completed_builds
+
         timing_data = BuildResults.DbMasterBuildsBenchmarks
           builds_list_time
           commits_list_time
@@ -3230,7 +3240,7 @@ apiMasterBuilds timeline_parms = do
     return $ DbHelpers.BenchmarkedResponse timing_data $ BuildResults.MasterBuildsResponse
       filtered_job_names
       master_commits
-      completed_builds
+      filtered_builds_list
       code_breakage_ranges
       disjoint_statuses
       job_failure_spans
@@ -3306,6 +3316,7 @@ apiMasterBuilds timeline_parms = do
         , "span_end"
         , "specificity"
         , "is_serially_isolated"
+        , "is_empirically_determined_flaky"
         , "started_at"
         , "finished_at"
         , "global_build"

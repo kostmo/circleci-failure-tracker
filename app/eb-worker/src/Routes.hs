@@ -113,9 +113,9 @@ scottyApp ::
   -> ScottyTypes.ScottyT LT.Text IO ()
 scottyApp
     _logger
-    (SetupData _static_base github_config third_party_auth connection_data _mview_connection_data) = do
+    (SetupData _static_base _github_config third_party_auth connection_data _mview_connection_data) = do
 
-  S.post "/worker/scheduled-work" $ do
+  S.post "/worker/scheduled-work" $
 
     wrapWithDbDurationRecords connection_data $ \eb_worker_event_id -> do
 

@@ -75,8 +75,8 @@ function gen_affected_jobs_table(element_id, cause_id) {
 				align: "center",
 				cellClick: function(e, cell) {
 
-					const job_name = cell.getRow().getData()["payload"];
-					if (confirm("Realy delete cause #" + cause_id + "?")) {
+					const job_name = cell.getRow().getData()["payload"]["job_name"];
+					if (confirm("Realy delete job " + job_name + " as part of cause #" + cause_id + "?")) {
 						post_modification("/api/code-breakage-job-delete", {
 							"cause_id": cause_id,
 							"job": job_name,

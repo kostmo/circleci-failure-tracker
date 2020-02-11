@@ -592,23 +592,29 @@ data SurrogateProviderIdUniversalPair = SurrogateProviderIdUniversalPair {
 -- | We handle de-duplication of provider-build records
 -- via the ON CONFLICT clause in the INSERT statement.
 -- When a record already exists with a given
--- (provider_build_number, build_namespace, provider_key)
+-- (build_namespace, provider_key, commit_sha1, job_name)
 -- tuple, the existing universal build ID is returned instead
 -- of creating a new row.
+-- Note that a separate uniqueness constraint on 'provider_build_number'
+-- will simply cause the insertion to fail if that field is duplicated.
 --
 -- However, note that we must not have two rows proposed for insertion
 -- that conflict amongst each other, so we must
 -- perform some client-side deduplication first (in this case, with nubSort).
 --
--- Duplicates may arise due to the way pagination of the CircleCI builds list
--- works. Say that 200 builds are to be fetched, with 100 per page. If, while
--- processing the first page, a new build is completed on CircleCI, then
+-- Such duplicates may arise due to the way pagination of the CircleCI builds list
+-- works, since we may fetch multiple pages of builds and then insert all into
+-- the DB as a batch. Say that 200 builds are to be fetched, with 100 per page. If, while
+-- fetching the first page, a new build is completed on CircleCI, then
 -- 100th build from the first page will get bumped to position 101, and fetched
 -- again as the first build of the second page.
 --
 -- See https://pganalyze.com/docs/log-insights/app-errors/U126
 --
--- TODO for now, this function is only called from the standalone scanner application.
+-- TODO for now, this function is called from two places:
+-- * The EB worker "/worker/scheduled-work" endpoint, scheduled to run
+--     via a cron.yaml specification every 5 minutes
+-- * the standalone scanner application
 storeCircleCiBuildsList ::
      UTCTime -- ^ fetch initiation time
   -> Text -- ^ branch name
@@ -624,16 +630,14 @@ storeCircleCiBuildsList
   zipped_output1 <- storeHelper $ map (\x -> ((), x)) deduped_builds_list
 
   let zipped_output2 = map
-        (\(Builds.StorableBuild (DbHelpers.WithId ubuild_id _ubuild) rbuild) -> DbHelpers.WithTypedId (Builds.UniversalBuildId ubuild_id) rbuild)
-        (map snd zipped_output1)
+        ((\(Builds.StorableBuild (DbHelpers.WithId ubuild_id _ubuild) rbuild) -> DbHelpers.WithTypedId (Builds.UniversalBuildId ubuild_id) rbuild) . snd)
+        zipped_output1
 
-  let store_scan_record = storeScanRecord
-        SqlRead.circleCIProviderIndex
-        branch_name
-        fetch_initiation_timestamp
-        maybe_eb_worker_event_id
-
-  ci_scan_id <- store_scan_record
+  ci_scan_id <- storeScanRecord
+    SqlRead.circleCIProviderIndex
+    branch_name
+    fetch_initiation_timestamp
+    maybe_eb_worker_event_id
 
   storeBuildsList (Just ci_scan_id) zipped_output2
 
@@ -647,17 +651,28 @@ storeHelper ::
      [(a, (Builds.Build, Bool))]
   -> SqlRead.DbIO [(a, Builds.StorableBuild)]
 storeHelper deduped_builds_list = do
- conn <- ask
+   conn <- ask
+   liftIO $ storeHelperInner conn deduped_builds_list
+
+
+-- | NOTE: The output list may be shorter than the input list due to
+-- filtering/deduplication.
+storeHelperInner ::
+     Connection
+  -> [(a, (Builds.Build, Bool))]
+  -> IO [(a, Builds.StorableBuild)]
+storeHelperInner conn deduped_builds_list = do
+
   -- First, insert/deduplicate provider build numbers.
   -- The output list should be the same length as the
-  -- input list, since the input list is *already supposed
-  -- to be deduped*.
+  -- input list, since the input list is *already
+  -- supposed to be deduped*.
   --
   -- Each returned row contains a singleton
   -- "provider number surrogate id" generated (or retrieved)
   -- by the database.
 
- liftIO $ do
+
   provider_build_insertion_output_rows <- returning
     conn
     sqlInsertProviderBuild
@@ -669,7 +684,7 @@ storeHelper deduped_builds_list = do
   --
   -- XXX Do not separate this from the DB insertion above!
   let zipped_output0 = zipWith
-        (\(Only row_id) (x, (rbuild, ubuild)) -> (x, (rbuild, (SurrogateProviderIdUniversalPair row_id ubuild))))
+        (\(Only row_id) (x, (rbuild, ubuild)) -> (x, (rbuild, SurrogateProviderIdUniversalPair row_id ubuild)))
         provider_build_insertion_output_rows
         paired_builds
 
@@ -691,6 +706,8 @@ storeHelper deduped_builds_list = do
 
   let deduped_filtered_insertion_records = nubSortOn (Builds.getUniquenessConstraint . (\(SurrogateProviderIdUniversalPair _ x) -> x) . snd . snd) raw_filtered_insertion_records
 
+
+
   universal_build_insertion_output_rows <- returning
     conn
     sqlInsertUniversalBuild $
@@ -699,7 +716,7 @@ storeHelper deduped_builds_list = do
 
   -- XXX Do not separate this from the DB insertion above!
   return $ zipWith
-        (\(Only row_id) (x, (rbuild, (SurrogateProviderIdUniversalPair _ (Builds.UniBuildWithJob ubuild _)))) -> (x, Builds.StorableBuild (DbHelpers.WithId row_id ubuild) rbuild))
+        (\(Only row_id) (x, (rbuild, SurrogateProviderIdUniversalPair _ (Builds.UniBuildWithJob ubuild _))) -> (x, Builds.StorableBuild (DbHelpers.WithId row_id ubuild) rbuild))
         universal_build_insertion_output_rows
         deduped_filtered_insertion_records
 
@@ -1311,7 +1328,11 @@ updateCodeBreakageDescription cause_id description = do
   conn <- ask
   liftIO $ Right <$> execute conn sql (description, cause_id)
   where
-    sql = "UPDATE code_breakage_cause SET description = ? WHERE id = ?"
+    sql = Q.qjoin [
+        "UPDATE code_breakage_cause"
+      , "SET description = ?"
+      , "WHERE id = ?"
+      ]
 
 
 updateCodeBreakageResolutionSha1 ::
@@ -1322,7 +1343,10 @@ updateCodeBreakageResolutionSha1 cause_id (Builds.RawCommit sha1) = do
   conn <- ask
   liftIO $ Right <$> execute conn sql (sha1, cause_id)
   where
-    sql = "UPDATE code_breakage_resolution SET sha1 = ? WHERE cause = ?"
+    sql = Q.qjoin [
+        "UPDATE code_breakage_resolution"
+      , "SET sha1 = ? WHERE cause = ?"
+      ]
 
 
 updateCodeBreakageCauseSha1 ::
@@ -1333,7 +1357,10 @@ updateCodeBreakageCauseSha1 cause_id (Builds.RawCommit sha1) = do
   conn <- ask
   liftIO $ Right <$> execute conn sql (sha1, cause_id)
   where
-    sql = "UPDATE code_breakage_cause SET sha1 = ? WHERE id = ?"
+    sql = Q.qjoin [
+        "UPDATE code_breakage_cause"
+      , "SET sha1 = ? WHERE id = ?"
+      ]
 
 
 deleteCodeBreakageResolution ::

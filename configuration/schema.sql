@@ -244,13 +244,20 @@ ALTER TABLE lambda_logging.materialized_view_refresh_events OWNER TO postgres;
 --
 
 CREATE VIEW lambda_logging.materialized_view_refresh_event_stats WITH (security_barrier='false') AS
- SELECT materialized_view_refresh_events.view_name,
-    max(materialized_view_refresh_events."timestamp") AS latest,
-    avg(materialized_view_refresh_events.execution_duration_seconds) AS average_execution_time,
-    count(*) AS event_count,
-    (CURRENT_TIMESTAMP - max(materialized_view_refresh_events."timestamp")) AS latest_age
-   FROM lambda_logging.materialized_view_refresh_events
-  GROUP BY materialized_view_refresh_events.view_name;
+ SELECT foo.view_name,
+    foo.latest,
+    foo.average_execution_time,
+    foo.event_count,
+    foo.latest_age,
+    materialized_view_refresh_events.execution_duration_seconds AS latest_duration
+   FROM (( SELECT materialized_view_refresh_events_1.view_name,
+            max(materialized_view_refresh_events_1."timestamp") AS latest,
+            avg(materialized_view_refresh_events_1.execution_duration_seconds) AS average_execution_time,
+            count(*) AS event_count,
+            (CURRENT_TIMESTAMP - max(materialized_view_refresh_events_1."timestamp")) AS latest_age
+           FROM lambda_logging.materialized_view_refresh_events materialized_view_refresh_events_1
+          GROUP BY materialized_view_refresh_events_1.view_name) foo
+     JOIN lambda_logging.materialized_view_refresh_events ON ((materialized_view_refresh_events."timestamp" = foo.latest)));
 
 
 ALTER TABLE lambda_logging.materialized_view_refresh_event_stats OWNER TO postgres;
@@ -278,6 +285,136 @@ COMMENT ON TABLE public.cached_master_merge_base IS 'Caches the computed "merge 
 In general, it would be possible for the merge base to change over time if the master branch is advanced to a more recent ancestor (up to and including the HEAD) of the PR branch.  In practice, however, this will not happen in the Facebook mirrored repo configuration, as a novel commit is produced for every change to the master branch.
 
 Therefore, this cache of merge bases never needs to be invalidated.';
+
+
+--
+-- Name: github_incoming_status_events; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.github_incoming_status_events (
+    id integer NOT NULL,
+    sha1 character(40),
+    name text,
+    description text,
+    state text,
+    target_url text,
+    context text,
+    created_at timestamp with time zone,
+    inserted_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+ALTER TABLE public.github_incoming_status_events OWNER TO postgres;
+
+--
+-- Name: github_incoming_status_events_derived_circleci_columns; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.github_incoming_status_events_derived_circleci_columns (
+    event_id integer NOT NULL,
+    job_name_extracted text NOT NULL,
+    build_number_extracted integer
+);
+
+
+ALTER TABLE public.github_incoming_status_events_derived_circleci_columns OWNER TO postgres;
+
+--
+-- Name: TABLE github_incoming_status_events_derived_circleci_columns; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.github_incoming_status_events_derived_circleci_columns IS 'TODO: Convert build_number_extracted and job_name_extracted to "derived columns" in Postgres 12';
+
+
+--
+-- Name: github_status_events_circleci; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.github_status_events_circleci WITH (security_barrier='false') AS
+ SELECT github_incoming_status_events.sha1,
+    github_incoming_status_events.created_at,
+    github_incoming_status_events_derived_circleci_columns.job_name_extracted,
+    github_incoming_status_events_derived_circleci_columns.build_number_extracted,
+    github_incoming_status_events.state
+   FROM (public.github_incoming_status_events
+     JOIN public.github_incoming_status_events_derived_circleci_columns ON ((github_incoming_status_events_derived_circleci_columns.event_id = github_incoming_status_events.id)));
+
+
+ALTER TABLE public.github_status_events_circleci OWNER TO postgres;
+
+--
+-- Name: github_status_events_circleci_failures; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.github_status_events_circleci_failures WITH (security_barrier='false') AS
+ SELECT github_status_events_circleci.sha1,
+    github_status_events_circleci.created_at,
+    github_status_events_circleci.job_name_extracted,
+    github_status_events_circleci.build_number_extracted
+   FROM public.github_status_events_circleci
+  WHERE (github_status_events_circleci.state = 'failure'::text);
+
+
+ALTER TABLE public.github_status_events_circleci_failures OWNER TO postgres;
+
+--
+-- Name: github_status_events_circleci_success; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.github_status_events_circleci_success AS
+ SELECT github_status_events_circleci.sha1,
+    github_status_events_circleci.created_at,
+    github_status_events_circleci.job_name_extracted,
+    github_status_events_circleci.build_number_extracted,
+    github_status_events_circleci.state
+   FROM public.github_status_events_circleci
+  WHERE (github_status_events_circleci.state = 'success'::text);
+
+
+ALTER TABLE public.github_status_events_circleci_success OWNER TO postgres;
+
+--
+-- Name: VIEW github_status_events_circleci_success; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.github_status_events_circleci_success IS 'Filtering by "success" does not require use of the (very slow, from use of DISTINCT ON) "github_circleci_latest_statuses_by_build" view, since the "success" state should always be unique and the last state.
+
+Related: "disjoint_circleci_build_statuses" view for examining which CircleCI builds have been observed as GitHub notifications but not processed any further.';
+
+
+--
+-- Name: circleci_empirically_flaky_builds; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.circleci_empirically_flaky_builds AS
+ SELECT agg_successes.job_name_extracted AS job_name,
+    agg_successes.sha1,
+    agg_successes.first_succeeded_at,
+    agg_failures.first_failed_at,
+    agg_successes.count AS success_count,
+    agg_failures.count AS failure_count
+   FROM (( SELECT github_status_events_circleci_success.job_name_extracted,
+            github_status_events_circleci_success.sha1,
+            count(*) AS count,
+            min(github_status_events_circleci_success.created_at) AS first_succeeded_at
+           FROM public.github_status_events_circleci_success
+          GROUP BY github_status_events_circleci_success.job_name_extracted, github_status_events_circleci_success.sha1) agg_successes
+     JOIN ( SELECT github_status_events_circleci_failures.job_name_extracted,
+            github_status_events_circleci_failures.sha1,
+            count(*) AS count,
+            min(github_status_events_circleci_failures.created_at) AS first_failed_at
+           FROM public.github_status_events_circleci_failures
+          GROUP BY github_status_events_circleci_failures.job_name_extracted, github_status_events_circleci_failures.sha1) agg_failures ON (((agg_successes.job_name_extracted = agg_failures.job_name_extracted) AND (agg_successes.sha1 = agg_failures.sha1))))
+  ORDER BY agg_successes.job_name_extracted, agg_successes.sha1;
+
+
+ALTER TABLE public.circleci_empirically_flaky_builds OWNER TO postgres;
+
+--
+-- Name: VIEW circleci_empirically_flaky_builds; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.circleci_empirically_flaky_builds IS 'Each of these builds had at least one success and one failure.';
 
 
 --
@@ -409,86 +546,6 @@ CREATE TABLE public.commit_metadata (
 
 
 ALTER TABLE public.commit_metadata OWNER TO postgres;
-
---
--- Name: github_incoming_status_events; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.github_incoming_status_events (
-    id integer NOT NULL,
-    sha1 character(40),
-    name text,
-    description text,
-    state text,
-    target_url text,
-    context text,
-    created_at timestamp with time zone,
-    inserted_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
-ALTER TABLE public.github_incoming_status_events OWNER TO postgres;
-
---
--- Name: github_incoming_status_events_derived_circleci_columns; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.github_incoming_status_events_derived_circleci_columns (
-    event_id integer NOT NULL,
-    job_name_extracted text NOT NULL,
-    build_number_extracted integer
-);
-
-
-ALTER TABLE public.github_incoming_status_events_derived_circleci_columns OWNER TO postgres;
-
---
--- Name: TABLE github_incoming_status_events_derived_circleci_columns; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON TABLE public.github_incoming_status_events_derived_circleci_columns IS 'TODO: Convert build_number_extracted and job_name_extracted to "derived columns" in Postgres 12';
-
-
---
--- Name: github_status_events_circleci; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.github_status_events_circleci WITH (security_barrier='false') AS
- SELECT github_incoming_status_events.sha1,
-    github_incoming_status_events.created_at,
-    github_incoming_status_events_derived_circleci_columns.job_name_extracted,
-    github_incoming_status_events_derived_circleci_columns.build_number_extracted,
-    github_incoming_status_events.state
-   FROM (public.github_incoming_status_events
-     JOIN public.github_incoming_status_events_derived_circleci_columns ON ((github_incoming_status_events_derived_circleci_columns.event_id = github_incoming_status_events.id)));
-
-
-ALTER TABLE public.github_status_events_circleci OWNER TO postgres;
-
---
--- Name: github_status_events_circleci_success; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.github_status_events_circleci_success AS
- SELECT github_status_events_circleci.sha1,
-    github_status_events_circleci.created_at,
-    github_status_events_circleci.job_name_extracted,
-    github_status_events_circleci.build_number_extracted,
-    github_status_events_circleci.state
-   FROM public.github_status_events_circleci
-  WHERE (github_status_events_circleci.state = 'success'::text);
-
-
-ALTER TABLE public.github_status_events_circleci_success OWNER TO postgres;
-
---
--- Name: VIEW github_status_events_circleci_success; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON VIEW public.github_status_events_circleci_success IS 'Filtering by "success" does not require use of the (very slow, from use of DISTINCT ON) "github_circleci_latest_statuses_by_build" view, since the "success" state should always be unique and the last state.
-
-Related: "disjoint_circleci_build_statuses" view for examining which CircleCI builds have been observed as GitHub notifications but not processed any further.';
-
 
 --
 -- Name: master_commit_circleci_scheduled_job_discrimination; Type: VIEW; Schema: public; Owner: postgres
@@ -627,6 +684,28 @@ CREATE VIEW public.global_builds WITH (security_barrier='false') AS
 
 
 ALTER TABLE public.global_builds OWNER TO postgres;
+
+--
+-- Name: VIEW global_builds; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.global_builds IS 'Note that there are 1M+ old (until around Dec. 7, 2019) records in the "universal_builds" table where "x_job_name" is null.  We exclude them from this view.';
+
+
+--
+-- Name: global_builds_emprical_flakiness; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.global_builds_emprical_flakiness AS
+ SELECT global_builds.job_name,
+    global_builds.vcs_revision AS sha1,
+    global_builds.succeeded,
+    (circleci_empirically_flaky_builds.sha1 IS NOT NULL) AS is_empirically_determined_flaky
+   FROM (public.global_builds
+     LEFT JOIN public.circleci_empirically_flaky_builds ON (((circleci_empirically_flaky_builds.sha1 = global_builds.vcs_revision) AND (circleci_empirically_flaky_builds.job_name = global_builds.job_name))));
+
+
+ALTER TABLE public.global_builds_emprical_flakiness OWNER TO postgres;
 
 --
 -- Name: master_failure_mode_attributions; Type: TABLE; Schema: public; Owner: postgres
@@ -790,10 +869,10 @@ CREATE VIEW public.master_commit_job_success_completeness WITH (security_barrier
                              LEFT JOIN ( SELECT global_builds.job_name,
                                     global_builds.vcs_revision
                                    FROM public.global_builds) built_jobs_table ON (((built_jobs_table.job_name = master_commit_circleci_scheduled_job_discrimination.job_name) AND (built_jobs_table.vcs_revision = master_commit_circleci_scheduled_job_discrimination.commit_sha1))))
-                             LEFT JOIN ( SELECT global_builds.job_name,
-                                    global_builds.vcs_revision
-                                   FROM public.global_builds
-                                  WHERE (NOT global_builds.succeeded)) failed_jobs_table ON (((failed_jobs_table.job_name = master_commit_circleci_scheduled_job_discrimination.job_name) AND (failed_jobs_table.vcs_revision = master_commit_circleci_scheduled_job_discrimination.commit_sha1))))
+                             LEFT JOIN ( SELECT global_builds_emprical_flakiness.job_name,
+                                    global_builds_emprical_flakiness.sha1
+                                   FROM public.global_builds_emprical_flakiness
+                                  WHERE (NOT (global_builds_emprical_flakiness.succeeded OR global_builds_emprical_flakiness.is_empirically_determined_flaky))) failed_jobs_table ON (((failed_jobs_table.job_name = master_commit_circleci_scheduled_job_discrimination.job_name) AND (failed_jobs_table.sha1 = master_commit_circleci_scheduled_job_discrimination.commit_sha1))))
                           WHERE (NOT master_commit_circleci_scheduled_job_discrimination.is_scheduled)) foo
                   GROUP BY foo.joblist_commit_sha1) bar ON ((master_commits_basic_metadata.sha1 = bar.joblist_commit_sha1)))
           ORDER BY master_commits_basic_metadata.id DESC) foobar;
@@ -807,7 +886,17 @@ ALTER TABLE public.master_commit_job_success_completeness OWNER TO postgres;
 
 COMMENT ON VIEW public.master_commit_job_success_completeness IS 'TODO: remove "unbuilt_required_job_count" column from this and the mview.
 
-NOTE: Downstream (in a postgres function), we *are* using the "not_succeeded_required_job_count" column, but we are *not* using the "unbuilt_required_job_count" column.
+NOTE: Downstream (in a Postgres function), we *are* using the "not_succeeded_required_job_count" column, but we are *not* using the "unbuilt_required_job_count" column.
+
+----------------------------------------------------
+Note that "not_succeeded_required_job_count" and "failed_required_job_count" draw from different information sources.
+"failed_required_job_count" draws from the "global_builds" table, which only stores the first record of a build completion.  If that build first failed, then a rebuild succeeded, its status will not be updated from failure to success.
+
+"not_succeeded_required_job_count", on the other hand, uses the CircleCI "success" status notifications.  This *can* change from unsuccessful to successful after a rebuild.
+
+Therefore it could be possible that a master commit reports 6 failures but only 5 "disqualifying jobs".   Example: commit c917a247a87df00674424c05fe71d4a7321dd339
+
+----------------------------------------------------
 
 See also the "master_required_unbuilt_jobs" view for individual rows per job and commit, which can be aggregated by job.';
 
@@ -2803,21 +2892,6 @@ ALTER SEQUENCE public.github_incoming_status_events_id_seq OWNED BY public.githu
 
 
 --
--- Name: github_status_events_circleci_failures; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.github_status_events_circleci_failures WITH (security_barrier='false') AS
- SELECT github_status_events_circleci.sha1,
-    github_status_events_circleci.created_at,
-    github_status_events_circleci.job_name_extracted,
-    github_status_events_circleci.build_number_extracted
-   FROM public.github_status_events_circleci
-  WHERE (github_status_events_circleci.state = 'failure'::text);
-
-
-ALTER TABLE public.github_status_events_circleci_failures OWNER TO postgres;
-
---
 -- Name: github_status_events_aggregate_circleci_failures; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -3637,11 +3711,13 @@ CREATE VIEW public.master_failures_raw_causes WITH (security_barrier='false') AS
     build_failure_causes.finished_at,
     build_failure_causes.maybe_is_scheduled,
     build_failure_causes.is_network,
-    ((build_failure_causes.is_flaky OR (master_detected_adjacent_breakages.universal_build IS NULL)) AND (NOT build_failure_causes.succeeded)) AS is_isolated_or_flaky_failure
-   FROM (((public.ordered_master_commits
+    ((build_failure_causes.is_flaky OR (master_detected_adjacent_breakages.universal_build IS NULL)) AND (NOT build_failure_causes.succeeded)) AS is_isolated_or_flaky_failure,
+    (circleci_empirically_flaky_builds.sha1 IS NOT NULL) AS is_empirically_determined_flaky
+   FROM ((((public.ordered_master_commits
      JOIN public.build_failure_causes ON ((build_failure_causes.vcs_revision = ordered_master_commits.sha1)))
      LEFT JOIN public.best_pattern_match_augmented_builds ON ((build_failure_causes.global_build = best_pattern_match_augmented_builds.universal_build)))
-     LEFT JOIN public.master_detected_adjacent_breakages ON ((build_failure_causes.global_build = master_detected_adjacent_breakages.universal_build)));
+     LEFT JOIN public.master_detected_adjacent_breakages ON ((build_failure_causes.global_build = master_detected_adjacent_breakages.universal_build)))
+     LEFT JOIN public.circleci_empirically_flaky_builds ON (((circleci_empirically_flaky_builds.sha1 = ordered_master_commits.sha1) AND (circleci_empirically_flaky_builds.job_name = build_failure_causes.job_name))));
 
 
 ALTER TABLE public.master_failures_raw_causes OWNER TO postgres;
@@ -3694,7 +3770,8 @@ CREATE MATERIALIZED VIEW public.master_failures_raw_causes_mview AS
     master_failures_raw_causes.finished_at,
     master_failures_raw_causes.maybe_is_scheduled,
     master_failures_raw_causes.is_network,
-    master_failures_raw_causes.is_isolated_or_flaky_failure
+    master_failures_raw_causes.is_isolated_or_flaky_failure,
+    master_failures_raw_causes.is_empirically_determined_flaky
    FROM public.master_failures_raw_causes
   WITH NO DATA;
 
@@ -6234,10 +6311,10 @@ CREATE INDEX fki_idx_remed_patterns ON public.remediations_patterns USING btree 
 
 
 --
--- Name: global_build_idx_uniq; Type: INDEX; Schema: public; Owner: materialized_view_updater
+-- Name: global_build_idx_uniq2; Type: INDEX; Schema: public; Owner: materialized_view_updater
 --
 
-CREATE UNIQUE INDEX global_build_idx_uniq ON public.master_failures_raw_causes_mview USING btree (global_build DESC NULLS LAST);
+CREATE UNIQUE INDEX global_build_idx_uniq2 ON public.master_failures_raw_causes_mview USING btree (global_build DESC NULLS LAST);
 
 
 --
@@ -6472,10 +6549,10 @@ CREATE UNIQUE INDEX idx_upsteream_breakages_weekly_week ON public.upstream_break
 
 
 --
--- Name: mview_commit_index3; Type: INDEX; Schema: public; Owner: materialized_view_updater
+-- Name: mview_commit_index4; Type: INDEX; Schema: public; Owner: materialized_view_updater
 --
 
-CREATE INDEX mview_commit_index3 ON public.master_failures_raw_causes_mview USING btree (commit_index);
+CREATE INDEX mview_commit_index4 ON public.master_failures_raw_causes_mview USING btree (commit_index);
 
 
 --
@@ -6947,6 +7024,52 @@ GRANT ALL ON TABLE public.cached_master_merge_base TO logan;
 
 
 --
+-- Name: TABLE github_incoming_status_events; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.github_incoming_status_events TO logan;
+
+
+--
+-- Name: TABLE github_incoming_status_events_derived_circleci_columns; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.github_incoming_status_events_derived_circleci_columns TO logan;
+GRANT SELECT ON TABLE public.github_incoming_status_events_derived_circleci_columns TO materialized_view_updater;
+
+
+--
+-- Name: TABLE github_status_events_circleci; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.github_status_events_circleci TO logan;
+GRANT SELECT ON TABLE public.github_status_events_circleci TO materialized_view_updater;
+
+
+--
+-- Name: TABLE github_status_events_circleci_failures; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.github_status_events_circleci_failures TO logan;
+
+
+--
+-- Name: TABLE github_status_events_circleci_success; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.github_status_events_circleci_success TO logan;
+GRANT SELECT ON TABLE public.github_status_events_circleci_success TO materialized_view_updater;
+
+
+--
+-- Name: TABLE circleci_empirically_flaky_builds; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.circleci_empirically_flaky_builds TO logan;
+GRANT SELECT ON TABLE public.circleci_empirically_flaky_builds TO materialized_view_updater;
+
+
+--
 -- Name: TABLE circleci_expanded_config_yaml_hashes_by_commit; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -7003,37 +7126,6 @@ GRANT ALL ON TABLE public.commit_metadata TO logan;
 
 
 --
--- Name: TABLE github_incoming_status_events; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.github_incoming_status_events TO logan;
-
-
---
--- Name: TABLE github_incoming_status_events_derived_circleci_columns; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.github_incoming_status_events_derived_circleci_columns TO logan;
-GRANT SELECT ON TABLE public.github_incoming_status_events_derived_circleci_columns TO materialized_view_updater;
-
-
---
--- Name: TABLE github_status_events_circleci; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.github_status_events_circleci TO logan;
-GRANT SELECT ON TABLE public.github_status_events_circleci TO materialized_view_updater;
-
-
---
--- Name: TABLE github_status_events_circleci_success; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.github_status_events_circleci_success TO logan;
-GRANT SELECT ON TABLE public.github_status_events_circleci_success TO materialized_view_updater;
-
-
---
 -- Name: TABLE master_commit_circleci_scheduled_job_discrimination; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -7069,6 +7161,14 @@ GRANT SELECT ON TABLE public.global_builds_unfiltered TO materialized_view_updat
 --
 
 GRANT ALL ON TABLE public.global_builds TO logan;
+
+
+--
+-- Name: TABLE global_builds_emprical_flakiness; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.global_builds_emprical_flakiness TO logan;
+GRANT SELECT ON TABLE public.global_builds_emprical_flakiness TO materialized_view_updater;
 
 
 --
@@ -7703,13 +7803,6 @@ GRANT ALL ON SEQUENCE public.failure_remediations_id_seq TO logan;
 --
 
 GRANT ALL ON SEQUENCE public.github_incoming_status_events_id_seq TO logan;
-
-
---
--- Name: TABLE github_status_events_circleci_failures; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.github_status_events_circleci_failures TO logan;
 
 
 --

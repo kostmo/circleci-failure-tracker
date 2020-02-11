@@ -531,7 +531,7 @@ function define_job_column(col) {
 
 				// NOTE: it would make the most sense to check for success first;
 				// in case the fields are inconsistent (flaky + succeeded)
-				const img_path = cell_value.is_flaky ? "yellow-triangle.svg"
+				const img_path = cell_value.is_empirically_determined_flaky ? "yellow-triangle.svg" : cell_value.is_flaky ? "orange-delta.svg"
 					: cell_value.failure_mode["tag"] == "FailedStep" && cell_value.failure_mode["step_failure"]["tag"] == "Timeout" ? "purple-circle.svg"
 						: cell_value.failure_mode["tag"] == "FailedStep" && cell_value.failure_mode["step_failure"]["tag"] == "NoMatch" ? "blue-square.svg"
 							: cell_value.failure_mode["tag"] == "NoLog" ? "gray-diamond.svg"
@@ -675,17 +675,18 @@ function generate_legend_html() {
 	];
 
 	const symbol_pairs = [
-		['yellow-triangle.svg', "flaky"],
-		['red-x.svg',           "other match"],
-		['blue-square.svg',     "no pattern match"],
-		['purple-circle.svg',   "timeout"],
-		['gray-diamond.svg',    "no log"],
-		['green-dot.svg',       "success"],
+		['yellow-triangle', "empirically flaky by rerun"],
+		['orange-delta',    "recognized flaky by pattern"],
+		['red-x',           "other match"],
+		['blue-square',     "no pattern match"],
+		['purple-circle',   "timeout"],
+		['gray-diamond',    "no log"],
+		['green-dot',       "success"],
 	];
 
 	for (var x of symbol_pairs) {
 		const div_style = {"style": "text-align: right; margin-right: 0.5em;"};
-		legend_rows.push([render_tag("div", '<img src="/images/build-status-indicators/' + x[0] + '" style="width: 20px;"/>', div_style), x[1]]);
+		legend_rows.push([render_tag("div", '<img src="/images/build-status-indicators/' + x[0] + '.svg" style="width: 20px;"/>', div_style), x[1]]);
 	}
 
 	return render_table(legend_rows, {"style": "vertical-align: bottom;"}, "Legend", true);
