@@ -282,7 +282,7 @@ lookupUniversalBuildFromProviderBuild conn (Builds.NewBuildNumber build_num) = d
           "provider DESC"
         , "global_build_num DESC"
         ]
-      , "LIMIT 1;"
+      , "LIMIT 1"
       ]
 
 
@@ -301,7 +301,7 @@ getCachedPullRequestAuthor (Builds.PullRequestNumber pr_number) = do
           "github_user_login"
         ]
       , "FROM pull_request_static_metadata"
-      , "WHERE pr_number = ?;"
+      , "WHERE pr_number = ?"
       ]
 
 
@@ -323,7 +323,8 @@ lookupUniversalBuild (Builds.UniversalBuildId universal_build_num) = do
         , "succeeded"
         , "vcs_revision"
         ]
-      , "FROM global_builds WHERE global_build_num = ?;"
+      , "FROM global_builds"
+      , "WHERE global_build_num = ?"
       ]
 
 
@@ -357,7 +358,7 @@ getGlobalBuild (Builds.UniversalBuildId global_build_num) = do
         , "finished_at"
         ]
       , "FROM global_builds"
-      , "WHERE global_build_num = ?;"
+      , "WHERE global_build_num = ?"
       ]
 
 
@@ -413,7 +414,7 @@ userOptOutSettings = do
         , "modified_at"
         ]
       , "FROM pr_comment_posting_opt_outs"
-      , "WHERE username = ?;"
+      , "WHERE username = ?"
       ]
 
 
@@ -564,28 +565,7 @@ apiPostedPRComments count = do
         ]
       , "FROM latest_created_pull_request_comment_revision"
       , "ORDER BY updated_at DESC"
-      , "LIMIT ?;"
-      ]
-
-
-apiPostedStatuses ::
-     Int
-  -> DbIO [PostedStatuses.PostedStatus]
-apiPostedStatuses count = do
-  conn <- ask
-  liftIO $ query conn sql $ Only count
-  where
-    sql = Q.qjoin [
-        "SELECT"
-      , Q.list [
-          "sha1"
-        , "description"
-        , "state"
-        , "created_at"
-        ]
-      , "FROM created_github_statuses"
-      , "ORDER BY created_at DESC"
-      , "LIMIT ?;"
+      , "LIMIT ?"
       ]
 
 
@@ -607,24 +587,6 @@ apiPostedStatusesByCommit (Builds.RawCommit sha1) = do
       , "FROM created_github_statuses"
       , "WHERE sha1 = ?"
       , "ORDER BY created_at DESC"
-      ]
-
-
-apiAggregatePostedStatuses :: Int -> DbIO [PostedStatuses.PostedStatusAggregate]
-apiAggregatePostedStatuses count = do
-  conn <- ask
-  liftIO $ query conn sql $ Only count
-  where
-    sql = Q.qjoin [
-        "SELECT"
-      , Q.list [
-          "sha1"
-        , "count"
-        , "last_time"
-        , "EXTRACT(SECONDS FROM time_interval)"
-        ]
-      , "FROM aggregated_github_status_postings"
-      , "LIMIT ?;"
       ]
 
 
@@ -664,7 +626,9 @@ getMergeTimeFailingPullRequestBuildsByWeek week_count = do
         ]
       , "FROM pr_merge_time_failing_builds_by_week"
       , "WHERE failing_pr_count IS NOT NULL"
-      , "ORDER BY week DESC OFFSET 1 LIMIT ?;"
+      , "ORDER BY week DESC"
+      , "OFFSET 1"
+      , "LIMIT ?"
       ]
 
 
@@ -760,7 +724,11 @@ apiPatternOccurrenceTimeline = do
         , "date_trunc('week', queued_at) AS week"
         ]
       , "FROM master_failures_raw_causes_mview"
-      , "GROUP BY pattern_id, week"
+      , "GROUP BY"
+      , Q.list [
+          "pattern_id"
+        , "week"
+        ]
       ]
 
 
@@ -831,7 +799,8 @@ apiLineCountHistogram = map (swap . f) <$> runQuery sql
         , "pow(10, floor(ln(line_count) / ln(10)))::numeric::integer AS bin"
         ]
       , "FROM log_metadata WHERE line_count > 0"
-      , "GROUP BY bin ORDER BY bin ASC;"
+      , "GROUP BY bin"
+      , "ORDER BY bin ASC"
       ]
 
 
@@ -846,7 +815,8 @@ apiByteCountHistogram = map (swap . f) <$> runQuery sql
         , "pow(10, floor(ln(byte_count) / ln(10)))::numeric::integer AS bin"
         ]
       , "FROM log_metadata WHERE byte_count > 0"
-      , "GROUP BY bin ORDER BY bin ASC;"
+      , "GROUP BY bin"
+      , "ORDER BY bin ASC"
       ]
 
 
@@ -943,7 +913,7 @@ getNextMasterCommit conn (Builds.RawCommit current_git_revision) = do
       , "WHERE"
       , "id > " <> Q.parens "SELECT id FROM ordered_master_commits WHERE sha1 = ?"
       , "ORDER BY id ASC"
-      , "LIMIT 1;"
+      , "LIMIT 1"
       ]
 
 
@@ -978,7 +948,7 @@ apiStep = WebApi.ApiResponse <$> runQuery q
       , "step_name != ''"
       ]
     , "GROUP BY step_name"
-    , "ORDER BY freq DESC;"
+    , "ORDER BY freq DESC"
     ]
 
 
@@ -991,9 +961,21 @@ apiDeterministicFailureModes = WebApi.ApiResponse <$> runQuery q
         "master_failure_modes.label"
       , "freq"
       ]
-    , "FROM (SELECT failure_mode_id, COUNT(*) AS freq FROM known_breakage_summaries GROUP BY failure_mode_id ORDER BY freq DESC) foo"
+    , "FROM"
+    , "(" <> inner_q <> ") foo"
     , "JOIN master_failure_modes"
-    , "ON foo.failure_mode_id = master_failure_modes.id;"
+    , "ON foo.failure_mode_id = master_failure_modes.id"
+    ]
+
+  inner_q = Q.qjoin [
+      "SELECT"
+      , Q.list [
+          "failure_mode_id"
+        , "COUNT(*) AS freq"
+        ]
+    , "FROM known_breakage_summaries"
+    , "GROUP BY failure_mode_id"
+    , "ORDER BY freq DESC"
     ]
 
 
@@ -1036,7 +1018,10 @@ apiStatusNotificationsByHour hours = do
   where
   sql = Q.qjoin [
       "SELECT"
-    , "date_trunc('hour', created_at) AS hour, COUNT(*)"
+    , Q.list [
+        "date_trunc('hour', created_at) AS hour"
+      , "COUNT(*)"
+      ]
     , "FROM github_incoming_status_events"
     , "GROUP BY hour ORDER BY hour DESC"
     , "OFFSET 1"
@@ -1073,7 +1058,10 @@ apiFailedCommitsByDay = WebApi.ApiResponse <$> runQuery q
   where
   q = Q.qjoin [
       "SELECT"
-    , "queued_at::date AS date, COUNT(*)"
+    , Q.list [
+        "queued_at::date AS date"
+      , "COUNT(*)"
+      ]
     , "FROM"
     , Q.aliasedSubquery subquery "foo"
     , "GROUP BY date"
@@ -1177,7 +1165,7 @@ apiIdiopathicBuilds = listBuilds $ Q.qjoin [
     , "global_build_num"
     ]
   , "FROM idiopathic_build_failures"
-  , "ORDER BY global_build_num DESC;"
+  , "ORDER BY global_build_num DESC"
   ]
 
 
@@ -1205,7 +1193,7 @@ apiUnmatchedCommitBuilds (Builds.RawCommit sha1) = do
       , "FROM unattributed_failed_builds"
       , "JOIN ci_providers"
       , "ON unattributed_failed_builds.provider = ci_providers.id"
-      , "WHERE unattributed_failed_builds.vcs_revision = ?;"
+      , "WHERE unattributed_failed_builds.vcs_revision = ?"
       ]
 
 
@@ -1244,7 +1232,7 @@ apiIdiopathicCommitBuilds (Builds.RawCommit sha1) = do
       , "ON idiopathic_build_failures.global_build_num = builds_join_steps.universal_build"
       , "JOIN ci_providers"
       , "ON builds_join_steps.provider = ci_providers.id"
-      , "WHERE vcs_revision = ?;"
+      , "WHERE vcs_revision = ?"
       ]
 
 
@@ -1295,7 +1283,8 @@ readLogSubset (MatchOccurrences.MatchId match_id) offset limit = do
       , "JOIN matches"
       , "ON matches.build_step = log_metadata.step"
       , "WHERE matches.id = ?"
-      , "OFFSET ? LIMIT ?;"
+      , "OFFSET ?"
+      , "LIMIT ?"
       ]
 
 
@@ -1311,7 +1300,8 @@ readLog (Builds.NewBuildStepId step_id) = do
     sql = Q.qjoin [
         "SELECT COALESCE(array_to_string(content_lines, e'\n'), content)"
       , "FROM log_metadata"
-      , "WHERE step = ? LIMIT 1;"
+      , "WHERE step = ?"
+      , "LIMIT 1"
       ]
 
 
@@ -1342,7 +1332,7 @@ masterBuildFailureStats = fmap head $ runQuery $ Q.qjoin [
     ]
   , "FROM build_failure_causes"
   , "JOIN ordered_master_commits"
-  , "ON build_failure_causes.vcs_revision = ordered_master_commits.sha1;"
+  , "ON build_failure_causes.vcs_revision = ordered_master_commits.sha1"
   ]
 
 
@@ -1387,7 +1377,7 @@ masterWeeklyFailureStats week_count = do
       , "FROM master_failures_weekly_aggregation_mview"
       , "ORDER BY week DESC"
       , "LIMIT ?"
-      , "OFFSET 1;"
+      , "OFFSET 1"
       ]
 
     f (
@@ -1513,7 +1503,8 @@ downstreamWeeklyFailureStats week_count = do
         ]
       , "FROM upstream_breakages_weekly_aggregation_mview"
       , "ORDER BY week DESC"
-      , "LIMIT ? OFFSET 1;"
+      , "LIMIT ?"
+      , "OFFSET 1"
       ]
 
 
@@ -1525,7 +1516,7 @@ getLatestKnownMasterCommit conn = do
     sql = Q.qjoin [
         "SELECT sha1 FROM ordered_master_commits"
       , "ORDER BY id DESC"
-      , "LIMIT 1;"
+      , "LIMIT 1"
       ]
 
 
@@ -1547,7 +1538,7 @@ getAllMasterCommits conn = do
   master_commit_rows <- query_ conn master_commit_retrieval_sql
   return $ Set.fromList $ map (\(Only x) -> x) master_commit_rows
   where
-    master_commit_retrieval_sql = "SELECT sha1 FROM ordered_master_commits;"
+    master_commit_retrieval_sql = "SELECT sha1 FROM ordered_master_commits"
 
 
 data CodeBreakage = CodeBreakage {
@@ -1569,7 +1560,7 @@ getMasterCommitIndex conn (Builds.RawCommit sha1) = do
   return $ maybeToEither ("Commit " <> sha1 <>" not found in master branch") $
     Safe.headMay $ map (\(Only x) -> x) rows
   where
-    sql = "SELECT id FROM ordered_master_commits WHERE sha1 = ?;"
+    sql = "SELECT id FROM ordered_master_commits WHERE sha1 = ?"
 
 
 
@@ -2256,7 +2247,7 @@ getMasterCommits parent_offset_mode = do
         commits_query_prefix
       , "WHERE id <= ?"
       , "ORDER BY id DESC"
-      , "LIMIT ?;"
+      , "LIMIT ?"
       ]
 
     sql_commit_id_bounds = Q.qjoin [
@@ -2400,7 +2391,7 @@ apiLeftoverDetectedCodeBreakages = runQuery $ Q.qjoin [
     ]
   , "FROM master_detected_breakages_without_annotations"
   , "JOIN builds_join_steps"
-  , "ON master_detected_breakages_without_annotations.universal_build = builds_join_steps.universal_build;"
+  , "ON master_detected_breakages_without_annotations.universal_build = builds_join_steps.universal_build"
   ]
 
 
@@ -2546,7 +2537,8 @@ getLastCachedMasterGridRefreshTime = do
         "SELECT timestamp, event_source"
       , "FROM lambda_logging.materialized_view_refresh_events"
       , "WHERE view_name = ?"
-      , "ORDER BY timestamp DESC LIMIT 1;"
+      , "ORDER BY timestamp DESC"
+      , "LIMIT 1"
       ]
 
 
@@ -2571,7 +2563,7 @@ getMostRecentProviderApiFetchedBuild provider_id branch_name = do
         , "branch_filter = ?"
         ]
       , "ORDER BY latest_queued_at DESC"
-      , "LIMIT 1;"
+      , "LIMIT 1"
       ]
 
 
@@ -2603,7 +2595,7 @@ genPRPostedCommentQuery where_clauses = Q.qjoin [
   , "FROM latest_created_pull_request_comment_revision"
   , "WHERE"
   , Q.qconjunction where_clauses
-  , "LIMIT 1;"
+  , "LIMIT 1"
   ]
 
 
@@ -2658,7 +2650,7 @@ apiMaterializedViewRefreshes = runQuery sql
           , "latest_duration"
           ]
       , "FROM lambda_logging.materialized_view_refresh_event_stats"
-      , "ORDER BY latest_age;"
+      , "ORDER BY latest_age"
       ]
 
 
@@ -2675,7 +2667,7 @@ getScheduledJobNames = listFlat sql
       , "job_name"
       , "FROM job_schedule_discriminated_mview"
       , "WHERE inferred_scheduled"
-      , "ORDER BY job_name;"
+      , "ORDER BY job_name"
       ]
 
 
@@ -2919,7 +2911,11 @@ apiIsolatedJobFailuresTimespan time_bounds = do
           ]
         ]
       , "GROUP BY job_name"
-      , "ORDER BY isolated_count DESC, job_name"
+      , "ORDER BY"
+      , Q.list [
+          "isolated_count DESC"
+        , "job_name"
+        ]
       ]
 
 
@@ -3387,7 +3383,7 @@ masterCommitsGranular = do
       , "start_date"
       , "end_date"
       ]
-    , "FROM code_breakage_nonoverlapping_spans_dated;"
+    , "FROM code_breakage_nonoverlapping_spans_dated"
     ]
 
   dirty_master_spans <- runQuery $ Q.qjoin [
@@ -3812,7 +3808,7 @@ apiSinglePattern (ScanPatterns.PatternId pattern_id) = do
         , "CASE total_scanned_builds WHEN 0 THEN 0 ELSE CAST((scanned_count * 100 / total_scanned_builds) AS DECIMAL(6, 1)) END AS percent_scanned"
         ]
       , "FROM pattern_frequency_summary_partially_cached"
-      , "WHERE id = ?;"
+      , "WHERE id = ?"
       ]
 
 
@@ -3833,7 +3829,7 @@ apiPatterns = fmap makePatternRecords $ runQuery $ Q.qjoin [
     , "CASE total_scanned_builds WHEN 0 THEN 0 ELSE CAST((scanned_count * 100 / total_scanned_builds) AS DECIMAL(6, 1)) END AS percent_scanned"
     ]
   , "FROM pattern_frequency_summary_partially_cached"
-  , "ORDER BY most_recent DESC NULLS LAST;"
+  , "ORDER BY most_recent DESC NULLS LAST"
   ]
 
 
@@ -3859,7 +3855,7 @@ dumpPatterns = map f <$> runQuery q
         , "lines_from_end"
         ]
       , "FROM patterns_augmented"
-      , "ORDER BY id;"
+      , "ORDER BY id"
       ]
 
 

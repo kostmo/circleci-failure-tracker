@@ -58,28 +58,6 @@ function gen_time_plot(container_id, api_path, title, time_unit) {
 }
 
 
-function gen_aggregate_postings_table(element_id, data_url) {
-
-	var table = new Tabulator("#" + element_id, {
-		height:"400px",
-		layout:"fitColumns",
-		placeholder:"No Data Set",
-		columns:[
-			{title: "Revision", field: "sha1", width: 100, formatter: function(cell, formatterParams, onRendered) {
-				return '<code><a href="/commit-details.html?sha1=' + cell.getValue() + '">' + cell.getValue().substring(0, 7) + '</a></code>';
-			}},
-			{title: "Count", field: "count", sorter: "string"},
-			{title: "Last", field: "last_time", formatter: function(cell, formatterParams, onRendered) {
-				return moment(cell.getValue()).fromNow();
-			}},
-			{title: "Interval", field: "time_interval", formatter: function(cell, formatterParams, onRendered) {
-				return parseInt(cell.getValue()) + "s";
-			}},
-		],
-		ajaxURL: data_url,
-	});
-}
-
 
 function regen_status_notifications_timeline() {
 
@@ -94,11 +72,7 @@ function main() {
 
 	gen_comment_postings_table("comment-postings-table", "/api/posted-pr-comments?count=50", "400px");
 
-	gen_postings_table("status-postings-table", "/api/posted-statuses?count=50", "400px");
-	gen_aggregate_postings_table("aggregate-status-postings-table", "/api/aggregate-posted-statuses?count=50");
-
 	gen_time_plot('container-status-commits-by-day', '/api/status-posted-commits-by-day', "Unique commits annotated", "day");
-	gen_time_plot('container-status-postings-by-day', '/api/status-postings-by-day', "Status postings", "day");
 
 
 	regen_status_notifications_timeline();

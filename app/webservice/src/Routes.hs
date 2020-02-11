@@ -302,17 +302,11 @@ scottyApp
   get "/api/posted-pr-comments" $
     SqlRead.apiPostedPRComments <$> S.param "count"
 
-  get "/api/posted-statuses" $
-    SqlRead.apiPostedStatuses <$> S.param "count"
-
   get "/api/posted-statuses-for-commit" $
     SqlRead.apiPostedStatusesByCommit . Builds.RawCommit <$> S.param "sha1"
 
   get "/api/upstream-broken-jobs-for-commit" $
     SqlRead.getInferredSpanningBrokenJobsBetter . Builds.RawCommit <$> S.param "sha1"
-
-  get "/api/aggregate-posted-statuses" $
-    SqlRead.apiAggregatePostedStatuses <$> S.param "count"
 
   get "/api/known-breakage-affected-jobs" $
     SqlRead.knownBreakageAffectedJobs <$> S.param "cause_id"

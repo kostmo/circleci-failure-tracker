@@ -22,14 +22,3 @@ data PostedStatus = PostedStatus {
 
 instance ToJSON PostedStatus where
   toJSON = genericToJSON JsonUtils.dropUnderscore
-
-
-data PostedStatusAggregate = PostedStatusAggregate {
-    _sha1          :: Text
-  , _count         :: Int
-  , _last_time     :: UTCTime
-  , _time_interval :: Double
-  } deriving (Generic, FromRow)
-
-instance ToJSON PostedStatusAggregate where
-  toJSON = genericToJSON JsonUtils.dropUnderscore
