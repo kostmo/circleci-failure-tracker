@@ -120,9 +120,15 @@ function render_timeplots() {
 
 	const weeks_count = $("#week-count-input").val();
 
-	getJsonWithThrobber("#scan-throbber2", "/api/viable-commit-age-history", {"weeks": weeks_count, "end-timestamp": ending_on_timestamp_string}, function (data) {
-		latest_viable_age_timeline_highchart("age-history-plot", "Age", 'Age (hours)', data);
-	});
+	getJsonWithThrobber("#scan-throbber2",
+		"/api/viable-commit-age-history",
+		{
+			"weeks": weeks_count,
+			"end-timestamp": ending_on_timestamp_string,
+		}, function (data) {
+			latest_viable_age_timeline_highchart("age-history-plot", "Age", 'Age (hours)', data);
+		}
+	);
 
 	getJsonWithThrobber("#scan-throbber2", "/api/viable-commit-lag-count-history", {"weeks": weeks_count, "end-timestamp": ending_on_timestamp_string}, function (data) {
 		latest_viable_age_timeline_highchart("lag-count-history-plot", "Commit Count Lag", 'commit count', data);
@@ -134,7 +140,8 @@ function render_timeplots() {
 function main() {
 
 	picker = new Pikaday({ field: document.getElementById('datepicker') });
-	picker.setDate(new Date())
+	const desired_end_date = moment(new Date()).add(2, 'days').toDate();
+	picker.setDate(desired_end_date)
 
 	requery_table();
 

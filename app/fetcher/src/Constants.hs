@@ -32,7 +32,7 @@ masterName = "master"
 
 
 gitCommitPrefixLength :: Int
-gitCommitPrefixLength = 8
+gitCommitPrefixLength = 10
 
 
 defaultPatternAuthor :: AuthStages.Username
