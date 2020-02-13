@@ -15,7 +15,6 @@ buildDataTruncations :: [Query]
 buildDataTruncations = [
     "TRUNCATE log_metadata CASCADE;"
   , "TRUNCATE build_steps CASCADE;"
-  , "TRUNCATE created_github_statuses CASCADE;"
   , "TRUNCATE builds CASCADE;"
   , "TRUNCATE ordered_master_commits CASCADE;"
   ]

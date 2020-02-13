@@ -196,7 +196,9 @@ function rescan_commit(button) {
 			$(button).prop("disabled", false);
 			$("#scan-throbber").hide();
 
-			handle_submission_response(data);
+			handle_submission_response_generic(data, function() {
+				location.reload();
+			});
 		},
 		error: function( data ) {
 			$("#scan-throbber").hide();

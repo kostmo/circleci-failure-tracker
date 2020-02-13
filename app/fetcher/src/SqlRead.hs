@@ -1056,20 +1056,6 @@ apiFailedCommitsByDay = WebApi.ApiResponse <$> runQuery q
         ]
 
 
--- | Note that Highcharts expects the dates to be in ascending order
-apiStatusPostingsByDay :: DbIO (WebApi.ApiResponse (Day, Int))
-apiStatusPostingsByDay = WebApi.ApiResponse . reverse <$> runQuery q
-  where
-  q = Q.qjoin [
-      "SELECT"
-    , "created_at::date AS date, COUNT(*)"
-    , "FROM created_github_statuses"
-    , "GROUP BY date"
-    , "ORDER BY date DESC"
-    , "OFFSET 1;"
-    ]
-
-
 -- | Skips the most recent week for accuracy
 -- Reversed from descending order because Highcharts expects
 -- the dates to be in ascending order
@@ -1091,9 +1077,6 @@ prCommentRevisionsByWeek = do
       , "ORDER BY week DESC"
       , "OFFSET 1"
       ]
-
-
-
 
 
 listBuilds :: Query -> DbIO [WebApi.BuildBranchRecord]
@@ -3474,7 +3457,7 @@ annotatedCodeBreakagesFields = [
   , "failure_mode_id"
   , "cause_reporter"
   , "cause_reported_at"
-  , "cause_jobs"
+  , "cause_jobs_array"
   , "breakage_commit_author"
   , "breakage_commit_message"
   , "breakage_commit_date"
@@ -3529,7 +3512,8 @@ sqlPrefixAnnotatedCodeBreakagesWithImpact = Q.qjoin [
   ]
 
 
-apiAnnotatedCodeBreakagesWithImpact :: DbIO [BuildResults.BreakageSpan Text BuildResults.BreakageImpactStats]
+apiAnnotatedCodeBreakagesWithImpact ::
+  DbIO [BuildResults.BreakageSpan Text BuildResults.BreakageImpactStats]
 apiAnnotatedCodeBreakagesWithImpact = runQuery $ Q.qjoin [
     sqlPrefixAnnotatedCodeBreakagesWithImpact
   , "ORDER BY cause_commit_index DESC"
@@ -3555,15 +3539,20 @@ apiCodeBreakagesModeSingle cause_id = do
       ]
 
 
-apiAnnotatedCodeBreakagesWithImpactSingle ::
+apiAnnotatedCodeBreakagesWithoutImpactSingle ::
      Int
-  -> DbIO [BuildResults.BreakageSpan Text BuildResults.BreakageImpactStats]
-apiAnnotatedCodeBreakagesWithImpactSingle cause_id = do
+  -> DbIO (Either Text (DbHelpers.BenchmarkedResponse Float (BuildResults.BreakageSpan Text ())))
+apiAnnotatedCodeBreakagesWithoutImpactSingle cause_id = do
   conn <- ask
-  liftIO $ query conn sql $ Only cause_id
+  liftIO $ do
+    (timing, xs) <- D.timeThisFloat $ query conn sql $ Only cause_id
+    return $ maybeToEither "Not found" $ DbHelpers.BenchmarkedResponse timing <$> Safe.headMay xs
+
   where
     sql = Q.qjoin [
-        sqlPrefixAnnotatedCodeBreakagesWithImpact
+        "SELECT"
+      , Q.list annotatedCodeBreakagesFields
+      , "FROM known_breakage_summaries_sans_impact"
       , "WHERE cause_id = ?"
       ]
 

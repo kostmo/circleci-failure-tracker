@@ -39,14 +39,6 @@ function gen_master_timeline_commit_bounds_url(min_commit_idx, max_commit_idx, e
 }
 
 
-function handle_submission_response(data) {
-
-	handle_submission_response_generic(data, function() {
-		location.reload();
-	});
-}
-
-
 function handle_submission_response_generic(data, success_callback) {
 
 	if (data.success) {
@@ -71,7 +63,9 @@ function post_modification(api_endpoint, data_dict) {
 		url: api_endpoint,
 		data: add_redirect_path_to_query_parms(data_dict),
 		success: function( data ) {
-			handle_submission_response(data);
+			handle_submission_response_generic(data, function() {
+				location.reload();
+			});
 		}
 	});
 }

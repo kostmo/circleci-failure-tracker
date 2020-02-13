@@ -18,7 +18,6 @@ import           Data.Time.Format           (defaultTimeLocale,
 import           GHC.Generics               (Generic)
 import           GHC.Int                    (Int64)
 import           Log                        (LogT)
-import qualified Network.OAuth.OAuth2       as OAuth2
 import           Network.Wai
 import qualified Web.Scotty                 as S
 import qualified Web.Scotty.Internal.Types  as ScottyTypes
@@ -27,7 +26,6 @@ import qualified AuthConfig
 import qualified BuildRetrieval
 import qualified Builds
 import qualified CircleApi
-import qualified CircleAuth
 import qualified Constants
 import qualified DbHelpers
 import qualified DebugUtils                 as D
@@ -235,9 +233,9 @@ doStuff
     ]
 
 
-  runExceptT $ do
+  _ <- runExceptT $ do
 
-    scan_resources <- ExceptT $ fmap (first LT.fromStrict) $
+    scan_resources <- ExceptT $ first LT.fromStrict <$>
       Scanning.prepareScanResources
         third_party_auth
         conn

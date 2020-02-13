@@ -196,9 +196,6 @@ scottyApp
   get "/api/master-downstream-commits" $
     SqlRead.apiMasterDownstreamCommits . Builds.RawCommit <$> S.param "sha1"
 
-  get "/api/status-postings-by-day" $
-    pure SqlRead.apiStatusPostingsByDay
-
   get "/api/comment-postings-by-week" $
     pure SqlRead.prCommentRevisionsByWeek
 
@@ -291,7 +288,7 @@ scottyApp
     pure SqlRead.apiIdiopathicBuilds
 
   get "/api/code-breakages-annotated-single" $
-    SqlRead.apiAnnotatedCodeBreakagesWithImpactSingle <$> S.param "cause_id"
+    fmap WebApi.toJsonEither . SqlRead.apiAnnotatedCodeBreakagesWithoutImpactSingle <$> S.param "cause_id"
 
   get "/api/code-breakage-mode-single" $
     SqlRead.apiCodeBreakagesModeSingle <$> S.param "cause_id"

@@ -13,7 +13,7 @@ import           Data.Time                          (UTCTime)
 import           Database.PostgreSQL.Simple         (FromRow)
 import           Database.PostgreSQL.Simple.FromRow (field, fromRow)
 import           Database.PostgreSQL.Simple.Range   (PGRange)
-import           Database.PostgreSQL.Simple.Types   (PGArray)
+import           Database.PostgreSQL.Simple.Types   (PGArray, fromPGArray)
 import           GHC.Generics
 import           GHC.Int                            (Int64)
 
@@ -275,7 +275,7 @@ causeFromRow = do
   failure_mode_id <- field
   cause_reporter <- field
   cause_reported_at <- field
-  cause_jobs_delimited <- field
+  cause_jobs_array <- field
 
   breakage_commit_author <- field
   breakage_commit_message <- field
@@ -287,7 +287,7 @@ causeFromRow = do
           (DbHelpers.WithId cause_commit_index $ Builds.RawCommit cause_sha1)
           description
           (DbHelpers.WithAuthorship failure_mode_reporter failure_mode_reported_at failure_mode_id)
-          (map T.pack $ DbHelpers.splitAggText (cause_jobs_delimited :: String))
+          (fromPGArray cause_jobs_array)
           cause_commit_metadata
 
   return $ DbHelpers.WithId cause_id $

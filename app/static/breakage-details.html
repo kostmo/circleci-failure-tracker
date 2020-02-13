@@ -33,26 +33,41 @@
 </ul>
 
 
-<!-- TODO Too slow to load!
 <div id="scan-throbber" style="display: none; float:right; clear: all;"><img src="/images/duck.gif"/></div>
 <div id="annotated-breakages-table"></div>
--->
+
 
 <h2>Modify</h2>
 
-<table><tr>
+<table>
+
+<tr>
 <th>
 <label for="breakage-mode-selector">Cause:</label>
 </th>
 <td><select id="breakage-mode-selector"/> <img id="mini-throbber-failure-modes" src="/images/animated-spinner.svg" style="width: 16px; vertical-align: middle"/></td>
 <td><button type="button" id="button-breakage-mode-update">Update</button></td>
-</tr></table>
+<td><img id="mini-throbber-update-breakage-mode" src="/images/animated-spinner.svg" style="width: 16px; vertical-align: middle; display: none;"/></td>
+</tr>
+
+
+<tr>
+<th>
+<label for="description-input">Description:</label>
+</th>
+<td><input type="text" id="description-input" size="30"/></td>
+<td><button type="button" id="button-description-update" onclick="update_description();">Update</button></td>
+<td><img id="mini-throbber-update-description" src="/images/animated-spinner.svg" style="width: 16px; vertical-align: middle; display: none;"/></td>
+</tr>
+
+
+</table>
 
 
 <button type="button" onclick="delete_callback();">Delete this breakage</button>
 
 
-<h3>Cause</h3>
+<h3>Span</h3>
 
 <label>Update cause commit to: <input id="new-cause-sha1-field" type="text" size="40"/></label> <button type="button" onclick="update_cause_commit();">Go</button>
 

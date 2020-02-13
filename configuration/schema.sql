@@ -529,6 +529,13 @@ CREATE TABLE public.code_breakage_resolution (
 ALTER TABLE public.code_breakage_resolution OWNER TO postgres;
 
 --
+-- Name: TABLE code_breakage_resolution; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.code_breakage_resolution IS 'TODO: This should not have it''s own "id" surrogate key; the "cause" column should be the primary key since there must only be one resolution per cause.';
+
+
+--
 -- Name: commit_metadata; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -1175,7 +1182,7 @@ ALTER TABLE public.master_ordered_commits_with_metadata_mview OWNER TO materiali
 --
 
 CREATE VIEW public.code_breakage_spans WITH (security_barrier='false') AS
- SELECT DISTINCT ON (foo.cause_id) foo.cause_id,
+ SELECT foo.cause_id,
     foo.commit_id AS cause_commit_index,
     foo.sha1 AS cause_sha1,
     foo.description,
@@ -1214,7 +1221,7 @@ CREATE VIEW public.code_breakage_spans WITH (security_barrier='false') AS
              JOIN public.master_commits_contiguously_indexed ON ((master_commits_contiguously_indexed.sha1 = code_breakage_resolution.sha1)))) bar ON ((foo.cause_id = bar.cause_id)))
      LEFT JOIN public.latest_master_failure_mode_attributions ON ((foo.cause_id = latest_master_failure_mode_attributions.cause_id)))
      LEFT JOIN public.master_ordered_commits_with_metadata_mview meta1 ON ((meta1.id = foo.commit_id)))
-  ORDER BY foo.cause_id, bar.resolution_id DESC;
+  ORDER BY foo.cause_id DESC;
 
 
 ALTER TABLE public.code_breakage_spans OWNER TO postgres;
@@ -2281,7 +2288,7 @@ COMMENT ON VIEW public.code_breakage_job_failure_counts IS 'The success-coalesci
 
 
 --
--- Name: known_breakage_summaries_sans_impact; Type: VIEW; Schema: public; Owner: logan
+-- Name: known_breakage_summaries_sans_impact; Type: VIEW; Schema: public; Owner: postgres
 --
 
 CREATE VIEW public.known_breakage_summaries_sans_impact WITH (security_barrier='false') AS
@@ -2291,7 +2298,7 @@ CREATE VIEW public.known_breakage_summaries_sans_impact WITH (security_barrier='
     code_breakage_spans.description,
     code_breakage_spans.cause_reporter,
     code_breakage_spans.cause_reported_at,
-    COALESCE(foo.jobs, ''::text) AS cause_jobs,
+    array_to_string(COALESCE(foo.jobs, '{}'::text[]), ';'::text) AS cause_jobs,
     code_breakage_spans.resolution_id,
     code_breakage_spans.resolved_commit_index,
     code_breakage_spans.resolution_sha1,
@@ -2301,36 +2308,28 @@ CREATE VIEW public.known_breakage_summaries_sans_impact WITH (security_barrier='
     COALESCE(meta1.message, ''::text) AS breakage_commit_message,
     COALESCE(meta2.author_name, ''::text) AS resolution_commit_author,
     COALESCE(meta2.message, ''::text) AS resolution_commit_message,
-    COALESCE(meta1.committer_date, now()) AS breakage_commit_date,
-    COALESCE(meta2.committer_date, now()) AS resolution_commit_date,
+    COALESCE(meta1.committer_date, CURRENT_TIMESTAMP) AS breakage_commit_date,
+    COALESCE(meta2.committer_date, CURRENT_TIMESTAMP) AS resolution_commit_date,
     COALESCE(code_breakage_spans.failure_mode, 1) AS failure_mode_id,
     COALESCE(code_breakage_spans.failure_mode_reporter, ''::text) AS failure_mode_reporter,
-    COALESCE(code_breakage_spans.failure_mode_reported_at, now()) AS failure_mode_reported_at,
+    COALESCE(code_breakage_spans.failure_mode_reported_at, CURRENT_TIMESTAMP) AS failure_mode_reported_at,
     code_breakage_spans.cause_commit_number,
     code_breakage_spans.resolution_commit_number,
     code_breakage_spans.spanned_commit_count,
     date_part('epoch'::text, COALESCE((meta2.committer_date - meta1.committer_date), '00:00:00'::interval)) AS commit_timespan_seconds,
     meta1.github_pr_number,
-    int8range((code_breakage_spans.cause_commit_index)::bigint, (code_breakage_spans.resolved_commit_index)::bigint) AS commit_index_span
+    int8range((code_breakage_spans.cause_commit_index)::bigint, (code_breakage_spans.resolved_commit_index)::bigint) AS commit_index_span,
+    COALESCE(foo.jobs, '{}'::text[]) AS cause_jobs_array
    FROM (((public.code_breakage_spans
      LEFT JOIN ( SELECT code_breakage_affected_jobs.cause,
-            string_agg(code_breakage_affected_jobs.job, ';'::text) AS jobs
+            array_agg(code_breakage_affected_jobs.job) AS jobs
            FROM public.code_breakage_affected_jobs
           GROUP BY code_breakage_affected_jobs.cause) foo ON ((foo.cause = code_breakage_spans.cause_id)))
-     LEFT JOIN public.master_ordered_commits_with_metadata meta1 ON ((meta1.sha1 = code_breakage_spans.cause_sha1)))
+     LEFT JOIN public.master_ordered_commits_with_metadata_mview meta1 ON ((meta1.sha1 = code_breakage_spans.cause_sha1)))
      LEFT JOIN public.commit_metadata meta2 ON ((meta2.sha1 = code_breakage_spans.resolution_sha1)));
 
 
-ALTER TABLE public.known_breakage_summaries_sans_impact OWNER TO logan;
-
---
--- Name: VIEW known_breakage_summaries_sans_impact; Type: COMMENT; Schema: public; Owner: logan
---
-
-COMMENT ON VIEW public.known_breakage_summaries_sans_impact IS 'View is subset of known_breakage_summaries for efficiency
-
-TODO: Delete and re-grant ownership';
-
+ALTER TABLE public.known_breakage_summaries_sans_impact OWNER TO postgres;
 
 --
 -- Name: upstream_downstream_builds; Type: VIEW; Schema: public; Owner: postgres
@@ -3327,7 +3326,8 @@ CREATE MATERIALIZED VIEW public.known_breakage_summaries_sans_impact_mview AS
     known_breakage_summaries_sans_impact.spanned_commit_count,
     known_breakage_summaries_sans_impact.commit_timespan_seconds,
     known_breakage_summaries_sans_impact.github_pr_number,
-    known_breakage_summaries_sans_impact.commit_index_span
+    known_breakage_summaries_sans_impact.commit_index_span,
+    known_breakage_summaries_sans_impact.cause_jobs_array
    FROM public.known_breakage_summaries_sans_impact
   WITH NO DATA;
 
@@ -5764,6 +5764,14 @@ ALTER TABLE ONLY public.code_breakage_cause
 
 
 --
+-- Name: code_breakage_resolution code_breakage_resolution_cause_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.code_breakage_resolution
+    ADD CONSTRAINT code_breakage_resolution_cause_key UNIQUE (cause);
+
+
+--
 -- Name: code_breakage_resolution code_breakage_resolution_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -6325,10 +6333,10 @@ CREATE INDEX id_github_pr_number_master_commits2 ON public.master_ordered_commit
 
 
 --
--- Name: idx_breakage_commit_index_span; Type: INDEX; Schema: public; Owner: materialized_view_updater
+-- Name: idx_breakage_commit_index_span2; Type: INDEX; Schema: public; Owner: materialized_view_updater
 --
 
-CREATE INDEX idx_breakage_commit_index_span ON public.known_breakage_summaries_sans_impact_mview USING btree (commit_index_span);
+CREATE INDEX idx_breakage_commit_index_span2 ON public.known_breakage_summaries_sans_impact_mview USING btree (commit_index_span);
 
 
 --
@@ -6395,10 +6403,10 @@ CREATE UNIQUE INDEX idx_job_schedule_stats_job_name ON public.job_schedule_stati
 
 
 --
--- Name: idx_known_breakage_cause_id; Type: INDEX; Schema: public; Owner: materialized_view_updater
+-- Name: idx_known_breakage_cause_id2; Type: INDEX; Schema: public; Owner: materialized_view_updater
 --
 
-CREATE UNIQUE INDEX idx_known_breakage_cause_id ON public.known_breakage_summaries_sans_impact_mview USING btree (cause_id);
+CREATE UNIQUE INDEX idx_known_breakage_cause_id2 ON public.known_breakage_summaries_sans_impact_mview USING btree (cause_id);
 
 
 --
@@ -7637,16 +7645,11 @@ GRANT SELECT ON TABLE public.code_breakage_job_failure_counts TO materialized_vi
 
 
 --
--- Name: TABLE known_breakage_summaries_sans_impact; Type: ACL; Schema: public; Owner: logan
+-- Name: TABLE known_breakage_summaries_sans_impact; Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON TABLE public.known_breakage_summaries_sans_impact TO postgres WITH GRANT OPTION;
-SET SESSION AUTHORIZATION postgres;
 GRANT ALL ON TABLE public.known_breakage_summaries_sans_impact TO logan;
-RESET SESSION AUTHORIZATION;
-SET SESSION AUTHORIZATION postgres;
 GRANT SELECT ON TABLE public.known_breakage_summaries_sans_impact TO materialized_view_updater;
-RESET SESSION AUTHORIZATION;
 
 
 --

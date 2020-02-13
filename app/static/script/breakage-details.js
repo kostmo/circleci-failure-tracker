@@ -57,6 +57,18 @@ function update_cause_commit() {
 	}
 }
 
+function update_description() {
+
+	const cause_id = get_cause_id();
+	const new_description = $("#description-input").val();
+
+	const data_dict = {"cause_id": cause_id, "description": new_description};
+
+//mini-throbber-update-description
+	post_modification("/api/code-breakage-description-update", data_dict);
+
+}
+
 
 function gen_affected_jobs_table(element_id, cause_id) {
 
@@ -120,35 +132,35 @@ function main() {
 
 	const cause_id = get_cause_id();
 
-	/* TODO Too slow
 	$("#scan-throbber").show();
-	$.getJSON('/api/list-failure-modes', function (mydata) {
+	$.getJSON("/api/code-breakages-annotated-single?cause_id=" + cause_id, function (mydata) {
 
 		$("#scan-throbber").hide();
 
-		const failure_modes_dict = {};
-		for (var item of mydata) {
-			failure_modes_dict[item["db_id"]] = item["record"];
+		console.log("Backend query took", mydata["payload"]["timing"], "seconds");
+
+		const content_payload = mydata["payload"]["content"];
+		$("#description-input").val(content_payload["start"]["record"]["payload"]["description"]);
+		$("#new-cause-sha1-field").val(content_payload["start"]["record"]["payload"]["breakage_commit"]["record"]);
+
+		if (content_payload["end"]) {
+			$("#new-resolution-sha1-field").val(content_payload["end"]["record"]["payload"]["resolution_commit"]["record"]);
 		}
-
-		gen_annotated_breakages_table("annotated-breakages-table", "/api/code-breakages-annotated-single?cause_id=" + cause_id, failure_modes_dict);
 	});
-	*/
 
 
-// TODO: use "/api/code-breakage-mode-single" API
 
 	const jquery_selector_element = setup_breakage_mode_selector();
+	$("#button-breakage-mode-update").click(function() {
+		const new_failure_mode = jquery_selector_element.val();
+		update_breakage_mode(cause_id, new_failure_mode);
+	});
+
 
 	$.getJSON('/api/code-breakage-mode-single', {"cause_id": cause_id}, function (mydata) {
 		jquery_selector_element.val(mydata);
 	});
 
 	gen_affected_jobs_table("affected-jobs-table", cause_id);
-
-	$("#button-breakage-mode-update").click(function() {
-		const new_failure_mode = jquery_selector_element.val();
-		update_breakage_mode(cause_id, new_failure_mode);
-	});
 }
 
