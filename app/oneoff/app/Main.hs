@@ -7,6 +7,7 @@ import           Control.Monad.Trans.Reader (runReaderT)
 import           Data.Bifunctor             (first)
 import qualified Data.ByteString            as B
 import           Data.Either                (fromRight)
+import           Data.Foldable              (for_)
 import qualified Data.Set                   as Set
 import           Data.Text                  (Text)
 import qualified Data.Text                  as T
@@ -163,13 +164,9 @@ mainAppCode args = do
       Scanning.NoPersist
       Nothing
 
---    ExceptT $ fmap (first T.pack) $ CircleAuth.getGitHubAppInstallationToken rsa_signer
-
-    foo <- ExceptT $
---      fmap (first T.pack) $
-        SqlRead.getSpanningBreakages
-          conn
-          (Builds.RawCommit "d0435604a5ae24e9d6504f7835a8bc7b93b1d9e0")
+    foo <- ExceptT $ SqlRead.getSpanningBreakages
+      conn
+      (Builds.RawCommit "d0435604a5ae24e9d6504f7835a8bc7b93b1d9e0")
 
     liftIO $ do
       D.debugList [
@@ -177,19 +174,13 @@ mainAppCode args = do
         , show $ length foo
         ]
 
-      D.debugList [
-          "Results:"
-        , show foo
-        ]
-
-
-  D.debugList [
-    "Token response:"
-    , show output
-    ]
+      for_ foo $ \x ->
+        D.debugList [
+            "Result:"
+          , show x
+          ]
 
 --  testCircleCIRebuild circletoken
-
 
 
   putStrLn "============================="

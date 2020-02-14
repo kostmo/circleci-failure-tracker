@@ -1609,14 +1609,13 @@ getSpanningBreakages conn sha1 =
 
   runExceptT $ do
     target_commit_index <- ExceptT $ getMasterCommitIndex conn sha1
-
-    rows <- liftIO $ query conn sql (target_commit_index, target_commit_index)
+    let parms = (target_commit_index, target_commit_index)
+    rows <- liftIO $ query conn sql parms
     return $ map f rows
 
   where
     f (sha1, description, cause_id, jobs) = DbHelpers.WithId cause_id $
-      CodeBreakage (Builds.RawCommit sha1) description $ Set.fromList $
-        map T.pack $ DbHelpers.splitAggText jobs
+      CodeBreakage (Builds.RawCommit sha1) description $ Set.fromList $ fromPGArray jobs
 
     sql = Q.qjoin [
         "SELECT"
@@ -1624,7 +1623,7 @@ getSpanningBreakages conn sha1 =
           "code_breakage_cause.sha1"
         , "code_breakage_cause.description"
         , "cause_id"
-        , "COALESCE(jobs, ''::text) AS jobs"
+        , "COALESCE(jobs, '{}') AS jobs"
         ]
       , "FROM"
       , Q.aliasedSubquery inner_q "foo"
@@ -1636,7 +1635,7 @@ getSpanningBreakages conn sha1 =
         "SELECT"
       , Q.list [
           "code_breakage_spans.cause_id"
-        , "string_agg((code_breakage_affected_jobs.job)::text, ';'::text) AS jobs"
+        , "ARRAY_AGG(code_breakage_affected_jobs.job) AS jobs"
         ]
       , "FROM code_breakage_spans"
       , "LEFT JOIN code_breakage_affected_jobs"
