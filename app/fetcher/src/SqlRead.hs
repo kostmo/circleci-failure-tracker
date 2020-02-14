@@ -14,7 +14,7 @@ import           Control.Monad.Trans.Reader           (ReaderT, ask, runReaderT)
 import           Data.Aeson
 import qualified Data.ByteString.Char8                as BS
 import           Data.Either.Utils                    (maybeToEither)
-import           Data.List                            (partition, sort, sortOn)
+import           Data.List                            (partition, sortOn)
 import qualified Data.Maybe                           as Maybe
 import           Data.Scientific                      (Scientific)
 import           Data.Set                             (Set)
@@ -3128,7 +3128,7 @@ apiMasterBuilds timeline_parms = do
     let commit_bounds_tuple = DbHelpers.boundsAsTuple commit_id_bounds
 
     (code_breakages_time, code_breakage_ranges) <- D.timeThisFloat $ liftIO $
-      runReaderT (apiAnnotatedCodeBreakages should_use_uncached_annotations commit_id_bounds) conn
+      runReaderT (apiAnnotatedCodeBreakages commit_id_bounds) conn
 
     (job_failure_spans_time, job_failure_spans) <- D.timeThisFloat $
       liftIO $ runReaderT (getBreakageSpans commit_id_bounds) conn
@@ -3188,8 +3188,6 @@ apiMasterBuilds timeline_parms = do
   where
     suppress_scheduled_builds = Pagination.should_suppress_scheduled_builds $
       Pagination.column_filtering timeline_parms
-
-    should_use_uncached_annotations = Pagination.should_use_uncached_annotations timeline_parms
 
     reversion_spans_sql = Q.qjoin [
         "SELECT"
@@ -3476,23 +3474,16 @@ annotatedCodeBreakagesFields = [
 
 -- | Filters by commit id range
 apiAnnotatedCodeBreakages ::
-     Bool
-  -> DbHelpers.InclusiveNumericBounds Int64
+     DbHelpers.InclusiveNumericBounds Int64
   -> DbIO [BuildResults.BreakageSpan Text ()]
-apiAnnotatedCodeBreakages should_use_uncached_annotations commit_id_bounds = do
+apiAnnotatedCodeBreakages commit_id_bounds = do
   conn <- ask
   liftIO $ query conn sql $ DbHelpers.boundsAsTuple commit_id_bounds
   where
-
-    source_table = if should_use_uncached_annotations
-      then "known_breakage_summaries_sans_impact"
-      else "known_breakage_summaries_sans_impact_mview"
-
     sql = Q.qjoin [
         "SELECT"
       , Q.list annotatedCodeBreakagesFields
-      , "FROM"
-      , source_table
+      , "FROM known_breakage_summaries_sans_impact"
       , "WHERE"
       , "int8range(?, ?, '[]') && commit_index_span"
       , "ORDER BY cause_commit_index DESC"
@@ -3797,8 +3788,8 @@ dumpPatterns = map f <$> runQuery q
         , "expression"
         , "has_nondeterministic_values"
         , "description"
-        , "tags"
-        , "steps"
+        , "tags_array"
+        , "steps_array"
         , "specificity"
         , "is_retired"
         , "lines_from_end"
@@ -3806,9 +3797,6 @@ dumpPatterns = map f <$> runQuery q
       , "FROM patterns_augmented"
       , "ORDER BY id"
       ]
-
-
-    split_texts = sort . map T.pack . DbHelpers.splitAggText
 
     f ( author
       , created
@@ -3828,8 +3816,8 @@ dumpPatterns = map f <$> runQuery q
         expression
         has_nondeterministic_values
         description
-        (split_texts tags)
-        (split_texts steps)
+        (fromPGArray tags)
+        (fromPGArray steps)
         specificity
         is_retired
         lines_from_end

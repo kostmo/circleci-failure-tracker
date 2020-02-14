@@ -1510,12 +1510,12 @@ CREATE VIEW public.patterns_rich WITH (security_barrier='false') AS
    FROM (((public.patterns
      LEFT JOIN ( SELECT pattern_tags.pattern,
             string_agg((pattern_tags.tag)::text, ';'::text) AS tags,
-            array_agg(pattern_tags.tag) AS tags_array
+            array_agg(pattern_tags.tag ORDER BY pattern_tags.tag) AS tags_array
            FROM public.pattern_tags
           GROUP BY pattern_tags.pattern) foo ON ((foo.pattern = patterns.id)))
      LEFT JOIN ( SELECT pattern_step_applicability.pattern,
             string_agg(pattern_step_applicability.step_name, ';'::text) AS steps,
-            array_agg(pattern_step_applicability.step_name) AS steps_array
+            array_agg(pattern_step_applicability.step_name ORDER BY pattern_step_applicability.step_name) AS steps_array
            FROM public.pattern_step_applicability
           GROUP BY pattern_step_applicability.pattern) bar ON ((bar.pattern = patterns.id)))
      LEFT JOIN public.pattern_authorship ON ((pattern_authorship.pattern = patterns.id)));
@@ -1573,43 +1573,6 @@ CREATE VIEW public.aggregated_build_matches_best WITH (security_barrier='false')
 
 
 ALTER TABLE public.aggregated_build_matches_best OWNER TO postgres;
-
---
--- Name: created_github_statuses; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.created_github_statuses (
-    id bigint NOT NULL,
-    url text,
-    state character varying(7),
-    description text,
-    target_url text,
-    context text,
-    created_at timestamp with time zone,
-    updated_at timestamp with time zone,
-    sha1 character(40),
-    project text,
-    repo text
-);
-
-
-ALTER TABLE public.created_github_statuses OWNER TO postgres;
-
---
--- Name: aggregated_github_status_postings; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.aggregated_github_status_postings AS
- SELECT created_github_statuses.sha1,
-    count(*) AS count,
-    max(created_github_statuses.created_at) AS last_time,
-    (max(created_github_statuses.created_at) - min(created_github_statuses.created_at)) AS time_interval
-   FROM public.created_github_statuses
-  GROUP BY created_github_statuses.sha1
-  ORDER BY (max(created_github_statuses.created_at)) DESC;
-
-
-ALTER TABLE public.aggregated_github_status_postings OWNER TO postgres;
 
 --
 -- Name: log_metadata; Type: TABLE; Schema: public; Owner: postgres
@@ -2477,7 +2440,8 @@ CREATE VIEW public.known_breakage_summaries WITH (security_barrier='false') AS
             WHEN (code_breakage_failing_pr_jobs.foreshadowed_broken_job_count > 0) THEN (0)::bigint
             ELSE COALESCE(pr_impact_cause_summary.downstream_broken_commit_count_for_cause, (0)::bigint)
         END AS unavoidable_downstream_broken_commit_count,
-    COALESCE(code_breakage_failing_pr_jobs.foreshadowed_broken_jobs_array, '{}'::text[]) AS foreshadowed_broken_jobs_array
+    COALESCE(code_breakage_failing_pr_jobs.foreshadowed_broken_jobs_array, '{}'::text[]) AS foreshadowed_broken_jobs_array,
+    known_breakage_summaries_sans_impact.cause_jobs_array
    FROM (((public.known_breakage_summaries_sans_impact
      LEFT JOIN public.pr_impact_cause_summary ON ((pr_impact_cause_summary.first_cause = known_breakage_summaries_sans_impact.cause_id)))
      LEFT JOIN public.pr_current_heads ON ((known_breakage_summaries_sans_impact.github_pr_number = pr_current_heads.pr_number)))
@@ -3294,45 +3258,6 @@ CREATE VIEW public.jobs_non_scheduled_built_yesterday AS
 
 
 ALTER TABLE public.jobs_non_scheduled_built_yesterday OWNER TO postgres;
-
---
--- Name: known_breakage_summaries_sans_impact_mview; Type: MATERIALIZED VIEW; Schema: public; Owner: materialized_view_updater
---
-
-CREATE MATERIALIZED VIEW public.known_breakage_summaries_sans_impact_mview AS
- SELECT known_breakage_summaries_sans_impact.cause_id,
-    known_breakage_summaries_sans_impact.cause_commit_index,
-    known_breakage_summaries_sans_impact.cause_sha1,
-    known_breakage_summaries_sans_impact.description,
-    known_breakage_summaries_sans_impact.cause_reporter,
-    known_breakage_summaries_sans_impact.cause_reported_at,
-    known_breakage_summaries_sans_impact.cause_jobs,
-    known_breakage_summaries_sans_impact.resolution_id,
-    known_breakage_summaries_sans_impact.resolved_commit_index,
-    known_breakage_summaries_sans_impact.resolution_sha1,
-    known_breakage_summaries_sans_impact.resolution_reporter,
-    known_breakage_summaries_sans_impact.resolution_reported_at,
-    known_breakage_summaries_sans_impact.breakage_commit_author,
-    known_breakage_summaries_sans_impact.breakage_commit_message,
-    known_breakage_summaries_sans_impact.resolution_commit_author,
-    known_breakage_summaries_sans_impact.resolution_commit_message,
-    known_breakage_summaries_sans_impact.breakage_commit_date,
-    known_breakage_summaries_sans_impact.resolution_commit_date,
-    known_breakage_summaries_sans_impact.failure_mode_id,
-    known_breakage_summaries_sans_impact.failure_mode_reporter,
-    known_breakage_summaries_sans_impact.failure_mode_reported_at,
-    known_breakage_summaries_sans_impact.cause_commit_number,
-    known_breakage_summaries_sans_impact.resolution_commit_number,
-    known_breakage_summaries_sans_impact.spanned_commit_count,
-    known_breakage_summaries_sans_impact.commit_timespan_seconds,
-    known_breakage_summaries_sans_impact.github_pr_number,
-    known_breakage_summaries_sans_impact.commit_index_span,
-    known_breakage_summaries_sans_impact.cause_jobs_array
-   FROM public.known_breakage_summaries_sans_impact
-  WITH NO DATA;
-
-
-ALTER TABLE public.known_breakage_summaries_sans_impact_mview OWNER TO materialized_view_updater;
 
 --
 -- Name: pull_request_static_metadata; Type: TABLE; Schema: public; Owner: postgres
@@ -5788,14 +5713,6 @@ ALTER TABLE ONLY public.commit_metadata
 
 
 --
--- Name: created_github_statuses created_github_statuses_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.created_github_statuses
-    ADD CONSTRAINT created_github_statuses_pkey PRIMARY KEY (id);
-
-
---
 -- Name: created_pull_request_comment_revisions created_pull_request_comment_revisions_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -6333,13 +6250,6 @@ CREATE INDEX id_github_pr_number_master_commits2 ON public.master_ordered_commit
 
 
 --
--- Name: idx_breakage_commit_index_span2; Type: INDEX; Schema: public; Owner: materialized_view_updater
---
-
-CREATE INDEX idx_breakage_commit_index_span2 ON public.known_breakage_summaries_sans_impact_mview USING btree (commit_index_span);
-
-
---
 -- Name: idx_circleci_derived_build_number; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -6375,13 +6285,6 @@ CREATE INDEX idx_github_status_events_sha1_state ON public.github_incoming_statu
 
 
 --
--- Name: idx_github_status_post_description; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX idx_github_status_post_description ON public.created_github_statuses USING btree (description);
-
-
---
 -- Name: idx_is_timeout; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -6400,13 +6303,6 @@ CREATE UNIQUE INDEX idx_job_schedule_discriminated_mview_job_name ON public.job_
 --
 
 CREATE UNIQUE INDEX idx_job_schedule_stats_job_name ON public.job_schedule_statistics_mview USING btree (job_name);
-
-
---
--- Name: idx_known_breakage_cause_id2; Type: INDEX; Schema: public; Owner: materialized_view_updater
---
-
-CREATE UNIQUE INDEX idx_known_breakage_cause_id2 ON public.known_breakage_summaries_sans_impact_mview USING btree (cause_id);
 
 
 --
@@ -7422,20 +7318,6 @@ GRANT ALL ON TABLE public.aggregated_build_matches_best TO logan;
 
 
 --
--- Name: TABLE created_github_statuses; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.created_github_statuses TO logan;
-
-
---
--- Name: TABLE aggregated_github_status_postings; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.aggregated_github_status_postings TO logan;
-
-
---
 -- Name: TABLE log_metadata; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -7899,14 +7781,6 @@ GRANT ALL ON TABLE public.master_commit_job_coverage_by_day TO logan;
 --
 
 GRANT ALL ON TABLE public.jobs_non_scheduled_built_yesterday TO logan;
-
-
---
--- Name: TABLE known_breakage_summaries_sans_impact_mview; Type: ACL; Schema: public; Owner: materialized_view_updater
---
-
-GRANT SELECT ON TABLE public.known_breakage_summaries_sans_impact_mview TO logan;
-GRANT SELECT ON TABLE public.known_breakage_summaries_sans_impact_mview TO postgres;
 
 
 --

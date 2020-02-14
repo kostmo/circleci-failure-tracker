@@ -67,7 +67,6 @@ WHITELISTED_VIEW_NAMES = {
     "master_commit_reversion_spans_mview",
     "master_required_unbuilt_jobs_mview",
     "pattern_frequency_summary_mview",
-    "known_breakage_summaries_sans_impact_mview",
     "pr_merge_time_build_stats_by_master_commit_mview",
 }
 

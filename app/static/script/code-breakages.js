@@ -274,9 +274,7 @@ function gen_failure_modes_chart(container_id) {
 }
 
 
-function load_failure_spans_table(button) {
-
-	$(button).hide();
+function load_failure_spans_table() {
 
 	// TODO Apply throbber to more fetches
 	$("#scan-throbber").show();
@@ -289,8 +287,6 @@ function load_failure_spans_table(button) {
 			failure_modes_dict[item["db_id"]] = item["record"];
 		}
 
-		// TODO FIXME
-		console.log("WARNING: Temporarily disabled slow-loading table");
 		gen_annotated_breakages_table("annotated-breakages-table", "/api/code-breakages-annotated", failure_modes_dict);
 	});
 }
@@ -298,6 +294,7 @@ function load_failure_spans_table(button) {
 
 function main() {
 
+	load_failure_spans_table();
 
 	gen_failure_modes_chart("container-failure-modes");
 

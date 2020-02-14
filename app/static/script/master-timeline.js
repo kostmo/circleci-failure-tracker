@@ -1183,8 +1183,6 @@ function get_form_values() {
 	const min_commit_index = $('#commit-index-min').val() || 0;
 	const max_commit_index = $('#commit-index-max').val() || 0;
 
-
-	const should_use_uncached_annotations = $('#checkbox-use-uncached-annotations').is(":checked");
 	const should_suppress_scheduled_builds = $('#checkbox-suppress-scheduled-builds').is(":checked");
 	const should_suppress_fully_successful_columns = $('#checkbox-suppress-fully-successful-columns').is(":checked");
 	const max_columns_suppress_successful = $('#max-columns-suppress-successful').val();
@@ -1210,7 +1208,6 @@ function get_form_values() {
 		"min_commit_index": min_commit_index,
 		"max_commit_index": max_commit_index,
 		"should_suppress_scheduled_builds": should_suppress_scheduled_builds,
-		"should_use_uncached_annotations": should_use_uncached_annotations,
 		"should_suppress_fully_successful_columns": should_suppress_fully_successful_columns,
 		"max_columns_suppress_successful": max_columns_suppress_successful,
 	}
@@ -1253,12 +1250,6 @@ function update_url_from_form() {
 		};
 	}
 
-
-	const should_use_uncached_annotations = $('#checkbox-use-uncached-annotations').is(":checked");
-	if (should_use_uncached_annotations) {
-		url_parms["should_use_uncached_annotations"] = should_use_uncached_annotations;
-	}
-
 	const should_suppress_scheduled_builds = $('#checkbox-suppress-scheduled-builds').is(":checked");
 	if (should_suppress_scheduled_builds) {
 		url_parms["should_suppress_scheduled_builds"] = should_suppress_scheduled_builds;
@@ -1288,11 +1279,6 @@ function populate_form_from_url() {
 	const should_suppress_scheduled_builds = urlParams.get('should_suppress_scheduled_builds');
 	if (should_suppress_scheduled_builds != null) {
 		$('#checkbox-suppress-scheduled-builds').prop('checked', true);
-	}
-
-	const should_use_uncached_annotations = urlParams.get('should_use_uncached_annotations');
-	if (should_use_uncached_annotations != null) {
-		$('#checkbox-use-uncached-annotations').prop('checked', true);
 	}
 
 	const should_suppress_fully_successful_columns = urlParams.get('should_suppress_fully_successful_columns');

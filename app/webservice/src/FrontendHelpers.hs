@@ -155,10 +155,8 @@ getOffsetMode = do
   min_commit_index <- S.param "min_commit_index"
   max_commit_index <- S.param "max_commit_index"
   commit_count <- S.param "count"
+
   should_suppress_scheduled_builds_text <- S.param "should_suppress_scheduled_builds"
-
-  should_use_uncached_annotations_text <- S.param "should_use_uncached_annotations"
-
   should_suppress_fully_successful_columns_text <- S.param "should_suppress_fully_successful_columns"
   max_columns_suppress_successful <- S.param "max_columns_suppress_successful"
 
@@ -186,7 +184,6 @@ getOffsetMode = do
 
   return $ Pagination.TimelineParms
     column_filtering_options
-    (checkboxIsTrue should_use_uncached_annotations_text)
     offset_mode
 
 
