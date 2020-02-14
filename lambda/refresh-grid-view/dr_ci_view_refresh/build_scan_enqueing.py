@@ -80,7 +80,7 @@ def run(sha1_limit):
 
         print("Fetched %d rows from database..." % len(list(rows)))
 
-	enqueued_sha1s = []
+        enqueued_sha1s = []
         for i, (sha1_to_enqueue, is_master, last_event_time) in enumerate(rows):
 
             # Send some SQS messages
