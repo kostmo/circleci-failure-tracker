@@ -3325,12 +3325,17 @@ ALTER TABLE public.scanned_patterns OWNER TO postgres;
 --
 
 CREATE VIEW public.latest_pattern_scanned_for_build_step WITH (security_barrier='false') AS
- SELECT DISTINCT ON (build_steps.id) build_steps.id AS step_id,
-    COALESCE(scanned_patterns.newest_pattern, '-1'::integer) AS latest_pattern
+ SELECT build_steps.id AS step_id,
+    COALESCE(foo.latest_pattern, '-1'::integer) AS latest_pattern,
+    COALESCE(foo.scan_count, (0)::bigint) AS scan_count
    FROM (public.build_steps
-     LEFT JOIN public.scanned_patterns ON ((scanned_patterns.step_id = build_steps.id)))
+     LEFT JOIN ( SELECT scanned_patterns.step_id,
+            max(scanned_patterns.newest_pattern) AS latest_pattern,
+            count(*) AS scan_count
+           FROM public.scanned_patterns
+          GROUP BY scanned_patterns.step_id) foo ON ((foo.step_id = build_steps.id)))
   WHERE ((build_steps.name IS NOT NULL) AND (NOT build_steps.is_timeout))
-  ORDER BY build_steps.id, COALESCE(scanned_patterns.newest_pattern, '-1'::integer) DESC;
+  ORDER BY build_steps.id;
 
 
 ALTER TABLE public.latest_pattern_scanned_for_build_step OWNER TO postgres;
@@ -5210,22 +5215,21 @@ CREATE VIEW public.unscanned_patterns WITH (security_barrier='false') AS
     builds_join_steps.universal_build,
     builds_join_steps.vcs_revision,
     builds_join_steps.job_name,
-    array_to_string(bar.unscanned_patterns_array, ';'::text) AS unscanned_patterns_delimited,
-    bar.unscanned_pattern_count,
+    array_to_string(blarg.unscanned_patterns_array, ';'::text) AS unscanned_patterns_delimited,
+    blarg.unscanned_pattern_count,
     builds_join_steps.build_num,
     builds_join_steps.provider,
     builds_join_steps.succeeded,
     builds_join_steps.build_namespace,
-    bar.unscanned_patterns_array
+    blarg.unscanned_patterns_array
    FROM (public.builds_join_steps
-     JOIN ( SELECT array_agg(patterns.id) AS unscanned_patterns_array,
-            count(patterns.id) AS unscanned_pattern_count,
-            foo.step_id
-           FROM (( SELECT latest_pattern_scanned_for_build_step.step_id,
-                    latest_pattern_scanned_for_build_step.latest_pattern
-                   FROM public.latest_pattern_scanned_for_build_step) foo
-             JOIN public.patterns ON ((patterns.id > foo.latest_pattern)))
-          GROUP BY foo.step_id) bar ON ((builds_join_steps.step_id = bar.step_id)));
+     JOIN ( SELECT builds_join_steps_1.universal_build,
+            array_agg(patterns.id) AS unscanned_patterns_array,
+            count(patterns.id) AS unscanned_pattern_count
+           FROM ((public.builds_join_steps builds_join_steps_1
+             JOIN public.latest_pattern_scanned_for_build_step ON ((latest_pattern_scanned_for_build_step.step_id = builds_join_steps_1.step_id)))
+             JOIN public.patterns ON ((patterns.id > latest_pattern_scanned_for_build_step.latest_pattern)))
+          GROUP BY builds_join_steps_1.universal_build) blarg ON ((blarg.universal_build = builds_join_steps.universal_build)));
 
 
 ALTER TABLE public.unscanned_patterns OWNER TO postgres;

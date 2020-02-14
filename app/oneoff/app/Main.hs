@@ -128,17 +128,17 @@ testBotCommentGeneration oauth_access_token conn = do
       raw_commit
 
 
-
 testCircleCIRebuild circletoken = do
-  blah0 <- runExceptT $ CircleTrigger.rebuildCircleJobInWorkflow
+  blah0 <- runExceptT $ CircleTrigger.rebuildCircleJobsInWorkflow
     circletoken
-    (Builds.NewBuildNumber 4370733)
+    [Builds.NewBuildNumber 4370733]
 
 --  let foo = fromRight (error "BAD0") blah0
   D.debugList [
       "FOO"
     , show blah0
     ]
+
 
 mainAppCode :: CommandLineArgs -> IO ()
 mainAppCode args = do
@@ -163,8 +163,24 @@ mainAppCode args = do
       Scanning.NoPersist
       Nothing
 
-    ExceptT $ fmap (first T.pack) $ CircleAuth.getGitHubAppInstallationToken rsa_signer
+--    ExceptT $ fmap (first T.pack) $ CircleAuth.getGitHubAppInstallationToken rsa_signer
 
+    foo <- ExceptT $
+--      fmap (first T.pack) $
+        SqlRead.getSpanningBreakages
+          conn
+          (Builds.RawCommit "d0435604a5ae24e9d6504f7835a8bc7b93b1d9e0")
+
+    liftIO $ do
+      D.debugList [
+          "Results length:"
+        , show $ length foo
+        ]
+
+      D.debugList [
+          "Results:"
+        , show foo
+        ]
 
 
   D.debugList [

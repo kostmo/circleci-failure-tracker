@@ -448,14 +448,16 @@ getRevisitableWhitelistedBuilds ::
 getRevisitableWhitelistedBuilds universal_build_ids = do
   conn <- ask
   liftIO $ do
+    (timing, xs) <- D.timeThisFloat $ query conn sql $ Only $ In parms
     D.debugList [
-        "Inside"
-      , "getRevisitableWhitelistedBuilds"
+        "getRevisitableWhitelistedBuilds took"
+      , show timing
+      , "seconds"
       ]
 
-    map transformPatternRows <$> query conn sql
-      (Only $ In $ map (\(Builds.UniversalBuildId x) -> x) universal_build_ids)
+    return $ map transformPatternRows xs
   where
+    parms = map (\(Builds.UniversalBuildId x) -> x) universal_build_ids
     sql = Q.qjoin [
         "SELECT"
       , Q.list [
