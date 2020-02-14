@@ -23,7 +23,7 @@ instance FromJSON BreakageReport
 
 
 data ResolutionReport = NewResolutionReport {
-    sha1     :: Text
+    sha1     :: Builds.RawCommit
   , cause    :: Int64
   , reporter :: AuthStages.Username
   } deriving Generic

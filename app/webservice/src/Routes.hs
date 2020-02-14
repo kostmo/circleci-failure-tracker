@@ -112,16 +112,19 @@ scottyApp
       third_party_creds
       connection_data
 
-
   S.post "/api/code-breakage-resolution-report" $
-    FrontendHelpers.breakageResolutionReport
-      (FrontendHelpers.AuthHelperBundle connection_data session github_config third_party_creds)
-      mview_connection_data
+    withAuth $ SqlWrite.apiCodeBreakageResolutionInsertMultiple
+      <$> (Builds.RawCommit <$> S.param "sha1")
+      <*> S.param "causes"
 
   S.post "/api/code-breakage-cause-report" $
-    FrontendHelpers.breakageCauseReport
-      (FrontendHelpers.AuthHelperBundle connection_data session github_config third_party_creds)
-      mview_connection_data
+    withAuth $ SqlWrite.reportBreakage
+      <$> S.param "jobs"
+      <*> S.param "failure_mode_id"
+      <*> (FrontendHelpers.checkboxIsTrue <$> S.param "is_ongoing")
+      <*> (Builds.RawCommit <$> S.param "last_affected_sha1")
+      <*> (Builds.RawCommit <$> S.param "cause_sha1")
+      <*> S.param "notes"
 
   S.post "/api/refresh-materialized-view" $ do
     view_name <- S.param "view-name"

@@ -1742,16 +1742,14 @@ insertScanId conn maybe_initiator (ScanPatterns.PatternId pattern_id)  = do
 
 
 reportBreakage ::
-     SqlRead.AuthConnection
-  -> String
+     String
   -> Int64
   -> Bool
   -> Builds.RawCommit
   -> Builds.RawCommit
   -> Text
-  -> ExceptT Text IO Int64
+  -> SqlRead.AuthDbIO (Either Text Int64)
 reportBreakage
-    auth_conn@(SqlRead.AuthConnection conn user_alias)
     jobs_delimited
     failure_mode_id
     is_still_ongoing
@@ -1759,37 +1757,41 @@ reportBreakage
     breakage_sha1
     notes = do
 
-  cause_id <- ExceptT $ apiCodeBreakageCauseInsert
-    conn
-    breakage_report
-    jobs_list
+  auth_conn@(SqlRead.AuthConnection conn user_alias) <- ask
 
-  ExceptT $ runReaderT
-    (updateCodeBreakageMode cause_id failure_mode_id)
-    auth_conn
+  let breakage_report = Breakages.NewBreakageReport
+        breakage_sha1
+        notes
+        user_alias
 
-  liftIO $ unless is_still_ongoing $ do
-    runExceptT $ do
+  liftIO $ runExceptT $ do
 
-      (Builds.RawCommit resolution_sha1) <- ExceptT $
-        SqlRead.getNextMasterCommit conn last_affected_sha1
+    cause_id <- ExceptT $ apiCodeBreakageCauseInsert
+      conn
+      breakage_report
+      jobs_list
 
-      ExceptT $ apiCodeBreakageResolutionInsert conn $
-        Breakages.NewResolutionReport
-          resolution_sha1
-          cause_id
-          user_alias
+    ExceptT $ runReaderT
+      (updateCodeBreakageMode cause_id failure_mode_id)
+      auth_conn
 
-    return ()
+    liftIO $ unless is_still_ongoing $ do
+      runExceptT $ do
 
-  return cause_id
+        resolution_sha1 <- ExceptT $
+          SqlRead.getNextMasterCommit conn last_affected_sha1
+
+        ExceptT $ apiCodeBreakageResolutionInsert conn $
+          Breakages.NewResolutionReport
+            resolution_sha1
+            cause_id
+            user_alias
+
+      return ()
+
+    return cause_id
 
   where
-    breakage_report = Breakages.NewBreakageReport
-      breakage_sha1
-      notes
-      user_alias
-
     jobs_list = DbHelpers.cleanSemicolonDelimitedList jobs_delimited
 
 
@@ -1837,6 +1839,10 @@ apiCodeBreakageCauseInsert
     catcher e _                                  = throwIO e
 
 
+apiCodeBreakageResolutionInsertMultiple ::
+     Builds.RawCommit
+  -> String
+  -> SqlRead.AuthDbIO (Either Text [Int64])
 apiCodeBreakageResolutionInsertMultiple sha1 cause_ids_delimited = do
 
   SqlRead.AuthConnection conn user_alias <- ask
@@ -1860,7 +1866,7 @@ apiCodeBreakageResolutionInsert ::
   -> IO (Either Text Int64)
 apiCodeBreakageResolutionInsert
     conn
-    (Breakages.NewResolutionReport sha1 cause_id (AuthStages.Username author_username)) =
+    report =
 
   -- TODO: Ensure that the commit index of the resolution is strictly higher
   -- than the commit index of the cause
@@ -1871,6 +1877,11 @@ apiCodeBreakageResolutionInsert
     return $ Right report_id
 
   where
+    Breakages.NewResolutionReport
+      (Builds.RawCommit sha1)
+      cause_id
+      (AuthStages.Username author_username) = report
+
     insertion_sql = Q.qjoin [
         "INSERT INTO code_breakage_resolution"
       , Q.insertionValues [
