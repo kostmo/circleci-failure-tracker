@@ -6,7 +6,7 @@ packages:
 - eb-worker
 - fetcher
 - oneoff
-  #- session-demo
+#- session-demo
 - log-postgres
 - markdown-dsl
 

@@ -2425,17 +2425,15 @@ instance FromRow BuildResults.SimpleBuildStatus where
       ubuild_obj
 
 
--- | TODO: Use runExceptT here
 refreshCachedMasterGrid ::
      Text
-  -> Bool -- ^ triggered from frontend
+  -> Bool -- ^ was triggered from frontend
   -> DbIO (Either Text ())
 refreshCachedMasterGrid view_name is_from_frontend = do
   conn <- ask
-  liftIO $ case either_query of
-    Left x -> return $ Left x
-    Right sql_query -> do
-
+  liftIO $ runExceptT $ do
+    sql_query <- except either_query
+    liftIO $ do
       D.debugList [
           "Refreshing view"
         , MyUtils.quote $ T.unpack view_name
@@ -2446,7 +2444,6 @@ refreshCachedMasterGrid view_name is_from_frontend = do
       execute conn insertion_sql (view_name, execution_time, trigger_source)
 
       D.debugStr "View refreshed."
-      return $ Right ()
 
   where
     insertion_sql = Q.qjoin [

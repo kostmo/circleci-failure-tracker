@@ -124,17 +124,17 @@ getBuildInfo
       let sha1 = Builds.vcs_revision $ BuildSteps.build step_container
           job_name = Builds.job_name $ BuildSteps.build step_container
 
-      github_token_wrapper <- ExceptT $ fmap (first T.pack) $
+      github_token_wrapper <- ExceptT $ first T.pack <$>
         CircleAuth.getGitHubAppInstallationToken jwt_signer
 
-      -- TODO Replace this!
-      (breakages_retrieval_timing, UpstreamBreakagesInfo _ breakages _) <- D.timeThisFloat $ ExceptT $
-        flip runReaderT conn $ findKnownBuildBreakages
-          (CircleAuth.token github_token_wrapper)
-          Constants.pytorchRepoOwner
-          sha1
+      (_nearest_ancestor, manually_annotated_breakages, breakages_retrieval_timing) <- ExceptT $
+        flip runReaderT conn $
+          findAnnotatedBuildBreakages
+            (CircleAuth.token github_token_wrapper)
+            Constants.pytorchRepoOwner
+            sha1
 
-      let applicable_breakages = filter (Set.member job_name . SqlRead._jobs . DbHelpers.record) breakages
+      let applicable_breakages = filter (Set.member job_name . SqlRead._jobs . DbHelpers.record) manually_annotated_breakages
 
           timing_info = BuildInfoRetrievalBenchmarks
             best_match_retrieval_timing
@@ -221,7 +221,7 @@ countRevisionBuilds
 
   liftIO $ runExceptT $ do
 
-    github_token_wrapper <- ExceptT $ fmap (first T.pack) $
+    github_token_wrapper <- ExceptT $ first T.pack <$>
       CircleAuth.getGitHubAppInstallationToken jwt_signer
 
     let err = T.pack $ unwords [
@@ -242,17 +242,16 @@ countRevisionBuilds
       , succeeded
       ) <- except $ maybeToEither err $ Safe.headMay rows
 
-    -- TODO Replace this
-    (known_broken_determination_time, UpstreamBreakagesInfo _ breakages _) <- D.timeThisFloat $
-      ExceptT $ flip runReaderT conn $
-        findKnownBuildBreakages
-          (CircleAuth.token github_token_wrapper)
-          Constants.pytorchRepoOwner $
-            Builds.RawCommit sha1
+    (_nearest_ancestor, manually_annotated_breakages, known_broken_determination_time) <- ExceptT $
+        flip runReaderT conn $
+          findAnnotatedBuildBreakages
+            (CircleAuth.token github_token_wrapper)
+            Constants.pytorchRepoOwner
+            (Builds.RawCommit sha1)
 
     return $ DbHelpers.BenchmarkedResponse
       (RevisionBuildCountBenchmarks row_retrieval_time known_broken_determination_time) $
-        NewCommitInfo breakages $ NewCommitInfoCounts
+        NewCommitInfo manually_annotated_breakages $ NewCommitInfoCounts
           (total - succeeded)
           timeout
           pattern_matched
@@ -296,32 +295,50 @@ findKnownBuildBreakages access_token owned_repo sha1 = do
   conn <- ask
   liftIO $ runExceptT $ do
 
-    -- Second, find which "master" commit is the most recent
-    -- ancestor of the given PR commit.
-    nearest_ancestor <- ExceptT $ SqlWrite.findMasterAncestor
-      conn
-      access_token
-      owned_repo
-      SqlWrite.StoreToCache
-      sha1
-
-    -- Third, find whether that commit is within the
-    -- [start, end) span of any known breakages
-    manually_annotated_breakages <- ExceptT $ SqlRead.getSpanningBreakages conn nearest_ancestor
+    (nearest_ancestor, manually_annotated_breakages, _breakages_retrieval_timing) <- ExceptT $
+      flip runReaderT conn $
+        findAnnotatedBuildBreakages access_token owned_repo sha1
 
     -- TODO Use both manually annotated and inferred methods for
     -- associating breakages!
 
-    inferred_upstream_caused_broken_jobs <- liftIO $ runReaderT
-      (SqlRead.getInferredSpanningBrokenJobsBetter sha1)
-      conn
+    (inferred_breakages_retrieval_timing, inferred_upstream_caused_broken_jobs) <- D.timeThisFloat $
+      liftIO $ flip runReaderT conn $ SqlRead.getInferredSpanningBrokenJobsBetter sha1
+
+    let inferred_breakages_map = HashMap.fromList $ map
+          (swap . MyUtils.derivePair SqlRead.extractJobName)
+          inferred_upstream_caused_broken_jobs
+
+    liftIO $ D.debugList ["inferred_breakages_retrieval_timing", show inferred_breakages_retrieval_timing]
 
     -- NOTE: This requires that the "merge base" with master of the branch
     -- commit already be cached into the database.
     -- SqlWrite.findMasterAncestor does this for us.
     return $ UpstreamBreakagesInfo
       nearest_ancestor
-      manually_annotated_breakages $
-        HashMap.fromList $ map
-          (swap . MyUtils.derivePair SqlRead.extractJobName)
-          inferred_upstream_caused_broken_jobs
+      manually_annotated_breakages
+      inferred_breakages_map
+
+
+findAnnotatedBuildBreakages access_token owned_repo sha1 = do
+  conn <- ask
+  liftIO $ runExceptT $ do
+
+    -- Second, find which "master" commit is the most recent
+    -- ancestor of the given PR commit.
+    (nearest_ancestor_retrieval_timing, nearest_ancestor) <- D.timeThisFloat $
+      ExceptT $ SqlWrite.findMasterAncestor
+        conn
+        access_token
+        owned_repo
+        SqlWrite.StoreToCache
+        sha1
+
+    -- Third, find whether that commit is within the
+    -- [start, end) span of any known breakages
+    (manual_breakages_retrieval_timing, manually_annotated_breakages) <- D.timeThisFloat $ ExceptT $
+      SqlRead.getSpanningBreakages conn nearest_ancestor
+
+    let combined_time = nearest_ancestor_retrieval_timing + manual_breakages_retrieval_timing
+
+    return (nearest_ancestor, manually_annotated_breakages, combined_time)
