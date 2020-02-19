@@ -7,6 +7,7 @@ import           Control.Lens               hiding ((<.>))
 import           Control.Monad              (forM)
 import           Control.Monad.IO.Class     (liftIO)
 import           Control.Monad.Trans.Except (ExceptT (ExceptT), except)
+import           Control.Monad.Trans.Reader (runReaderT)
 import           Data.Aeson
 import qualified Data.ByteString            as BS (empty)
 import           Data.Either.Utils          (maybeToEither)
@@ -14,6 +15,7 @@ import           Data.List                  (intercalate)
 import           Data.Text                  (Text)
 import qualified Data.Text                  as T
 import           GHC.Generics
+import           GHC.Int                    (Int64)
 import qualified Network.Wreq               as NW
 import qualified Network.Wreq.Session       as Sess
 
@@ -23,6 +25,8 @@ import qualified CircleBuild
 import qualified Constants
 import qualified FetchHelpers
 import qualified MyUtils
+import qualified SqlRead
+import qualified SqlWrite
 
 
 data CircleBuildRetryResponse = CircleBuildRetryResponse {
@@ -134,30 +138,38 @@ rebuildJobsBatch
 
 
 rebuildCircleJobsInWorkflow ::
-     CircleApi.CircleCIApiToken
-  -> [Builds.BuildNumber]
-  -> ExceptT String IO [([(Builds.BuildNumber, Text)], CircleV2BuildRetryResponse)]
+     SqlRead.AuthConnection
+  -> CircleApi.CircleCIApiToken
+  -> [(Builds.UniversalBuildId, Builds.BuildNumber)]
+  -> ExceptT String IO [(CircleV2BuildRetryResponse, [(Builds.UniversalBuildId, Int64)])]
 rebuildCircleJobsInWorkflow
+    dbauth
     tok
     provider_build_numbers = do
 
   circle_sess <- liftIO Sess.newSession
   build_num_workflow_obj_pairs <- forM provider_build_numbers $
-    sequenceA . MyUtils.derivePair (getWorkflowObject tok circle_sess)
+    sequenceA . MyUtils.derivePair (getWorkflowObject tok circle_sess . snd)
 
   let jobs_by_workflow = MyUtils.binTuplesByFirst $ map
         (\x -> (CircleBuild.workflow_id $ snd x, (fst x, CircleBuild.job_id $ snd x)))
         build_num_workflow_obj_pairs
 
-  forM jobs_by_workflow $ \(workflow_id, build_num_job_id_pairs) -> do
-    response <- rebuildJobsBatch
+  forM jobs_by_workflow $ \(workflow_id, build_num_job_id_pairs_for_workflow) -> do
+    circleci_response <- rebuildJobsBatch
       tok
       workflow_id
-      (map snd build_num_job_id_pairs)
-    return (build_num_job_id_pairs, response)
+      (map snd build_num_job_id_pairs_for_workflow)
 
+    results <- forM build_num_job_id_pairs_for_workflow $ \x -> do
+      let ubuild_num = fst $ fst x
+      z <- ExceptT $ flip runReaderT dbauth $
+        SqlWrite.insertRebuildTriggerEvent
+          ubuild_num
+          (CircleTrigger.message circleci_response)
+      return (ubuild_num, z)
 
-
+    return (circleci_response, results)
 
 
 

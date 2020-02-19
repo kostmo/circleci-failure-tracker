@@ -468,7 +468,8 @@ scottyApp
     S.json $ WebApi.toJsonEither x
 
   S.get "/api/get-user-opt-out-settings" $
-    FrontendHelpers.jsonAuthorizedDbInteract2
+    FrontendHelpers.jsonAuthorizedDbInteractCommon
+      SqlRead.AuthConnection
       (FrontendHelpers.AuthHelperBundle connection_data session github_config third_party_creds) $
         pure SqlRead.userOptOutSettings
 
@@ -574,7 +575,7 @@ scottyApp
     get x = FrontendHelpers.jsonDbGet connection_data x
 
     post x y = S.post x $
-      FrontendHelpers.jsonAuthorizedDbInteract
+      FrontendHelpers.jsonAuthorizedDbInteractCommon const
         (FrontendHelpers.AuthHelperBundle connection_data session github_config third_party_creds)
         y
 

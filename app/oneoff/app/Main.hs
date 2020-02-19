@@ -129,18 +129,6 @@ testBotCommentGeneration oauth_access_token conn = do
       raw_commit
 
 
-testCircleCIRebuild circletoken = do
-  blah0 <- runExceptT $ CircleTrigger.rebuildCircleJobsInWorkflow
-    circletoken
-    [Builds.NewBuildNumber 4370733]
-
---  let foo = fromRight (error "BAD0") blah0
-  D.debugList [
-      "FOO"
-    , show blah0
-    ]
-
-
 mainAppCode :: CommandLineArgs -> IO ()
 mainAppCode args = do
 
@@ -179,8 +167,6 @@ mainAppCode args = do
             "Result:"
           , show x
           ]
-
---  testCircleCIRebuild circletoken
 
 
   putStrLn "============================="

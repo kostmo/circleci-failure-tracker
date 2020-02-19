@@ -37,7 +37,6 @@ import qualified Pagination
 import qualified Scanning
 import qualified ScanPatterns
 import qualified SqlRead
-import qualified SqlWrite
 import qualified StatusUpdate
 import qualified WebApi
 
@@ -59,20 +58,17 @@ data MutablePatternParms = MutablePatternParms {
 
 
 getMutablePatternParms :: ScottyTypes.ActionT LT.Text IO MutablePatternParms
-getMutablePatternParms = do
-  is_nondeterministic <- checkboxIsTrue <$> S.param "is_nondeterministic"
-
-  MutablePatternParms is_nondeterministic
-    <$> S.param "description"
-    <*> S.param "tags"
-    <*> S.param "specificity"
+getMutablePatternParms = MutablePatternParms
+  <$> (checkboxIsTrue <$> S.param "is_nondeterministic")
+  <*> S.param "description"
+  <*> S.param "tags"
+  <*> S.param "specificity"
 
 
 patternFromParms :: ScottyTypes.ActionT LT.Text IO ScanPatterns.Pattern
 patternFromParms = do
 
   mutable_pattern_parms <- getMutablePatternParms
-
   expression <- S.param "pattern"
 
   liftIO $ D.debugList [
@@ -81,7 +77,6 @@ patternFromParms = do
     ]
 
   is_regex <- checkboxIsTrue <$> S.param "is_regex"
-
   use_lines_from_end <- checkboxIsTrue <$> S.param "use_lines_from_end"
   applicable_steps <- S.param "applicable_steps"
 
@@ -190,7 +185,7 @@ getOffsetMode = do
 facilitateJobRebuild ::
      CircleApi.CircleCIApiToken
   -> Builds.UniversalBuildId
-  -> SqlRead.AuthDbIO (Either T.Text Int64)
+  -> SqlRead.AuthDbIO (Either T.Text [(Builds.UniversalBuildId, Int64)])
 facilitateJobRebuild circleci_api_token universal_build_id = do
   dbauth@(SqlRead.AuthConnection conn _user) <- ask
   liftIO $ fmap (first T.pack) $ runExceptT $ do
@@ -199,17 +194,13 @@ facilitateJobRebuild circleci_api_token universal_build_id = do
 
     let provider_build_num = Builds.build_id $ Builds.build_record storable_build
 
-    circleci_responses <- CircleTrigger.rebuildCircleJobsInWorkflow
+    results <- CircleTrigger.rebuildCircleJobsInWorkflow
+      dbauth
       circleci_api_token
-      [provider_build_num]
-
-    result <- ExceptT $ flip runReaderT dbauth $
-      SqlWrite.insertRebuildTriggerEvent
-        universal_build_id
-        (T.intercalate "; " $ map (CircleTrigger.message . snd)  circleci_responses)
+      [(universal_build_id, provider_build_num)]
 
     liftIO $ D.debugStr "Submitted rebuild request."
-    return result
+    return $ concatMap snd results
 
 
 getLoggedInUser :: SqlRead.AuthDbIO (Either T.Text AuthStages.Username)
@@ -229,67 +220,6 @@ jsonDbGet connection_data endpoint_path f =
   where
     wrapped_connection = liftIO $ DbHelpers.getConnectionWithStatementTimeout connection_data apiGetSqlTimeoutSeconds
     run_with_connection = liftIO . (=<< wrapped_connection) . runReaderT
-
-
--- | Compare to: "postWithAuthentication"
-jsonAuthorizedDbInteract2 :: ToJSON a =>
-     AuthHelperBundle
-  -> ScottyTypes.ActionT LT.Text IO (ReaderT SqlRead.AuthConnection IO (Either Text a))
-  -> ScottyTypes.ActionT LT.Text IO ()
-jsonAuthorizedDbInteract2
-    (AuthHelperBundle connection_data session github_config third_party_creds)
-    f = do
-
-  func <- f
-
-  let callback_func user_alias = do
-        conn <- DbHelpers.get_connection connection_data
-        runReaderT func $ SqlRead.AuthConnection conn user_alias
-
-  login_redirect_path <- S.param "login_redirect_path"
-
-  rq <- S.request
-
-  insertion_result <- liftIO $
-    Auth.getAuthenticatedUser
-      login_redirect_path
-      rq
-      session
-      github_config
-      third_party_creds
-      callback_func
-
-  S.json $ WebApi.toJsonEither insertion_result
-
-
-jsonAuthorizedDbInteract :: ToJSON a =>
-     AuthHelperBundle
-  -> ScottyTypes.ActionT LT.Text IO (ReaderT Connection IO (Either Text a))
-  -> ScottyTypes.ActionT LT.Text IO ()
-jsonAuthorizedDbInteract
-    (AuthHelperBundle connection_data session github_config third_party_creds)
-    f = do
-
-  func <- f
-
-  let callback_func _user_alias = do
-        conn <- DbHelpers.get_connection connection_data
-        runReaderT func conn
-
-  login_redirect_path <- S.param "login_redirect_path"
-
-  rq <- S.request
-
-  insertion_result <- liftIO $
-    Auth.getAuthenticatedUser
-      login_redirect_path
-      rq
-      session
-      github_config
-      third_party_creds
-      callback_func
-
-  S.json $ WebApi.toJsonEither insertion_result
 
 
 data AuthHelperBundle = AuthHelperBundle {
@@ -321,35 +251,56 @@ requireAdminToken connection_data github_config f = do
     S.json $ WebApi.toJsonEither insertion_result
 
 
+jsonAuthorizedDbInteractCommon :: ToJSON a =>
+     (Connection -> AuthStages.Username -> b)
+  -> AuthHelperBundle
+  -> ScottyTypes.ActionT LT.Text IO (ReaderT b IO (Either Text a))
+  -> ScottyTypes.ActionT LT.Text IO ()
+jsonAuthorizedDbInteractCommon =
+  jsonAuthorizedDbInteractCommon2 $ \_x _y z -> WebApi.toJsonEither z
+
+
 postWithAuthentication :: ToJSON a =>
      AuthHelperBundle
   -> ScottyTypes.ActionT LT.Text IO (ReaderT SqlRead.AuthConnection IO (Either Text a))
   -> ScottyTypes.ActionT LT.Text IO ()
-postWithAuthentication
+postWithAuthentication = jsonAuthorizedDbInteractCommon2
+  DbInsertion.toInsertionResponse
+  SqlRead.AuthConnection
+
+
+jsonAuthorizedDbInteractCommon2 :: (ToJSON a, ToJSON a2) =>
+     (LT.Text -> AuthConfig.GithubConfig -> Either (AuthStages.BackendFailure Text) a -> a2)
+  -> (Connection -> AuthStages.Username -> b)
+  -> AuthHelperBundle
+  -> ScottyTypes.ActionT LT.Text IO (ReaderT b IO (Either Text a))
+  -> ScottyTypes.ActionT LT.Text IO ()
+jsonAuthorizedDbInteractCommon2
+    h
+    g
     (AuthHelperBundle connection_data session github_config third_party_creds)
     f = do
 
   func <- f
+
   let callback_func user_alias = do
         conn <- DbHelpers.get_connection connection_data
-        runReaderT func $ SqlRead.AuthConnection conn user_alias
+        runReaderT func $ g conn user_alias
 
   login_redirect_path <- S.param "login_redirect_path"
 
   rq <- S.request
 
-  insertion_result <- liftIO $ Auth.getAuthenticatedUser
-    login_redirect_path
-    rq
-    session
-    github_config
-    third_party_creds
-    callback_func
+  insertion_result <- liftIO $
+    Auth.getAuthenticatedUser
+      login_redirect_path
+      rq
+      session
+      github_config
+      third_party_creds
+      callback_func
 
-  S.json $ DbInsertion.toInsertionResponse
-    login_redirect_path
-    github_config
-    insertion_result
+  S.json $ h login_redirect_path github_config insertion_result
 
 
 rescanCommitCallback :: (MonadIO m) =>
