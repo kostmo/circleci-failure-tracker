@@ -3958,6 +3958,35 @@ CREATE MATERIALIZED VIEW public.master_failures_weekly_aggregation_mview AS
 ALTER TABLE public.master_failures_weekly_aggregation_mview OWNER TO materialized_view_updater;
 
 --
+-- Name: rebuild_trigger_events; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.rebuild_trigger_events (
+    id integer NOT NULL,
+    universal_build integer NOT NULL,
+    initiator text,
+    inserted_at timestamp with time zone DEFAULT now() NOT NULL,
+    message text
+);
+
+
+ALTER TABLE public.rebuild_trigger_events OWNER TO postgres;
+
+--
+-- Name: master_flaky_builds_to_retry; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_flaky_builds_to_retry AS
+ SELECT v.global_build,
+    v.build_num
+   FROM (public.master_failures_raw_causes_mview v
+     LEFT JOIN public.rebuild_trigger_events ON ((v.global_build = rebuild_trigger_events.universal_build)))
+  WHERE (v.is_isolated_or_flaky_failure AND (NOT v.is_empirically_determined_flaky) AND (rebuild_trigger_events.universal_build IS NULL) AND (v.queued_at > (now() - '08:00:00'::interval)));
+
+
+ALTER TABLE public.master_flaky_builds_to_retry OWNER TO postgres;
+
+--
 -- Name: master_granular_commit_stats; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -4948,22 +4977,6 @@ ALTER TABLE public.pull_requests_with_missing_heads OWNER TO postgres;
 
 COMMENT ON VIEW public.pull_requests_with_missing_heads IS 'NOTE: It is OK that this query references the "pull_request_heads" table directly instead of "pr_current_heads", because we are only checking for the *existence* of pull requests in the "pull_request_heads" table; it doesn''t matter which head is associated with a given PR.';
 
-
---
--- Name: rebuild_trigger_events; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.rebuild_trigger_events (
-    id integer NOT NULL,
-    universal_build integer NOT NULL,
-    reported_new_provider_build_id integer,
-    initiator text,
-    inserted_at timestamp with time zone DEFAULT now() NOT NULL,
-    message text
-);
-
-
-ALTER TABLE public.rebuild_trigger_events OWNER TO postgres;
 
 --
 -- Name: rebuild_trigger_events_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
@@ -7957,6 +7970,22 @@ GRANT SELECT ON TABLE public.master_failures_weekly_aggregation_mview TO postgre
 
 
 --
+-- Name: TABLE rebuild_trigger_events; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.rebuild_trigger_events TO logan;
+GRANT SELECT ON TABLE public.rebuild_trigger_events TO materialized_view_updater;
+
+
+--
+-- Name: TABLE master_flaky_builds_to_retry; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_flaky_builds_to_retry TO logan;
+GRANT SELECT ON TABLE public.master_flaky_builds_to_retry TO materialized_view_updater;
+
+
+--
 -- Name: TABLE master_granular_commit_stats; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -8218,14 +8247,6 @@ GRANT ALL ON SEQUENCE public.pull_request_heads_id_seq TO logan;
 
 GRANT ALL ON TABLE public.pull_requests_with_missing_heads TO logan;
 GRANT SELECT ON TABLE public.pull_requests_with_missing_heads TO materialized_view_updater;
-
-
---
--- Name: TABLE rebuild_trigger_events; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.rebuild_trigger_events TO logan;
-GRANT SELECT ON TABLE public.rebuild_trigger_events TO materialized_view_updater;
 
 
 --

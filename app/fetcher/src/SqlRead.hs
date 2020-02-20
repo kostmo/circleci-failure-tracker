@@ -285,6 +285,22 @@ lookupUniversalBuildFromProviderBuild conn (Builds.NewBuildNumber build_num) = d
       ]
 
 
+getFlakyMasterBuildsToRetry ::
+  DbIO [(Builds.UniversalBuildId, Builds.BuildNumber)]
+getFlakyMasterBuildsToRetry = do
+  conn <- ask
+  liftIO $ query_ conn sql
+  where
+    sql = Q.qjoin [
+        "SELECT"
+      , Q.list [
+          "global_build"
+        , "build_num"
+        ]
+      , "FROM master_flaky_builds_to_retry"
+      ]
+
+
 getCachedPullRequestAuthor ::
      Builds.PullRequestNumber
   -> DbIO (Maybe AuthStages.Username)

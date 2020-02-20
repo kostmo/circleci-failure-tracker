@@ -200,7 +200,7 @@ facilitateJobRebuild circleci_api_token universal_build_id = do
       [(universal_build_id, provider_build_num)]
 
     liftIO $ D.debugStr "Submitted rebuild request."
-    return $ concatMap snd results
+    return results
 
 
 getLoggedInUser :: SqlRead.AuthDbIO (Either T.Text AuthStages.Username)

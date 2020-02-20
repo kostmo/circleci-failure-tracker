@@ -141,7 +141,7 @@ rebuildCircleJobsInWorkflow ::
      SqlRead.AuthConnection
   -> CircleApi.CircleCIApiToken
   -> [(Builds.UniversalBuildId, Builds.BuildNumber)]
-  -> ExceptT String IO [(CircleV2BuildRetryResponse, [(Builds.UniversalBuildId, Int64)])]
+  -> ExceptT String IO [(Builds.UniversalBuildId, Int64)]
 rebuildCircleJobsInWorkflow
     dbauth
     tok
@@ -155,7 +155,7 @@ rebuildCircleJobsInWorkflow
         (\x -> (CircleBuild.workflow_id $ snd x, (fst x, CircleBuild.job_id $ snd x)))
         build_num_workflow_obj_pairs
 
-  forM jobs_by_workflow $ \(workflow_id, build_num_job_id_pairs_for_workflow) -> do
+  batched_results <- forM jobs_by_workflow $ \(workflow_id, build_num_job_id_pairs_for_workflow) -> do
     circleci_response <- rebuildJobsBatch
       tok
       workflow_id
@@ -171,5 +171,6 @@ rebuildCircleJobsInWorkflow
 
     return (circleci_response, results)
 
+  return $ concatMap snd batched_results
 
 

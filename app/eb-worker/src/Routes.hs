@@ -23,9 +23,11 @@ import qualified Web.Scotty                 as S
 import qualified Web.Scotty.Internal.Types  as ScottyTypes
 
 import qualified AuthConfig
+import qualified AuthStages
 import qualified BuildRetrieval
 import qualified Builds
 import qualified CircleApi
+import qualified CircleTrigger
 import qualified Constants
 import qualified DbHelpers
 import qualified DebugUtils                 as D
@@ -121,7 +123,7 @@ scottyApp
 
         current_time <- Clock.getCurrentTime
         D.debugList [
-            "Starting CircleCI build retrieval as"
+            "Starting CircleCI build retrieval at"
           , show current_time
           ]
 
@@ -145,6 +147,32 @@ scottyApp
           ]
 
       S.json ["hello-post" :: Text]
+
+
+  S.post "/worker/retry-flaky-master-jobs" $
+
+    wrapWithDbDurationRecords connection_data $ \eb_worker_event_id -> do
+
+      output <- liftIO $ do
+
+        current_time <- Clock.getCurrentTime
+        D.debugList [
+            "Starting CircleCI flaky master build retries at"
+          , show current_time
+          ]
+
+        conn <- DbHelpers.getConnectionWithStatementTimeout
+          connection_data
+          statementTimeoutSeconds
+
+        build_num_tuples <- runReaderT SqlRead.getFlakyMasterBuildsToRetry conn
+
+        runExceptT $ CircleTrigger.rebuildCircleJobsInWorkflow
+          (SqlRead.AuthConnection conn $ AuthStages.Username "")
+          (CircleApi.circle_api_token third_party_auth)
+          build_num_tuples
+
+      S.json output
 
 
   S.post "/worker/update-pr-associations" $
