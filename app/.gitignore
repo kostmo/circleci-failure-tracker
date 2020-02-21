@@ -1,7 +1,9 @@
 .stack-work
+*.lock
 *.cabal
 .hpc
 \#*
+*~
 *.tix
 client_session_key.aes
 

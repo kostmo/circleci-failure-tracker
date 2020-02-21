@@ -1,4 +1,3 @@
-
 {-# LANGUAGE OverloadedStrings #-}
 
 module CommentRender where
@@ -16,6 +15,8 @@ import qualified Data.Tree           as Tr
 
 import qualified Builds
 import qualified CircleCIParse
+import qualified CommentRebaseAdvice
+import qualified CommentRenderCommon
 import qualified CommitBuilds
 import qualified Constants
 import qualified DbHelpers
@@ -33,21 +34,12 @@ pullRequestCommentsLogContextLineCount :: Int
 pullRequestCommentsLogContextLineCount = 10
 
 
-viableBranchName :: Text
-viableBranchName = "viable/strict"
-
-
-webserverBaseUrl :: LT.Text
-webserverBaseUrl = "https://dr.pytorch.org"
+drCiGitHubRepoBase :: Text
+drCiGitHubRepoBase = "https://github.com/kostmo/circleci-failure-tracker"
 
 
 drCiIssueTrackerUrl :: Text
-drCiIssueTrackerUrl = "https://github.com/kostmo/circleci-failure-tracker/issues"
-
-
-viableCommitsHistoryUrl :: LT.Text
-viableCommitsHistoryUrl = webserverBaseUrl <> "/master-viable-commits.html"
-
+drCiIssueTrackerUrl = drCiGitHubRepoBase <> "/issues"
 
 circleCISmallAvatarUrl :: Text
 circleCISmallAvatarUrl = "https://avatars0.githubusercontent.com/ml/7?s=12"
@@ -58,7 +50,7 @@ drCIApplicationTitle = "Dr. CI"
 
 
 drCIPullRequestCommentsReadmeUrl :: Text
-drCIPullRequestCommentsReadmeUrl = "https://github.com/kostmo/circleci-failure-tracker/tree/master/docs/from-pull-request-comment"
+drCIPullRequestCommentsReadmeUrl = drCiGitHubRepoBase <> "/tree/master/docs/from-pull-request-comment"
 
 
 circleCIBuildUrlPrefix :: Text
@@ -83,9 +75,9 @@ genUnmatchedBuildsTable pre_broken_jobs_map merge_base_commit unmatched_builds =
 
     gen_unmatched_build_row (WebApi.UnmatchedBuild _build step_name _ job_name _ _ _ _) = [
         T.unwords [
-            M.image "CircleCI" circleCISmallAvatarUrl
-          , M.sup job_name
-          ]
+          M.image "CircleCI" circleCISmallAvatarUrl
+        , M.sup job_name
+        ]
       , M.sup step_name
       , upstream_brokenness_indicator
       ]
@@ -192,7 +184,7 @@ genBuildFailuresTable
             ]
 
         link_label = StatusUpdateTypes.get_job_name_from_build_with_log_context x
-        link_url = LT.toStrict webserverBaseUrl <> "/build-details.html?build_id=" <> T.pack (show ubuild_id)
+        link_url = LT.toStrict CommentRenderCommon.webserverBaseUrl <> "/build-details.html?build_id=" <> T.pack (show ubuild_id)
 
     matched_upstream_builds_details_block = M.bulletTree $
       map render_upstream_matched_failure_item upstream_breakages
@@ -245,8 +237,8 @@ genMatchedBuildSection total_count idx build_with_log_context = [
         M.bold "Step:"
       , M.quote $ MatchOccurrences._build_step match_obj
       , M.parens $ T.intercalate " | " [
-         M.link "full log" $ LT.toStrict webserverBaseUrl <> "/api/view-log-full?build_id=" <> T.pack (show ubuild_id)
-        , M.link "pattern match details" $ LT.toStrict webserverBaseUrl <> "/build-details.html?build_id=" <> T.pack (show ubuild_id)
+         M.link "full log" $ LT.toStrict CommentRenderCommon.webserverBaseUrl <> "/api/view-log-full?build_id=" <> T.pack (show ubuild_id)
+        , M.link "pattern match details" $ LT.toStrict CommentRenderCommon.webserverBaseUrl <> "/build-details.html?build_id=" <> T.pack (show ubuild_id)
         ]
       ] ++ optional_flakiness_indicator
 
@@ -315,7 +307,7 @@ generateCommentFooter maybe_previous_pr_comment =
         ]
       ]
 
-    dr_ci_base_url = LT.toStrict webserverBaseUrl
+    dr_ci_base_url = LT.toStrict CommentRenderCommon.webserverBaseUrl
     opt_out_url = dr_ci_base_url <> "/admin/comments-opt-out.html"
 
 
@@ -375,7 +367,7 @@ generateMiddleSections
         , T.unlines build_failures_table_lines
         ]
 
-    dr_ci_base_url = LT.toStrict webserverBaseUrl
+    dr_ci_base_url = LT.toStrict CommentRenderCommon.webserverBaseUrl
     dr_ci_commit_details_link = dr_ci_base_url <> "/commit-details.html?sha1=" <> sha1_text
 
 
@@ -410,71 +402,7 @@ genMetricsTree
     merge_base_commit = SqlUpdate.merge_base pre_broken_info
     Builds.RawCommit merge_base_sha1_text = merge_base_commit
 
-    definite_older_commit_advice = pure $ M.colonize [
-        M.commaize [
-          "Since your merge base"
-        , "is older than"
-        , M.codeInline viableBranchName
-        ]
-      , "run these commands"
-      ]
 
-    possible_older_commit_advice = pure $ M.colonize [
-        "If your commit is older than"
-      , M.codeInline viableBranchName
-      ]
-
-    older_commit_codeblock = M.codeBlock $
-      ("git fetch origin " <> viableBranchName) :| ["git rebase " <> viableBranchName]
-
-    newer_commit_advice = pure $ M.colonize [
-        M.commaize [
-            "If your commit is newer than"
-          , M.codeInline viableBranchName
-          ]
-      , "you can try basing on an older, stable commit"
-      ]
-
-    newer_commit_codeblock = M.codeBlock $
-      ("git fetch origin " <> viableBranchName) :| [
-      T.unwords [
-          "git rebase --onto"
-        , viableBranchName
-        , "$(git merge-base origin/master HEAD)"
-        ]
-     ]
-
-    definite_older_rebase_advice_children =
-        definite_older_commit_advice <> older_commit_codeblock
-
-    maybe_newer_rebase_advice_children =
-         newer_commit_advice
-      <> newer_commit_codeblock
-      <> possible_older_commit_advice
-      <> older_commit_codeblock
-
-
-    rebase_advice_children = case ancestry_result of
-      GadgitFetch.RefIsAncestor    -> definite_older_rebase_advice_children
-      GadgitFetch.RefIsNotAncestor -> maybe_newer_rebase_advice_children
-
-    rebase_advice_footer = pure $ M.sentence [
-        "Check out the"
-      , M.link "recency history" $ LT.toStrict viableCommitsHistoryUrl
-      , "of this"
-      , M.quote "viable master"
-      , "tracking branch"
-      ]
-
-    rebase_advice_intro = T.unwords [
-        "Please rebase on the"
-      , M.codeInlineHtml viableBranchName
-      , "branch"
-      , M.parens "expand for instructions"
-      ]
-
-    rebase_advice_section = M.detailsExpanderForCode rebase_advice_intro $ NE.toList $
-      rebase_advice_children <> rebase_advice_footer
 
 
     pre_broken_jobs_map = SqlUpdate.inferred_upstream_breakages_by_job pre_broken_info
@@ -499,6 +427,8 @@ genMetricsTree
       , "since"
       , T.pack latest_breakage_formatted_time
       ]
+
+    rebase_advice_section = CommentRebaseAdvice.genRebaseAdviceSection ancestry_result
 
     upstream_breakage_bullet_tree = pure $
        upstream_brokenness_declaration :| rebase_advice_section
