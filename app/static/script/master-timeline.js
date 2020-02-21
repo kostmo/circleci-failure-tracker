@@ -171,6 +171,28 @@ function get_context_menu_items_for_cell(cell) {
 		}
 	}
 
+
+
+	{
+		const node = document.createElement("span");
+
+		const textnode = document.createTextNode("Copy job name");
+		node.appendChild(textnode);
+
+		node.addEventListener("click", function () {
+
+			navigator.clipboard.writeText( job_name )
+			  .then(() => {
+			    // Success!
+			  })
+			  .catch(err => {
+			    console.log('Something went wrong', err);
+			  });
+		});
+
+		context_menu_items.push(node);
+	}
+
 	return context_menu_items;
 }
 
