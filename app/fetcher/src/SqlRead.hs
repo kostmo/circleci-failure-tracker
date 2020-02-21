@@ -414,7 +414,8 @@ canPostPullRequestComments conn (AuthStages.Username author) = do
       ]
 
 
-userOptOutSettings :: SqlRead.AuthDbIO (Either Text (UserWrapper (Maybe OptOutResponse)))
+userOptOutSettings ::
+  SqlRead.AuthDbIO (Either Text (UserWrapper (Maybe OptOutResponse)))
 userOptOutSettings = do
   SqlRead.AuthConnection conn user@(AuthStages.Username author) <- ask
   xs <- liftIO $ query conn sql $ Only author
@@ -430,6 +431,56 @@ userOptOutSettings = do
         ]
       , "FROM pr_comment_posting_opt_outs"
       , "WHERE username = ?"
+      ]
+
+
+-- XXX TODO
+getFlakyRebuildCandidates ::
+     Builds.RawCommit
+  -> SqlRead.AuthDbIO (Either Text (UserWrapper [CommitBuilds.CommitBuild]))
+getFlakyRebuildCandidates (Builds.RawCommit git_revision) = do
+  SqlRead.AuthConnection conn user <- ask
+
+  liftIO $ PostgresHelpers.catchDatabaseError catcher $ do
+    xs <- query conn sql sql_parms
+    return $ Right $ UserWrapper user $ xs
+
+  where
+    sql = genBestBuildMatchQuery fields_to_fetch sql_where_conditions
+
+    catcher _ (PostgresHelpers.QueryCancelled some_error) = return $ Left $
+      "Query error in getFlakyRebuildCandidates: " <> T.pack (BS.unpack some_error)
+    catcher e _                                  = throwIO e
+
+
+    sql_parms = Only git_revision
+    sql_where_conditions = ["vcs_revision = ?"]
+
+    fields_to_fetch = [
+        "build_steps.name AS step_name"
+      , "match_id"
+      , "build"
+      , "global_builds.vcs_revision"
+      , "queued_at"
+      , "job_name"
+      , "branch"
+      , "pattern_id"
+      , "line_number"
+      , "line_count"
+      , "line_text"
+      , "span_start"
+      , "span_end"
+      , "specificity"
+      , "global_builds.global_build_num AS universal_build"
+      , "provider"
+      , "build_namespace"
+      , "succeeded"
+      , "label"
+      , "icon_url"
+      , "started_at"
+      , "finished_at"
+      , "FALSE as is_timeout"
+      , "is_flaky"
       ]
 
 
@@ -2033,11 +2084,8 @@ getRevisionBuilds ::
 getRevisionBuilds git_revision = do
   conn <- ask
   liftIO $ PostgresHelpers.catchDatabaseError catcher $ do
-    x <- flip runReaderT conn $ do
-      (timing, content) <- D.timeThisFloat $ liftIO $ query conn sql sql_parms
-      return $ DbHelpers.BenchmarkedResponse timing content
-
-    return $ Right x
+    (timing, content) <- D.timeThisFloat $ query conn sql sql_parms
+    return $ Right $ DbHelpers.BenchmarkedResponse timing content
 
   where
     sql = genBestBuildMatchQuery fields_to_fetch sql_where_conditions

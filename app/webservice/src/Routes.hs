@@ -473,6 +473,12 @@ scottyApp
       (FrontendHelpers.AuthHelperBundle connection_data session github_config third_party_creds) $
         pure SqlRead.userOptOutSettings
 
+  S.get "/api/get-flaky-rebuild-candidates" $
+    FrontendHelpers.jsonAuthorizedDbInteractCommon
+      SqlRead.AuthConnection
+      (FrontendHelpers.AuthHelperBundle connection_data session github_config third_party_creds) $
+        SqlRead.getFlakyRebuildCandidates <$> (Builds.RawCommit <$> S.param "sha1")
+
   S.post "/api/update-user-opt-out-settings" $
     withAuth $ SqlWrite.updateUserOptOutSettings <$> S.param "enabled"
 

@@ -172,7 +172,6 @@ function get_context_menu_items_for_cell(cell) {
 	}
 
 
-
 	{
 		const node = document.createElement("span");
 

@@ -342,7 +342,7 @@ generateMiddleSections
     ancestry_result
     build_summary_stats
     commit_page_info
-    (Builds.RawCommit sha1_text) =
+    commit@(Builds.RawCommit sha1_text) =
 
   summary_header ++ [summary_tree] ++ detailed_build_issues_section
   where
@@ -351,6 +351,7 @@ generateMiddleSections
       commit_page_info
       ancestry_result
       build_summary_stats
+      commit
 
     summary_tree = M.bulletTree summary_forrest
 
@@ -375,11 +376,13 @@ genMetricsTree ::
      StatusUpdateTypes.CommitPageInfo
   -> GadgitFetch.AncestryPropositionResponse
   -> StatusUpdateTypes.BuildSummaryStats
+  -> Builds.RawCommit
   -> ([Text], Tr.Forest (NonEmpty Text))
 genMetricsTree
     commit_page_info
     ancestry_response
-    (StatusUpdateTypes.NewBuildSummaryStats pre_broken_info all_failures) =
+    (StatusUpdateTypes.NewBuildSummaryStats pre_broken_info all_failures)
+    (Builds.RawCommit commit_sha1_text) =
 
   (summary_header, forrest_parts)
   where
@@ -447,9 +450,16 @@ genMetricsTree
       , "recognized as flaky :snowflake:"
       ]
 
+    rebuild_request_query_parms = [
+        ("sha1", T.unpack commit_sha1_text)
+      ]
+
+    rerun_trigger_url = LT.unpack CommentRenderCommon.webserverBaseUrl <> "/rebuild-from-pr-comment.html?"
+      <> MyUtils.genUrlQueryString rebuild_request_query_parms
+
     flaky_bullet_tree_inner = Tr.Node
       flaky_bullet_tree_inner_heading
-      [pure $ pure "Re-run these jobs?"]
+      [pure $ pure $ M.link "Click to rerun these jobs" $ T.pack rerun_trigger_url]
 
 
 genGridViewSha1Link ::
