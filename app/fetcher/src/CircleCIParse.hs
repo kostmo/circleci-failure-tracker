@@ -19,7 +19,7 @@ import qualified Builds
 import qualified DebugUtils                as D
 import qualified ScanRecords
 import           SillyMonoids              ()
-import qualified SqlWrite
+import qualified Sql.Write as SqlWrite
 
 
 -- | Log sizes capped at 100MB

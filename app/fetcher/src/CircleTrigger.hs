@@ -25,8 +25,8 @@ import qualified CircleBuild
 import qualified Constants
 import qualified FetchHelpers
 import qualified MyUtils
-import qualified SqlRead
-import qualified SqlWrite
+import qualified Sql.Read as SqlRead
+import qualified Sql.Write as SqlWrite
 
 
 data CircleBuildRetryResponse = CircleBuildRetryResponse {

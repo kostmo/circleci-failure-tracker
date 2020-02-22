@@ -9,8 +9,8 @@ import           Data.Text           (Text)
 import qualified Builds
 import qualified CommitBuilds
 import qualified MyUtils
-import qualified SqlRead
-import qualified SqlUpdate
+import qualified Sql.Read as SqlRead
+import qualified Sql.Update as SqlUpdate
 import qualified WebApi
 
 

@@ -13,8 +13,8 @@ import qualified Network.HTTP.Client        as NC
 import           Network.Wreq               as NW
 
 import qualified FetchHelpers
-import qualified SqlRead
-import qualified SqlWrite
+import qualified Sql.Read as SqlRead
+import qualified Sql.Write as SqlWrite
 
 
 -- | For seeding initial data

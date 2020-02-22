@@ -24,8 +24,8 @@ import qualified GadgitFetch
 import qualified Markdown            as M
 import qualified MatchOccurrences
 import qualified MyUtils
-import qualified SqlRead
-import qualified SqlUpdate
+import qualified Sql.Read as SqlRead
+import qualified Sql.Update as SqlUpdate
 import qualified StatusUpdateTypes
 import qualified WebApi
 

@@ -3,7 +3,7 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE OverloadedStrings     #-}
 
-module SqlRead where
+module Sql.Read where
 
 import           Control.Exception                    (throwIO)
 import           Control.Monad                        (unless)
@@ -208,7 +208,7 @@ getUnvisitedBuildIds conn maybe_limit = do
       , "ORDER BY build_num DESC"
       ]
 
-    sql = unlimited_sql <> " LIMIT ?;"
+    sql = unlimited_sql <> " LIMIT ?"
 
 
 -- | Only searches for CircleCI builds
@@ -415,9 +415,9 @@ canPostPullRequestComments conn (AuthStages.Username author) = do
 
 
 userOptOutSettings ::
-  SqlRead.AuthDbIO (Either Text (UserWrapper (Maybe OptOutResponse)))
+  AuthDbIO (Either Text (UserWrapper (Maybe OptOutResponse)))
 userOptOutSettings = do
-  SqlRead.AuthConnection conn user@(AuthStages.Username author) <- ask
+  AuthConnection conn user@(AuthStages.Username author) <- ask
   xs <- liftIO $ query conn sql $ Only author
   return $ Right $ UserWrapper user $ Safe.headMay xs
   where
@@ -437,9 +437,9 @@ userOptOutSettings = do
 -- XXX TODO
 getFlakyRebuildCandidates ::
      Builds.RawCommit
-  -> SqlRead.AuthDbIO (Either Text (UserWrapper [CommitBuilds.CommitBuild]))
+  -> AuthDbIO (Either Text (UserWrapper [CommitBuilds.CommitBuild]))
 getFlakyRebuildCandidates (Builds.RawCommit git_revision) = do
-  SqlRead.AuthConnection conn user <- ask
+  AuthConnection conn user <- ask
 
   liftIO $ PostgresHelpers.catchDatabaseError catcher $ do
     xs <- query conn sql sql_parms
@@ -1919,7 +1919,7 @@ getFailedCircleCIJobNames (Builds.RawCommit sha1) = do
 
   liftIO $ Right . map (\(Only x) -> x) <$> query conn sql query_parms
   where
-    query_parms = (sha1, SqlRead.circleCIProviderIndex)
+    query_parms = (sha1, circleCIProviderIndex)
 
     sql = Q.qjoin [
         "SELECT job_name"
@@ -1941,7 +1941,7 @@ countCircleCIFailures (Builds.RawCommit sha1) = do
 
   liftIO $ maybeToEither err . Safe.headMay . map (\(Only x) -> x) <$> query conn sql query_parms
   where
-    query_parms = (sha1, SqlRead.circleCIProviderIndex)
+    query_parms = (sha1, circleCIProviderIndex)
 
     err = LT.unwords [
         "No match for commit"
@@ -4116,7 +4116,7 @@ logContextFunc
           ]
 
         runReaderT
-          (SqlRead.readLogSubset mid first_context_line retrieval_line_count)
+          (readLogSubset mid first_context_line retrieval_line_count)
           conn
 
       let tuples = zip [first_context_line..] log_lines

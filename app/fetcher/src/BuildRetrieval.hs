@@ -30,8 +30,8 @@ import qualified DebugUtils                 as D
 import qualified FetchHelpers
 import qualified MyUtils
 import           SillyMonoids               ()
-import qualified SqlRead
-import qualified SqlWrite
+import qualified Sql.Read as SqlRead
+import qualified Sql.Write as SqlWrite
 
 
 maxBuildPerPage :: Int

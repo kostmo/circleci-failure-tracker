@@ -39,9 +39,9 @@ import qualified JsonUtils
 import qualified MatchOccurrences
 import qualified Scanning
 import qualified ScanPatterns
-import qualified SqlRead
-import qualified SqlUpdate
-import qualified SqlWrite
+import qualified Sql.Read as SqlRead
+import qualified Sql.Update as SqlUpdate
+import qualified Sql.Write as SqlWrite
 import qualified StatusUpdate
 import qualified Types
 import qualified WebApi

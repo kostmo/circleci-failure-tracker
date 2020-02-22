@@ -2,7 +2,7 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE OverloadedStrings     #-}
 
-module SqlUpdate where
+module Sql.Update where
 
 import           Control.Monad.IO.Class     (liftIO)
 import           Control.Monad.Trans.Except (ExceptT (ExceptT), except,
@@ -33,8 +33,8 @@ import qualified GitRev
 import qualified JsonUtils
 import qualified MyUtils
 import qualified QueryUtils                 as Q
-import qualified SqlRead
-import qualified SqlWrite
+import qualified Sql.Read                   as SqlRead
+import qualified Sql.Write                  as SqlWrite
 
 
 data CommitInfoCounts = NewCommitInfoCounts {

@@ -44,8 +44,8 @@ import qualified ScanPatterns
 import qualified ScanRecords
 import qualified ScanUtils
 import           SillyMonoids                    ()
-import qualified SqlRead
-import qualified SqlWrite
+import qualified Sql.Read as SqlRead
+import qualified Sql.Write as SqlWrite
 
 
 -- | This is short so we don't

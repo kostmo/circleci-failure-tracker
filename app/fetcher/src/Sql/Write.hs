@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module SqlWrite where
+module Sql.Write where
 
 import           Control.Applicative               ((<|>))
 import           Control.Exception                 (throwIO)
@@ -54,7 +54,7 @@ import qualified QueryUtils                        as Q
 import qualified ScanPatterns
 import qualified ScanRecords
 import qualified ScanUtils
-import qualified SqlRead
+import qualified Sql.Read                          as SqlRead
 import qualified Webhooks
 
 
