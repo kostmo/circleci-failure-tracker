@@ -44,7 +44,10 @@
 
 <div id="commit-info-box"></div>
 
-<button type="button" onclick="rescan_commit();">Rescan commit</button>
+<button type="button" onclick="rescan_commit(this);">Rescan commit</button>
+
+<button type="button" onclick="query_flaky(this);">Rebuild flaky</button>
+
 <div id="scan-throbber" style="display: none;"><div>Scanning...</div><img src="/images/duck.gif"/></div>
 
 <h2>Pattern matches</h2>

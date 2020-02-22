@@ -49,9 +49,9 @@ import qualified MyUtils
 import qualified Pagination
 import qualified PostedComments
 import qualified PostgresHelpers
-import qualified QueryUtils                           as Q
 import qualified ScanPatterns
 import qualified ScanUtils
+import qualified Sql.QueryUtils                       as Q
 import qualified WebApi
 import qualified WeeklyStats
 
@@ -438,50 +438,14 @@ userOptOutSettings = do
 getFlakyRebuildCandidates ::
      Builds.RawCommit
   -> AuthDbIO (Either Text (UserWrapper [CommitBuilds.CommitBuild]))
-getFlakyRebuildCandidates (Builds.RawCommit git_revision) = do
+getFlakyRebuildCandidates (Builds.RawCommit commit_sha1_text) = do
   AuthConnection conn user <- ask
 
-  liftIO $ PostgresHelpers.catchDatabaseError catcher $ do
-    xs <- query conn sql sql_parms
-    return $ Right $ UserWrapper user $ xs
-
-  where
-    sql = genBestBuildMatchQuery fields_to_fetch sql_where_conditions
-
-    catcher _ (PostgresHelpers.QueryCancelled some_error) = return $ Left $
-      "Query error in getFlakyRebuildCandidates: " <> T.pack (BS.unpack some_error)
-    catcher e _                                  = throwIO e
-
-
-    sql_parms = Only git_revision
-    sql_where_conditions = ["vcs_revision = ?"]
-
-    fields_to_fetch = [
-        "build_steps.name AS step_name"
-      , "match_id"
-      , "build"
-      , "global_builds.vcs_revision"
-      , "queued_at"
-      , "job_name"
-      , "branch"
-      , "pattern_id"
-      , "line_number"
-      , "line_count"
-      , "line_text"
-      , "span_start"
-      , "span_end"
-      , "specificity"
-      , "global_builds.global_build_num AS universal_build"
-      , "provider"
-      , "build_namespace"
-      , "succeeded"
-      , "label"
-      , "icon_url"
-      , "started_at"
-      , "finished_at"
-      , "FALSE as is_timeout"
-      , "is_flaky"
-      ]
+  liftIO $ runExceptT $ do
+    git_revision <- except $ GitRev.validateSha1 commit_sha1_text
+    DbHelpers.BenchmarkedResponse _timing builds <- ExceptT $ flip runReaderT conn $ getRevisionBuilds git_revision
+    let flaky_builds = filter (CommitBuilds._is_flaky . CommitBuilds._failure_mode) builds
+    return $ UserWrapper user flaky_builds
 
 
 transformPatternRows row =

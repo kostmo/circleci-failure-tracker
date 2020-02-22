@@ -32,7 +32,7 @@ import qualified DebugUtils                 as D
 import qualified GitRev
 import qualified JsonUtils
 import qualified MyUtils
-import qualified QueryUtils                 as Q
+import qualified Sql.QueryUtils             as Q
 import qualified Sql.Read                   as SqlRead
 import qualified Sql.Write                  as SqlWrite
 

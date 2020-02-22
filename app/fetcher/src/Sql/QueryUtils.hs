@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module QueryUtils where
+module Sql.QueryUtils where
 
 import           Data.List                  (intersperse)
 import           Database.PostgreSQL.Simple (Query)

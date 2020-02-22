@@ -294,23 +294,22 @@ function rebuild_job(button) {
 		},
 		success: function( data ) {
 
-			$(button).prop("disabled", false);
 			$("#scan-throbber").hide();
+			$(button).prop("disabled", false);
 
 			handle_submission_response_generic(data, function() {
 				console.log("submitted...");
 			});
-
-			$(button).prop("disabled", false);
 		},
 		error: function( data ) {
+
 			$("#scan-throbber").hide();
-			alert("Server error!");
 			$(button).prop("disabled", false);
+
+			alert("Server error!");
 		},
         });
 }
-
 
 
 function get_build_number() {

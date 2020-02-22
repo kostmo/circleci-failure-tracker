@@ -50,10 +50,10 @@ import qualified GithubApiFetch
 import qualified GitHubRecords
 import qualified MatchOccurrences
 import qualified MergeBase
-import qualified QueryUtils                        as Q
 import qualified ScanPatterns
 import qualified ScanRecords
 import qualified ScanUtils
+import qualified Sql.QueryUtils                    as Q
 import qualified Sql.Read                          as SqlRead
 import qualified Webhooks
 

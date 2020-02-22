@@ -174,6 +174,75 @@ function gen_unmatched_build_list(api_endpoint, div_id) {
 }
 
 
+function query_flaky(button) {
+
+	const commit_sha1 = get_scrubbed_sha1();
+
+	$(button).prop("disabled", true);
+	$("#scan-throbber").show();
+
+        $.get({
+		url: "/api/get-flaky-rebuild-candidates",
+		data: {
+			"sha1": commit_sha1,
+			"login_redirect_path": get_url_path_for_redirect(),
+		},
+		success: function( data ) {
+
+			$("#scan-throbber").hide();
+			$(button).prop("disabled", false);
+
+			console.log("Got success response from query_flaky:", data);
+
+			handle_submission_response_generic(data, function() {
+				alert("Data is: " + data);
+			});
+		},
+		error: function( data ) {
+			$("#scan-throbber").hide();
+			$(button).prop("disabled", false);
+
+			alert("Server error!");
+		},
+        });
+}
+
+
+function rebuild_flaky(button) {
+
+	const commit_sha1 = get_scrubbed_sha1();
+
+	$(button).prop("disabled", true);
+	$("#scan-throbber").show();
+
+        $.post({
+		url: "/api/get-flaky-rebuild-candidates",
+		data: {
+			"sha1": commit_sha1,
+			"login_redirect_path": get_url_path_for_redirect(),
+		},
+		success: function( data ) {
+
+			$("#scan-throbber").hide();
+			$(button).prop("disabled", false);
+
+			console.log("Got success response from rebuild_flaky:", data);
+
+
+			handle_submission_response_generic(data, function() {
+				location.reload();
+			});
+		},
+		error: function( data ) {
+			$("#scan-throbber").hide();
+			$(button).prop("disabled", false);
+
+			alert("Server error!");
+		},
+        });
+}
+
+
 function rescan_commit(button) {
 
 	const commit_sha1 = get_scrubbed_sha1();

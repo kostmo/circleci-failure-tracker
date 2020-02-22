@@ -39,9 +39,9 @@ import qualified JsonUtils
 import qualified MatchOccurrences
 import qualified Scanning
 import qualified ScanPatterns
-import qualified Sql.Read as SqlRead
-import qualified Sql.Update as SqlUpdate
-import qualified Sql.Write as SqlWrite
+import qualified Sql.Read                        as SqlRead
+import qualified Sql.Update                      as SqlUpdate
+import qualified Sql.Write                       as SqlWrite
 import qualified StatusUpdate
 import qualified Types
 import qualified WebApi
@@ -152,6 +152,12 @@ scottyApp
   S.post "/api/rebuild-single-job" $
     withAuth $ FrontendHelpers.facilitateJobRebuild (CircleApi.circle_api_token third_party_creds)
       <$> (Builds.UniversalBuildId <$> S.param "build")
+
+  S.get "/api/get-flaky-rebuild-candidates" $
+    FrontendHelpers.jsonAuthorizedDbInteractCommon
+      SqlRead.AuthConnection
+      (FrontendHelpers.AuthHelperBundle connection_data session github_config third_party_creds) $
+        SqlRead.getFlakyRebuildCandidates <$> (Builds.RawCommit <$> S.param "sha1")
 
   S.post "/api/promote-match" $
     withAuth $
@@ -472,12 +478,6 @@ scottyApp
       SqlRead.AuthConnection
       (FrontendHelpers.AuthHelperBundle connection_data session github_config third_party_creds) $
         pure SqlRead.userOptOutSettings
-
-  S.get "/api/get-flaky-rebuild-candidates" $
-    FrontendHelpers.jsonAuthorizedDbInteractCommon
-      SqlRead.AuthConnection
-      (FrontendHelpers.AuthHelperBundle connection_data session github_config third_party_creds) $
-        SqlRead.getFlakyRebuildCandidates <$> (Builds.RawCommit <$> S.param "sha1")
 
   S.post "/api/update-user-opt-out-settings" $
     withAuth $ SqlWrite.updateUserOptOutSettings <$> S.param "enabled"
