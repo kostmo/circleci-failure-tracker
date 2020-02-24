@@ -44,8 +44,8 @@ import qualified ScanPatterns
 import qualified ScanRecords
 import qualified ScanUtils
 import           SillyMonoids                    ()
-import qualified Sql.Read as SqlRead
-import qualified Sql.Write as SqlWrite
+import qualified Sql.Read                        as SqlRead
+import qualified Sql.Write                       as SqlWrite
 
 
 -- | This is short so we don't
@@ -179,10 +179,13 @@ rescanSingleBuild third_party_auth conn initiator build_to_scan = do
     , show build_to_scan
     ]
 
-  parent_build <- runReaderT (SqlRead.lookupUniversalBuild build_to_scan) conn
+  either_parent_build <- flip runReaderT conn $
+    SqlRead.lookupUniversalBuild build_to_scan
+
   D.debugStr "Checkpoint A1"
 
   runExceptT $ do
+    parent_build <- except either_parent_build
     scan_resources <- ExceptT $ prepareScanResources
       third_party_auth
       conn

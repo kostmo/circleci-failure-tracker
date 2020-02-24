@@ -320,13 +320,13 @@ getCachedPullRequestAuthor (Builds.PullRequestNumber pr_number) = do
       ]
 
 
--- | FIXME partial function
 lookupUniversalBuild ::
      Builds.UniversalBuildId -- ^ oldest build number
-  -> DbIO (DbHelpers.WithId Builds.UniversalBuild)
+  -> DbIO (Either Text (DbHelpers.WithId Builds.UniversalBuild))
 lookupUniversalBuild (Builds.UniversalBuildId universal_build_num) = do
   conn <- ask
-  liftIO $ head <$> query conn sql (Only universal_build_num)
+  xs <- liftIO $ query conn sql (Only universal_build_num)
+  return $ maybeToEither "build not found" $ Safe.headMay xs
   where
     sql = Q.qjoin [
         "SELECT"
@@ -443,7 +443,9 @@ getFlakyRebuildCandidates (Builds.RawCommit commit_sha1_text) = do
 
   liftIO $ runExceptT $ do
     git_revision <- except $ GitRev.validateSha1 commit_sha1_text
-    DbHelpers.BenchmarkedResponse _timing builds <- ExceptT $ flip runReaderT conn $ getRevisionBuilds git_revision
+    DbHelpers.BenchmarkedResponse _timing builds <- ExceptT $
+      flip runReaderT conn $ getRevisionBuilds git_revision
+
     let flaky_builds = filter (CommitBuilds._is_flaky . CommitBuilds._failure_mode) builds
     return $ UserWrapper user flaky_builds
 

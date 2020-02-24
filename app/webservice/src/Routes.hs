@@ -32,7 +32,6 @@ import qualified Builds
 import qualified CircleApi
 import qualified Constants
 import qualified DbHelpers
-import qualified DebugUtils                      as D
 import qualified FrontendHelpers
 import qualified GitRev
 import qualified JsonUtils
@@ -156,7 +155,7 @@ scottyApp
   S.get "/api/get-flaky-rebuild-candidates" $
     FrontendHelpers.jsonAuthorizedDbInteractCommon
       SqlRead.AuthConnection
-      (FrontendHelpers.AuthHelperBundle connection_data session github_config third_party_creds) $
+      auth_helper_bundle $
         SqlRead.getFlakyRebuildCandidates <$> (Builds.RawCommit <$> S.param "sha1")
 
   S.post "/api/promote-match" $
@@ -297,7 +296,8 @@ scottyApp
     pure SqlRead.apiIdiopathicBuilds
 
   get "/api/code-breakages-annotated-single" $
-    fmap WebApi.toJsonEither . SqlRead.apiAnnotatedCodeBreakagesWithoutImpactSingle <$> S.param "cause_id"
+    fmap WebApi.toJsonEither . SqlRead.apiAnnotatedCodeBreakagesWithoutImpactSingle
+      <$> S.param "cause_id"
 
   get "/api/code-breakage-mode-single" $
     SqlRead.apiCodeBreakagesModeSingle <$> S.param "cause_id"
@@ -469,15 +469,15 @@ scottyApp
 
     x <- liftIO $ do
       conn <- DbHelpers.get_connection connection_data
-      flip runReaderT conn $ SqlRead.apiNewPatternTest (Builds.UniversalBuildId buildnum) new_pattern
+      flip runReaderT conn $ SqlRead.apiNewPatternTest
+        (Builds.UniversalBuildId buildnum)
+        new_pattern
 
     S.json $ WebApi.toJsonEither x
 
   S.get "/api/get-user-opt-out-settings" $
-    FrontendHelpers.jsonAuthorizedDbInteractCommon
-      SqlRead.AuthConnection
-      (FrontendHelpers.AuthHelperBundle connection_data session github_config third_party_creds) $
-        pure SqlRead.userOptOutSettings
+    FrontendHelpers.jsonAuthorizedDbInteractCommon SqlRead.AuthConnection auth_helper_bundle $
+      pure SqlRead.userOptOutSettings
 
   S.post "/api/update-user-opt-out-settings" $
     withAuth $ SqlWrite.updateUserOptOutSettings <$> S.param "enabled"
@@ -580,16 +580,21 @@ scottyApp
   where
     get x = FrontendHelpers.jsonDbGet connection_data x
 
+    auth_helper_bundle = FrontendHelpers.AuthHelperBundle
+      connection_data
+      session
+      github_config
+      third_party_creds
+
     post x y = S.post x $
       FrontendHelpers.jsonAuthorizedDbInteractCommon const
-        (FrontendHelpers.AuthHelperBundle connection_data session github_config third_party_creds)
+        auth_helper_bundle
         y
 
     withAuth :: ToJSON a =>
          ScottyTypes.ActionT LT.Text IO (SqlRead.AuthDbIO (Either Text a))
       -> ScottyTypes.ActionT LT.Text IO ()
-    withAuth = FrontendHelpers.postWithAuthentication
-      (FrontendHelpers.AuthHelperBundle connection_data session github_config third_party_creds)
+    withAuth = FrontendHelpers.postWithAuthentication auth_helper_bundle
 
     logger_domain_identifier = if AuthConfig.is_local github_config
       then "localhost"

@@ -33,8 +33,8 @@ import qualified DbHelpers
 import qualified DebugUtils                 as D
 import qualified Scanning
 import qualified ScanRecords
-import qualified Sql.Read as SqlRead
-import qualified Sql.Write as SqlWrite
+import qualified Sql.Read                   as SqlRead
+import qualified Sql.Write                  as SqlWrite
 import qualified StatusUpdate
 
 
@@ -62,14 +62,8 @@ data SetupData = SetupData {
   }
 
 
-wrapWithDbDurationRecords ::
-     DbHelpers.DbConnectionData
-  -> (Int64 -> ScottyTypes.ActionT LT.Text IO ())
-  -> ScottyTypes.ActionT LT.Text IO ()
-wrapWithDbDurationRecords connection_data func = do
-  rq <- S.request
-  let path_string = T.intercalate "/" $ pathInfo rq
-
+parseCronHeaders :: ScottyTypes.ActionT LT.Text IO (Maybe SqlWrite.BeanstalkCronHeaders)
+parseCronHeaders = do
   maybe_task_name <- S.header "X-Aws-Sqsd-Taskname"
   maybe_scheduled_at <- S.header "X-Aws-Sqsd-Scheduled-At"
   maybe_sender_id <- S.header "X-Aws-Sqsd-Sender-Id"
@@ -83,12 +77,25 @@ wrapWithDbDurationRecords connection_data func = do
     , show maybe_sender_id
     ]
 
-
   let maybe_parsed_time = parseTimeM False defaultTimeLocale (iso8601DateFormat (Just "%H:%M:%S")) . init . LT.unpack =<< maybe_scheduled_at
+
       maybe_cron_headers = SqlWrite.BeanstalkCronHeaders
        <$> maybe_task_name
        <*> maybe_parsed_time
        <*> maybe_sender_id
+
+  return maybe_cron_headers
+
+
+wrapWithDbDurationRecords ::
+     DbHelpers.DbConnectionData
+  -> (Int64 -> ScottyTypes.ActionT LT.Text IO ())
+  -> ScottyTypes.ActionT LT.Text IO ()
+wrapWithDbDurationRecords connection_data func = do
+  rq <- S.request
+  let path_string = T.intercalate "/" $ pathInfo rq
+
+  maybe_cron_headers <- parseCronHeaders
 
   start_id <- liftIO $ do
     putStrLn "Starting timed database operation..."
@@ -151,7 +158,7 @@ scottyApp
 
   S.post "/worker/retry-flaky-master-jobs" $
 
-    wrapWithDbDurationRecords connection_data $ \eb_worker_event_id -> do
+    wrapWithDbDurationRecords connection_data $ \_eb_worker_event_id -> do
 
       output <- liftIO $ do
 
@@ -202,7 +209,6 @@ scottyApp
 
         D.debugStr "Finished association retrieval."
 
-
       S.json ["hello-post" :: Text]
 
 
@@ -219,7 +225,7 @@ scottyApp
 
     body_json <- S.jsonData
 
-    wrapWithDbDurationRecords connection_data $ \_ -> do
+    wrapWithDbDurationRecords connection_data $ \_ ->
 
       liftIO $ doStuff
         connection_data
@@ -260,7 +266,6 @@ doStuff
     , show $ map DbHelpers.db_id universal_builds
     ]
 
-
   _ <- runExceptT $ do
 
     scan_resources <- ExceptT $ first LT.fromStrict <$>
@@ -270,7 +275,7 @@ doStuff
         Scanning.PersistScanResult
         Nothing
 
-  -- TODO Replace this pair of functions with scanAndPost?
+    -- TODO Replace this pair of functions with scanAndPost?
     scan_matches <- liftIO $ Scanning.processUnvisitedBuilds
       scan_resources
       universal_builds
@@ -298,7 +303,3 @@ doStuff
 
   where
     commit_sha1 = Builds.RawCommit $ sha1 body_json
-
-
-
-

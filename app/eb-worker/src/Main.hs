@@ -45,20 +45,21 @@ data CommandLineArgs = NewCommandLineArgs {
   }
 
 
-getPostgresLoggingUri info = do
+getPostgresLoggingUri :: DbHelpers.DbConnectionData -> IO URI.URI
+getPostgresLoggingUri inf = do
 
   postgres_logging_user_info <- URI.UserInfo
-    <$> URI.mkUsername (T.pack $ DbHelpers.dbUsername info)
-    <*> (Just <$> URI.mkPassword (T.pack $ DbHelpers.dbPassword info))
+    <$> URI.mkUsername (T.pack $ DbHelpers.dbUsername inf)
+    <*> (Just <$> URI.mkPassword (T.pack $ DbHelpers.dbPassword inf))
 
-  postgres_logging_host <- URI.mkHost (T.pack $ DbHelpers.dbHostname info)
+  postgres_logging_host <- URI.mkHost (T.pack $ DbHelpers.dbHostname inf)
 
   let postgres_logging_authority = URI.Authority
         (Just postgres_logging_user_info)
         postgres_logging_host
         (Just 5432)
 
-  postgres_logging_dbname <- URI.mkPathPiece $ T.pack $ DbHelpers.dbName info
+  postgres_logging_dbname <- URI.mkPathPiece $ T.pack $ DbHelpers.dbName inf
 
   postgres_logging_scheme <- URI.mkScheme "postgres"
 
