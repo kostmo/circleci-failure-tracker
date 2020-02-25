@@ -152,11 +152,9 @@ scottyApp
     withAuth $ FrontendHelpers.facilitateJobRebuild (CircleApi.circle_api_token third_party_creds)
       <$> (Builds.UniversalBuildId <$> S.param "build")
 
-  S.get "/api/get-flaky-rebuild-candidates" $
-    FrontendHelpers.jsonAuthorizedDbInteractCommon
-      SqlRead.AuthConnection
-      auth_helper_bundle $
-        SqlRead.getFlakyRebuildCandidates <$> (Builds.RawCommit <$> S.param "sha1")
+  S.post "/api/rebuild-flaky-candidates" $
+    withAuth $ SqlRead.getFlakyRebuildCandidates
+      <$> (Builds.RawCommit <$> S.param "sha1")
 
   S.post "/api/promote-match" $
     withAuth $

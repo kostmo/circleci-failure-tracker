@@ -434,20 +434,33 @@ userOptOutSettings = do
       ]
 
 
--- XXX TODO
+-- NOTE: This is not indended for use on master-branch builds
+-- because it does not account for "serially isolated" as
+-- a determination of flakiness.
 getFlakyRebuildCandidates ::
      Builds.RawCommit
-  -> AuthDbIO (Either Text (UserWrapper [CommitBuilds.CommitBuild]))
+  -> AuthDbIO (Either Text (UserWrapper (DbHelpers.BenchmarkedResponse Float [CommitBuilds.CommitBuildWrapper CommitBuildSupplementalPayload])))
 getFlakyRebuildCandidates (Builds.RawCommit commit_sha1_text) = do
   AuthConnection conn user <- ask
 
   liftIO $ runExceptT $ do
     git_revision <- except $ GitRev.validateSha1 commit_sha1_text
-    DbHelpers.BenchmarkedResponse _timing builds <- ExceptT $
+    DbHelpers.BenchmarkedResponse timing builds <- ExceptT $
       flip runReaderT conn $ getRevisionBuilds git_revision
 
-    let flaky_builds = filter (CommitBuilds._is_flaky . CommitBuilds._failure_mode) builds
-    return $ UserWrapper user flaky_builds
+    -- NOTE: This post-database flakiness determination DOES NOT account
+    -- for "serially isolated" as a flakiness indicator, because
+    -- non-master commits don't have this property.
+    let pattern_matched_flaky_predicate = CommitBuilds._is_flaky . CommitBuilds._failure_mode . CommitBuilds._commit_build
+        possibly_flaky_builds = filter pattern_matched_flaky_predicate builds
+
+        is_retryable_predicate x = not (is_empirically_determined_flaky sup || has_triggered_rebuild sup)
+          where
+            sup = CommitBuilds._supplemental x
+
+        retryable_flaky_builds = filter is_retryable_predicate possibly_flaky_builds
+
+    return $ UserWrapper user $ DbHelpers.BenchmarkedResponse timing retryable_flaky_builds
 
 
 transformPatternRows row =
@@ -1934,7 +1947,7 @@ genBestBuildMatchQuery fields_to_fetch sql_where_conditions =
   sql
   where
     -- TODO FIXME
-    -- This is copying the logic from multiple nested views so that
+    -- This is a copy of the logic from multiple nested views so that
     -- a query for a single git revision is optimized.
     -- Beware especially of divergence of the match ranking logic (e.g. on "specificity"),
     -- if the logic is updated in the VIEW definition on the database side.
@@ -1949,8 +1962,7 @@ genBestBuildMatchQuery fields_to_fetch sql_where_conditions =
       , "JOIN log_metadata ON log_metadata.step = best_pattern_match_for_builds.step_id"
       , "JOIN global_builds ON global_builds.global_build_num = best_pattern_match_for_builds.universal_build"
       , "JOIN build_steps ON build_steps.universal_build = best_pattern_match_for_builds.universal_build"
-      , "JOIN ci_providers"
-      , "ON ci_providers.id = global_builds.provider"
+      , "JOIN ci_providers ON ci_providers.id = global_builds.provider"
       ]
 
     best_match_subquery_sql = genBestMatchesSubquery sql_where_conditions
@@ -2043,10 +2055,18 @@ genAllBuildMatchesSubquery sql_where_conditions = Q.qjoin [
     ]
 
 
--- | For commit-details page
+
+data CommitBuildSupplementalPayload = CommitBuildSupplementalPayload {
+    is_empirically_determined_flaky :: Bool
+  , has_triggered_rebuild           :: Bool
+  } deriving (Generic, FromRow, ToJSON)
+
+
+-- | For commit-details page in web frontend and
+-- for preparing PR-comment-posting data in postCommitSummaryStatus
 getRevisionBuilds ::
      GitRev.GitSha1
-  -> DbIO (Either Text (DbHelpers.BenchmarkedResponse Float [CommitBuilds.CommitBuild]))
+  -> DbIO (Either Text (DbHelpers.BenchmarkedResponse Float [CommitBuilds.CommitBuildWrapper CommitBuildSupplementalPayload]))
 getRevisionBuilds git_revision = do
   conn <- ask
   liftIO $ PostgresHelpers.catchDatabaseError catcher $ do
@@ -2054,23 +2074,52 @@ getRevisionBuilds git_revision = do
     return $ Right $ DbHelpers.BenchmarkedResponse timing content
 
   where
-    sql = genBestBuildMatchQuery fields_to_fetch sql_where_conditions
+    git_revision_text = GitRev.sha1 git_revision
+
+    -- Note that we're passing the git revision as two separate query parameters:
+    sql_parms = (git_revision_text, git_revision_text)
+
+    base_sql = genBestBuildMatchQuery fields_to_fetch inner_sql_where_conditions
+
+    status_events_inner_sql = Q.qjoin [
+        "SELECT *"
+      , "FROM github_status_events_state_counts"
+      , "WHERE"
+        -- XXX We need this "redundant" sha1 query parm to prune (speed up) the inner query
+      , "sha1 = ?"
+      ]
+
+    sql = Q.qjoin [
+        base_sql
+      , "LEFT JOIN"
+      , Q.aliasedSubquery status_events_inner_sql "github_status_events_state_counts"
+      , "ON"
+      , Q.qconjunction [
+          "github_status_events_state_counts.sha1 = global_builds.vcs_revision"
+        , "github_status_events_state_counts.job_name = global_builds.job_name"
+        ]
+      , "LEFT JOIN rebuild_trigger_events"
+      , "ON global_builds.global_build_num = rebuild_trigger_events.universal_build"
+      ]
+
 
     catcher _ (PostgresHelpers.QueryCancelled some_error) = return $ Left $
       "Query error in getRevisionBuilds: " <> T.pack (BS.unpack some_error)
     catcher e _                                  = throwIO e
 
 
-    sql_parms = Only $ GitRev.sha1 git_revision
-    sql_where_conditions = ["vcs_revision = ?"]
 
-    fields_to_fetch = [
+    inner_sql_where_conditions = ["vcs_revision = ?"]
+
+    fields_to_fetch = commit_build_fields ++ supplemental_fields
+
+    commit_build_fields = [
         "build_steps.name AS step_name"
       , "match_id"
       , "build"
       , "global_builds.vcs_revision"
       , "queued_at"
-      , "job_name"
+      , "global_builds.job_name"
       , "branch"
       , "pattern_id"
       , "line_number"
@@ -2087,8 +2136,13 @@ getRevisionBuilds git_revision = do
       , "icon_url"
       , "started_at"
       , "finished_at"
-      , "FALSE as is_timeout"
+      , "FALSE as is_timeout"  -- TODO FIXME use the real value
       , "is_flaky"
+      ]
+
+    supplemental_fields = [
+        "COALESCE(github_status_events_state_counts.is_empirically_determined_flaky, FALSE) AS is_empirically_determined_flaky"
+      , "rebuild_trigger_events.universal_build IS NOT NULL AS has_triggered_rebuild"
       ]
 
 

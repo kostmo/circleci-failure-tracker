@@ -700,19 +700,27 @@ COMMENT ON VIEW public.global_builds IS 'Note that there are 1M+ old (until arou
 
 
 --
--- Name: global_builds_emprical_flakiness; Type: VIEW; Schema: public; Owner: postgres
+-- Name: global_builds_empirical_flakiness; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.global_builds_emprical_flakiness AS
+CREATE VIEW public.global_builds_empirical_flakiness WITH (security_barrier='false') AS
  SELECT global_builds.job_name,
     global_builds.vcs_revision AS sha1,
     global_builds.succeeded,
-    (circleci_empirically_flaky_builds.sha1 IS NOT NULL) AS is_empirically_determined_flaky
+    (circleci_empirically_flaky_builds.sha1 IS NOT NULL) AS is_empirically_determined_flaky,
+    global_builds.global_build_num
    FROM (public.global_builds
      LEFT JOIN public.circleci_empirically_flaky_builds ON (((circleci_empirically_flaky_builds.sha1 = global_builds.vcs_revision) AND (circleci_empirically_flaky_builds.job_name = global_builds.job_name))));
 
 
-ALTER TABLE public.global_builds_emprical_flakiness OWNER TO postgres;
+ALTER TABLE public.global_builds_empirical_flakiness OWNER TO postgres;
+
+--
+-- Name: VIEW global_builds_empirical_flakiness; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.global_builds_empirical_flakiness IS 'TODO not used?';
+
 
 --
 -- Name: master_failure_mode_attributions; Type: TABLE; Schema: public; Owner: postgres
@@ -876,10 +884,10 @@ CREATE VIEW public.master_commit_job_success_completeness WITH (security_barrier
                              LEFT JOIN ( SELECT global_builds.job_name,
                                     global_builds.vcs_revision
                                    FROM public.global_builds) built_jobs_table ON (((built_jobs_table.job_name = master_commit_circleci_scheduled_job_discrimination.job_name) AND (built_jobs_table.vcs_revision = master_commit_circleci_scheduled_job_discrimination.commit_sha1))))
-                             LEFT JOIN ( SELECT global_builds_emprical_flakiness.job_name,
-                                    global_builds_emprical_flakiness.sha1
-                                   FROM public.global_builds_emprical_flakiness
-                                  WHERE (NOT (global_builds_emprical_flakiness.succeeded OR global_builds_emprical_flakiness.is_empirically_determined_flaky))) failed_jobs_table ON (((failed_jobs_table.job_name = master_commit_circleci_scheduled_job_discrimination.job_name) AND (failed_jobs_table.sha1 = master_commit_circleci_scheduled_job_discrimination.commit_sha1))))
+                             LEFT JOIN ( SELECT global_builds_empirical_flakiness.job_name,
+                                    global_builds_empirical_flakiness.sha1
+                                   FROM public.global_builds_empirical_flakiness
+                                  WHERE (NOT (global_builds_empirical_flakiness.succeeded OR global_builds_empirical_flakiness.is_empirically_determined_flaky))) failed_jobs_table ON (((failed_jobs_table.job_name = master_commit_circleci_scheduled_job_discrimination.job_name) AND (failed_jobs_table.sha1 = master_commit_circleci_scheduled_job_discrimination.commit_sha1))))
                           WHERE (NOT master_commit_circleci_scheduled_job_discrimination.is_scheduled)) foo
                   GROUP BY foo.joblist_commit_sha1) bar ON ((master_commits_basic_metadata.sha1 = bar.joblist_commit_sha1)))
           ORDER BY master_commits_basic_metadata.id DESC) foobar;
@@ -3341,83 +3349,6 @@ CREATE VIEW public.latest_pattern_scanned_for_build_step WITH (security_barrier=
 ALTER TABLE public.latest_pattern_scanned_for_build_step OWNER TO postgres;
 
 --
--- Name: master_commit_job_coverage_by_week; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.master_commit_job_coverage_by_week WITH (security_barrier='false') AS
- WITH commit_weeks AS (
-         SELECT date_trunc('week'::text, master_ordered_commits_with_metadata.committer_date) AS week,
-            master_ordered_commits_with_metadata.sha1,
-            master_ordered_commits_with_metadata.id
-           FROM public.master_ordered_commits_with_metadata
-        )
- SELECT bar.week,
-    bar.job_name,
-    bar.count,
-    blarg.total_built_commits_for_week,
-    ((bar.count)::double precision / (blarg.total_built_commits_for_week)::double precision) AS covered_commit_fraction
-   FROM (( SELECT global_builds.job_name,
-            commit_weeks.week,
-            count(*) AS count
-           FROM (commit_weeks
-             JOIN public.global_builds ON ((global_builds.vcs_revision = commit_weeks.sha1)))
-          GROUP BY global_builds.job_name, commit_weeks.week) bar
-     JOIN ( SELECT commit_weeks.week,
-            sum((master_built_commit_groups.was_built)::integer) AS total_built_commits_for_week
-           FROM (public.master_built_commit_groups
-             JOIN commit_weeks ON ((commit_weeks.id = master_built_commit_groups.commit_id)))
-          GROUP BY commit_weeks.week) blarg ON ((bar.week = blarg.week)));
-
-
-ALTER TABLE public.master_commit_job_coverage_by_week OWNER TO postgres;
-
---
--- Name: master_commits_contiguously_indexed_mview; Type: MATERIALIZED VIEW; Schema: public; Owner: postgres
---
-
-CREATE MATERIALIZED VIEW public.master_commits_contiguously_indexed_mview AS
- SELECT master_commits_contiguously_indexed.id,
-    master_commits_contiguously_indexed.sha1,
-    master_commits_contiguously_indexed.commit_number
-   FROM public.master_commits_contiguously_indexed
-  WITH NO DATA;
-
-
-ALTER TABLE public.master_commits_contiguously_indexed_mview OWNER TO postgres;
-
---
--- Name: MATERIALIZED VIEW master_commits_contiguously_indexed_mview; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON MATERIALIZED VIEW public.master_commits_contiguously_indexed_mview IS 'TODO: Trigger this upon ordered_master_commits INSERT';
-
-
---
--- Name: master_commits_unpopulated_circleci_configs; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.master_commits_unpopulated_circleci_configs WITH (security_barrier='false') AS
- SELECT DISTINCT ON (ordered_master_commits.id) ordered_master_commits.sha1,
-    global_builds.build_number AS build_num,
-    commit_metadata.committer_date
-   FROM (((public.global_builds
-     JOIN public.ordered_master_commits ON ((ordered_master_commits.sha1 = global_builds.vcs_revision)))
-     LEFT JOIN public.circleci_expanded_config_yaml_hashes_by_commit ON ((circleci_expanded_config_yaml_hashes_by_commit.commit_sha1 = ordered_master_commits.sha1)))
-     LEFT JOIN public.commit_metadata ON ((ordered_master_commits.sha1 = commit_metadata.sha1)))
-  WHERE ((global_builds.provider = 3) AND (circleci_expanded_config_yaml_hashes_by_commit.commit_sha1 IS NULL))
-  ORDER BY ordered_master_commits.id DESC, global_builds.build_number;
-
-
-ALTER TABLE public.master_commits_unpopulated_circleci_configs OWNER TO postgres;
-
---
--- Name: VIEW master_commits_unpopulated_circleci_configs; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON VIEW public.master_commits_unpopulated_circleci_configs IS 'Chooses an arbitrary build number with which the config can be fetched';
-
-
---
 -- Name: master_contiguous_failures; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -3476,71 +3407,6 @@ COMMENT ON VIEW public.master_contiguous_failures IS 'NOTE: This operates on per
 
 The "master_indiscriminate_failure_spans_intermediate" view uses a similar technique, but for groups of minimum size 1 instead of minimum size 2, as this view does.';
 
-
---
--- Name: master_contiguous_failure_job_groups; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.master_contiguous_failure_job_groups AS
- SELECT min(master_contiguous_failures.id) AS first_commit_id,
-    max(master_contiguous_failures.end_commit_index) AS last_commit_id,
-    max(master_contiguous_failures.run_length) AS run_length,
-    master_contiguous_failures.job_name,
-    master_contiguous_failures.group_index
-   FROM public.master_contiguous_failures
-  GROUP BY master_contiguous_failures.job_name, master_contiguous_failures.group_index
-  ORDER BY (min(master_contiguous_failures.id)) DESC;
-
-
-ALTER TABLE public.master_contiguous_failure_job_groups OWNER TO postgres;
-
---
--- Name: master_contiguous_failure_blocks; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.master_contiguous_failure_blocks AS
- SELECT master_contiguous_failure_job_groups.first_commit_id,
-    string_agg(master_contiguous_failure_job_groups.job_name, ';'::text) AS jobs,
-    count(*) AS job_count,
-    min(master_contiguous_failure_job_groups.run_length) AS min_run_length,
-    max(master_contiguous_failure_job_groups.run_length) AS max_run_length,
-    min(master_contiguous_failure_job_groups.last_commit_id) AS min_last_commit_id,
-    max(master_contiguous_failure_job_groups.last_commit_id) AS max_last_commit_id,
-    mode() WITHIN GROUP (ORDER BY master_contiguous_failure_job_groups.run_length DESC) AS modal_run_length,
-    mode() WITHIN GROUP (ORDER BY master_contiguous_failure_job_groups.last_commit_id DESC) AS modal_last_commit_id
-   FROM public.master_contiguous_failure_job_groups
-  GROUP BY master_contiguous_failure_job_groups.first_commit_id
-  ORDER BY master_contiguous_failure_job_groups.first_commit_id DESC;
-
-
-ALTER TABLE public.master_contiguous_failure_blocks OWNER TO postgres;
-
---
--- Name: master_contiguous_failure_blocks_with_commits; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.master_contiguous_failure_blocks_with_commits AS
- SELECT master_contiguous_failure_blocks.first_commit_id,
-    master_contiguous_failure_blocks.jobs,
-    master_contiguous_failure_blocks.job_count,
-    master_contiguous_failure_blocks.min_run_length,
-    master_contiguous_failure_blocks.max_run_length,
-    master_contiguous_failure_blocks.min_last_commit_id,
-    master_contiguous_failure_blocks.max_last_commit_id,
-    omc1.sha1 AS first_commit,
-    omc2.sha1 AS min_last_commit,
-    omc3.sha1 AS max_last_commit,
-    omc4.sha1 AS modal_last_commit,
-    master_contiguous_failure_blocks.modal_run_length,
-    master_contiguous_failure_blocks.modal_last_commit_id
-   FROM ((((public.master_contiguous_failure_blocks
-     JOIN public.ordered_master_commits omc1 ON ((omc1.id = master_contiguous_failure_blocks.first_commit_id)))
-     JOIN public.ordered_master_commits omc2 ON ((omc2.id = master_contiguous_failure_blocks.min_last_commit_id)))
-     JOIN public.ordered_master_commits omc3 ON ((omc3.id = master_contiguous_failure_blocks.max_last_commit_id)))
-     JOIN public.ordered_master_commits omc4 ON ((omc4.id = master_contiguous_failure_blocks.modal_last_commit_id)));
-
-
-ALTER TABLE public.master_contiguous_failure_blocks_with_commits OWNER TO postgres;
 
 --
 -- Name: master_intra_commit_failure_groups; Type: VIEW; Schema: public; Owner: postgres
@@ -3707,6 +3573,185 @@ CREATE MATERIALIZED VIEW public.master_failures_raw_causes_mview AS
 
 
 ALTER TABLE public.master_failures_raw_causes_mview OWNER TO materialized_view_updater;
+
+--
+-- Name: rebuild_trigger_events; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.rebuild_trigger_events (
+    id integer NOT NULL,
+    universal_build integer NOT NULL,
+    initiator text,
+    inserted_at timestamp with time zone DEFAULT now() NOT NULL,
+    message text
+);
+
+
+ALTER TABLE public.rebuild_trigger_events OWNER TO postgres;
+
+--
+-- Name: master_automated_rebuild_outcomes; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_automated_rebuild_outcomes AS
+ SELECT a1.sha1,
+    a1.job_name,
+    a1.is_serially_isolated AS initially_is_serially_isolated,
+    a1.pattern_id AS initially_detected_pattern_id,
+    rebuild_trigger_events.inserted_at AS rebuild_triggered_at,
+    rebuild_trigger_events.universal_build AS previous_universal_build,
+    a2.global_build AS rebuild_universal_id,
+    a2.is_empirically_determined_flaky
+   FROM ((public.rebuild_trigger_events
+     JOIN public.master_failures_raw_causes_mview a1 ON ((rebuild_trigger_events.universal_build = a1.global_build)))
+     JOIN public.master_failures_raw_causes_mview a2 ON (((a2.sha1 = a1.sha1) AND (a2.job_name = a1.job_name))))
+  WHERE (rebuild_trigger_events.initiator = ''::text)
+  ORDER BY a1.job_name, rebuild_trigger_events.inserted_at DESC;
+
+
+ALTER TABLE public.master_automated_rebuild_outcomes OWNER TO postgres;
+
+--
+-- Name: master_commit_job_coverage_by_week; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_commit_job_coverage_by_week WITH (security_barrier='false') AS
+ WITH commit_weeks AS (
+         SELECT date_trunc('week'::text, master_ordered_commits_with_metadata.committer_date) AS week,
+            master_ordered_commits_with_metadata.sha1,
+            master_ordered_commits_with_metadata.id
+           FROM public.master_ordered_commits_with_metadata
+        )
+ SELECT bar.week,
+    bar.job_name,
+    bar.count,
+    blarg.total_built_commits_for_week,
+    ((bar.count)::double precision / (blarg.total_built_commits_for_week)::double precision) AS covered_commit_fraction
+   FROM (( SELECT global_builds.job_name,
+            commit_weeks.week,
+            count(*) AS count
+           FROM (commit_weeks
+             JOIN public.global_builds ON ((global_builds.vcs_revision = commit_weeks.sha1)))
+          GROUP BY global_builds.job_name, commit_weeks.week) bar
+     JOIN ( SELECT commit_weeks.week,
+            sum((master_built_commit_groups.was_built)::integer) AS total_built_commits_for_week
+           FROM (public.master_built_commit_groups
+             JOIN commit_weeks ON ((commit_weeks.id = master_built_commit_groups.commit_id)))
+          GROUP BY commit_weeks.week) blarg ON ((bar.week = blarg.week)));
+
+
+ALTER TABLE public.master_commit_job_coverage_by_week OWNER TO postgres;
+
+--
+-- Name: master_commits_contiguously_indexed_mview; Type: MATERIALIZED VIEW; Schema: public; Owner: postgres
+--
+
+CREATE MATERIALIZED VIEW public.master_commits_contiguously_indexed_mview AS
+ SELECT master_commits_contiguously_indexed.id,
+    master_commits_contiguously_indexed.sha1,
+    master_commits_contiguously_indexed.commit_number
+   FROM public.master_commits_contiguously_indexed
+  WITH NO DATA;
+
+
+ALTER TABLE public.master_commits_contiguously_indexed_mview OWNER TO postgres;
+
+--
+-- Name: MATERIALIZED VIEW master_commits_contiguously_indexed_mview; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON MATERIALIZED VIEW public.master_commits_contiguously_indexed_mview IS 'TODO: Trigger this upon ordered_master_commits INSERT';
+
+
+--
+-- Name: master_commits_unpopulated_circleci_configs; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_commits_unpopulated_circleci_configs WITH (security_barrier='false') AS
+ SELECT DISTINCT ON (ordered_master_commits.id) ordered_master_commits.sha1,
+    global_builds.build_number AS build_num,
+    commit_metadata.committer_date
+   FROM (((public.global_builds
+     JOIN public.ordered_master_commits ON ((ordered_master_commits.sha1 = global_builds.vcs_revision)))
+     LEFT JOIN public.circleci_expanded_config_yaml_hashes_by_commit ON ((circleci_expanded_config_yaml_hashes_by_commit.commit_sha1 = ordered_master_commits.sha1)))
+     LEFT JOIN public.commit_metadata ON ((ordered_master_commits.sha1 = commit_metadata.sha1)))
+  WHERE ((global_builds.provider = 3) AND (circleci_expanded_config_yaml_hashes_by_commit.commit_sha1 IS NULL))
+  ORDER BY ordered_master_commits.id DESC, global_builds.build_number;
+
+
+ALTER TABLE public.master_commits_unpopulated_circleci_configs OWNER TO postgres;
+
+--
+-- Name: VIEW master_commits_unpopulated_circleci_configs; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.master_commits_unpopulated_circleci_configs IS 'Chooses an arbitrary build number with which the config can be fetched';
+
+
+--
+-- Name: master_contiguous_failure_job_groups; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_contiguous_failure_job_groups AS
+ SELECT min(master_contiguous_failures.id) AS first_commit_id,
+    max(master_contiguous_failures.end_commit_index) AS last_commit_id,
+    max(master_contiguous_failures.run_length) AS run_length,
+    master_contiguous_failures.job_name,
+    master_contiguous_failures.group_index
+   FROM public.master_contiguous_failures
+  GROUP BY master_contiguous_failures.job_name, master_contiguous_failures.group_index
+  ORDER BY (min(master_contiguous_failures.id)) DESC;
+
+
+ALTER TABLE public.master_contiguous_failure_job_groups OWNER TO postgres;
+
+--
+-- Name: master_contiguous_failure_blocks; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_contiguous_failure_blocks AS
+ SELECT master_contiguous_failure_job_groups.first_commit_id,
+    string_agg(master_contiguous_failure_job_groups.job_name, ';'::text) AS jobs,
+    count(*) AS job_count,
+    min(master_contiguous_failure_job_groups.run_length) AS min_run_length,
+    max(master_contiguous_failure_job_groups.run_length) AS max_run_length,
+    min(master_contiguous_failure_job_groups.last_commit_id) AS min_last_commit_id,
+    max(master_contiguous_failure_job_groups.last_commit_id) AS max_last_commit_id,
+    mode() WITHIN GROUP (ORDER BY master_contiguous_failure_job_groups.run_length DESC) AS modal_run_length,
+    mode() WITHIN GROUP (ORDER BY master_contiguous_failure_job_groups.last_commit_id DESC) AS modal_last_commit_id
+   FROM public.master_contiguous_failure_job_groups
+  GROUP BY master_contiguous_failure_job_groups.first_commit_id
+  ORDER BY master_contiguous_failure_job_groups.first_commit_id DESC;
+
+
+ALTER TABLE public.master_contiguous_failure_blocks OWNER TO postgres;
+
+--
+-- Name: master_contiguous_failure_blocks_with_commits; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_contiguous_failure_blocks_with_commits AS
+ SELECT master_contiguous_failure_blocks.first_commit_id,
+    master_contiguous_failure_blocks.jobs,
+    master_contiguous_failure_blocks.job_count,
+    master_contiguous_failure_blocks.min_run_length,
+    master_contiguous_failure_blocks.max_run_length,
+    master_contiguous_failure_blocks.min_last_commit_id,
+    master_contiguous_failure_blocks.max_last_commit_id,
+    omc1.sha1 AS first_commit,
+    omc2.sha1 AS min_last_commit,
+    omc3.sha1 AS max_last_commit,
+    omc4.sha1 AS modal_last_commit,
+    master_contiguous_failure_blocks.modal_run_length,
+    master_contiguous_failure_blocks.modal_last_commit_id
+   FROM ((((public.master_contiguous_failure_blocks
+     JOIN public.ordered_master_commits omc1 ON ((omc1.id = master_contiguous_failure_blocks.first_commit_id)))
+     JOIN public.ordered_master_commits omc2 ON ((omc2.id = master_contiguous_failure_blocks.min_last_commit_id)))
+     JOIN public.ordered_master_commits omc3 ON ((omc3.id = master_contiguous_failure_blocks.max_last_commit_id)))
+     JOIN public.ordered_master_commits omc4 ON ((omc4.id = master_contiguous_failure_blocks.modal_last_commit_id)));
+
+
+ALTER TABLE public.master_contiguous_failure_blocks_with_commits OWNER TO postgres;
 
 --
 -- Name: master_daily_isolated_failures_cached; Type: VIEW; Schema: public; Owner: postgres
@@ -3956,21 +4001,6 @@ CREATE MATERIALIZED VIEW public.master_failures_weekly_aggregation_mview AS
 
 
 ALTER TABLE public.master_failures_weekly_aggregation_mview OWNER TO materialized_view_updater;
-
---
--- Name: rebuild_trigger_events; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.rebuild_trigger_events (
-    id integer NOT NULL,
-    universal_build integer NOT NULL,
-    initiator text,
-    inserted_at timestamp with time zone DEFAULT now() NOT NULL,
-    message text
-);
-
-
-ALTER TABLE public.rebuild_trigger_events OWNER TO postgres;
 
 --
 -- Name: master_flaky_builds_to_retry; Type: VIEW; Schema: public; Owner: postgres
@@ -7085,11 +7115,11 @@ GRANT ALL ON TABLE public.global_builds TO logan;
 
 
 --
--- Name: TABLE global_builds_emprical_flakiness; Type: ACL; Schema: public; Owner: postgres
+-- Name: TABLE global_builds_empirical_flakiness; Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON TABLE public.global_builds_emprical_flakiness TO logan;
-GRANT SELECT ON TABLE public.global_builds_emprical_flakiness TO materialized_view_updater;
+GRANT ALL ON TABLE public.global_builds_empirical_flakiness TO logan;
+GRANT SELECT ON TABLE public.global_builds_empirical_flakiness TO materialized_view_updater;
 
 
 --
@@ -7831,53 +7861,10 @@ GRANT ALL ON TABLE public.latest_pattern_scanned_for_build_step TO logan;
 
 
 --
--- Name: TABLE master_commit_job_coverage_by_week; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.master_commit_job_coverage_by_week TO logan;
-
-
---
--- Name: TABLE master_commits_contiguously_indexed_mview; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.master_commits_contiguously_indexed_mview TO logan;
-GRANT SELECT ON TABLE public.master_commits_contiguously_indexed_mview TO materialized_view_updater;
-
-
---
--- Name: TABLE master_commits_unpopulated_circleci_configs; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.master_commits_unpopulated_circleci_configs TO logan;
-
-
---
 -- Name: TABLE master_contiguous_failures; Type: ACL; Schema: public; Owner: postgres
 --
 
 GRANT ALL ON TABLE public.master_contiguous_failures TO logan;
-
-
---
--- Name: TABLE master_contiguous_failure_job_groups; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.master_contiguous_failure_job_groups TO logan;
-
-
---
--- Name: TABLE master_contiguous_failure_blocks; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.master_contiguous_failure_blocks TO logan;
-
-
---
--- Name: TABLE master_contiguous_failure_blocks_with_commits; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.master_contiguous_failure_blocks_with_commits TO logan;
 
 
 --
@@ -7908,6 +7895,65 @@ GRANT SELECT ON TABLE public.master_failures_raw_causes TO materialized_view_upd
 
 GRANT SELECT ON TABLE public.master_failures_raw_causes_mview TO logan;
 GRANT SELECT ON TABLE public.master_failures_raw_causes_mview TO postgres;
+
+
+--
+-- Name: TABLE rebuild_trigger_events; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.rebuild_trigger_events TO logan;
+GRANT SELECT ON TABLE public.rebuild_trigger_events TO materialized_view_updater;
+
+
+--
+-- Name: TABLE master_automated_rebuild_outcomes; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_automated_rebuild_outcomes TO logan;
+GRANT SELECT ON TABLE public.master_automated_rebuild_outcomes TO materialized_view_updater;
+
+
+--
+-- Name: TABLE master_commit_job_coverage_by_week; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_commit_job_coverage_by_week TO logan;
+
+
+--
+-- Name: TABLE master_commits_contiguously_indexed_mview; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_commits_contiguously_indexed_mview TO logan;
+GRANT SELECT ON TABLE public.master_commits_contiguously_indexed_mview TO materialized_view_updater;
+
+
+--
+-- Name: TABLE master_commits_unpopulated_circleci_configs; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_commits_unpopulated_circleci_configs TO logan;
+
+
+--
+-- Name: TABLE master_contiguous_failure_job_groups; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_contiguous_failure_job_groups TO logan;
+
+
+--
+-- Name: TABLE master_contiguous_failure_blocks; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_contiguous_failure_blocks TO logan;
+
+
+--
+-- Name: TABLE master_contiguous_failure_blocks_with_commits; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_contiguous_failure_blocks_with_commits TO logan;
 
 
 --
@@ -7967,14 +8013,6 @@ GRANT SELECT ON TABLE public.master_failures_weekly_aggregation TO materialized_
 
 GRANT SELECT ON TABLE public.master_failures_weekly_aggregation_mview TO logan;
 GRANT SELECT ON TABLE public.master_failures_weekly_aggregation_mview TO postgres;
-
-
---
--- Name: TABLE rebuild_trigger_events; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.rebuild_trigger_events TO logan;
-GRANT SELECT ON TABLE public.rebuild_trigger_events TO materialized_view_updater;
 
 
 --

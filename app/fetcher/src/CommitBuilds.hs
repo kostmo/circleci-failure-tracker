@@ -40,6 +40,18 @@ data BuildWithLogContext = BuildWithLogContext {
   }
 
 
+data CommitBuildWrapper a = CommitBuildWrapper {
+    _commit_build :: CommitBuild
+  , _supplemental :: a
+  } deriving Generic
+
+instance (ToJSON a) => ToJSON (CommitBuildWrapper a) where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+instance (FromRow a) => FromRow (CommitBuildWrapper a) where
+  fromRow = CommitBuildWrapper <$> fromRow <*> fromRow
+
+
 data CommitBuild = NewCommitBuild {
     _build        :: Builds.StorableBuild
   , _match        :: MatchOccurrences.MatchOccurrencesForBuild

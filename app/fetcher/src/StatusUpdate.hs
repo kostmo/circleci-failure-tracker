@@ -61,9 +61,9 @@ import qualified PullRequestWebhooks
 import qualified PushWebhooks
 import qualified Scanning
 import qualified ScanRecords
-import qualified Sql.Read as SqlRead
-import qualified Sql.Update as SqlUpdate
-import qualified Sql.Write as SqlWrite
+import qualified Sql.Read                      as SqlRead
+import qualified Sql.Update                    as SqlUpdate
+import qualified Sql.Write                     as SqlWrite
 import qualified StatusEventQuery
 import qualified StatusUpdateTypes
 import qualified Webhooks
@@ -346,7 +346,10 @@ fetchCommitPageInfo ::
 fetchCommitPageInfo pre_broken_info sha1 validated_sha1 = runExceptT $ do
 
   liftIO $ D.debugStr "Fetching revision builds"
-  DbHelpers.BenchmarkedResponse _ revision_builds <- ExceptT $ SqlRead.getRevisionBuilds validated_sha1
+  DbHelpers.BenchmarkedResponse _ wrapped_revision_builds <- ExceptT $
+    SqlRead.getRevisionBuilds validated_sha1
+
+  let revision_builds = map CommitBuilds._commit_build wrapped_revision_builds
 
   matched_builds_with_log_context <- for revision_builds $ \x ->
     ExceptT $ (fmap . fmap) (CommitBuilds.BuildWithLogContext x) $
@@ -380,7 +383,9 @@ postCommitSummaryStatus
 
   liftIO $ D.debugStr "Checkpoint A"
 
-  circleci_failed_job_names <- ExceptT $ flip runReaderT conn $ SqlRead.getFailedCircleCIJobNames sha1
+  circleci_failed_job_names <- ExceptT $ flip runReaderT conn $
+    SqlRead.getFailedCircleCIJobNames sha1
+
   liftIO $ D.debugList [
       "CircleCI failed job names:"
     , show circleci_failed_job_names
@@ -436,7 +441,9 @@ fetchAndCachePrAuthor conn access_token pr_number = do
       liftIO $ D.debugStr "Fetched PR author from database cache"
       return author
     Nothing -> do
-      (pr_author, pr_metadata_obj) <- ExceptT $ first snd <$> GithubApiFetch.getPullRequestAuthor access_token pr_number
+      (pr_author, pr_metadata_obj) <- ExceptT $ first snd <$>
+        GithubApiFetch.getPullRequestAuthor access_token pr_number
+
       liftIO $ do
         D.debugStr "Fetched PR author from GitHub API"
         runReaderT (SqlWrite.storePullRequestStaticMetadata pr_number pr_metadata_obj) conn
@@ -490,7 +497,8 @@ postCommitSummaryStatusInner
 
   for_ containing_pr_list $ \pr_number ->
     handleCommentPostingOptOut pr_number $ do
-      maybe_previous_pr_comment <- liftIO $ flip runReaderT conn $ SqlRead.getPostedCommentForPR pr_number
+      maybe_previous_pr_comment <- liftIO $ flip runReaderT conn $
+        SqlRead.getPostedCommentForPR pr_number
 
       case maybe_previous_pr_comment of
         Nothing -> postInitialComment
@@ -757,7 +765,7 @@ handlePullRequestWebhook ::
 handlePullRequestWebhook
     db_connection_data
     third_party_auth
-    (PullRequestWebhooks.GitHubPullRequestEvent actn pr_number@(Builds.PullRequestNumber pr_num) pr_obj) = do
+    pr_event = do
 
   D.debugList [
       "Got PR event for PR number"
@@ -808,7 +816,7 @@ handlePullRequestWebhook
 
   where
     new_pr_head_commit = PullRequestWebhooks.sha $ PullRequestWebhooks.head pr_obj
-
+    PullRequestWebhooks.GitHubPullRequestEvent actn pr_number@(Builds.PullRequestNumber pr_num) pr_obj = pr_event
 
 handlePushWebhook ::
      DbHelpers.DbConnectionData
@@ -834,7 +842,9 @@ handlePushWebhook
 
       fmap (first LT.fromStrict) $ runExceptT $ do
 
-        access_token_container <- ExceptT $ first T.pack <$> CircleAuth.getGitHubAppInstallationToken (CircleApi.jwt_signer third_party_auth)
+        access_token_container <- ExceptT $ fmap (first T.pack) $
+          CircleAuth.getGitHubAppInstallationToken $ CircleApi.jwt_signer third_party_auth
+
         let access_token = CircleAuth.token access_token_container
 
         ExceptT $ SqlWrite.populateLatestMasterCommits

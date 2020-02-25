@@ -112,7 +112,7 @@ function gen_builds_table(element_id, data_url) {
 		ajaxResponse: function(url, params, response) {
 
 			console.log("Loaded build records in " + response.payload.timing.toFixed(1) + " seconds.");
-			return response.payload.content;
+			return response.payload.content.map(x => x["commit_build"]);
 		},
 	});
 }

@@ -94,6 +94,11 @@ instance (FromField a) => FromRow (FieldAsRowWrapper a) where
 
 
 
+instance FromRow () where
+  fromRow = return ()
+
+
+
 -- | TODO Use this for more weekly data
 data TimestampedDatum a = TimestampedDatum {
     _timestamp :: UTCTime
