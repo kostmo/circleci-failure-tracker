@@ -25,8 +25,8 @@ import qualified CircleBuild
 import qualified Constants
 import qualified FetchHelpers
 import qualified MyUtils
-import qualified Sql.Read as SqlRead
-import qualified Sql.Write as SqlWrite
+import qualified Sql.Read                   as SqlRead
+import qualified Sql.Write                  as SqlWrite
 
 
 data CircleBuildRetryResponse = CircleBuildRetryResponse {
@@ -148,28 +148,31 @@ rebuildCircleJobsInWorkflow
     provider_build_numbers = do
 
   circle_sess <- liftIO Sess.newSession
+  let get_workflow = getWorkflowObject tok circle_sess . snd
   build_num_workflow_obj_pairs <- forM provider_build_numbers $
-    sequenceA . MyUtils.derivePair (getWorkflowObject tok circle_sess . snd)
+    sequenceA . MyUtils.derivePair get_workflow
 
   let jobs_by_workflow = MyUtils.binTuplesByFirst $ map
         (\x -> (CircleBuild.workflow_id $ snd x, (fst x, CircleBuild.job_id $ snd x)))
         build_num_workflow_obj_pairs
 
-  batched_results <- forM jobs_by_workflow $ \(workflow_id, build_num_job_id_pairs_for_workflow) -> do
-    circleci_response <- rebuildJobsBatch
-      tok
-      workflow_id
-      (map snd build_num_job_id_pairs_for_workflow)
+  batched_results <- forM jobs_by_workflow $
+    \(workflow_id, build_num_job_id_pairs_for_workflow) -> do
+      circleci_response <- rebuildJobsBatch
+        tok
+        workflow_id
+        (map snd build_num_job_id_pairs_for_workflow)
 
-    results <- forM build_num_job_id_pairs_for_workflow $ \x -> do
-      let ubuild_num = fst $ fst x
-      z <- ExceptT $ flip runReaderT dbauth $
-        SqlWrite.insertRebuildTriggerEvent
-          ubuild_num
-          (CircleTrigger.message circleci_response)
-      return (ubuild_num, z)
+      results <- forM build_num_job_id_pairs_for_workflow $
+        \x -> do
+          let ubuild_num = fst $ fst x
+          z <- ExceptT $ flip runReaderT dbauth $
+            SqlWrite.insertRebuildTriggerEvent
+              ubuild_num
+              (CircleTrigger.message circleci_response)
+          return (ubuild_num, z)
 
-    return (circleci_response, results)
+      return (circleci_response, results)
 
   return $ concatMap snd batched_results
 

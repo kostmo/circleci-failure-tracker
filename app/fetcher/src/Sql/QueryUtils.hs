@@ -6,7 +6,7 @@ import           Data.List                  (intersperse)
 import           Database.PostgreSQL.Simple (Query)
 
 
--- | Join SQL queries with interspersed spaces
+-- | Concatenate SQL queries with interspersed spaces
 qjoin :: [Query] -> Query
 qjoin = mconcat . intersperse " "
 
@@ -21,8 +21,17 @@ qconjunction :: [Query] -> Query
 qconjunction = qjoin . intersperse "AND"
 
 
+-- | Surround with parentheses
 parens :: Query -> Query
 parens = mconcat . (`intersperse` ["(", ")"])
+
+
+coalesce  :: Query -> Query -> Query -> Query
+coalesce from_expr to_expr varname = qjoin [
+    "COALESCE" <> parens (list [from_expr, to_expr])
+  , "AS"
+  , varname
+  ]
 
 
 aliasedSubquery :: Query -> Query -> Query
@@ -32,8 +41,8 @@ aliasedSubquery subquery alias = qjoin [
   ]
 
 
--- | Counts the number of fields to ensure
--- the correct number of question marks
+-- | Ensuress that the number of question marks
+-- is equal to the number of fields
 insertionValues :: [Query] -> Query
 insertionValues fields = qjoin [
     parens $ list fields

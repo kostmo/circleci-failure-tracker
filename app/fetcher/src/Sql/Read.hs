@@ -434,35 +434,6 @@ userOptOutSettings = do
       ]
 
 
--- NOTE: This is not indended for use on master-branch builds
--- because it does not account for "serially isolated" as
--- a determination of flakiness.
-getFlakyRebuildCandidates ::
-     Builds.RawCommit
-  -> AuthDbIO (Either Text (UserWrapper (DbHelpers.BenchmarkedResponse Float [CommitBuilds.CommitBuildWrapper CommitBuildSupplementalPayload])))
-getFlakyRebuildCandidates (Builds.RawCommit commit_sha1_text) = do
-  AuthConnection conn user <- ask
-
-  liftIO $ runExceptT $ do
-    git_revision <- except $ GitRev.validateSha1 commit_sha1_text
-    DbHelpers.BenchmarkedResponse timing builds <- ExceptT $
-      flip runReaderT conn $ getRevisionBuilds git_revision
-
-    -- NOTE: This post-database flakiness determination DOES NOT account
-    -- for "serially isolated" as a flakiness indicator, because
-    -- non-master commits don't have this property.
-    let pattern_matched_flaky_predicate = CommitBuilds._is_flaky . CommitBuilds._failure_mode . CommitBuilds._commit_build
-        possibly_flaky_builds = filter pattern_matched_flaky_predicate builds
-
-        is_retryable_predicate x = not (is_empirically_determined_flaky sup || has_triggered_rebuild sup)
-          where
-            sup = CommitBuilds._supplemental x
-
-        retryable_flaky_builds = filter is_retryable_predicate possibly_flaky_builds
-
-    return $ UserWrapper user $ DbHelpers.BenchmarkedResponse timing retryable_flaky_builds
-
-
 transformPatternRows row =
   (tup1, fromPGArray pattern_ids_array)
   where
