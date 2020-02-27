@@ -931,7 +931,6 @@ function get_column_definitions(raw_column_list) {
 
 	const prefix_columns = [
 		define_downstream_stats_column(),
-		define_builds_completeness_column(),
 		define_commit_age_column(),
 		define_commit_sha1_column(),
 		define_pr_column(),
@@ -941,6 +940,8 @@ function get_column_definitions(raw_column_list) {
 	raw_column_list.sort();
 
 	const column_list = prefix_columns.concat(generate_column_tree_base(raw_column_list));
+	column_list.push(define_builds_completeness_column());
+
 	return column_list;
 }
 

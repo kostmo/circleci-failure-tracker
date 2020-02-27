@@ -19,7 +19,8 @@ import           Control.Monad.Trans.Reader    (runReaderT)
 import           Data.Bifunctor                (first)
 import qualified Data.ByteString.Lazy          as LBS
 import           Data.Foldable                 (for_)
-import           Data.List                     (filter)
+import qualified Data.HashMap.Strict           as HashMap
+import           Data.List                     (filter, partition)
 import           Data.List.Split               (splitOn)
 import qualified Data.Maybe                    as Maybe
 import qualified Data.Set                      as Set
@@ -66,6 +67,7 @@ import qualified Sql.Update                    as SqlUpdate
 import qualified Sql.Write                     as SqlWrite
 import qualified StatusEventQuery
 import qualified StatusUpdateTypes
+import qualified UnmatchedBuilds
 import qualified Webhooks
 
 
@@ -346,26 +348,40 @@ fetchCommitPageInfo ::
 fetchCommitPageInfo pre_broken_info sha1 validated_sha1 = runExceptT $ do
 
   liftIO $ D.debugStr "Fetching revision builds"
-  DbHelpers.BenchmarkedResponse _ wrapped_revision_builds <- ExceptT $
+  DbHelpers.BenchmarkedResponse _ revision_builds <- ExceptT $
     SqlRead.getRevisionBuilds validated_sha1
 
-  let revision_builds = map CommitBuilds._commit_build wrapped_revision_builds
+  -- Partition builds between upstream and non-upstream breakages
+  let f = MyUtils.derivePair $ (`HashMap.lookup` pre_broken_jobs_map) . Builds.job_name . Builds.build_record . CommitBuilds._build . CommitBuilds._commit_build
 
-  matched_builds_with_log_context <- for revision_builds $ \x ->
-    ExceptT $ (fmap . fmap) (CommitBuilds.BuildWithLogContext x) $
+      (upstream_breakages, non_upstream_breakages_raw) = partition (not . null . snd) $ map f revision_builds
+      paired_upstream_breakages = Maybe.mapMaybe sequenceA upstream_breakages
+
+      non_upstream_breakages = map fst non_upstream_breakages_raw
+
+  matched_builds_with_log_context <- for non_upstream_breakages $ \x ->
+    ExceptT $ (fmap . fmap) (\y -> (x, CommitBuilds.BuildWithLogContext (CommitBuilds._commit_build x) y)) $
       SqlRead.logContextFunc 0
-        (MatchOccurrences._match_id $ CommitBuilds._match x)
+        (MatchOccurrences._match_id $ CommitBuilds._match $ CommitBuilds._commit_build x)
         CommentRender.pullRequestCommentsLogContextLineCount
 
   liftIO $ D.debugStr "Fetching unmatched commit builds..."
 
+
+  -- Note: this function does not distinguish between upstream/non-upstream
+  -- builds, so we post-process to exclude upstream builds
   unmatched_builds <- ExceptT $ SqlRead.apiUnmatchedCommitBuilds sha1
+  let g = not . (`HashMap.member` pre_broken_jobs_map) . UnmatchedBuilds._job_name
+      nonupstream_unmatched_builds = filter g unmatched_builds
+
 
   liftIO $ D.debugStr "Finishing fetchCommitPageInfo."
 
-  return $ StatusUpdateTypes.CommitPageInfo
-    (StatusUpdateTypes.partitionMatchedBuilds pre_broken_jobs_map matched_builds_with_log_context)
-    unmatched_builds
+  let pattern_matched_builds_partition = StatusUpdateTypes.partitionMatchedBuilds matched_builds_with_log_context
+
+  return $ StatusUpdateTypes.NewCommitPageInfo
+    paired_upstream_breakages
+    (StatusUpdateTypes.NewNonUpstreamBuildPartition pattern_matched_builds_partition nonupstream_unmatched_builds)
 
   where
     pre_broken_jobs_map = SqlUpdate.inferred_upstream_breakages_by_job pre_broken_info

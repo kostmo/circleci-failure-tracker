@@ -2,6 +2,8 @@
 {-# LANGUAGE DeriveGeneric         #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 
+{- HLINT ignore "Use newtype instead of data" -}
+
 module WebApi where
 
 import           Data.Aeson
@@ -33,9 +35,7 @@ toJsonEither input = case input of
 
 data ApiResponse a = ApiResponse {
     rows :: [a]
-  } deriving Generic
-
-instance (ToJSON a) => ToJSON (ApiResponse a)
+  } deriving (Generic, ToJSON)
 
 
 data BuildNumberRecord = BuildNumberRecord {
@@ -43,21 +43,6 @@ data BuildNumberRecord = BuildNumberRecord {
   } deriving Generic
 
 instance ToJSON BuildNumberRecord where
-  toJSON = genericToJSON JsonUtils.dropUnderscore
-
-
-data UnmatchedBuild = UnmatchedBuild {
-    _build                  :: Builds.BuildNumber
-  , _step_name              :: Text
-  , _queued_at              :: UTCTime
-  , _job_name               :: Text
-  , _branch                 :: Maybe Text
-  , _universal_build_number :: Builds.UniversalBuildId
-  , _provider_icon_url      :: Text
-  , _provider_label         :: Text
-  } deriving (Generic, FromRow)
-
-instance ToJSON UnmatchedBuild where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 

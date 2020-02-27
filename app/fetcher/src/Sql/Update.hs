@@ -13,12 +13,15 @@ import           Data.Bifunctor             (first)
 import           Data.Either.Utils          (maybeToEither)
 import           Data.HashMap.Strict        (HashMap)
 import qualified Data.HashMap.Strict        as HashMap
+import           Data.List                  (partition)
+import qualified Data.Maybe                 as Maybe
 import qualified Data.Set                   as Set
 import           Data.Text                  (Text)
 import qualified Data.Text                  as T
 import           Data.Tuple                 (swap)
 import           Database.PostgreSQL.Simple
 import           GHC.Generics
+import           GHC.Int                    (Int64)
 import qualified Network.OAuth.OAuth2       as OAuth2
 import qualified Safe
 
@@ -26,6 +29,8 @@ import qualified Builds
 import qualified BuildSteps
 import qualified CircleApi
 import qualified CircleAuth
+import qualified CircleTrigger
+import qualified CommitBuilds
 import qualified Constants
 import qualified DbHelpers
 import qualified DebugUtils                 as D
@@ -358,3 +363,67 @@ findAnnotatedBuildBreakages access_token owned_repo sha1 = do
     let combined_time = nearest_ancestor_retrieval_timing + manual_breakages_retrieval_timing
 
     return (nearest_ancestor, manually_annotated_breakages, combined_time)
+
+
+
+data CommitRebuildsResponse = CommitRebuildsResponse {
+    _all_builds :: [CommitBuilds.CommitBuildWrapper SqlRead.CommitBuildSupplementalPayload]
+  , _flaky_candidates :: [CommitBuilds.CommitBuildWrapper SqlRead.CommitBuildSupplementalPayload]
+  , _flaky_noncandidates :: [CommitBuilds.CommitBuildWrapper SqlRead.CommitBuildSupplementalPayload]
+  , _reran_builds :: [(CommitBuilds.CommitBuildWrapper SqlRead.CommitBuildSupplementalPayload, Int64)]
+  } deriving Generic
+
+instance ToJSON CommitRebuildsResponse where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+
+-- | NOTE: This is not indended for use on master-branch builds
+-- because it does not account for "serially isolated" as
+-- a determination of flakiness.
+getFlakyRebuildCandidates ::
+     CircleApi.CircleCIApiToken
+  -> Builds.RawCommit
+  -> SqlRead.AuthDbIO (Either Text (SqlRead.UserWrapper (DbHelpers.BenchmarkedResponse Float CommitRebuildsResponse)))
+getFlakyRebuildCandidates circleci_api_token (Builds.RawCommit commit_sha1_text) = do
+  dbauth@(SqlRead.AuthConnection conn user) <- ask
+
+  liftIO $ runExceptT $ do
+    git_revision <- except $ GitRev.validateSha1 commit_sha1_text
+    DbHelpers.BenchmarkedResponse timing builds <- ExceptT $
+      flip runReaderT conn $ SqlRead.getRevisionBuilds git_revision
+
+    -- NOTE: This post-database flakiness determination DOES NOT account
+    -- for "serially isolated" as a flakiness indicator, because
+    -- non-master commits don't have this property.
+    let pattern_matched_flaky_predicate = CommitBuilds._is_flaky . CommitBuilds._failure_mode . CommitBuilds._commit_build
+        possibly_flaky_builds = filter pattern_matched_flaky_predicate builds
+
+        is_retryable_predicate x = not (SqlRead.is_empirically_determined_flaky sup || SqlRead.has_triggered_rebuild sup)
+          where
+            sup = CommitBuilds._supplemental x
+
+        (retryable_flaky_builds, non_retryable_flaky_builds) = partition is_retryable_predicate possibly_flaky_builds
+
+        ids_extractor x = (Builds.UniversalBuildId $ DbHelpers.db_id $ Builds.universal_build b, Builds.build_id $ Builds.build_record b)
+          where
+            b = CommitBuilds._build $ CommitBuilds._commit_build x
+
+        rebuild_id_tuples = map ids_extractor retryable_flaky_builds
+
+    results <- ExceptT $ fmap (first T.pack) $
+      runExceptT $ CircleTrigger.rebuildCircleJobsInWorkflow
+        dbauth
+        circleci_api_token
+        rebuild_id_tuples
+
+    let retry_keys_by_universal_id = HashMap.fromList $ map (first Builds.extractUniversalId) results
+        retryable_builds_with_db_keys = Maybe.mapMaybe (\x -> sequenceA (x, (`HashMap.lookup` retry_keys_by_universal_id) $ DbHelpers.db_id $ Builds.universal_build $ CommitBuilds._build $ CommitBuilds._commit_build x)) retryable_flaky_builds
+
+    return $ SqlRead.UserWrapper user $ DbHelpers.BenchmarkedResponse timing $
+      CommitRebuildsResponse
+        builds
+        retryable_flaky_builds
+        non_retryable_flaky_builds
+        retryable_builds_with_db_keys
+

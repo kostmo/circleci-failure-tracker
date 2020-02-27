@@ -5,7 +5,7 @@ packages:
 #- web-lambda 
 - eb-worker
 - fetcher
-#- oneoff
+- oneoff
 #- session-demo
 - log-postgres
 - markdown-dsl

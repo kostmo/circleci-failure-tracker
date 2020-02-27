@@ -28,8 +28,8 @@ import qualified GadgitFetch
 import qualified GadgitTest
 import qualified GitRev
 import qualified Scanning
-import qualified Sql.Read as SqlRead
-import qualified Sql.Update as SqlUpdate
+import qualified Sql.Read                   as SqlRead
+import qualified Sql.Update                 as SqlUpdate
 import qualified StatusUpdate
 import qualified StatusUpdateTypes
 
@@ -78,7 +78,7 @@ benchmarkScan circle_token conn build_id = runExceptT $ do
 
 
 testBotCommentGeneration oauth_access_token conn = do
-  let commit_sha1_text = "845598d17d473c0d75485780fa78bf08ec48db54"
+  let commit_sha1_text = "c1fa71972e9cdc50562d6f807fc6ca893c585112"
       raw_commit = Builds.RawCommit commit_sha1_text
       validated_sha1 = fromRight (error "BAD1") $ GitRev.validateSha1 commit_sha1_text
 
@@ -129,18 +129,8 @@ testBotCommentGeneration oauth_access_token conn = do
       raw_commit
 
 
-mainAppCode :: CommandLineArgs -> IO ()
-mainAppCode args = do
-
-  hSetBuffering stdout LineBuffering
-
-  conn <- DbPreparation.prepareDatabase connection_data False
-
-
---  benchmarkScan circletoken conn $ Builds.UniversalBuildId 82047188
-
-
-  output <- runExceptT $ do
+testGetSpanningBreakages conn args =
+  runExceptT $ do
     rsa_signer <- except $ CircleAuth.loadRsaKey $ gitHubAppPemContent args
     let third_party_auth = CircleApi.ThirdPartyAuth
           (CircleApi.CircleCIApiToken $ T.pack $ circleciApiToken args)
@@ -154,7 +144,7 @@ mainAppCode args = do
 
     foo <- ExceptT $ SqlRead.getSpanningBreakages
       conn
-      (Builds.RawCommit "d0435604a5ae24e9d6504f7835a8bc7b93b1d9e0")
+      (Builds.RawCommit "c1fa71972e9cdc50562d6f807fc6ca893c585112")
 
     liftIO $ do
       D.debugList [
@@ -169,13 +159,38 @@ mainAppCode args = do
           ]
 
 
-  putStrLn "============================="
---  testBotCommentGeneration oauth_access_token conn
+mainAppCode :: CommandLineArgs -> IO ()
+mainAppCode args = do
+
+  hSetBuffering stdout LineBuffering
+
+  conn <- DbPreparation.prepareDatabase connection_data False
+
+
+--  benchmarkScan circletoken conn $ Builds.UniversalBuildId 82047188
+
+--  testGetSpanningBreakages conn args
 
   putStrLn "============================="
-  GadgitTest.testGadgitApis
+
+  output <- runExceptT $ do
+    rsa_signer <- except $ CircleAuth.loadRsaKey $ gitHubAppPemContent args
+    let third_party_auth = CircleApi.ThirdPartyAuth
+          (CircleApi.CircleCIApiToken $ T.pack $ circleciApiToken args)
+          rsa_signer
+
+    access_token_container <- ExceptT $ fmap (first T.pack) $
+      CircleAuth.getGitHubAppInstallationToken $ CircleApi.jwt_signer third_party_auth
+
+    let access_token = CircleAuth.token access_token_container
+
+    liftIO $ testBotCommentGeneration access_token conn
+
+
 
   putStrLn "============================="
+--  GadgitTest.testGadgitApis
+--  putStrLn "============================="
 
 
   {-

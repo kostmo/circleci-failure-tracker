@@ -52,6 +52,7 @@ import qualified PostgresHelpers
 import qualified ScanPatterns
 import qualified ScanUtils
 import qualified Sql.QueryUtils                       as Q
+import qualified UnmatchedBuilds
 import qualified WebApi
 import qualified WeeklyStats
 
@@ -1134,7 +1135,7 @@ apiIdiopathicBuilds = listBuilds $ Q.qjoin [
 
 apiUnmatchedCommitBuilds ::
      Builds.RawCommit
-  -> DbIO (Either Text [WebApi.UnmatchedBuild])
+  -> DbIO (Either Text [UnmatchedBuilds.UnmatchedBuild])
 apiUnmatchedCommitBuilds (Builds.RawCommit sha1) = do
   conn <- ask
   liftIO $ do
@@ -1162,13 +1163,13 @@ apiUnmatchedCommitBuilds (Builds.RawCommit sha1) = do
 
 apiIdiopathicCommitBuilds ::
      Builds.RawCommit
-  -> DbIO (Either Text [WebApi.UnmatchedBuild])
+  -> DbIO (Either Text [UnmatchedBuilds.UnmatchedBuild])
 apiIdiopathicCommitBuilds (Builds.RawCommit sha1) = do
   conn <- ask
   liftIO $ Right . map f <$> query conn sql (Only sha1)
   where
     f (build, step_name, queued_at, job_name, branch, universal_build_id, provider_icon_url, provider_label) =
-      WebApi.UnmatchedBuild
+      UnmatchedBuilds.UnmatchedBuild
         (Builds.NewBuildNumber build)
         step_name
         queued_at
@@ -1201,7 +1202,7 @@ apiIdiopathicCommitBuilds (Builds.RawCommit sha1) = do
 
 apiTimeoutCommitBuilds ::
      Builds.RawCommit
-  -> DbIO (Either Text [WebApi.UnmatchedBuild])
+  -> DbIO (Either Text [UnmatchedBuilds.UnmatchedBuild])
 apiTimeoutCommitBuilds (Builds.RawCommit sha1) = do
   conn <- ask
   liftIO $ fmap Right $ query conn sql $ Only sha1
@@ -2069,15 +2070,14 @@ getRevisionBuilds git_revision = do
           "github_status_events_state_counts.sha1 = global_builds.vcs_revision"
         , "github_status_events_state_counts.job_name = global_builds.job_name"
         ]
-      , "LEFT JOIN rebuild_trigger_events"
-      , "ON global_builds.global_build_num = rebuild_trigger_events.universal_build"
+      , "LEFT JOIN rebuild_trigger_event_counts"
+      , "ON global_builds.global_build_num = rebuild_trigger_event_counts.universal_build"
       ]
 
 
     catcher _ (PostgresHelpers.QueryCancelled some_error) = return $ Left $
       "Query error in getRevisionBuilds: " <> T.pack (BS.unpack some_error)
     catcher e _                                  = throwIO e
-
 
 
     inner_sql_where_conditions = ["vcs_revision = ?"]
@@ -2112,8 +2112,8 @@ getRevisionBuilds git_revision = do
       ]
 
     supplemental_fields = [
-        "COALESCE(github_status_events_state_counts.is_empirically_determined_flaky, FALSE) AS is_empirically_determined_flaky"
-      , "rebuild_trigger_events.universal_build IS NOT NULL AS has_triggered_rebuild"
+        Q.coalesce "github_status_events_state_counts.is_empirically_determined_flaky" "FALSE" "is_empirically_determined_flaky"
+      , "rebuild_trigger_event_counts.universal_build IS NOT NULL AS has_triggered_rebuild"
       ]
 
 

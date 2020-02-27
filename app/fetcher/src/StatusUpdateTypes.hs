@@ -1,57 +1,45 @@
 module StatusUpdateTypes where
 
-import           Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as HashMap
-import           Data.List           (partition)
-import qualified Data.Maybe          as Maybe
-import           Data.Text           (Text)
+import           Data.List       (partition)
+import           Data.Text       (Text)
 
 import qualified Builds
 import qualified CommitBuilds
-import qualified MyUtils
-import qualified Sql.Read as SqlRead
-import qualified Sql.Update as SqlUpdate
-import qualified WebApi
+import qualified Sql.Read        as SqlRead
+import qualified Sql.Update      as SqlUpdate
+import qualified UnmatchedBuilds
 
 
-data FlakyBuildPartition = FlakyBuildPartition {
-    flaky_builds    :: [CommitBuilds.BuildWithLogContext]
-  , nonflaky_builds :: [CommitBuilds.BuildWithLogContext]
+data CommitPageInfo = NewCommitPageInfo {
+    upstream_builds :: [(CommitBuilds.CommitBuildWrapper SqlRead.CommitBuildSupplementalPayload, SqlRead.UpstreamBrokenJob)]
+  , nonupstream_builds       :: NonUpstreamBuildPartition
   }
+
+
+data NonUpstreamBuildPartition = NewNonUpstreamBuildPartition {
+    pattern_matched_builds :: FlakyBuildPartition
+  , unmatched_builds       :: [UnmatchedBuilds.UnmatchedBuild]
+  }
+
+
+data FlakyBuildPartition = NewFlakyBuildPartition {
+    flaky_builds    :: [(CommitBuilds.CommitBuildWrapper SqlRead.CommitBuildSupplementalPayload, CommitBuilds.BuildWithLogContext)]
+  , nonflaky_builds :: [(CommitBuilds.CommitBuildWrapper SqlRead.CommitBuildSupplementalPayload, CommitBuilds.BuildWithLogContext)]
+  }
+
+
+flakinessPredicate = CommitBuilds._is_flaky . CommitBuilds._failure_mode . CommitBuilds._commit_build
 
 
 partitionMatchedBuilds ::
-     HashMap Text SqlRead.UpstreamBrokenJob
-  -> [CommitBuilds.BuildWithLogContext]
-  -> UpstreamBuildPartition
-partitionMatchedBuilds pre_broken_jobs_map pattern_matched_builds =
-  UpstreamBuildPartition paired_upstream_breakages flakiness_partition
+     [(CommitBuilds.CommitBuildWrapper SqlRead.CommitBuildSupplementalPayload, CommitBuilds.BuildWithLogContext)]
+  -> FlakyBuildPartition
+partitionMatchedBuilds pattern_matched_builds =
+  NewFlakyBuildPartition nonupstream_flaky_breakages nonupstream_nonflaky_breakages
+
   where
-
-    paired_upstream_causes = map (MyUtils.derivePair $ (`HashMap.lookup` pre_broken_jobs_map) . get_job_name_from_build_with_log_context) pattern_matched_builds
-
-    (upstream_breakages, non_upstream_breakages_raw) = partition (not . null . snd) paired_upstream_causes
-
-    paired_upstream_breakages = Maybe.mapMaybe sequenceA upstream_breakages
-
     (nonupstream_flaky_breakages, nonupstream_nonflaky_breakages) =
-      partition flakinessPredicate $ map fst non_upstream_breakages_raw
-
-    flakiness_partition = FlakyBuildPartition
-      nonupstream_flaky_breakages
-      nonupstream_nonflaky_breakages
-
-
-data UpstreamBuildPartition = UpstreamBuildPartition {
-    upstream    :: [(CommitBuilds.BuildWithLogContext, SqlRead.UpstreamBrokenJob)]
-  , nonupstream :: FlakyBuildPartition
-  }
-
-
-data CommitPageInfo = CommitPageInfo {
-    pattern_matched_builds :: UpstreamBuildPartition
-  , unmatched_builds       :: [WebApi.UnmatchedBuild]
-  }
+      partition (flakinessPredicate . fst) pattern_matched_builds
 
 
 data BuildSummaryStats = NewBuildSummaryStats {
@@ -60,7 +48,4 @@ data BuildSummaryStats = NewBuildSummaryStats {
   }
 
 
-flakinessPredicate = CommitBuilds._is_flaky . CommitBuilds._failure_mode . CommitBuilds.commit_build
-
-
-get_job_name_from_build_with_log_context (CommitBuilds.BuildWithLogContext (CommitBuilds.NewCommitBuild (Builds.StorableBuild _ build_obj) _ _ _) _) = Builds.job_name build_obj
+getJobNameFromBuildWithLogContext (CommitBuilds.BuildWithLogContext (CommitBuilds.NewCommitBuild (Builds.StorableBuild _ build_obj) _ _ _) _) = Builds.job_name build_obj

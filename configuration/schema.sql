@@ -3,7 +3,7 @@
 --
 
 -- Dumped from database version 10.6
--- Dumped by pg_dump version 12.1 (Ubuntu 12.1-1.pgdg18.04+1)
+-- Dumped by pg_dump version 12.2 (Ubuntu 12.2-2.pgdg18.04+1)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -2887,6 +2887,30 @@ COMMENT ON VIEW public.github_status_events_aggregate_circleci_failures IS 'NOTE
 
 
 --
+-- Name: github_status_events_state_counts; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.github_status_events_state_counts AS
+ SELECT foo.sha1,
+    foo.job_name,
+    foo.failure_count,
+    foo.pending_count,
+    foo.success_count,
+    foo.error_count,
+    ((foo.failure_count > 0) AND (foo.success_count > 0)) AS is_empirically_determined_flaky
+   FROM ( SELECT github_status_events_circleci.sha1,
+            github_status_events_circleci.job_name_extracted AS job_name,
+            sum(((github_status_events_circleci.state = 'failure'::text))::integer) AS failure_count,
+            sum(((github_status_events_circleci.state = 'pending'::text))::integer) AS pending_count,
+            sum(((github_status_events_circleci.state = 'success'::text))::integer) AS success_count,
+            sum(((github_status_events_circleci.state = 'error'::text))::integer) AS error_count
+           FROM public.github_status_events_circleci
+          GROUP BY github_status_events_circleci.sha1, github_status_events_circleci.job_name_extracted) foo;
+
+
+ALTER TABLE public.github_status_events_state_counts OWNER TO postgres;
+
+--
 -- Name: github_status_events_window_functions; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -3590,23 +3614,44 @@ CREATE TABLE public.rebuild_trigger_events (
 ALTER TABLE public.rebuild_trigger_events OWNER TO postgres;
 
 --
+-- Name: rebuild_trigger_event_counts; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.rebuild_trigger_event_counts AS
+ SELECT foo.universal_build,
+    foo.rebuild_count,
+    foo.last_id,
+    rebuild_trigger_events.initiator AS last_initiator,
+    rebuild_trigger_events.inserted_at AS last_inserted_at,
+    rebuild_trigger_events.message AS last_message
+   FROM (( SELECT rebuild_trigger_events_1.universal_build,
+            count(*) AS rebuild_count,
+            max(rebuild_trigger_events_1.id) AS last_id
+           FROM public.rebuild_trigger_events rebuild_trigger_events_1
+          GROUP BY rebuild_trigger_events_1.universal_build) foo
+     JOIN public.rebuild_trigger_events ON ((foo.last_id = rebuild_trigger_events.id)));
+
+
+ALTER TABLE public.rebuild_trigger_event_counts OWNER TO postgres;
+
+--
 -- Name: master_automated_rebuild_outcomes; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.master_automated_rebuild_outcomes AS
+CREATE VIEW public.master_automated_rebuild_outcomes WITH (security_barrier='false') AS
  SELECT a1.sha1,
     a1.job_name,
     a1.is_serially_isolated AS initially_is_serially_isolated,
     a1.pattern_id AS initially_detected_pattern_id,
-    rebuild_trigger_events.inserted_at AS rebuild_triggered_at,
-    rebuild_trigger_events.universal_build AS previous_universal_build,
+    rebuild_trigger_event_counts.last_inserted_at AS rebuild_triggered_at,
+    rebuild_trigger_event_counts.universal_build AS previous_universal_build,
     a2.global_build AS rebuild_universal_id,
     a2.is_empirically_determined_flaky
-   FROM ((public.rebuild_trigger_events
-     JOIN public.master_failures_raw_causes_mview a1 ON ((rebuild_trigger_events.universal_build = a1.global_build)))
+   FROM ((public.rebuild_trigger_event_counts
+     JOIN public.master_failures_raw_causes_mview a1 ON ((rebuild_trigger_event_counts.universal_build = a1.global_build)))
      JOIN public.master_failures_raw_causes_mview a2 ON (((a2.sha1 = a1.sha1) AND (a2.job_name = a1.job_name))))
-  WHERE (rebuild_trigger_events.initiator = ''::text)
-  ORDER BY a1.job_name, rebuild_trigger_events.inserted_at DESC;
+  WHERE (rebuild_trigger_event_counts.last_initiator = ''::text)
+  ORDER BY a1.job_name, rebuild_trigger_event_counts.last_inserted_at DESC;
 
 
 ALTER TABLE public.master_automated_rebuild_outcomes OWNER TO postgres;
@@ -4006,12 +4051,12 @@ ALTER TABLE public.master_failures_weekly_aggregation_mview OWNER TO materialize
 -- Name: master_flaky_builds_to_retry; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.master_flaky_builds_to_retry AS
+CREATE VIEW public.master_flaky_builds_to_retry WITH (security_barrier='false') AS
  SELECT v.global_build,
     v.build_num
    FROM (public.master_failures_raw_causes_mview v
-     LEFT JOIN public.rebuild_trigger_events ON ((v.global_build = rebuild_trigger_events.universal_build)))
-  WHERE (v.is_isolated_or_flaky_failure AND (NOT v.is_empirically_determined_flaky) AND (rebuild_trigger_events.universal_build IS NULL) AND (v.queued_at > (now() - '08:00:00'::interval)));
+     LEFT JOIN public.rebuild_trigger_event_counts ON ((v.global_build = rebuild_trigger_event_counts.universal_build)))
+  WHERE (v.is_isolated_or_flaky_failure AND (NOT v.is_empirically_determined_flaky) AND (rebuild_trigger_event_counts.universal_build IS NULL) AND (v.queued_at > (now() - '08:00:00'::interval)));
 
 
 ALTER TABLE public.master_flaky_builds_to_retry OWNER TO postgres;
@@ -7745,6 +7790,14 @@ GRANT ALL ON TABLE public.github_status_events_aggregate_circleci_failures TO lo
 
 
 --
+-- Name: TABLE github_status_events_state_counts; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.github_status_events_state_counts TO logan;
+GRANT SELECT ON TABLE public.github_status_events_state_counts TO materialized_view_updater;
+
+
+--
 -- Name: TABLE github_status_events_window_functions; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -7903,6 +7956,14 @@ GRANT SELECT ON TABLE public.master_failures_raw_causes_mview TO postgres;
 
 GRANT ALL ON TABLE public.rebuild_trigger_events TO logan;
 GRANT SELECT ON TABLE public.rebuild_trigger_events TO materialized_view_updater;
+
+
+--
+-- Name: TABLE rebuild_trigger_event_counts; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.rebuild_trigger_event_counts TO logan;
+GRANT SELECT ON TABLE public.rebuild_trigger_event_counts TO materialized_view_updater;
 
 
 --

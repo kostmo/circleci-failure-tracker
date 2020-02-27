@@ -1,4 +1,3 @@
-{-# LANGUAGE DeriveGeneric     #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module FrontendHelpers where
@@ -8,8 +7,7 @@ import           Control.Monad.IO.Class     (MonadIO, liftIO)
 import           Control.Monad.Trans.Except (ExceptT (ExceptT), except,
                                              runExceptT)
 import           Control.Monad.Trans.Reader (ReaderT, ask, runReaderT)
-import           Data.Aeson                 (FromJSON, ToJSON, genericToJSON,
-                                             toJSON)
+import           Data.Aeson                 (FromJSON, ToJSON)
 import           Data.Bifunctor             (first)
 import qualified Data.ByteString.Lazy.Char8 as LBSC
 import           Data.Either.Utils          (maybeToEither)
@@ -19,7 +17,6 @@ import qualified Data.Text                  as T
 import qualified Data.Text.Lazy             as LT
 import qualified Data.Vault.Lazy            as Vault
 import           Database.PostgreSQL.Simple (Connection)
-import           GHC.Generics
 import           GHC.Int                    (Int64)
 import           Network.Wai.Session        (Session)
 import qualified Web.Scotty                 as S
@@ -31,13 +28,11 @@ import qualified AuthStages
 import qualified Builds
 import qualified CircleApi
 import qualified CircleTrigger
-import qualified CommitBuilds
 import qualified Constants
 import qualified DbHelpers
 import qualified DbInsertion
 import qualified DebugUtils                 as D
 import qualified GitRev
-import qualified JsonUtils
 import qualified Pagination
 import qualified Scanning
 import qualified ScanPatterns
@@ -185,58 +180,6 @@ getOffsetMode = do
   return $ Pagination.TimelineParms
     column_filtering_options
     offset_mode
-
-
-data CommitRebuildsResponse = CommitRebuildsResponse {
-    _all_builds :: [CommitBuilds.CommitBuildWrapper SqlRead.CommitBuildSupplementalPayload]
-  , _flaky_candidates :: [CommitBuilds.CommitBuildWrapper SqlRead.CommitBuildSupplementalPayload]
-  , _rerun_responses :: [(Builds.UniversalBuildId, Int64)]
-  } deriving Generic
-
-instance ToJSON CommitRebuildsResponse where
-  toJSON = genericToJSON JsonUtils.dropUnderscore
-
-
--- NOTE: This is not indended for use on master-branch builds
--- because it does not account for "serially isolated" as
--- a determination of flakiness.
-getFlakyRebuildCandidates ::
-     CircleApi.CircleCIApiToken
-  -> Builds.RawCommit
-  -> SqlRead.AuthDbIO (Either Text (SqlRead.UserWrapper (DbHelpers.BenchmarkedResponse Float CommitRebuildsResponse)))
-getFlakyRebuildCandidates circleci_api_token (Builds.RawCommit commit_sha1_text) = do
-  dbauth@(SqlRead.AuthConnection conn user) <- ask
-
-  liftIO $ runExceptT $ do
-    git_revision <- except $ GitRev.validateSha1 commit_sha1_text
-    DbHelpers.BenchmarkedResponse timing builds <- ExceptT $
-      flip runReaderT conn $ SqlRead.getRevisionBuilds git_revision
-
-    -- NOTE: This post-database flakiness determination DOES NOT account
-    -- for "serially isolated" as a flakiness indicator, because
-    -- non-master commits don't have this property.
-    let pattern_matched_flaky_predicate = CommitBuilds._is_flaky . CommitBuilds._failure_mode . CommitBuilds._commit_build
-        possibly_flaky_builds = filter pattern_matched_flaky_predicate builds
-
-        is_retryable_predicate x = not (SqlRead.is_empirically_determined_flaky sup || SqlRead.has_triggered_rebuild sup)
-          where
-            sup = CommitBuilds._supplemental x
-
-        retryable_flaky_builds = filter is_retryable_predicate possibly_flaky_builds
-
-        id_extractor x = (Builds.UniversalBuildId $ DbHelpers.db_id $ Builds.universal_build b, Builds.build_id $ Builds.build_record b)
-          where
-            b = CommitBuilds._build $ CommitBuilds._commit_build x
-
-        rebuild_id_tuples = map id_extractor retryable_flaky_builds
-
-    results <- ExceptT $ fmap (first T.pack) $
-      runExceptT $ CircleTrigger.rebuildCircleJobsInWorkflow
-        dbauth
-        circleci_api_token
-        rebuild_id_tuples
-
-    return $ SqlRead.UserWrapper user $ DbHelpers.BenchmarkedResponse timing $ CommitRebuildsResponse builds retryable_flaky_builds results
 
 
 facilitateJobRebuild ::
