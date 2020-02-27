@@ -1969,6 +1969,7 @@ genBestMatchesSubquery sql_where_conditions = Q.qjoin [
       "inner_matches_for_build.universal_build"
     , "inner_matches_for_build.is_promoted DESC"
     , "patterns.specificity DESC"
+    , "inner_matches_for_build.line_number DESC"
     , "patterns.is_retired"
     , "patterns.regex"
     , "patterns.id DESC"
