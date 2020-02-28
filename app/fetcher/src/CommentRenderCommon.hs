@@ -17,3 +17,8 @@ webserverBaseUrl = "https://dr.pytorch.org"
 viableCommitsHistoryUrl :: LT.Text
 viableCommitsHistoryUrl = webserverBaseUrl <> "/master-viable-commits.html"
 
+
+data PrCommentPayload = NewPrCommentPayload {
+    sections              :: [[Text]]
+  , all_no_fault_failures :: Bool
+  }

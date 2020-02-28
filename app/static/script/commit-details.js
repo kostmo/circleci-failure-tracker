@@ -177,7 +177,7 @@ function gen_unmatched_build_list(api_endpoint, div_id) {
 function query_flaky(button) {
 
 	const commit_sha1 = get_scrubbed_sha1();
-	window.location.href = "/rebuild-from-pr-comment.html?sha1=?" + commit_sha1;
+	window.location.href = "/rebuild-from-pr-comment.html?sha1=" + commit_sha1;
 }
 
 

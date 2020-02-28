@@ -41,6 +41,7 @@ import qualified AuthStages
 import qualified Breakages
 import qualified Builds
 import qualified CircleTest
+import qualified CommentRenderCommon
 import qualified Commits
 import qualified Constants
 import qualified DbHelpers
@@ -1150,6 +1151,7 @@ commentBodyInsertionSql = Q.qjoin [
     , "updated_at"
     , "sha1"
     , "was_new_push"
+    , "all_no_fault_failures"
     ]
   , "RETURNING id"
   ]
@@ -1161,6 +1163,7 @@ insertPostedGithubComment ::
   -> Builds.RawCommit -- ^ only used for logging
   -> Builds.PullRequestNumber
   -> Bool -- ^ was new push
+  -> CommentRenderCommon.PrCommentPayload
   -> ApiPost.CommentPostResult
   -> IO Int64
 insertPostedGithubComment
@@ -1169,12 +1172,13 @@ insertPostedGithubComment
     (Builds.RawCommit sha1)
     (Builds.PullRequestNumber pull_request_number)
     was_new_push
+    (CommentRenderCommon.NewPrCommentPayload _ all_no_fault_failures)
     (ApiPost.CommentPostResult comment_id body created_at updated_at) = do
 
   execute conn comment_insertion_sql (comment_id, owner, repo, pull_request_number, created_at)
 
   [Only comment_revision_id] <- query conn commentBodyInsertionSql
-    (comment_id, body, updated_at, sha1, was_new_push)
+    (comment_id, body, updated_at, sha1, was_new_push, all_no_fault_failures)
 
   return comment_revision_id
 
@@ -1209,16 +1213,18 @@ modifyPostedGithubComment ::
      Connection
   -> Builds.RawCommit -- ^ only used for logging
   -> Bool -- ^ was new push
+  -> CommentRenderCommon.PrCommentPayload
   -> ApiPost.CommentPostResult
   -> IO Int64
 modifyPostedGithubComment
     conn
     (Builds.RawCommit sha1)
     was_new_push
+    (CommentRenderCommon.NewPrCommentPayload _ all_no_fault_failures)
     (ApiPost.CommentPostResult comment_id body _created_at updated_at) = do
 
   [Only comment_revision_id] <- query conn commentBodyInsertionSql
-    (comment_id, body, updated_at, sha1, was_new_push)
+    (comment_id, body, updated_at, sha1, was_new_push, all_no_fault_failures)
 
   return comment_revision_id
 

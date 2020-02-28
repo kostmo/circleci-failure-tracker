@@ -11,7 +11,7 @@ function gen_comment_postings_table(element_id, data_url, height) {
 				formatter: function(cell, formatterParams, onRendered) {
 
 					const row_data = cell.getRow().getData();
-					return link(cell.getValue(), PULL_REQUEST_URL_PREFIX + "/" + cell.getValue() + "#issuecomment-" + row_data["comment_id"]);
+					return link(cell.getValue(), PULL_REQUEST_URL_PREFIX + cell.getValue() + "#issuecomment-" + row_data["comment_id"]);
 				},
 			},
 			{title: "Revision", field: "sha1", width: 100, formatter: function(cell, formatterParams, onRendered) {

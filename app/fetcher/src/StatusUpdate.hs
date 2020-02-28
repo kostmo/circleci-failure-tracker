@@ -48,6 +48,7 @@ import qualified Builds
 import qualified CircleApi
 import qualified CircleAuth
 import qualified CommentRender
+import qualified CommentRenderCommon
 import qualified CommitBuilds
 import qualified Constants
 import qualified DbHelpers
@@ -574,7 +575,7 @@ postInitialComment ::
   -> Connection
   -> Builds.RawCommit
   -> Bool -- ^ was new push
-  -> [Text]
+  -> CommentRenderCommon.PrCommentPayload
   -> Builds.PullRequestNumber
   -> ExceptT LT.Text IO Int64
 postInitialComment
@@ -583,7 +584,7 @@ postInitialComment
     conn
     sha1
     was_new_push
-    pr_comment_middle_sections
+    pr_comment_payload
     pr_number = do
 
   comment_post_result <- ExceptT $ ApiPost.postPullRequestComment
@@ -598,12 +599,13 @@ postInitialComment
     sha1
     pr_number
     was_new_push
+    pr_comment_payload
     comment_post_result
 
   where
     pr_comment_text = CommentRender.generateCommentMarkdown
       Nothing
-      pr_comment_middle_sections
+      pr_comment_payload
       sha1
 
 
@@ -613,7 +615,7 @@ updateCommentOrFallback ::
   -> Connection
   -> Builds.RawCommit
   -> Bool -- ^ was new push
-  -> [Text]
+  -> CommentRenderCommon.PrCommentPayload
   -> Builds.PullRequestNumber
   -> SqlRead.PostedPRComment
   -> ExceptT LT.Text IO Int64
@@ -623,7 +625,7 @@ updateCommentOrFallback
     conn
     sha1
     was_new_push
-    middle_sections
+    pr_comment_payload
     pr_number
     previous_pr_comment = do
 
@@ -639,6 +641,7 @@ updateCommentOrFallback
         conn
         sha1
         was_new_push
+        pr_comment_payload
         comment_update_result
 
     -- If the comment was deleted, we need to re-post one.
@@ -654,7 +657,7 @@ updateCommentOrFallback
         conn
         sha1
         was_new_push
-        middle_sections
+        pr_comment_payload
         pr_number
 
     Left other_failure_message -> except $ Left other_failure_message
@@ -662,7 +665,7 @@ updateCommentOrFallback
   where
     pr_comment_text = CommentRender.generateCommentMarkdown
       (Just previous_pr_comment)
-      middle_sections
+      pr_comment_payload
       sha1
 
     comment_id = ApiPost.CommentId $ SqlRead._comment_id previous_pr_comment
@@ -690,7 +693,7 @@ wipeCommentForUpdatedPr
     conn
     new_pr_head_commit
     True
-    [middle_sections]
+    (CommentRenderCommon.NewPrCommentPayload [[middle_sections]] True)
     pr_number
     previous_pr_comment
 

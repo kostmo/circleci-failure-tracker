@@ -6,31 +6,80 @@ function get_sha1_query_parm() {
 
 function load_rebuild_info(commit_sha1) {
 
-	$("#commit-placeholder").html(sha1_link(commit_sha1));
+	$("#commit-placeholder").html();
 
 	const query_parms = {
 		"login_redirect_path": get_url_path_for_redirect(),
 		"sha1": commit_sha1,
 	};
 
-
 	$("#throbber").show();
 	post_inquiry("/api/rebuild-flaky-candidates", query_parms, function(data) {
 		$("#throbber").hide();
 
-
 		$("#username-container").html(data.user);
 
-		console.log("data:", data);
+
+		const render_build_list_item = function(x) {
+
+			const inner_build_obj = x["commit_build"]["build"];
+			const list_line_pieces = [
+				render_tag("code", inner_build_obj["build_record"]["job_name"]),
+//				"UID: " + inner_build_obj["universal_build"]["db_id"],
+			];
+
+			const inner_list = x["supplemental"]["has_triggered_rebuild"] ? render_list(["Rebuild has already been triggered"]) : "";
+
+			return list_line_pieces.join(";") + inner_list;
+		};
+
+
+		// Members of this list are 2-element tuples, with the first element being the build object
 		const reran_build_obj_list = data.content.content.reran_builds.map(x => x[0]);
 
-		$("#rerun-count-placeholder").html(reran_build_obj_list.length);
 
-		const builds_list = build_obj_list.map(x => render_tag("code", x["commit_build"]["build"]["build_record"]["job_name"] + "; UID: " + x["commit_build"]["build"]["universal_build"]["db_id"]));
+		const flaky_noncandidates_list = data.content.content.flaky_noncandidates;
+		if (reran_build_obj_list.length || flaky_noncandidates_list.length) {
 
-		$("#build-list-placeholder").html(render_list(builds_list));
+			if (reran_build_obj_list.length) {
 
-		$('#options-form').show();
+				const builds_list = reran_build_obj_list.map(render_build_list_item);
+
+
+				const words = [
+					"The following",
+					reran_build_obj_list.length,
+					"build(s) of commit",
+					sha1_link(commit_sha1),
+					"will be retried:",
+					render_list(builds_list),
+				];
+
+				const rebuilding_jobs_text = render_tag("p", words.join(" "));
+
+				$('#rebuilding-results-placeholder').html(rebuilding_jobs_text);
+			}
+
+			if (flaky_noncandidates_list.length) {
+
+				const builds_list = flaky_noncandidates_list.map(render_build_list_item);
+
+				const words = [
+					"The following",
+					flaky_noncandidates_list.length,
+					"tentatively flaky build(s) will",
+					render_tag("b", "not"),
+					"be retriggered at this time:",
+					render_list(builds_list),
+				];
+
+				const rebuilding_jobs_text = render_tag("p", words.join(" "));
+
+				$('#non-rebuilding-results-placeholder').html(rebuilding_jobs_text);
+			}
+		} else {
+			$('#non-rebuilding-results-placeholder').html(render_tag("p", render_tag("i", "There are no flaky rebuilds to retry!")));
+		}
 	});
 }
 

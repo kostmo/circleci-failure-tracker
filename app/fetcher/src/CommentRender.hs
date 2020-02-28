@@ -82,10 +82,10 @@ genUnmatchedBuildsTable unmatched_nonupstream_builds =
 
 genBuildFailuresTable ::
      StatusUpdateTypes.CommitPageInfo
-  -> [Text]
+  -> [[Text]]
 genBuildFailuresTable
     (StatusUpdateTypes.NewCommitPageInfo upstream_breakages nonupstream_builds) =
-  intercalate ["---"] $ filter (not . null) major_sections
+  major_sections
   where
     major_sections = pattern_matched_sections ++ [pattern_unmatched_section, upstream_matched_section]
 
@@ -140,8 +140,7 @@ genPatternMatchedSections pattern_matched_builds = [
     discounted_flakiness_blurb = if null nonflaky_by_empirical_confirmation
       then []
       else pure $ M.parens $ T.unwords [
-          "NOTE:"
-        , MyUtils.pluralize (length nonflaky_by_empirical_confirmation) "job"
+          MyUtils.pluralize (length nonflaky_by_empirical_confirmation) "job"
         , "rerun to discount flakiness"
         ]
 
@@ -189,10 +188,8 @@ genFlakySections
 
     tentative_flakies_header = M.heading 3 $ T.unwords [
         ":snowflake:"
-      , "tentatively flaky"
-      , MyUtils.pluralize total_tentative_flaky_count "failure"
+      , MyUtils.pluralize total_tentative_flaky_count "tentatively flaky failure"
       ]
-
 
     untriggered_subsection = if null tentative_flaky_untriggered_reruns
       then mempty
@@ -205,17 +202,14 @@ genFlakySections
         <> make_details_block tentative_flaky_triggered_reruns
 
     untriggered_intro_text = M.colonize [
-        "The following"
-      , MyUtils.pluralize (length tentative_flaky_untriggered_reruns) "failure"
-      , "have been"
+        MyUtils.pluralize (length tentative_flaky_untriggered_reruns) "failure"
       , M.bold "tentatively classified as flaky"
       , "but have not launched reruns to confirm"
       ]
 
     triggered_intro_text = M.colonize [
-        "The following"
-      , MyUtils.pluralize (length tentative_flaky_triggered_reruns) "failure"
-      , "have tentatively been classified as flaky and are"
+        MyUtils.pluralize (length tentative_flaky_triggered_reruns) "failure"
+      , "tentatively classified as flaky and"
       , M.bold "rerunning now"
       , "to confirm"
       ]
@@ -350,7 +344,7 @@ sanitizeLongLine line_text =
 
 generateCommentFooter :: Maybe SqlRead.PostedPRComment -> [Text]
 generateCommentFooter maybe_previous_pr_comment =
-  ["---", footer_section]
+  [footer_section]
   where
     footer_section = M.detailsExpander dr_ci_attribution_line $ T.unlines $
       intersperse "" footer_hidden_details
@@ -389,15 +383,17 @@ generateCommentFooter maybe_previous_pr_comment =
 
 generateCommentMarkdown ::
      Maybe SqlRead.PostedPRComment
-  -> [Text]
+  -> CommentRenderCommon.PrCommentPayload
   -> Builds.RawCommit
   -> Text
 generateCommentMarkdown
     maybe_previous_pr_comment
-    middle_sections
+    (CommentRenderCommon.NewPrCommentPayload middle_sections _)
     (Builds.RawCommit sha1_text) =
 
-  M.paragraphs $ [intro_section] ++ middle_sections ++ generateCommentFooter maybe_previous_pr_comment
+  T.unlines $ intercalate ["", "---"] $ filter (not . null) $
+    [[intro_section]] ++ middle_sections ++ [generateCommentFooter maybe_previous_pr_comment]
+
   where
     intro_section = T.unlines [
         M.heading 2 ":pill: CircleCI build failures summary and remediations"
@@ -414,22 +410,25 @@ generateCommentMarkdown
     dr_ci_commit_details_link = LT.toStrict CommentRenderCommon.webserverBaseUrl <> "/commit-details.html?sha1=" <> sha1_text
 
 
+
+
 generateMiddleSections ::
      GadgitFetch.AncestryPropositionResponse
   -> StatusUpdateTypes.BuildSummaryStats
   -> StatusUpdateTypes.CommitPageInfo
   -> Builds.RawCommit
-  -> [Text]
+  -> CommentRenderCommon.PrCommentPayload
 generateMiddleSections
     ancestry_result
     build_summary_stats
     commit_page_info
     commit =
 
-  summary_header ++ [summary_tree] ++ detailed_build_issues_section
+  CommentRenderCommon.NewPrCommentPayload sections is_all_no_fault_failures
   where
+    sections = [summary_header] ++ [[summary_tree]] ++ build_failures_table_sections
 
-    (summary_header, summary_forrest) = genMetricsTree
+    (summary_header, summary_forrest, is_all_no_fault_failures) = genMetricsTree
       commit_page_info
       ancestry_result
       build_summary_stats
@@ -437,13 +436,7 @@ generateMiddleSections
 
     summary_tree = M.bulletTree summary_forrest
 
-    build_failures_table_lines = genBuildFailuresTable commit_page_info
-
-    detailed_build_issues_section = if null build_failures_table_lines
-      then []
-      else [
-          T.unlines build_failures_table_lines
-        ]
+    build_failures_table_sections = genBuildFailuresTable commit_page_info
 
 
 genMetricsTree ::
@@ -451,32 +444,38 @@ genMetricsTree ::
   -> GadgitFetch.AncestryPropositionResponse
   -> StatusUpdateTypes.BuildSummaryStats
   -> Builds.RawCommit
-  -> ([Text], Tr.Forest (NonEmpty Text))
+  -> ([Text], Tr.Forest (NonEmpty Text), Bool)
 genMetricsTree
     commit_page_info
     ancestry_response
     (StatusUpdateTypes.NewBuildSummaryStats pre_broken_info all_failures)
     (Builds.RawCommit commit_sha1_text) =
 
-  (summary_header, forrest_parts)
+  (summary_header, forrest_parts, not has_user_caused_failures)
   where
+
+    has_user_caused_failures = broken_in_pr_count > 0
+
     forrest_parts = concat [
         introduced_failures_section
       , flaky_bullet_tree
       , optional_kb_metric
       ]
 
-    summary_header = if broken_in_pr_count > 0
+    summary_header = if has_user_caused_failures
       then mempty
-      else [M.sentence [M.bold "None of the build failures appear to be your fault"]]
+      else [
+
+        T.unwords [
+            ":white_check_mark:"
+          , M.bold "None of the build failures appear to be your fault"
+          , ":green_heart:"
+          ]
+        ]
 
     optional_kb_metric = [upstream_breakage_bullet_tree | not $ HashMap.null pre_broken_jobs_map]
     introduced_failures_section = [introduced_failures_section_inner | broken_in_pr_count > 0]
     flaky_bullet_tree = [flaky_bullet_tree_inner | tentatively_flaky_count > 0]
-
-
-
-
 
 
     GadgitFetch.AncestryPropositionResponse _ ancestry_result = ancestry_response
