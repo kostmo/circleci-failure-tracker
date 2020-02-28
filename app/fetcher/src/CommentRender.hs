@@ -3,7 +3,7 @@
 module CommentRender where
 
 import qualified Data.HashMap.Strict as HashMap
-import           Data.List           (dropWhileEnd, intersperse)
+import           Data.List           (dropWhileEnd, intercalate, intersperse)
 import           Data.List.NonEmpty  (NonEmpty ((:|)))
 import qualified Data.List.NonEmpty  as NE
 import           Data.Text           (Text)
@@ -11,6 +11,7 @@ import qualified Data.Text           as T
 import qualified Data.Text.Lazy      as LT
 import qualified Data.Time.Format    as TF
 import qualified Data.Tree           as Tr
+import           Debug.Trace         (trace)
 
 import qualified Builds
 import qualified CircleCIParse
@@ -84,12 +85,10 @@ genBuildFailuresTable ::
   -> [Text]
 genBuildFailuresTable
     (StatusUpdateTypes.NewCommitPageInfo upstream_breakages nonupstream_builds) =
-
-     pattern_matched_sections
-  <> upstream_matched_section
-  <> pattern_unmatched_section
-
+  intercalate ["---"] $ filter (not . null) major_sections
   where
+    major_sections = pattern_matched_sections ++ [pattern_unmatched_section, upstream_matched_section]
+
     pattern_matched_sections = genPatternMatchedSections pattern_matched_builds
 
     StatusUpdateTypes.NewNonUpstreamBuildPartition pattern_matched_builds unmatched_nonupstream_builds = nonupstream_builds
@@ -108,52 +107,124 @@ genBuildFailuresTable
     upstream_matched_section = genUpstreamFailuresSection upstream_breakages
 
 
-genPatternMatchedSections pattern_matched_builds =
-     nonupstream_nonflaky_pattern_matched_section
-  <> nonupstream_flaky_pattern_matched_section
+genPatternMatchedSections pattern_matched_builds = [
+    nonupstream_nonflaky_pattern_matched_section
+  ] ++ tentative_and_confirmed_flaky_sections
   where
-    StatusUpdateTypes.NewFlakyBuildPartition nonupstream_flaky_breakages nonupstream_nonflaky_breakages = pattern_matched_builds
+    StatusUpdateTypes.NewFlakyBuildPartition
+      tentatively_flaky_builds
+      classified_nonflaky_builds
+      confirmed_flaky_builds
+        = pattern_matched_builds
 
-    nonupstream_nonflaky_pattern_matched_section = if null nonupstream_nonflaky_breakages
+
+    StatusUpdateTypes.NewNonFlakyBuilds nonflaky_by_pattern nonflaky_by_empirical_confirmation = classified_nonflaky_builds
+    all_nonflaky_builds = nonflaky_by_pattern ++ nonflaky_by_empirical_confirmation
+
+    nonupstream_nonflaky_pattern_matched_section = if null all_nonflaky_builds
       then mempty
       else pure nonupstream_nonflaky_pattern_matched_header
         <> pure non_upstream_nonflaky_intro_text
         <> nonflaky_matched_builds_details_block
 
-    nonupstream_flaky_pattern_matched_section = if null nonupstream_flaky_breakages
-      then mempty
-      else pure nonupstream_flaky_pattern_matched_header
-        <> pure non_upstream_flaky_intro_text
-        <> flaky_matched_builds_details_block
-
     nonupstream_nonflaky_pattern_matched_header = M.heading 3 $ T.unwords [
         ":detective:"
-      , MyUtils.pluralize (length nonupstream_nonflaky_breakages) "new failure"
+      , MyUtils.pluralize (length all_nonflaky_builds) "new failure"
       , "recognized by patterns"
       ]
 
     nonflaky_matched_builds_details_block = concat $
-      zipWith (genMatchedBuildSection $ length nonupstream_nonflaky_breakages)
-        [1..] $ map snd nonupstream_nonflaky_breakages
+      zipWith (genMatchedBuildSection $ length all_nonflaky_builds)
+        [1..] all_nonflaky_builds
 
-    flaky_matched_builds_details_block = concat $
-      zipWith (genMatchedBuildSection $ length nonupstream_flaky_breakages)
-        [1..] $ map snd nonupstream_flaky_breakages
+    discounted_flakiness_blurb = if null nonflaky_by_empirical_confirmation
+      then []
+      else pure $ M.parens $ T.unwords [
+          "NOTE:"
+        , MyUtils.pluralize (length nonflaky_by_empirical_confirmation) "job"
+        , "rerun to discount flakiness"
+        ]
 
-    non_upstream_nonflaky_intro_text = M.colonize [
-        "The following build failures do not appear to be due to upstream breakage"
-      ]
+    nonflaky_intro_text_pieces =
+        "The following build failures do not appear to be due to upstream breakages"
+       : discounted_flakiness_blurb
 
-    non_upstream_flaky_intro_text = M.colonize [
-        "The following build failures have been detected as flaky and"
-      , M.bold "may not be your fault"
-      ]
+    non_upstream_nonflaky_intro_text = M.colonize nonflaky_intro_text_pieces
 
-    nonupstream_flaky_pattern_matched_header = M.heading 3 $ T.unwords [
+    tentative_and_confirmed_flaky_sections = genFlakySections
+      tentatively_flaky_builds
+      confirmed_flaky_builds
+
+
+genFlakySections ::
+     StatusUpdateTypes.TentativeFlakyBuilds StatusUpdateTypes.CommitBuildWrapperTuple
+  -> [StatusUpdateTypes.CommitBuildWrapperTuple]
+  -> [[Text]]
+genFlakySections
+    tentative_flakies
+    confirmed_flaky_builds =
+  [
+    confirmed_flaky_section
+  , tentative_flaky_section
+  ]
+
+  where
+    StatusUpdateTypes.NewTentativeFlakyBuilds tentative_flaky_triggered_reruns tentative_flaky_untriggered_reruns = tentative_flakies
+
+    confirmed_flaky_section = if null confirmed_flaky_builds
+      then mempty
+      else pure $ T.unwords [
+          MyUtils.pluralize (length confirmed_flaky_builds) "failure"
+        , "confirmed as flaky and can be ignored."
+        ]
+
+    total_tentative_flaky_count = StatusUpdateTypes.count tentative_flakies
+
+
+    tentative_flaky_section = if total_tentative_flaky_count > 0
+      then pure tentative_flakies_header
+        <> untriggered_subsection
+        <> triggered_subsection
+      else mempty
+
+    tentative_flakies_header = M.heading 3 $ T.unwords [
         ":snowflake:"
-      , MyUtils.pluralize (length nonupstream_flaky_breakages) "failure"
-      , "recognized as flaky"
+      , "tentatively flaky"
+      , MyUtils.pluralize total_tentative_flaky_count "failure"
       ]
+
+
+    untriggered_subsection = if null tentative_flaky_untriggered_reruns
+      then mempty
+      else pure untriggered_intro_text
+        <> make_details_block tentative_flaky_untriggered_reruns
+
+    triggered_subsection = if null tentative_flaky_triggered_reruns
+      then mempty
+      else pure triggered_intro_text
+        <> make_details_block tentative_flaky_triggered_reruns
+
+    untriggered_intro_text = M.colonize [
+        "The following"
+      , MyUtils.pluralize (length tentative_flaky_untriggered_reruns) "failure"
+      , "have been"
+      , M.bold "tentatively classified as flaky"
+      , "but have not launched reruns to confirm"
+      ]
+
+    triggered_intro_text = M.colonize [
+        "The following"
+      , MyUtils.pluralize (length tentative_flaky_triggered_reruns) "failure"
+      , "have tentatively been classified as flaky and are"
+      , M.bold "rerunning now"
+      , "to confirm"
+      ]
+
+
+    make_details_block x = concat $
+      zipWith (genMatchedBuildSection $ length x)
+        [1..] x
+
 
 
 genUpstreamFailuresSection upstream_breakages =
@@ -205,7 +276,12 @@ genUpstreamFailuresSection upstream_breakages =
         link_url = LT.toStrict CommentRenderCommon.webserverBaseUrl <> "/build-details.html?build_id=" <> T.pack (show ubuild_id)
 
 
-genMatchedBuildSection total_count idx build_with_log_context = [
+genMatchedBuildSection ::
+     Int
+  -> Int
+  -> StatusUpdateTypes.CommitBuildWrapperTuple
+  -> [Text]
+genMatchedBuildSection total_count idx wrapped_build_with_log_context = [
     M.heading 4 $ T.unwords [
         circleci_image_link
       , job_name
@@ -215,6 +291,8 @@ genMatchedBuildSection total_count idx build_with_log_context = [
   ] <> M.detailsExpanderForCode single_match_line code_block_lines
 
   where
+    (wrapped_commit_build, build_with_log_context) = wrapped_build_with_log_context
+
     (CommitBuilds.BuildWithLogContext (CommitBuilds.NewCommitBuild storable_build match_obj _ failure_mode) (CommitBuilds.LogContext _ log_lines)) = build_with_log_context
 
     single_match_line = M.codeInlineHtml $ sanitizeLongLine $ MatchOccurrences._line_text match_obj
@@ -222,9 +300,14 @@ genMatchedBuildSection total_count idx build_with_log_context = [
 
     job_name = Builds.job_name build_obj
 
-    optional_flakiness_indicator = if CommitBuilds._is_flaky failure_mode
-      then [":snowflake:"]
-      else []
+    supplemental_commi_build_info = CommitBuilds._supplemental wrapped_commit_build
+    is_confirmed_non_flaky = SqlRead.has_completed_rerun supplemental_commi_build_info
+      && not (SqlRead.is_empirically_determined_flaky supplemental_commi_build_info)
+
+    optional_flakiness_indicator
+       | is_confirmed_non_flaky  = ["&lt;confirmed not flaky&gt;"]
+       | CommitBuilds._is_flaky failure_mode = [":snowflake:"]
+       | otherwise = []
 
     summary_info_pieces = [
         M.bold "Step:"
@@ -238,10 +321,10 @@ genMatchedBuildSection total_count idx build_with_log_context = [
     code_block_lines = NE.toList $ M.codeBlockFromList $
       dropWhileEnd T.null $ map renderLogLineTuple log_lines
 
+    circleci_build_url = circleCIBuildUrlPrefix <> T.pack (show provider_build_number)
     (Builds.NewBuildNumber provider_build_number) = Builds.provider_buildnum universal_build
     circleci_icon = M.image "See CircleCI build" circleCISmallAvatarUrl
-    circleci_image_link = M.link circleci_icon $
-      circleCIBuildUrlPrefix <> T.pack (show provider_build_number)
+    circleci_image_link = M.link circleci_icon circleci_build_url
 
 
 renderLogLineTuple :: (a, LT.Text) -> Text
@@ -321,8 +404,14 @@ generateCommentMarkdown
       , M.colonize [
           "As of commit"
         , T.take Constants.gitCommitPrefixLength sha1_text
+        , M.parens $ T.unwords [
+            "more details"
+          , M.link "on the Dr. CI page" dr_ci_commit_details_link
+          ]
         ]
       ]
+
+    dr_ci_commit_details_link = LT.toStrict CommentRenderCommon.webserverBaseUrl <> "/commit-details.html?sha1=" <> sha1_text
 
 
 generateMiddleSections ::
@@ -335,7 +424,7 @@ generateMiddleSections
     ancestry_result
     build_summary_stats
     commit_page_info
-    commit@(Builds.RawCommit sha1_text) =
+    commit =
 
   summary_header ++ [summary_tree] ++ detailed_build_issues_section
   where
@@ -353,16 +442,8 @@ generateMiddleSections
     detailed_build_issues_section = if null build_failures_table_lines
       then []
       else [
-          M.heading 2 "Detailed failure analysis"
-        , M.sentence [
-            "One may explore the probable reasons each build failed interactively"
-          , M.link "on the Dr. CI website" dr_ci_commit_details_link
-          ]
-        , T.unlines build_failures_table_lines
+          T.unlines build_failures_table_lines
         ]
-
-    dr_ci_base_url = LT.toStrict CommentRenderCommon.webserverBaseUrl
-    dr_ci_commit_details_link = dr_ci_base_url <> "/commit-details.html?sha1=" <> sha1_text
 
 
 genMetricsTree ::
@@ -380,19 +461,23 @@ genMetricsTree
   (summary_header, forrest_parts)
   where
     forrest_parts = concat [
-        optional_kb_metric
-      , introduced_failures_section
-      , pure $ pure $ pure "---"
+        introduced_failures_section
       , flaky_bullet_tree
+      , optional_kb_metric
       ]
 
     summary_header = if broken_in_pr_count > 0
-      then []
+      then mempty
       else [M.sentence [M.bold "None of the build failures appear to be your fault"]]
 
     optional_kb_metric = [upstream_breakage_bullet_tree | not $ HashMap.null pre_broken_jobs_map]
     introduced_failures_section = [introduced_failures_section_inner | broken_in_pr_count > 0]
-    flaky_bullet_tree = [flaky_bullet_tree_inner | flaky_count > 0]
+    flaky_bullet_tree = [flaky_bullet_tree_inner | tentatively_flaky_count > 0]
+
+
+
+
+
 
     GadgitFetch.AncestryPropositionResponse _ ancestry_result = ancestry_response
 
@@ -405,7 +490,7 @@ genMetricsTree
     upstream_broken_count = HashMap.size pre_broken_jobs_map
     total_failcount = length all_failures
 
-    broken_in_pr_count = total_failcount - upstream_broken_count - flaky_count
+    broken_in_pr_count = total_failcount - upstream_broken_count - tentatively_flaky_count
 
     bold_fraction a b = M.bold $ T.pack $ MyUtils.renderFrac a b
 
@@ -433,13 +518,21 @@ genMetricsTree
       , "failures introduced in this PR"
       ]
 
-    flaky_count = length $ StatusUpdateTypes.flaky_builds $
+
+    tentatively_flaky_builds_partition = StatusUpdateTypes.tentatively_flaky_builds $
       StatusUpdateTypes.pattern_matched_builds $ StatusUpdateTypes.nonupstream_builds commit_page_info
 
 
+    tentatively_flaky_count_foo = StatusUpdateTypes.count tentatively_flaky_builds_partition
+
+    tentatively_flaky_count = trace (unwords ["tentative_flaky_triggered_reruns count:", show $ StatusUpdateTypes.count $ StatusUpdateTypes.tentative_flaky_triggered_reruns tentatively_flaky_builds_partition, "tentative_flaky_untriggered_reruns count:", show $ StatusUpdateTypes.count $ StatusUpdateTypes.tentative_flaky_untriggered_reruns tentatively_flaky_builds_partition]) tentatively_flaky_count_foo
+
+
+
+
     flaky_bullet_tree_inner_heading = pure $ T.unwords [
-        bold_fraction flaky_count total_failcount
-      , "recognized as flaky :snowflake:"
+        bold_fraction tentatively_flaky_count total_failcount
+      , "tentatively recognized as flaky :snowflake:"
       ]
 
     rebuild_request_query_parms = [

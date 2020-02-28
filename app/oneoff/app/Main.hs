@@ -95,10 +95,6 @@ testBotCommentGeneration oauth_access_token conn = do
 
   blah_circleci_failed_job_names <- flip runReaderT conn $ SqlRead.getFailedCircleCIJobNames raw_commit
   let circleci_failed_job_names = fromRight (error "BAD3") blah_circleci_failed_job_names
-  liftIO $ D.debugList [
-      "CircleCI failed job names:"
-    , show circleci_failed_job_names
-    ]
 
   let build_summary_stats = StatusUpdateTypes.NewBuildSummaryStats
         upstream_breakages_info
@@ -106,7 +102,6 @@ testBotCommentGeneration oauth_access_token conn = do
 
 
   let commit_page_info = fromRight (error "BAD4") blah3
-
 
   let Builds.RawCommit merge_base_commit_text = SqlUpdate.merge_base upstream_breakages_info
 
@@ -171,8 +166,6 @@ mainAppCode args = do
 
 --  testGetSpanningBreakages conn args
 
-  putStrLn "============================="
-
   output <- runExceptT $ do
     rsa_signer <- except $ CircleAuth.loadRsaKey $ gitHubAppPemContent args
     let third_party_auth = CircleApi.ThirdPartyAuth
@@ -187,8 +180,6 @@ mainAppCode args = do
     liftIO $ testBotCommentGeneration access_token conn
 
 
-
-  putStrLn "============================="
 --  GadgitTest.testGadgitApis
 --  putStrLn "============================="
 

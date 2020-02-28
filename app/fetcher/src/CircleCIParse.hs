@@ -19,7 +19,11 @@ import qualified Builds
 import qualified DebugUtils                as D
 import qualified ScanRecords
 import           SillyMonoids              ()
-import qualified Sql.Write as SqlWrite
+import qualified Sql.Write                 as SqlWrite
+
+
+timestampLinePrefixRegex :: Text.Regex.Posix.Wrap.Regex
+timestampLinePrefixRegex = mkRegex "\\w+\\s+\\d+\\s+\\d+:\\d+:\\d+\\s+"
 
 
 -- | Log sizes capped at 100MB

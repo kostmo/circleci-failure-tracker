@@ -2028,9 +2028,9 @@ genAllBuildMatchesSubquery sql_where_conditions = Q.qjoin [
     ]
 
 
-
 data CommitBuildSupplementalPayload = CommitBuildSupplementalPayload {
     is_empirically_determined_flaky :: Bool
+  , has_completed_rerun             :: Bool
   , has_triggered_rebuild           :: Bool
   } deriving (Generic, FromRow, ToJSON)
 
@@ -2042,9 +2042,12 @@ getRevisionBuilds ::
   -> DbIO (Either Text (DbHelpers.BenchmarkedResponse Float [CommitBuilds.CommitBuildWrapper CommitBuildSupplementalPayload]))
 getRevisionBuilds git_revision = do
   conn <- ask
-  liftIO $ PostgresHelpers.catchDatabaseError catcher $ do
-    (timing, content) <- D.timeThisFloat $ query conn sql sql_parms
-    return $ Right $ DbHelpers.BenchmarkedResponse timing content
+
+  liftIO $ do
+--    D.debugList ["MY SQL:", show sql, "PARMS:", show sql_parms]
+    PostgresHelpers.catchDatabaseError catcher $ do
+      (timing, content) <- D.timeThisFloat $ query conn sql sql_parms
+      return $ Right $ DbHelpers.BenchmarkedResponse timing content
 
   where
     git_revision_text = GitRev.sha1 git_revision
@@ -2114,6 +2117,7 @@ getRevisionBuilds git_revision = do
 
     supplemental_fields = [
         Q.coalesce "github_status_events_state_counts.is_empirically_determined_flaky" "FALSE" "is_empirically_determined_flaky"
+      , Q.coalesce "github_status_events_state_counts.has_completed_rerun" "FALSE" "has_completed_rerun"
       , "rebuild_trigger_event_counts.universal_build IS NOT NULL AS has_triggered_rebuild"
       ]
 
@@ -3176,23 +3180,29 @@ apiMasterBuilds timeline_parms = do
   conn <- ask
   liftIO $ runExceptT $ do
 
+--    liftIO $ D.debugStr "Z A"
     (commits_list_time, (commit_id_bounds, master_commits)) <- D.timeThisFloat $
       ExceptT $ flip runReaderT conn $ getMasterCommits $ Pagination.offset_mode timeline_parms
 
     let commit_bounds_tuple = DbHelpers.boundsAsTuple commit_id_bounds
 
+--    liftIO $ D.debugStr "Z B"
     (code_breakages_time, code_breakage_ranges) <- D.timeThisFloat $ liftIO $
       runReaderT (apiAnnotatedCodeBreakages commit_id_bounds) conn
 
+--    liftIO $ D.debugStr "Z C"
     (job_failure_spans_time, job_failure_spans) <- D.timeThisFloat $
       liftIO $ runReaderT (getBreakageSpans commit_id_bounds) conn
 
+--    liftIO $ D.debugStr "Z D"
     (reversion_spans_time, reversion_spans) <- D.timeThisFloat $
       liftIO $ query conn reversion_spans_sql commit_bounds_tuple
 
+--    liftIO $ D.debugStr "Z E"
     (builds_list_time, completed_builds) <- D.timeThisFloat $
       liftIO $ query conn builds_list_sql commit_bounds_tuple
 
+--    liftIO $ D.debugStr "Z F"
     (disjoint_statuses_time, disjoint_statuses) <- D.timeThisFloat $
       liftIO $ query conn disjoint_statuses_sql commit_bounds_tuple
 
@@ -3294,7 +3304,7 @@ apiMasterBuilds timeline_parms = do
         , "is_matched"
         , "is_known_broken"
         , "build_num"
-        , "queued_at"
+        , "COALESCE(queued_at, NOW()) AS queued_at" -- FIXME why is this sometimes null?
         , "job_name"
         , "branch"
         , "step_name"
@@ -4098,7 +4108,7 @@ logContextFunc
           retrieval_line_count = last_context_line - first_context_line
 
       log_lines <- liftIO $ do
-
+        {-
         D.debugList [
             "reading console log subset starting at line"
           , show first_context_line
@@ -4106,7 +4116,7 @@ logContextFunc
           , show retrieval_line_count
           , "lines."
           ]
-
+        -}
         runReaderT
           (readLogSubset mid first_context_line retrieval_line_count)
           conn
