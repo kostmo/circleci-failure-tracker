@@ -140,8 +140,9 @@ genPatternMatchedSections pattern_matched_builds = [
     discounted_flakiness_blurb = if null nonflaky_by_empirical_confirmation
       then []
       else pure $ M.parens $ T.unwords [
-          MyUtils.pluralize (length nonflaky_by_empirical_confirmation) "job"
-        , "rerun to discount flakiness"
+          "reran"
+        , MyUtils.pluralize (length nonflaky_by_empirical_confirmation) "job"
+        , "to discount flakiness"
         ]
 
     nonflaky_intro_text_pieces =
@@ -214,11 +215,9 @@ genFlakySections
       , "to confirm"
       ]
 
-
     make_details_block x = concat $
       zipWith (genMatchedBuildSection $ length x)
         [1..] x
-
 
 
 genUpstreamFailuresSection upstream_breakages =
@@ -278,7 +277,7 @@ genMatchedBuildSection ::
 genMatchedBuildSection total_count idx wrapped_build_with_log_context = [
     M.heading 4 $ T.unwords [
         circleci_image_link
-      , job_name
+      , M.link job_name circleci_build_url
       , M.parens $ T.pack $ MyUtils.renderFrac idx total_count
       ]
   , T.unwords summary_info_pieces
@@ -298,8 +297,13 @@ genMatchedBuildSection total_count idx wrapped_build_with_log_context = [
     is_confirmed_non_flaky = SqlRead.has_completed_rerun supplemental_commi_build_info
       && not (SqlRead.is_empirically_determined_flaky supplemental_commi_build_info)
 
+    not_flaky_confirmation_text = M.htmlAngleBrackets $ T.unwords [
+        "confirmed not flaky by"
+      , M.bold $ MyUtils.pluralize (SqlRead.failure_count supplemental_commi_build_info) "failure"
+      ]
+
     optional_flakiness_indicator
-       | is_confirmed_non_flaky  = ["&lt;confirmed not flaky&gt;"]
+       | is_confirmed_non_flaky  = [not_flaky_confirmation_text]
        | CommitBuilds._is_flaky failure_mode = [":snowflake:"]
        | otherwise = []
 
