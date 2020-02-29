@@ -1351,7 +1351,8 @@ updateCodeBreakageResolutionSha1 cause_id (Builds.RawCommit sha1) = do
   where
     sql = Q.qjoin [
         "UPDATE code_breakage_resolution"
-      , "SET sha1 = ? WHERE cause = ?"
+      , "SET sha1 = ?"
+      , "WHERE cause = ?"
       ]
 
 
@@ -1365,7 +1366,8 @@ updateCodeBreakageCauseSha1 cause_id (Builds.RawCommit sha1) = do
   where
     sql = Q.qjoin [
         "UPDATE code_breakage_cause"
-      , "SET sha1 = ? WHERE id = ?"
+      , "SET sha1 = ?"
+      , "WHERE id = ?"
       ]
 
 
@@ -1376,7 +1378,10 @@ deleteCodeBreakageResolution cause_id = do
   conn <- ask
   liftIO $ Right <$> execute conn sql (Only cause_id)
   where
-    sql = "DELETE FROM code_breakage_resolution WHERE cause = ?"
+    sql = Q.qjoin [
+        "DELETE FROM code_breakage_resolution"
+      , "WHERE cause = ?"
+      ]
 
 
 addCodeBreakageJobName ::

@@ -1964,7 +1964,7 @@ genBestMatchesSubquery sql_where_conditions = Q.qjoin [
   , "JOIN patterns_rich AS patterns"
   , "ON inner_matches_for_build.pattern = patterns.id"
   , "ORDER BY"
-    -- XXX Must keep these sort criteria in sync with the "best matches" view definition
+    -- XXX Must keep these sort criteria in sync with the "best_pattern_match_for_builds" view definition
   , Q.list [
       "inner_matches_for_build.universal_build"
     , "inner_matches_for_build.is_promoted DESC"
@@ -2032,6 +2032,7 @@ data CommitBuildSupplementalPayload = CommitBuildSupplementalPayload {
     is_empirically_determined_flaky :: Bool
   , has_completed_rerun             :: Bool
   , has_triggered_rebuild           :: Bool
+  , failure_count                   :: Int
   } deriving (Generic, FromRow, ToJSON)
 
 
@@ -2119,6 +2120,7 @@ getRevisionBuilds git_revision = do
         Q.coalesce "github_status_events_state_counts.is_empirically_determined_flaky" "FALSE" "is_empirically_determined_flaky"
       , Q.coalesce "github_status_events_state_counts.has_completed_rerun" "FALSE" "has_completed_rerun"
       , "rebuild_trigger_event_counts.universal_build IS NOT NULL AS has_triggered_rebuild"
+      , Q.coalesce "github_status_events_state_counts.failure_count" "0" "failure_count"
       ]
 
 

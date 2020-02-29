@@ -59,6 +59,10 @@ angleBracket :: Text -> Text
 angleBracket = surround ["<", ">"]
 
 
+htmlAngleBrackets :: Text -> Text
+htmlAngleBrackets = surround ["&lt;", "&gt;"]
+
+
 tagElement :: Text -> Text -> Text
 tagElement = tagElementAttrs []
 
