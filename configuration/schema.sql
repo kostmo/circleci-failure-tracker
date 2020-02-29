@@ -1427,7 +1427,8 @@ CREATE VIEW public.matches_for_build WITH (security_barrier='false') AS
     matches_distinct.id AS match_id,
     matches_distinct.build_step AS step_id,
     builds_join_steps.vcs_revision,
-    matches_distinct.is_promoted
+    matches_distinct.is_promoted,
+    matches_distinct.line_number
    FROM (public.matches_distinct
      JOIN public.builds_join_steps ON ((matches_distinct.build_step = builds_join_steps.step_id)));
 
@@ -1554,7 +1555,7 @@ CREATE VIEW public.best_pattern_match_for_builds WITH (security_barrier='false')
     matches_for_build.is_promoted
    FROM (public.matches_for_build
      JOIN public.patterns_rich ON ((matches_for_build.pat = patterns_rich.id)))
-  ORDER BY matches_for_build.universal_build, matches_for_build.is_promoted DESC, patterns_rich.specificity DESC, patterns_rich.is_retired, patterns_rich.regex, patterns_rich.id DESC, matches_for_build.match_id DESC;
+  ORDER BY matches_for_build.universal_build, matches_for_build.is_promoted DESC, patterns_rich.specificity DESC, matches_for_build.line_number DESC, patterns_rich.is_retired, patterns_rich.regex, patterns_rich.id DESC, matches_for_build.match_id DESC;
 
 
 ALTER TABLE public.best_pattern_match_for_builds OWNER TO postgres;
@@ -2574,7 +2575,8 @@ CREATE TABLE public.created_pull_request_comment_revisions (
     body text,
     updated_at timestamp with time zone NOT NULL,
     sha1 character(40),
-    was_new_push boolean DEFAULT false NOT NULL
+    was_new_push boolean DEFAULT false NOT NULL,
+    all_no_fault_failures boolean DEFAULT false NOT NULL
 );
 
 
@@ -2890,14 +2892,15 @@ COMMENT ON VIEW public.github_status_events_aggregate_circleci_failures IS 'NOTE
 -- Name: github_status_events_state_counts; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.github_status_events_state_counts AS
+CREATE VIEW public.github_status_events_state_counts WITH (security_barrier='false') AS
  SELECT foo.sha1,
     foo.job_name,
     foo.failure_count,
     foo.pending_count,
     foo.success_count,
     foo.error_count,
-    ((foo.failure_count > 0) AND (foo.success_count > 0)) AS is_empirically_determined_flaky
+    ((foo.failure_count > 0) AND (foo.success_count > 0)) AS is_empirically_determined_flaky,
+    ((foo.failure_count + foo.success_count) > 1) AS has_completed_rerun
    FROM ( SELECT github_status_events_circleci.sha1,
             github_status_events_circleci.job_name_extracted AS job_name,
             sum(((github_status_events_circleci.state = 'failure'::text))::integer) AS failure_count,
