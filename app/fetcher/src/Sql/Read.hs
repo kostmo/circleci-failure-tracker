@@ -4149,7 +4149,9 @@ logContextFunc
       ]
 
 
-getPatternMatches :: ScanPatterns.PatternId -> DbIO [PatternOccurrence]
+getPatternMatches ::
+     ScanPatterns.PatternId
+  -> DbIO [PatternOccurrence]
 getPatternMatches pattern_id =
   map f <$> getPatternOccurrenceRows pattern_id
   where
@@ -4242,4 +4244,5 @@ getPatternOccurrenceRows (ScanPatterns.PatternId pattern_id) = do
       , "WHERE pattern = ?"
       , "ORDER BY"
       , "queued_at DESC"
+      , "LIMIT 100"
       ]

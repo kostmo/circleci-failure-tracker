@@ -298,7 +298,9 @@ genMatchedBuildSection total_count idx wrapped_build_with_log_context = [
       && not (SqlRead.is_empirically_determined_flaky supplemental_commi_build_info)
 
     not_flaky_confirmation_text = M.htmlAngleBrackets $ T.unwords [
-        "confirmed not flaky by"
+        "confirmed"
+      , M.bold "not flaky"
+      , "by"
       , M.bold $ MyUtils.pluralize (SqlRead.failure_count supplemental_commi_build_info) "failure"
       ]
 

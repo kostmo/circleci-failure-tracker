@@ -19,7 +19,9 @@ function gen_broken_jobs_table(element_id, data_url) {
 		{title: "Job", field: "job", width: 350},
 		{title: "Recurrences", field: "occurrence_count", width: 75},
 		{title: "Build", field: "universal_build_id", formatter: "link",
-			formatterParams: {urlPrefix: "/build-details.html?build_id="},
+			formatterParams: {
+				urlPrefix: "/build-details.html?build_id=",
+			},
 			width: 75,
 		},
 		{title: "Flaky", field: "flaky", formatter:"tickCross", sorter:"boolean", width: 80},

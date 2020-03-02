@@ -51,8 +51,11 @@ instance FromField BuildNumber where
   fromField f mdata = NewBuildNumber <$> fromField f mdata
 
 
-newtype UniversalBuildId = UniversalBuildId {extractUniversalId :: Int64}
+newtype UniversalBuildId = UniversalBuildId Int64
   deriving (Show, Generic, Eq, Ord)
+
+extractUniversalId :: UniversalBuildId -> Int64
+extractUniversalId (UniversalBuildId x) = x
 
 instance ToJSON UniversalBuildId
 instance FromJSON UniversalBuildId
