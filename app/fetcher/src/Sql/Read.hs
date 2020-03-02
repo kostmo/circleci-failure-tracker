@@ -1667,16 +1667,6 @@ getSpanningBreakages conn sha1 =
       ]
 
 
-listFlat1 :: (ToField b, FromField a) =>
-     Query
-  -> DbHelpers.DbConnectionData
-  -> b
-  -> IO [a]
-listFlat1 sql conn_data t = do
-  conn <- DbHelpers.get_connection conn_data
-  map (\(Only x) -> x) <$> query conn sql (Only t)
-
-
 listFlat1X :: (ToField b, FromField a) =>
      Query
   -> b

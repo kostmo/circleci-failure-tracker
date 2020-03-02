@@ -245,7 +245,7 @@ requireAdminToken connection_data github_config f = do
           except $ Left $ T.pack "Incorrect admin password"
 
         ExceptT $ do
-          conn <- liftIO $ DbHelpers.get_connection connection_data
+          conn <- liftIO $ DbHelpers.getConnection connection_data
           f conn body_json
 
     S.json $ WebApi.toJsonEither insertion_result
@@ -284,7 +284,7 @@ jsonAuthorizedDbInteractCommon2
   func <- f
 
   let callback_func user_alias = do
-        conn <- DbHelpers.get_connection connection_data
+        conn <- DbHelpers.getConnection connection_data
         runReaderT func $ g conn user_alias
 
   login_redirect_path <- S.param "login_redirect_path"

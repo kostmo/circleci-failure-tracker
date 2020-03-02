@@ -797,7 +797,7 @@ handlePullRequestWebhook
 
   insertion_count <- if pullRequestEventActionSynchronize == actn
     then do
-      synchronous_conn <- DbHelpers.get_connection db_connection_data
+      synchronous_conn <- DbHelpers.getConnection db_connection_data
 
       (maybe_old_pr_comment, pr_heads_insertion_count) <- flip runReaderT synchronous_conn $ do
         a1 <- SqlRead.getPostedCommentForPR pr_number
@@ -857,7 +857,7 @@ handlePushWebhook
   if refname == fullMasterRefName
     then do
       putStrLn "This was the master branch!"
-      conn <- DbHelpers.get_connection db_connection_data
+      conn <- DbHelpers.getConnection db_connection_data
 
       fmap (first LT.fromStrict) $ runExceptT $ do
 
@@ -917,7 +917,7 @@ handleStatusWebhook
       _ -> Left $ "un-parseable owner/repo text: " <> owner_repo_text
 
 
-    synchronous_conn <- liftIO $ DbHelpers.get_connection db_connection_data
+    synchronous_conn <- liftIO $ DbHelpers.getConnection db_connection_data
 
     liftIO $ SqlWrite.insertReceivedGithubStatus synchronous_conn status_event
 
@@ -930,7 +930,7 @@ handleStatusWebhook
 
 
     let dr_ci_posting_computation = do
-          conn <- DbHelpers.get_connection db_connection_data
+          conn <- DbHelpers.getConnection db_connection_data
 
           timeout buildStatusHandlerTimeoutMicroseconds $ runExceptT $
             -- When we receive a webhook notification of a "status" event from

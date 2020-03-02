@@ -274,7 +274,7 @@ prepareScanResources
     , "seconds"
     ]
 
-  let patterns_by_id = DbHelpers.to_dict pattern_records_descending_by_id
+  let patterns_by_id = DbHelpers.toDict pattern_records_descending_by_id
 
   runExceptT $ do
     latest_pattern <- except $ maybeToEither "No patterns in database!" $

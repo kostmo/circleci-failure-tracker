@@ -51,7 +51,7 @@ prepareDatabase ::
   -> Bool -> IO Connection
 prepareDatabase conn_data wipe = do
 
-  conn <- DbHelpers.get_connection conn_data
+  conn <- DbHelpers.getConnection conn_data
 
   when wipe $
     putStrLn "Wiping not supported."

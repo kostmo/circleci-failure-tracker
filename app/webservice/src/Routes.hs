@@ -130,7 +130,7 @@ scottyApp
     is_from_frontend <- S.param "from-frontend"
 
     result <- liftIO $ do
-      mview_conn <- DbHelpers.get_connection mview_connection_data
+      mview_conn <- DbHelpers.getConnection mview_connection_data
       flip runReaderT mview_conn $ SqlRead.refreshCachedMasterGrid view_name $ FrontendHelpers.checkboxIsTrue is_from_frontend
 
     S.json $ WebApi.toJsonEither result
@@ -387,7 +387,7 @@ scottyApp
   S.get "/api/commit-info" $ do
     commit_sha1_text <- S.param "sha1"
     json_result <- liftIO $ do
-      conn <- DbHelpers.get_connection connection_data
+      conn <- DbHelpers.getConnection connection_data
       runExceptT $ do
         sha1 <- except $ GitRev.validateSha1 commit_sha1_text
         ExceptT $ flip runReaderT conn $
@@ -455,7 +455,7 @@ scottyApp
     json_result <- runExceptT $ do
       sha1 <- except $ GitRev.validateSha1 commit_sha1_text
       either_result <- liftIO $ do
-        conn <- DbHelpers.get_connection connection_data
+        conn <- DbHelpers.getConnection connection_data
         flip runReaderT conn $ SqlRead.getRevisionBuilds sha1
       except either_result
 
@@ -466,7 +466,7 @@ scottyApp
     new_pattern <- FrontendHelpers.patternFromParms
 
     x <- liftIO $ do
-      conn <- DbHelpers.get_connection connection_data
+      conn <- DbHelpers.getConnection connection_data
       flip runReaderT conn $ SqlRead.apiNewPatternTest
         (Builds.UniversalBuildId buildnum)
         new_pattern
@@ -494,7 +494,7 @@ scottyApp
     let universal_build_id = Builds.UniversalBuildId build_id
 
     either_log_result <- liftIO $ do
-      conn <- DbHelpers.get_connection connection_data
+      conn <- DbHelpers.getConnection connection_data
       flip runReaderT conn $ SqlRead.retrieveLogFromBuildId universal_build_id
 
     case either_log_result of

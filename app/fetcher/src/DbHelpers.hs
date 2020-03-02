@@ -4,6 +4,7 @@
 module DbHelpers where
 
 import           Control.Arrow                        ((&&&))
+import           Control.Monad                        (void)
 import           Data.Aeson
 import           Data.HashMap.Strict                  (HashMap)
 import qualified Data.HashMap.Strict                  as HashMap
@@ -197,24 +198,23 @@ data DbConnectionData = NewDbConnectionData {
   }
 
 
-as_tuple :: WithId a -> (Int64, a)
-as_tuple = db_id &&& record
+asTuple :: WithId a -> (Int64, a)
+asTuple = db_id &&& record
 
 
-to_dict :: [WithId a] -> HashMap Int64 a
-to_dict = HashMap.fromList . map as_tuple
+toDict :: [WithId a] -> HashMap Int64 a
+toDict = HashMap.fromList . map asTuple
 
 
 setSessionStatementTimeout ::
      Connection
   -> Integer -- ^ seconds
   -> IO ()
-setSessionStatementTimeout conn seconds = do
-  execute conn sql $ Only milliseconds
-  return ()
+setSessionStatementTimeout conn seconds =
+  void $ execute conn sql $ Only milliseconds
   where
     milliseconds = seconds * 1000
-    sql = "SET SESSION statement_timeout = ?;"
+    sql = "SET SESSION statement_timeout = ?"
 
 
 getConnectionWithStatementTimeout ::
@@ -222,13 +222,13 @@ getConnectionWithStatementTimeout ::
   -> Integer
   -> IO Connection
 getConnectionWithStatementTimeout conn_data timeout_seconds = do
-  conn <- get_connection conn_data
+  conn <- getConnection conn_data
   setSessionStatementTimeout conn timeout_seconds
   return conn
 
 
-get_connection :: DbConnectionData -> IO Connection
-get_connection conn_data = connect $ defaultConnectInfo {
+getConnection :: DbConnectionData -> IO Connection
+getConnection conn_data = connect $ defaultConnectInfo {
       connectUser = dbUsername conn_data
     , connectPassword = dbPassword conn_data
     , connectDatabase = dbName conn_data

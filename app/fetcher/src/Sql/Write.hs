@@ -2,7 +2,6 @@
 
 module Sql.Write where
 
-import           Control.Applicative               ((<|>))
 import           Control.Exception                 (throwIO)
 import           Control.Monad                     (unless, void)
 import           Control.Monad.IO.Class            (liftIO)
@@ -30,8 +29,7 @@ import           Data.Traversable                  (for)
 import           Data.Tuple                        (swap)
 import           Database.PostgreSQL.Simple
 import           Database.PostgreSQL.Simple.Errors
-import           Database.PostgreSQL.Simple.Types  (PGArray (PGArray),
-                                                    fromPGArray)
+import           Database.PostgreSQL.Simple.Types  (PGArray (PGArray))
 import           GHC.Int                           (Int64)
 import qualified Network.OAuth.OAuth2              as OAuth2
 import qualified Safe
@@ -1929,71 +1927,6 @@ data PatternFieldOverrides = PatternFieldOverrides {
   , pat_applicable_steps :: Maybe [Text]
   , pat_lines_from_end   :: Maybe Int
   }
-
-
-copyPattern ::
-     DbHelpers.DbConnectionData
-  -> ScanPatterns.PatternId
-  -> AuthStages.Username
-  -> PatternFieldOverrides
-  -> IO (Either Text Int64)
-copyPattern
-    conn_data
-    pattern_id@(ScanPatterns.PatternId pat_id)
-    username
-    field_overrides = do
-
-  conn <- DbHelpers.get_connection conn_data
-  pattern_rows <- query conn sql $ Only pat_id
-
-  runExceptT $ do
-
-    p <- except $ maybeToEither
-      (T.pack $ unwords ["Pattern with ID", show pat_id, "not found."])
-      (Safe.headMay pattern_rows)
-
-    let (   p_is_regex
-          , p_has_nondeterministic_values
-          , p_expression_text
-          , p_description
-          , p_tags_array
-          , p_steps_array
-          , p_specificity
-          , p_maybe_lines_from_end) = p
-
-        expression_text = Maybe.fromMaybe p_expression_text $ pat_expression field_overrides
-        is_regex = Maybe.fromMaybe p_is_regex $ pat_is_regex field_overrides
-
-        new_pattern = ScanPatterns.NewPattern
-          (ScanPatterns.toMatchExpression is_regex expression_text p_has_nondeterministic_values)
-          p_description
-          (fromPGArray p_tags_array)
-          (Maybe.fromMaybe (fromPGArray p_steps_array) $ pat_applicable_steps field_overrides)
-          p_specificity
-          False
-          (pat_lines_from_end field_overrides <|> p_maybe_lines_from_end)
-
-    ExceptT $ do
-      new_id <- runReaderT (apiNewPattern $ Left (new_pattern, username)) conn
-      retirePattern conn pattern_id
-      return new_id
-
-  where
-    sql = Q.qjoin [
-        "SELECT"
-      , Q.list [
-          "regex"
-        , "has_nondeterministic_values"
-        , "expression"
-        , "description"
-        , "tags_array"
-        , "steps_array"
-        , "specificity"
-        , "lines_from_end"
-        ]
-      , "FROM patterns_augmented"
-      , "WHERE id = ?"
-      ]
 
 
 elaborateBuildFailure ::
