@@ -46,7 +46,7 @@ checkboxIsTrue = (== ("true" :: Text))
 
 
 apiGetSqlTimeoutSeconds :: Integer
-apiGetSqlTimeoutSeconds = 3 * 60
+apiGetSqlTimeoutSeconds = 60
 
 
 data MutablePatternParms = MutablePatternParms {
