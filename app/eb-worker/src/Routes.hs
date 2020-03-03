@@ -4,10 +4,9 @@
 module Routes where
 
 import           Control.Monad.IO.Class     (liftIO)
-import           Control.Monad.Trans.Except (ExceptT (ExceptT), runExceptT)
+import           Control.Monad.Trans.Except (runExceptT)
 import           Control.Monad.Trans.Reader (runReaderT)
 import           Data.Aeson                 (FromJSON, ToJSON)
-import           Data.Bifunctor             (first)
 import           Data.Text                  (Text)
 import qualified Data.Text                  as T
 import qualified Data.Text.Lazy             as LT
@@ -31,16 +30,9 @@ import qualified CircleTrigger
 import qualified Constants
 import qualified DbHelpers
 import qualified DebugUtils                 as D
-import qualified Scanning
-import qualified ScanRecords
 import qualified Sql.Read                   as SqlRead
 import qualified Sql.Write                  as SqlWrite
 import qualified StatusUpdate
-
-
--- | 2 minutes
-statementTimeoutSeconds :: Integer
-statementTimeoutSeconds = 120
 
 
 data SqsBuildScanMessage = SqsBuildScanMessage {
@@ -50,7 +42,6 @@ data SqsBuildScanMessage = SqsBuildScanMessage {
 
 instance ToJSON SqsBuildScanMessage
 instance FromJSON SqsBuildScanMessage
-
 
 
 data SetupData = SetupData {
@@ -99,7 +90,7 @@ wrapWithDbDurationRecords connection_data func = do
 
   start_id <- liftIO $ do
     putStrLn "Starting timed database operation..."
-    conn <- DbHelpers.getConnectionWithStatementTimeout connection_data statementTimeoutSeconds
+    conn <- DbHelpers.getConnectionWithStatementTimeout connection_data StatusUpdate.statementTimeoutSeconds
     SqlWrite.insertEbWorkerStart
       conn
       path_string
@@ -109,7 +100,7 @@ wrapWithDbDurationRecords connection_data func = do
   func start_id
 
   liftIO $ do
-    conn <- DbHelpers.getConnectionWithStatementTimeout connection_data statementTimeoutSeconds
+    conn <- DbHelpers.getConnectionWithStatementTimeout connection_data StatusUpdate.statementTimeoutSeconds
     SqlWrite.insertEbWorkerFinish conn start_id
     putStrLn "Finished timed database operation..."
 
@@ -136,7 +127,7 @@ scottyApp
 
         conn <- DbHelpers.getConnectionWithStatementTimeout
           connection_data
-          statementTimeoutSeconds
+          StatusUpdate.statementTimeoutSeconds
 
         insertion_count <- BuildRetrieval.updateCircleCIBuildsList
           conn
@@ -170,7 +161,7 @@ scottyApp
 
         conn <- DbHelpers.getConnectionWithStatementTimeout
           connection_data
-          statementTimeoutSeconds
+          StatusUpdate.statementTimeoutSeconds
 
         build_num_tuples <- runReaderT SqlRead.getFlakyMasterBuildsToRetry conn
 
@@ -193,7 +184,7 @@ scottyApp
           , show current_time
           ]
 
-        conn <- DbHelpers.getConnectionWithStatementTimeout connection_data statementTimeoutSeconds
+        conn <- DbHelpers.getConnectionWithStatementTimeout connection_data StatusUpdate.statementTimeoutSeconds
 
         either_result <- SqlWrite.updateMergedPullRequestHeadCommits conn
         case either_result of
@@ -255,7 +246,19 @@ doStuff
 
   conn <- DbHelpers.getConnectionWithStatementTimeout
     connection_data
-    statementTimeoutSeconds
+    StatusUpdate.statementTimeoutSeconds
+
+  StatusUpdate.wrappedScanAndPostCommit
+    conn
+    third_party_auth
+    owned_repo
+    True
+    commit_sha1
+
+  {-
+  conn <- DbHelpers.getConnectionWithStatementTimeout
+    connection_data
+    StatusUpdate.statementTimeoutSeconds
 
   universal_builds <- runReaderT
     (SqlRead.getUnvisitedBuildsForSha1 commit_sha1)
@@ -290,8 +293,10 @@ doStuff
       , show $ length scan_matches
       ]
 
+  -}
 
-  either_deletion_count <- runReaderT (SqlWrite.deleteSha1QueuePlaceholder commit_sha1) conn
+  either_deletion_count <- flip runReaderT conn $
+    SqlWrite.deleteSha1QueuePlaceholder commit_sha1
 
   D.debugList [
       "Removed"

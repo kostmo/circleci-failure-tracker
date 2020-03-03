@@ -85,9 +85,8 @@ genBuildFailuresTable ::
   -> [[Text]]
 genBuildFailuresTable
     (StatusUpdateTypes.NewCommitPageInfo upstream_breakages nonupstream_builds) =
-  major_sections
+  pattern_matched_sections ++ [pattern_unmatched_section, upstream_matched_section]
   where
-    major_sections = pattern_matched_sections ++ [pattern_unmatched_section, upstream_matched_section]
 
     pattern_matched_sections = genPatternMatchedSections pattern_matched_builds
 
@@ -394,7 +393,7 @@ generateCommentMarkdown ::
   -> Text
 generateCommentMarkdown
     maybe_previous_pr_comment
-    (CommentRenderCommon.NewPrCommentPayload middle_sections _)
+    (CommentRenderCommon.NewPrCommentPayload middle_sections _ _)
     (Builds.RawCommit sha1_text) =
 
   T.unlines $ intercalate ["", "---"] $ filter (not . null) $
@@ -416,8 +415,6 @@ generateCommentMarkdown
     dr_ci_commit_details_link = LT.toStrict CommentRenderCommon.webserverBaseUrl <> "/commit-details.html?sha1=" <> sha1_text
 
 
-
-
 generateMiddleSections ::
      GadgitFetch.AncestryPropositionResponse
   -> StatusUpdateTypes.BuildSummaryStats
@@ -430,17 +427,19 @@ generateMiddleSections
     commit_page_info
     commit =
 
-  CommentRenderCommon.NewPrCommentPayload sections is_all_no_fault_failures
+  CommentRenderCommon.NewPrCommentPayload sections is_all_no_fault_failures is_all_successful_circleci_builds
   where
-    sections = [summary_header] ++ [[summary_tree]] ++ build_failures_table_sections
+    sections = [summary_header] ++ [summary_tree_lines] ++ build_failures_table_sections
 
-    (summary_header, summary_forrest, is_all_no_fault_failures) = genMetricsTree
+    (summary_header, summary_forrest, is_all_no_fault_failures, is_all_successful_circleci_builds) = genMetricsTree
       commit_page_info
       ancestry_result
       build_summary_stats
       commit
 
-    summary_tree = M.bulletTree summary_forrest
+    summary_tree_lines = if null summary_forrest
+      then mempty
+      else [M.bulletTree summary_forrest]
 
     build_failures_table_sections = genBuildFailuresTable commit_page_info
 
@@ -450,15 +449,17 @@ genMetricsTree ::
   -> GadgitFetch.AncestryPropositionResponse
   -> StatusUpdateTypes.BuildSummaryStats
   -> Builds.RawCommit
-  -> ([Text], Tr.Forest (NonEmpty Text), Bool)
+  -> ([Text], Tr.Forest (NonEmpty Text), Bool, Bool)
 genMetricsTree
     commit_page_info
     ancestry_response
     (StatusUpdateTypes.NewBuildSummaryStats pre_broken_info all_failures)
     (Builds.RawCommit commit_sha1_text) =
 
-  (summary_header, forrest_parts, not has_user_caused_failures)
+  (summary_header, forrest_parts, not has_user_caused_failures, is_all_successful_circleci_builds)
   where
+
+    is_all_successful_circleci_builds = null all_failures
 
     has_user_caused_failures = broken_in_pr_count > 0
 
@@ -468,15 +469,19 @@ genMetricsTree
       , optional_kb_metric
       ]
 
-    summary_header = if has_user_caused_failures
-      then mempty
-      else [
-
-        T.unwords [
-            ":white_check_mark:"
-          , M.bold "None of the build failures appear to be your fault"
-          , ":green_heart:"
-          ]
+    summary_header
+      | has_user_caused_failures = mempty
+      | is_all_successful_circleci_builds = pure $ T.unwords [
+          ":green_heart:"
+        , ":green_heart:"
+        , M.bold "Looks good so far! There are no CircleCI failures yet."
+        , ":green_heart:"
+        , ":green_heart:"
+        ]
+      | otherwise = pure $ T.unwords [
+          ":white_check_mark:"
+        , M.bold "None of the build failures appear to be your fault"
+        , ":green_heart:"
         ]
 
     optional_kb_metric = [upstream_breakage_bullet_tree | not $ HashMap.null pre_broken_jobs_map]

@@ -315,17 +315,20 @@ scottyApp
   get "/api/step-suggest" $
     SqlRead.apiAutocompleteSteps <$> S.param "term"
 
-  get "/api/downstream-impact-weekly" $
-    SqlRead.downstreamWeeklyFailureStats <$> S.param "weeks"
-
   get "/api/master-breakages-monthly-stats" $
     pure SqlRead.masterBreakageMonthlyStats
 
+  get "/api/downstream-impact-weekly" $
+    SqlRead.downstreamWeeklyFailureStats
+      <$> S.param "weeks"
+
   get "/api/master-weekly-failure-stats" $
-    fmap WebApi.toJsonEither . SqlRead.masterWeeklyFailureStats <$> S.param "weeks"
+    fmap WebApi.toJsonEither . SqlRead.masterWeeklyFailureStats
+      <$> S.param "weeks"
 
   get "/api/master-pr-merge-time-weekly-failure-stats" $
-    SqlRead.getMergeTimeFailingPullRequestBuildsByWeek <$> S.param "weeks"
+    SqlRead.getMergeTimeFailingPullRequestBuildsByWeek
+      <$> S.param "weeks"
 
   get "/api/page-views-by-week" $
     SqlRead.getPageViewsByWeek
@@ -346,9 +349,6 @@ scottyApp
   get "/api/pattern-job-occurrences" $
     SqlRead.patternBuildJobOccurrences . ScanPatterns.PatternId <$> S.param "pattern_id"
 
-  get "/api/build-pattern-matches" $
-    SqlRead.getBuildPatternMatches . Builds.UniversalBuildId <$> S.param "build_id"
-
   get "/api/best-pattern-matches" $
     SqlRead.getBestPatternMatches . ScanPatterns.PatternId <$> S.param "pattern_id"
 
@@ -357,6 +357,9 @@ scottyApp
 
   get "/api/pattern" $
     SqlRead.apiSinglePattern . ScanPatterns.PatternId <$> S.param "pattern_id"
+
+  get "/api/build-pattern-matches" $
+    SqlRead.getBuildPatternMatches . Builds.UniversalBuildId <$> S.param "build_id"
 
   get "/api/best-build-match" $
     SqlRead.getBestBuildMatch . Builds.UniversalBuildId <$> S.param "build_id"

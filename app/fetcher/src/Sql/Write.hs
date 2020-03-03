@@ -1150,6 +1150,7 @@ commentBodyInsertionSql = Q.qjoin [
     , "sha1"
     , "was_new_push"
     , "all_no_fault_failures"
+    , "all_successful_circleci_builds"
     ]
   , "RETURNING id"
   ]
@@ -1170,13 +1171,13 @@ insertPostedGithubComment
     (Builds.RawCommit sha1)
     (Builds.PullRequestNumber pull_request_number)
     was_new_push
-    (CommentRenderCommon.NewPrCommentPayload _ all_no_fault_failures)
+    (CommentRenderCommon.NewPrCommentPayload _ all_no_fault_failures all_successful_circleci_builds)
     (ApiPost.CommentPostResult comment_id body created_at updated_at) = do
 
   execute conn comment_insertion_sql (comment_id, owner, repo, pull_request_number, created_at)
 
   [Only comment_revision_id] <- query conn commentBodyInsertionSql
-    (comment_id, body, updated_at, sha1, was_new_push, all_no_fault_failures)
+    (comment_id, body, updated_at, sha1, was_new_push, all_no_fault_failures, all_successful_circleci_builds)
 
   return comment_revision_id
 
@@ -1218,11 +1219,11 @@ modifyPostedGithubComment
     conn
     (Builds.RawCommit sha1)
     was_new_push
-    (CommentRenderCommon.NewPrCommentPayload _ all_no_fault_failures)
+    (CommentRenderCommon.NewPrCommentPayload _ all_no_fault_failures all_successful_circleci_builds)
     (ApiPost.CommentPostResult comment_id body _created_at updated_at) = do
 
   [Only comment_revision_id] <- query conn commentBodyInsertionSql
-    (comment_id, body, updated_at, sha1, was_new_push, all_no_fault_failures)
+    (comment_id, body, updated_at, sha1, was_new_push, all_no_fault_failures, all_successful_circleci_builds)
 
   return comment_revision_id
 

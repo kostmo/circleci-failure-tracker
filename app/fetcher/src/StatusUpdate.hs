@@ -5,12 +5,13 @@ module StatusUpdate (
   , readGitHubStatusesAndScanAndPostSummaryForCommit
   , postCommitSummaryStatus
   , fetchCommitPageInfo
+  , wrappedScanAndPostCommit
   , SuccessRecordStorageMode (..)
   , ScanLogsMode (..)
   , viableBranchName
+  , statementTimeoutSeconds
   ) where
 
-import           Control.Concurrent            (forkIO)
 import           Control.Monad                 (guard, when)
 import           Control.Monad.IO.Class        (liftIO)
 import           Control.Monad.Trans.Except    (ExceptT (ExceptT), except,
@@ -36,7 +37,6 @@ import qualified GitHub.Data.Webhooks.Validate as GHValidate
 import qualified Network.OAuth.OAuth2          as OAuth2
 import qualified Network.URI                   as URI
 import qualified Safe
-import           System.Timeout                (timeout)
 import           Text.Read                     (readMaybe)
 import qualified Web.Scotty                    as S
 import           Web.Scotty.Internal.Types     (ActionT)
@@ -72,17 +72,17 @@ import qualified UnmatchedBuilds
 import qualified Webhooks
 
 
+-- | 2 minutes
+statementTimeoutSeconds :: Integer
+statementTimeoutSeconds = 120
+
+
 viableBranchName :: Text
 viableBranchName = "viable/strict"
 
 
 pullRequestEventActionSynchronize :: LT.Text
 pullRequestEventActionSynchronize = "synchronize"
-
-
--- | 3 minutes
-buildStatusHandlerTimeoutMicroseconds :: Int
-buildStatusHandlerTimeoutMicroseconds = 1000000 * 60 * 3
 
 
 fullMasterRefName :: Text
@@ -693,7 +693,7 @@ wipeCommentForUpdatedPr
     conn
     new_pr_head_commit
     True
-    (CommentRenderCommon.NewPrCommentPayload [[middle_sections]] True)
+    (CommentRenderCommon.NewPrCommentPayload [[middle_sections]] True True)
     pr_number
     previous_pr_comment
 
@@ -744,7 +744,7 @@ readGitHubStatusesAndScanAndPostSummaryForCommit
 
   liftIO $ do
     current_time <- Clock.getCurrentTime
-    D.debugList ["Processing at", show current_time]
+    D.debugList ["ABC Processing at", show current_time]
 
   liftIO $ DbHelpers.setSessionStatementTimeout conn Scanning.scanningStatementTimeoutSeconds
 
@@ -761,11 +761,11 @@ readGitHubStatusesAndScanAndPostSummaryForCommit
     should_store_second_level_success_records
     sha1
 
-  liftIO $ D.debugList ["Finished getBuildsFromGithub"]
+  liftIO $ D.debugList ["ABC Finished getBuildsFromGithub"]
 
   case should_scan of
     ShouldScanLogs -> do
-      liftIO $ D.debugList ["About to enter scanAndPost"]
+      liftIO $ D.debugList ["ABC About to enter scanAndPost"]
 
       scanAndPost
         scan_resources
@@ -886,13 +886,11 @@ handlePushWebhook
 handleStatusWebhook ::
      DbHelpers.DbConnectionData
   -> CircleApi.ThirdPartyAuth
-  -> Maybe AuthStages.Username
   -> Webhooks.GitHubStatusEvent
   -> IO (Either LT.Text Bool)
 handleStatusWebhook
     db_connection_data
-    third_party_auth
-    maybe_initiator
+    _third_party_auth
     status_event = do
 
   liftIO $ D.debugList [
@@ -907,71 +905,100 @@ handleStatusWebhook
       , notified_status_url_string
       ]
 
+  {-
   let owner_repo_text = Webhooks.name status_event
       splitted = splitOn "/" $ LT.unpack owner_repo_text
-
+  -}
   runExceptT $ do
 
+    {-
     owned_repo <- except $ case splitted of
       [org, repo] -> Right $ DbHelpers.OwnerAndRepo org repo
       _ -> Left $ "un-parseable owner/repo text: " <> owner_repo_text
-
+    -}
 
     synchronous_conn <- liftIO $ DbHelpers.getConnection db_connection_data
 
     liftIO $ SqlWrite.insertReceivedGithubStatus synchronous_conn status_event
 
-
-    -- On builds from the *master* branch,
-    -- we may store the *successful* as well as the failed second-level
-    -- build records,
-    -- since the volume on the *master* branch should be relatively low.
-    is_master_commit <- liftIO $ flip runReaderT synchronous_conn $ SqlRead.isMasterCommit sha1
-
-
-    let dr_ci_posting_computation = do
-          conn <- DbHelpers.getConnection db_connection_data
-
-          timeout buildStatusHandlerTimeoutMicroseconds $ runExceptT $
-            -- When we receive a webhook notification of a "status" event from
-            -- GitHub, and that status was "failure", we take a look at all of
-            -- the statuses for that commit, scan the build logs, and post
-            -- post a summary as a GitHub status notification.
-            readGitHubStatusesAndScanAndPostSummaryForCommit
-              third_party_auth
-              conn
-              maybe_initiator
-              owned_repo
-              (if is_master_commit then StatusUpdate.ShouldStoreDetailedSuccessRecords else StatusUpdate.NoStoreDetailedSuccessRecords)
-              sha1
---              ShouldScanLogs
-              NoScanLogs -- TODO Does it matter if this is disabled?
-              Scanning.NoRevisit
-
-          return ()
-
-    maybe_previously_posted_status <- liftIO $ flip runReaderT synchronous_conn $ SqlRead.getPostedCommentForSha1 sha1
-
-
-    -- If we haven't posted a PR comment before for this commit, do not act unless the notification
-    -- was for a failed build.
-    let will_post = is_failure_notification || not (null maybe_previously_posted_status)
-
-    when will_post $ do
-      _thread_id <- liftIO $ forkIO dr_ci_posting_computation
-      return ()
-
-    return will_post
+    {-
+    wrappedScanAndPostCommit
+      db_connection_data
+      third_party_auth
+      synchronous_conn
+      owned_repo
+      is_failure_notification
+      sha1
+     -}
+  return $ return False
 
   where
+    {-
     notified_status_state_string = LT.unpack $ Webhooks.state status_event
     is_failure_notification = notified_status_state_string == LT.unpack gitHubStatusFailureString
+    -}
 
     context_text = Webhooks.context status_event
     notified_status_context_string = LT.unpack context_text
     notified_status_context_text = LT.toStrict context_text
 
-    sha1 = Builds.RawCommit $ LT.toStrict $ Webhooks.sha status_event
+--    sha1 = Builds.RawCommit $ LT.toStrict $ Webhooks.sha status_event
+
+
+wrappedScanAndPostCommit ::
+     Connection
+  -> CircleApi.ThirdPartyAuth
+  -> DbHelpers.OwnerAndRepo
+  -> Bool
+  -> Builds.RawCommit
+  -> IO Bool
+wrappedScanAndPostCommit
+    conn
+    third_party_auth
+    owned_repo
+    is_failure_notification
+    sha1 = do
+
+  -- On builds from the *master* branch,
+  -- we may store the *successful* as well as the failed second-level
+  -- build records,
+  -- since the volume on the *master* branch should be relatively low.
+  is_master_commit <- liftIO $ flip runReaderT conn $ SqlRead.isMasterCommit sha1
+  let success_storage_mode = if is_master_commit
+        then StatusUpdate.ShouldStoreDetailedSuccessRecords
+        else StatusUpdate.NoStoreDetailedSuccessRecords
+
+  maybe_previously_posted_status <- liftIO $ flip runReaderT conn $
+    SqlRead.getPostedCommentForSha1 sha1
+
+  -- If we haven't posted a PR comment before for this commit, do not act unless the notification
+  -- was for a failed build.
+  let will_post = is_failure_notification || not (null maybe_previously_posted_status)
+
+  let dr_ci_posting_computation = do
+
+        runExceptT $
+          -- When we receive a webhook notification of a "status" event from
+          -- GitHub, and that status was "failure", we take a look at all of
+          -- the statuses for that commit, scan the build logs, and post
+          -- post a summary as a GitHub status notification.
+          readGitHubStatusesAndScanAndPostSummaryForCommit
+            third_party_auth
+            conn
+            Nothing
+            owned_repo
+            success_storage_mode
+            sha1
+            ShouldScanLogs
+            Scanning.NoRevisit
+
+        return ()
+
+  when will_post $ do
+    dr_ci_posting_computation
+    return ()
+
+  return will_post
 
 
 githubEventEndpoint ::
@@ -1009,7 +1036,6 @@ githubEventEndpoint
             handleStatusWebhook
               connection_data
               third_party_auth
-              Nothing
               body_json
 
           S.json =<< return ["Will post?" :: String, show will_post]

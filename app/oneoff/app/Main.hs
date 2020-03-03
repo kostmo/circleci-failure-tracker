@@ -78,7 +78,7 @@ benchmarkScan circle_token conn build_id = runExceptT $ do
 
 
 testBotCommentGeneration oauth_access_token conn = do
-  let commit_sha1_text = "dcc637260e4e736e167d568c059fdba3162b8c1f"
+  let commit_sha1_text = "bce9ad0413a2327ca05d809cf7aaca4fac757457"
       raw_commit = Builds.RawCommit commit_sha1_text
       validated_sha1 = fromRight (error "BAD1") $ GitRev.validateSha1 commit_sha1_text
 

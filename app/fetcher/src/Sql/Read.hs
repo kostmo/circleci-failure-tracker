@@ -4019,7 +4019,6 @@ commonQueryPrefixPatternMatches = Q.qjoin [
 -- | Limit is arbitrary
 getBestPatternMatches ::
      ScanPatterns.PatternId
---  -> DbIO [AugmentedPatternOccurrence PatternInfoSpecifictySubset]
   -> DbIO [PatternOccurrence]
 getBestPatternMatches (ScanPatterns.PatternId pattern_id) = do
   conn <- ask
@@ -4169,6 +4168,8 @@ getPatternMatches pattern_id =
 
 -- | Currently this is only used by the "getPatternMatches" function above,
 -- which uses a lot less info than this fetches.
+--
+-- Limit is arbitrary.
 getPatternOccurrenceRows ::
      ScanPatterns.PatternId
   -> DbIO [(Builds.Build, Text, Int, MatchOccurrences.MatchId, ScanPatterns.MatchDetails, Builds.UniversalBuildId)]

@@ -19,6 +19,7 @@ viableCommitsHistoryUrl = webserverBaseUrl <> "/master-viable-commits.html"
 
 
 data PrCommentPayload = NewPrCommentPayload {
-    sections              :: [[Text]]
-  , all_no_fault_failures :: Bool
+    sections                       :: [[Text]]
+  , all_no_fault_failures          :: Bool
+  , all_successful_circleci_builds :: Bool
   }
