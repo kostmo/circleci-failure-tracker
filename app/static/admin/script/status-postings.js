@@ -2,7 +2,7 @@ function gen_time_plot(container_id, api_path, title, time_unit) {
 
    $.getJSON(api_path, function (data) {
 
-        var rows = [];
+        const rows = [];
         for (var value of data.rows) {
                 rows.push([Date.parse(value[0]), value[1]]);
         }

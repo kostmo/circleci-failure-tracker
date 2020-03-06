@@ -196,6 +196,9 @@ scottyApp
   get "/api/latest-master-commit-with-metadata" $
     pure $ WebApi.toJsonEither <$> SqlRead.getLatestMasterCommitWithMetadata
 
+  get "/api/viability-increase" $
+    SqlRead.apiViabilityIncreaseByWeek <$> S.param "weeks"
+
   get "/api/status-notifications-by-hour" $
     SqlRead.apiStatusNotificationsByHour <$> S.param "hours"
 

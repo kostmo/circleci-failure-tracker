@@ -63,6 +63,9 @@ library:
     - crypto-pubkey-openssh
     - crypto-pubkey-types
     - base64-bytestring
+    - amazonka
+    - amazonka-sqs
+    - aws-easy
 
 executables:
   run-scanner:

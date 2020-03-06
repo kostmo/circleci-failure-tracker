@@ -2,13 +2,18 @@
 
 module MyUtils where
 
-import           Control.Monad       (join)
+import           Control.Monad       (join, unless)
 import           Data.Hashable       (Hashable)
 import           Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HashMap
 import           Data.List           (intercalate)
 import           Data.Text           (Text)
 import qualified Data.Text           as T
+
+
+-- | Yields a Left unless the boolean argument is True
+guardE :: Bool -> a -> Either a ()
+guardE b = unless b . Left
 
 
 genUrlQueryString :: [(String, String)] -> String

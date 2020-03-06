@@ -48,6 +48,7 @@ import qualified DbHelpers
 import qualified DebugUtils                 as D
 import qualified Github
 import qualified GitHubRecords
+import qualified MyUtils
 import           SillyMonoids               ()
 import qualified StatusEventQuery
 import           Types
@@ -234,8 +235,8 @@ getCommitsRecurse
 
   runExceptT $ do
 
-    unless (length old_retrieved_items < limit) $
-      except $ Left (TooManyCommits old_retrieved_items, "Too many commits to fetch!")
+    except $ MyUtils.guardE (length old_retrieved_items < limit)
+      (TooManyCommits old_retrieved_items, "Too many commits to fetch!")
 
     uri <- except $ first (const (OtherFetchError, "Bad URL: " <> TL.pack uri_string)) either_uri
 
@@ -247,8 +248,8 @@ getCommitsRecurse
         merge_commits = filter is_merge_commit novel_commits
         combined_list = old_retrieved_items <> novel_commits
 
-    unless (null merge_commits) $
-      except $ Left (NonlinearAncestry, "Commit ancestry is nonlinear!")
+    except $ MyUtils.guardE (null merge_commits)
+      (NonlinearAncestry, "Commit ancestry is nonlinear!")
 
     let retval = (combined_list, Safe.headMay known_commits)
 

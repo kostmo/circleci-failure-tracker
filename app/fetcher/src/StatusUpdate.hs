@@ -12,7 +12,7 @@ module StatusUpdate (
   , statementTimeoutSeconds
   ) where
 
-import           Control.Monad                 (guard, when)
+import           Control.Monad                 (guard, unless, when)
 import           Control.Monad.IO.Class        (liftIO)
 import           Control.Monad.Trans.Except    (ExceptT (ExceptT), except,
                                                 runExceptT)
@@ -41,6 +41,7 @@ import           Text.Read                     (readMaybe)
 import qualified Web.Scotty                    as S
 import           Web.Scotty.Internal.Types     (ActionT)
 
+import qualified AmazonQueue
 import qualified ApiPost
 import qualified AuthConfig
 import qualified AuthStages
@@ -70,6 +71,7 @@ import qualified StatusEventQuery
 import qualified StatusUpdateTypes
 import qualified UnmatchedBuilds
 import qualified Webhooks
+
 
 
 -- | 2 minutes
@@ -107,6 +109,17 @@ conclusiveStatuses = [
     gitHubStatusFailureString
   , gitHubStatusSuccessString
   ]
+
+
+-- | whether to store second-level build records for "success" status
+data SuccessRecordStorageMode =
+    ShouldStoreDetailedSuccessRecords
+  | NoStoreDetailedSuccessRecords
+
+
+data ScanLogsMode =
+    ShouldScanLogs
+  | NoScanLogs
 
 
 groupStatusesByHostname ::
@@ -289,7 +302,8 @@ getBuildsFromGithub
         StatusUpdate.ShouldStoreDetailedSuccessRecords -> circleci_failed_builds ++ circleci_successful_builds
         StatusUpdate.NoStoreDetailedSuccessRecords -> circleci_failed_builds
 
-      scannable_build_numbers = map (Builds.UniversalBuildId . DbHelpers.db_id . Builds.universal_build) circleci_failed_builds
+      f = Builds.UniversalBuildId . DbHelpers.db_id . Builds.universal_build
+      scannable_build_numbers = map f circleci_failed_builds
 
       circleci_failcount = length circleci_failed_builds
 
@@ -335,10 +349,20 @@ scanAndPost
 
     D.debugList ["About to enter postCommitSummaryStatus"]
 
-  postCommitSummaryStatus
-    (ScanRecords.fetching scan_resources)
-    owned_repo
-    sha1
+  -- TODO Don't bother with posting a status if this
+  -- is a master commit.
+  -- A Pull Request with this HEAD commit will not
+  -- be found, anyway.
+
+  is_master_commit <- liftIO $ flip runReaderT conn $ SqlRead.isMasterCommit sha1
+  unless is_master_commit $
+    postCommitSummaryStatus
+      (ScanRecords.fetching scan_resources)
+      owned_repo
+      sha1
+
+  where
+    conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
 
 
 fetchCommitPageInfo ::
@@ -422,8 +446,8 @@ postCommitSummaryStatus
 
   liftIO $ D.debugStr "Checkpoint D"
 
-  commit_page_info <- ExceptT $ first LT.fromStrict <$>
-    runReaderT (fetchCommitPageInfo upstream_breakages_info sha1 validated_sha1) conn
+  commit_page_info <- ExceptT $ fmap (first LT.fromStrict) $
+    flip runReaderT conn $ fetchCommitPageInfo upstream_breakages_info sha1 validated_sha1
 
   liftIO $ D.debugStr "Checkpoint E"
 
@@ -565,7 +589,13 @@ lookupPullRequestsByHeadCommit conn sha1 = do
   found_prs <- liftIO $ flip runReaderT conn $ SqlRead.getPullRequestsByCurrentHead sha1
 
   if null found_prs
-    then ExceptT $ first LT.pack <$> GadgitFetch.getContainingPRs sha1
+    then do
+      liftIO $ D.debugList [
+          "No PR in DB with HEAD commit"
+        , show sha1
+        , "- Falling back to Gadgit webservice"
+        ]
+      ExceptT $ first LT.pack <$> GadgitFetch.getContainingPRs sha1
     else return found_prs
 
 
@@ -706,17 +736,6 @@ wipeCommentForUpdatedPr
       ]
 
 
--- | whether to store second-level build records for "success" status
-data SuccessRecordStorageMode =
-    ShouldStoreDetailedSuccessRecords
-  | NoStoreDetailedSuccessRecords
-
-
-data ScanLogsMode =
-    ShouldScanLogs
-  | NoScanLogs
-
-
 -- | Operations:
 -- * Filter out the CircleCI builds
 -- * Check if the builds have been scanned yet.
@@ -744,7 +763,7 @@ readGitHubStatusesAndScanAndPostSummaryForCommit
 
   liftIO $ do
     current_time <- Clock.getCurrentTime
-    D.debugList ["ABC Processing at", show current_time]
+    D.debugList ["Processing at", show current_time]
 
   liftIO $ DbHelpers.setSessionStatementTimeout conn Scanning.scanningStatementTimeoutSeconds
 
@@ -761,11 +780,11 @@ readGitHubStatusesAndScanAndPostSummaryForCommit
     should_store_second_level_success_records
     sha1
 
-  liftIO $ D.debugList ["ABC Finished getBuildsFromGithub"]
+  liftIO $ D.debugList ["Finished getBuildsFromGithub"]
 
   case should_scan of
     ShouldScanLogs -> do
-      liftIO $ D.debugList ["ABC About to enter scanAndPost"]
+      liftIO $ D.debugList ["About to enter scanAndPost"]
 
       scanAndPost
         scan_resources
@@ -893,56 +912,37 @@ handleStatusWebhook
     _third_party_auth
     status_event = do
 
-  liftIO $ D.debugList [
+  D.debugList [
       "Notified status context was:"
     , notified_status_context_string
     ]
 
   let notified_status_url_string = LT.unpack $ Webhooks.target_url status_event
   when (circleCIContextPrefix `T.isPrefixOf` notified_status_context_text) $
-    liftIO $ D.debugList [
+    D.debugList [
         "CircleCI URL was:"
       , notified_status_url_string
       ]
 
-  {-
-  let owner_repo_text = Webhooks.name status_event
-      splitted = splitOn "/" $ LT.unpack owner_repo_text
-  -}
-  runExceptT $ do
 
-    {-
-    owned_repo <- except $ case splitted of
-      [org, repo] -> Right $ DbHelpers.OwnerAndRepo org repo
-      _ -> Left $ "un-parseable owner/repo text: " <> owner_repo_text
-    -}
+  synchronous_conn <- DbHelpers.getConnection db_connection_data
 
-    synchronous_conn <- liftIO $ DbHelpers.getConnection db_connection_data
+    -- TODO: We should just insert into the SQS scanning queue here.
+  SqlWrite.insertReceivedGithubStatus synchronous_conn status_event
 
-    liftIO $ SqlWrite.insertReceivedGithubStatus synchronous_conn status_event
 
-    {-
-    wrappedScanAndPostCommit
-      db_connection_data
-      third_party_auth
-      synchronous_conn
-      owned_repo
-      is_failure_notification
-      sha1
-     -}
+
+
+  AmazonQueue.sendSqsMessage "a message"
+
+
+
   return $ return False
 
   where
-    {-
-    notified_status_state_string = LT.unpack $ Webhooks.state status_event
-    is_failure_notification = notified_status_state_string == LT.unpack gitHubStatusFailureString
-    -}
-
     context_text = Webhooks.context status_event
     notified_status_context_string = LT.unpack context_text
     notified_status_context_text = LT.toStrict context_text
-
---    sha1 = Builds.RawCommit $ LT.toStrict $ Webhooks.sha status_event
 
 
 wrappedScanAndPostCommit ::
@@ -975,27 +975,19 @@ wrappedScanAndPostCommit
   -- was for a failed build.
   let will_post = is_failure_notification || not (null maybe_previously_posted_status)
 
-  let dr_ci_posting_computation = do
-
-        runExceptT $
-          -- When we receive a webhook notification of a "status" event from
-          -- GitHub, and that status was "failure", we take a look at all of
-          -- the statuses for that commit, scan the build logs, and post
-          -- post a summary as a GitHub status notification.
-          readGitHubStatusesAndScanAndPostSummaryForCommit
-            third_party_auth
-            conn
-            Nothing
-            owned_repo
-            success_storage_mode
-            sha1
-            ShouldScanLogs
-            Scanning.NoRevisit
-
-        return ()
-
   when will_post $ do
-    dr_ci_posting_computation
+
+    runExceptT $
+      readGitHubStatusesAndScanAndPostSummaryForCommit
+        third_party_auth
+        conn
+        Nothing
+        owned_repo
+        success_storage_mode
+        sha1
+        ShouldScanLogs
+        Scanning.NoRevisit
+
     return ()
 
   return will_post

@@ -229,7 +229,6 @@ genUpstreamFailuresSection upstream_breakages =
     upstream_matched_header = M.heading 3 $ M.colonize [
         ":construction:"
       , MyUtils.pluralize (length upstream_breakages) "upstream failure"
-      , "recognized by patterns"
       ]
 
     matched_upstream_builds_details_block = M.bulletTree $

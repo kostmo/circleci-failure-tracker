@@ -909,15 +909,21 @@ getNextMasterCommit conn (Builds.RawCommit current_git_revision) = do
     sql = Q.qjoin [
         "SELECT sha1 FROM ordered_master_commits"
       , "WHERE"
-      , "id > " <> Q.parens "SELECT id FROM ordered_master_commits WHERE sha1 = ?"
+      , "id > " <> Q.parens subquery
       , "ORDER BY id ASC"
       , "LIMIT 1"
       ]
 
+    subquery = Q.qjoin [
+        "SELECT id"
+      , "FROM ordered_master_commits"
+      , "WHERE sha1 = ?"
+      ]
+
 
 apiJobs :: DbIO (WebApi.ApiResponse WebApi.JobApiRecord)
-apiJobs = WebApi.ApiResponse . map f <$> runQuery q
-
+apiJobs =
+  WebApi.ApiResponse . map f <$> runQuery q
   where
     q = Q.qjoin [
         "SELECT"
@@ -927,6 +933,7 @@ apiJobs = WebApi.ApiResponse . map f <$> runQuery q
         ]
       , "FROM job_failure_frequencies"
       ]
+
     f (jobname, freq) = WebApi.JobApiRecord jobname [freq]
 
 
@@ -1023,6 +1030,44 @@ apiStatusNotificationsByHour hours = do
     , "FROM github_incoming_status_events"
     , "GROUP BY hour ORDER BY hour DESC"
     , "OFFSET 1"
+    , "LIMIT ?"
+    ]
+
+
+data ViabilityIncreaseDatum = ViabilityIncreaseDatum {
+    commit_week                      :: UTCTime
+  , first_commit_sha1                :: Builds.RawCommit
+  , last_commit_sha1                 :: Builds.RawCommit
+  , total_commits                    :: Int
+  , viable_commit_count              :: Int
+  , viable_without_empirically_flaky :: Int
+  , had_auto_triggered_rebuild       :: Bool
+  , viable_fraction                  :: Double
+  , increase_in_viability            :: Maybe Double
+  } deriving (Generic, FromRow, ToJSON)
+
+
+-- | Note that Highcharts expects the dates to be in ascending order
+-- thus, use of reverse
+apiViabilityIncreaseByWeek :: Int -> DbIO (WebApi.ApiResponse ViabilityIncreaseDatum)
+apiViabilityIncreaseByWeek weeks = do
+  conn <- ask
+  liftIO $ WebApi.ApiResponse . reverse <$> query conn sql (Only weeks)
+  where
+  sql = Q.qjoin [
+      "SELECT"
+    , Q.list [
+        "commit_week"
+      , "first_commit_sha1"
+      , "last_commit_sha1"
+      , "total_commits"
+      , "viable_commit_count"
+      , "viable_without_empirically_flaky"
+      , "had_auto_triggered_rebuild_count > 0"
+      , "viable_fraction"
+      , "increase_in_viability"
+      ]
+    , "FROM viability_increase_by_week"
     , "LIMIT ?"
     ]
 
@@ -1366,11 +1411,11 @@ masterWeeklyFailureStats week_count = do
       , sanity_check_total_is_successes_plus_failures
       ) = do
 
-      unless sanity_check_is_failure_count_equal $
-        Left "Sanity check failed: sanity_check_is_failure_count_equal"
+      MyUtils.guardE sanity_check_is_failure_count_equal
+        "Sanity check failed: sanity_check_is_failure_count_equal"
 
-      unless sanity_check_total_is_successes_plus_failures $
-        Left "Sanity check failed: sanity_check_total_is_successes_plus_failures"
+      MyUtils.guardE sanity_check_total_is_successes_plus_failures
+        "Sanity check failed: sanity_check_total_is_successes_plus_failures"
 
       return $ WeeklyStats.MasterWeeklyStats
         commit_count

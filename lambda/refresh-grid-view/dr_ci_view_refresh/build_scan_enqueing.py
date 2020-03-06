@@ -10,13 +10,7 @@ from botocore.exceptions import ClientError
 import logan_db_config
 
 
-# Assign this value before running the program
-# This URL should be obtained from the "log-scanning-worker" Elastic Beanstalk app here:
-#    https://us-east-2.console.aws.amazon.com/elasticbeanstalk/home?region=us-east-2#/environment/configuration?applicationName=pytorch-circle-log-scanner&environmentId=e-ev8fq2dhbv
-# Note that if the environment of the Elastic Beanstalk app is "rebuilt", then a new autegenerated
-# SQS queue with a new URL may be generated!
-# Then the URL below must be updated, and that queue must grant "SendMessage" permission!
-SQS_QUEUE_URL = 'https://sqs.us-east-2.amazonaws.com/308535385114/awseb-e-ev8fq2dhbv-stack-AWSEBWorkerQueue-6498WDUU0L6W'
+SQS_QUEUE_URL = 'https://sqs.us-east-2.amazonaws.com/308535385114/github-status-event-sha1-scanning-queue.fifo'
 
 
 # Set up logging
@@ -35,8 +29,10 @@ def send_sqs_message(sqs_queue_url, msg_body):
     # Send the SQS message
     sqs_client = boto3.client('sqs', region_name='us-east-2')
     try:
-        msg = sqs_client.send_message(QueueUrl=sqs_queue_url,
-                                      MessageBody=msg_body)
+        msg = sqs_client.send_message(
+            QueueUrl=sqs_queue_url,
+            MessageBody=msg_body,
+            MessageGroupId="foo")
     except ClientError as e:
         logging.error(e)
         return None
@@ -84,9 +80,11 @@ def run(sha1_limit):
         for i, (sha1_to_enqueue, is_master, last_event_time) in enumerate(rows):
 
             # Send some SQS messages
+            # The message body should be de-duplicatable.
             msg_body_string = json.dumps({
                 "sha1": sha1_to_enqueue,
-                "msg": f'SQS message #{i}',
+#                "msg": f'SQS message #{i}',
+                "msg": "Hello",
             })
 
             # TODO Consider using "send_message_batch"

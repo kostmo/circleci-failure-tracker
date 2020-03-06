@@ -36,7 +36,7 @@ import qualified StatusUpdate
 
 
 data SqsBuildScanMessage = SqsBuildScanMessage {
-    sha1 :: Text
+    sha1 :: Builds.RawCommit
   , msg  :: Text
   } deriving (Show, Generic)
 
@@ -255,46 +255,6 @@ doStuff
     True
     commit_sha1
 
-  {-
-  conn <- DbHelpers.getConnectionWithStatementTimeout
-    connection_data
-    StatusUpdate.statementTimeoutSeconds
-
-  universal_builds <- runReaderT
-    (SqlRead.getUnvisitedBuildsForSha1 commit_sha1)
-    conn
-
-  D.debugList [
-      "Unvisited build IDs:"
-    , show $ map DbHelpers.db_id universal_builds
-    ]
-
-  _ <- runExceptT $ do
-
-    scan_resources <- ExceptT $ first LT.fromStrict <$>
-      Scanning.prepareScanResources
-        third_party_auth
-        conn
-        Scanning.PersistScanResult
-        Nothing
-
-    -- TODO Replace this pair of functions with scanAndPost?
-    scan_matches <- liftIO $ Scanning.processUnvisitedBuilds
-      scan_resources
-      universal_builds
-
-    StatusUpdate.postCommitSummaryStatus
-      (ScanRecords.fetching scan_resources)
-      owned_repo
-      commit_sha1
-
-    liftIO $ D.debugList [
-        "Scan match count:"
-      , show $ length scan_matches
-      ]
-
-  -}
-
   either_deletion_count <- flip runReaderT conn $
     SqlWrite.deleteSha1QueuePlaceholder commit_sha1
 
@@ -307,4 +267,4 @@ doStuff
   putStrLn "Finished sha1 scan."
 
   where
-    commit_sha1 = Builds.RawCommit $ sha1 body_json
+    commit_sha1 = sha1 body_json

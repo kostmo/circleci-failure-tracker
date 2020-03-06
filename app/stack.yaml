@@ -22,5 +22,6 @@ extra-deps:
 - wai-log-0.1.0.0
 - aws-lambda-haskell-runtime-2.0.1
 - jwt-0.10.0@sha256:d14551b0c357424fb9441ec9a7a9d5b90b13f805fcc9327ba49db548cd64fc29,4180
+- aws-easy-0.1.0.2@sha256:ef331eb24243567bff2a08401d327680d8d19cafe5c35c6cc588eceef9da46a1,2893
 
 allow-newer: true
