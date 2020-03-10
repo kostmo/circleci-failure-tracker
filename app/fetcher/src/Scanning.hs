@@ -257,7 +257,7 @@ prepareScanResources ::
   -> Maybe AuthStages.Username
   -> IO (Either T.Text ScanRecords.ScanCatchupResources)
 prepareScanResources
-    (CircleApi.ThirdPartyAuth circle_token jwt_signer)
+    (CircleApi.ThirdPartyAuth circle_token jwt_signer _)
     conn
     scan_result_persistence
     maybe_initiator = do

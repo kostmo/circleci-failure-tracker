@@ -31,8 +31,15 @@ masterName :: Text
 masterName = "master"
 
 
+-- | For unambiguous SHA1 abbreviations
+-- in nearly all contexts
 gitCommitPrefixLength :: Int
 gitCommitPrefixLength = 10
+
+
+-- | For where prefix ambgiuity is not a concern
+gitCommitPrefixShortLength :: Int
+gitCommitPrefixShortLength = 7
 
 
 defaultPatternAuthor :: AuthStages.Username

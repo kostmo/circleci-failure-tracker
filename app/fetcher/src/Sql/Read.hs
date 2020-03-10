@@ -57,6 +57,10 @@ import qualified WebApi
 import qualified WeeklyStats
 
 
+maxApiPrCommentRevisionsToFetch :: Int
+maxApiPrCommentRevisionsToFetch = 1000
+
+
 hiddenContextLinecount :: Int
 hiddenContextLinecount = 1000
 
@@ -568,7 +572,7 @@ apiPostedPRComments ::
   -> DbIO [PostedComments.PostedComment]
 apiPostedPRComments count = do
   conn <- ask
-  liftIO $ query conn sql $ Only count
+  liftIO $ query conn sql $ Only $ min count maxApiPrCommentRevisionsToFetch
   where
     sql = Q.qjoin [
         "SELECT"
@@ -1620,6 +1624,7 @@ data UpstreamBrokenJob = UpstreamBrokenJob {
   , _universal_build     :: Builds.UniversalBuildId
   , _provider            :: Int
   , _provider_build_num  :: Builds.BuildNumber
+  , _span_length         :: Int
   } deriving (Generic, FromRow)
 
 instance ToJSON UpstreamBrokenJob where
@@ -1627,7 +1632,7 @@ instance ToJSON UpstreamBrokenJob where
 
 
 extractJobName :: UpstreamBrokenJob -> Text
-extractJobName (UpstreamBrokenJob x _ _ _ _ _ _ _) = x
+extractJobName (UpstreamBrokenJob x _ _ _ _ _ _ _ _) = x
 
 
 -- | Compare to: getSpanningBreakages
@@ -1654,6 +1659,7 @@ getInferredSpanningBrokenJobsBetter (Builds.RawCommit branch_sha1) = do
         , "universal_build"
         , "provider"
         , "provider_build_num"
+        , "span_length"
         ]
       , "FROM downstream_build_failures_from_upstream_inferred_breakages"
       , "WHERE branch_commit = ?"
@@ -2361,20 +2367,6 @@ data ScanQueueEntry = ScanQueueEntry {
 
 instance ToJSON ScanQueueEntry where
   toJSON = genericToJSON JsonUtils.dropUnderscore
-
-
-apiScanCommitsQueue :: DbIO [ScanQueueEntry]
-apiScanCommitsQueue = runQuery sql
-  where
-  sql = Q.qjoin [
-      "SELECT"
-    , Q.list [
-        "sha1"
-      , "inserted_at"
-      ]
-    , "FROM work_queues.queued_sha1_scans"
-    , "ORDER BY inserted_at DESC"
-    ]
 
 
 apiMissingRequiredBuilds :: DbIO [MissingJobStats]

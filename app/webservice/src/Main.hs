@@ -22,6 +22,7 @@ import qualified Text.URI                                        as URI
 import           Web.ClientSession                               (getDefaultKey)
 import qualified Web.Scotty                                      as S
 
+import qualified AmazonQueueData
 import qualified AuthConfig
 import qualified CircleApi
 import qualified CircleAuth
@@ -43,6 +44,7 @@ data CommandLineArgs = NewCommandLineArgs {
   , gitHubAppPemContent :: B.ByteString
   , gitHubWebhookSecret :: Text
   , circleciApiToken    :: String
+  , sqsQueueUrl         :: Text
   , runningLocally      :: Bool
   , adminPassword       :: Text
   , noForceSSL          :: Bool
@@ -98,6 +100,7 @@ mainAppCode args = do
       third_party_auth = CircleApi.ThirdPartyAuth
         (CircleApi.CircleCIApiToken $ T.pack $ circleciApiToken args)
         github_rsa_signer
+        (AmazonQueueData.QueueURL $ sqsQueueUrl args)
 
       credentials_data = Routes.SetupData
         static_base
@@ -180,6 +183,8 @@ myCliParser = NewCommandLineArgs
 
   <*> strOption   (long "circleci-api-token" <> metavar "CIRCLECI_API_TOKEN"
     <> help "CircleCI API token for triggering rebuilds")
+  <*> strOption   (long "aws-sqs-queue-url" <> metavar "AWS_SQS_QUEUE_URL"
+    <> help "AWS SQS queue URL for commit SHA1 processing")
   <*> switch      (long "local"
     <> help "Webserver is being run locally, so don't redirect HTTP to HTTPS")
   <*> strOption   (long "admin-password" <> metavar "ADMIN_PASSWORD"

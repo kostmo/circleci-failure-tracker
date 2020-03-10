@@ -21,9 +21,15 @@ def parse_args():
     parser.add_argument('--github-app-pem-filepath', dest='github_app_pem_filepath',
                         default=os.path.join(DEFAULT_CREDENTIALS_DIRECTORY, "circleci-failure-attribution.private-key.pem"),
                         help='File containing GitHub personal access token')
+
     parser.add_argument('--circleci-api-token-file', dest='circleci_api_token_file',
                         default=os.path.join(DEFAULT_CREDENTIALS_DIRECTORY, "circleci-api-token.txt"),
                         help='File containing GitHub personal access token')
+
+    parser.add_argument('--aws-sqs-queue-url-file', dest='aws_sqs_queue_url_file',
+                        default=os.path.join(DEFAULT_CREDENTIALS_DIRECTORY, "aws-sqs-queue-url.txt"),
+                        help='File containing AWS SQS queue URL')
+
 
     # Note: the "local" credentials use "github-client-id" and "github-client-secret" for
     # the GitHub app named "circleci-failure-attribution-dev", while
@@ -79,10 +85,13 @@ if __name__ == "__main__":
 
 
 
-    with open(app_credentials_json_path) as fh_app, open(db_credentials_json_path) as fh_db, open(db_mview_credentials_json_path) as fh_mview_db:
+    with open(app_credentials_json_path) as fh_app,
+         open(db_credentials_json_path) as fh_db,
+         open(db_mview_credentials_json_path) as fh_mview_db:
 
         github_app_pem_content = open(options.github_app_pem_filepath).read().strip()
         circleci_api_token = open(options.circleci_api_token_file).read().strip()
+        aws_sqs_queue_url = open(options.aws_sqs_queue_url_file).read().strip()
 
         nondefault_cli_arglist = args_assembly.generate_app_nondefault_cli_arglist(
             json.load(fh_app),
@@ -90,6 +99,7 @@ if __name__ == "__main__":
             json.load(fh_mview_db),
             github_app_pem_content,
             circleci_api_token,
+            aws_sqs_queue_url,
             options.notification_ingester,
             options.no_force_ssl)
 

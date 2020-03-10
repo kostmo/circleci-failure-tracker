@@ -153,7 +153,7 @@ scottyApp
       <$> (Builds.UniversalBuildId <$> S.param "build")
 
   S.post "/api/rebuild-flaky-candidates" $
-    withAuth $ SqlUpdate.getFlakyRebuildCandidates (CircleApi.circle_api_token third_party_creds)
+    withAuth $ SqlUpdate.triggerFlakyRebuildCandidates (CircleApi.circle_api_token third_party_creds)
       <$> (Builds.RawCommit <$> S.param "sha1")
 
   S.post "/api/promote-match" $
@@ -216,9 +216,6 @@ scottyApp
 
   get "/api/missing-required-builds" $
     pure SqlRead.apiMissingRequiredBuilds
-
-  get "/api/scan-commits-queue" $
-    pure SqlRead.apiScanCommitsQueue
 
   get "/api/code-breakages-leftover-detected" $
     pure SqlRead.apiLeftoverDetectedCodeBreakages
@@ -485,9 +482,6 @@ scottyApp
 
   S.post "/api/update-user-opt-out-settings" $
     withAuth $ SqlWrite.updateUserOptOutSettings <$> S.param "enabled"
-
-  S.post "/api/purge-stale-work-queue-entries" $
-    withAuth $ pure SqlWrite.deleteStaleSha1QueueEntries
 
   get "/api/view-log-context" $ (fmap . fmap) WebApi.toJsonEither $
     SqlRead.logContextFunc SqlRead.hiddenContextLinecount

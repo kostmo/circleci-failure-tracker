@@ -98,7 +98,7 @@ getBuildInfo ::
   -> Builds.UniversalBuildId
   -> SqlRead.DbIO (Either Text (DbHelpers.BenchmarkedResponse BuildInfoRetrievalBenchmarks SingleBuildInfo))
 getBuildInfo
-    (CircleApi.ThirdPartyAuth _ jwt_signer)
+    (CircleApi.ThirdPartyAuth _ jwt_signer _)
     build@(Builds.UniversalBuildId build_id) = do
 
   liftIO $ D.debugStr "FOO A"
@@ -227,7 +227,7 @@ countRevisionBuilds ::
   -> GitRev.GitSha1
   -> SqlRead.DbIO (Either Text (DbHelpers.BenchmarkedResponse RevisionBuildCountBenchmarks CommitInfo))
 countRevisionBuilds
-    (CircleApi.ThirdPartyAuth _ jwt_signer)
+    (CircleApi.ThirdPartyAuth _ jwt_signer _)
     git_revision = do
 
   conn <- ask
@@ -377,15 +377,42 @@ instance ToJSON CommitRebuildsResponse where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
+getFlakyRebuildTuples ::
+     [CommitBuilds.CommitBuildWrapper SqlRead.CommitBuildSupplementalPayload]
+  -> ([(Builds.UniversalBuildId, Builds.BuildNumber)], [CommitBuilds.CommitBuildWrapper SqlRead.CommitBuildSupplementalPayload], [CommitBuilds.CommitBuildWrapper SqlRead.CommitBuildSupplementalPayload])
+getFlakyRebuildTuples builds =
+  (rebuild_id_tuples, retryable_flaky_builds, non_retryable_flaky_builds)
+  where
+    rebuild_id_tuples = map ids_extractor retryable_flaky_builds
+
+    -- NOTE: This post-database flakiness determination DOES NOT
+    -- account for "serially isolated" as a flakiness indicator,
+    -- because non-master commits don't have this property.
+    pattern_matched_flaky_predicate = CommitBuilds._is_flaky . CommitBuilds._failure_mode . CommitBuilds._commit_build
+    possibly_flaky_builds = filter pattern_matched_flaky_predicate builds
+
+    is_retryable_predicate x = not (SqlRead.is_empirically_determined_flaky sup || SqlRead.has_triggered_rebuild sup)
+      where
+        sup = CommitBuilds._supplemental x
+
+    (retryable_flaky_builds, non_retryable_flaky_builds) = partition is_retryable_predicate possibly_flaky_builds
+
+    ids_extractor x = (Builds.UniversalBuildId $ DbHelpers.db_id $ Builds.universal_build b, Builds.build_id $ Builds.build_record b)
+      where
+        b = CommitBuilds._build $ CommitBuilds._commit_build x
+
 
 -- | NOTE: This is not indended for use on master-branch builds
 -- because it does not account for "serially isolated" as
 -- a determination of flakiness.
-getFlakyRebuildCandidates ::
+triggerFlakyRebuildCandidates ::
      CircleApi.CircleCIApiToken
   -> Builds.RawCommit
   -> SqlRead.AuthDbIO (Either Text (SqlRead.UserWrapper (DbHelpers.BenchmarkedResponse Float CommitRebuildsResponse)))
-getFlakyRebuildCandidates circleci_api_token (Builds.RawCommit commit_sha1_text) = do
+triggerFlakyRebuildCandidates
+    circleci_api_token
+    (Builds.RawCommit commit_sha1_text) = do
+
   dbauth@(SqlRead.AuthConnection conn user) <- ask
 
   liftIO $ runExceptT $ do
@@ -393,23 +420,7 @@ getFlakyRebuildCandidates circleci_api_token (Builds.RawCommit commit_sha1_text)
     DbHelpers.BenchmarkedResponse timing builds <- ExceptT $
       flip runReaderT conn $ SqlRead.getRevisionBuilds git_revision
 
-    -- NOTE: This post-database flakiness determination DOES NOT account
-    -- for "serially isolated" as a flakiness indicator, because
-    -- non-master commits don't have this property.
-    let pattern_matched_flaky_predicate = CommitBuilds._is_flaky . CommitBuilds._failure_mode . CommitBuilds._commit_build
-        possibly_flaky_builds = filter pattern_matched_flaky_predicate builds
-
-        is_retryable_predicate x = not (SqlRead.is_empirically_determined_flaky sup || SqlRead.has_triggered_rebuild sup)
-          where
-            sup = CommitBuilds._supplemental x
-
-        (retryable_flaky_builds, non_retryable_flaky_builds) = partition is_retryable_predicate possibly_flaky_builds
-
-        ids_extractor x = (Builds.UniversalBuildId $ DbHelpers.db_id $ Builds.universal_build b, Builds.build_id $ Builds.build_record b)
-          where
-            b = CommitBuilds._build $ CommitBuilds._commit_build x
-
-        rebuild_id_tuples = map ids_extractor retryable_flaky_builds
+    let (rebuild_id_tuples, retryable_flaky_builds, non_retryable_flaky_builds) = getFlakyRebuildTuples builds
 
     results <- ExceptT $ fmap (first T.pack) $
       runExceptT $ CircleTrigger.rebuildCircleJobsInWorkflow
@@ -418,6 +429,7 @@ getFlakyRebuildCandidates circleci_api_token (Builds.RawCommit commit_sha1_text)
         rebuild_id_tuples
 
     let retry_keys_by_universal_id = HashMap.fromList $ map (first Builds.extractUniversalId) results
+
         retryable_builds_with_db_keys = Maybe.mapMaybe (\x -> sequenceA (x, (`HashMap.lookup` retry_keys_by_universal_id) $ DbHelpers.db_id $ Builds.universal_build $ CommitBuilds._build $ CommitBuilds._commit_build x)) retryable_flaky_builds
 
     return $ SqlRead.UserWrapper user $ DbHelpers.BenchmarkedResponse timing $

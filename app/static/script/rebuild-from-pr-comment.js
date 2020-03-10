@@ -4,7 +4,34 @@ function get_sha1_query_parm() {
 }
 
 
-function load_rebuild_info(commit_sha1) {
+function get_build_id_query_parm() {
+	const urlParams = new URLSearchParams(window.location.search);
+	return urlParams.get('build-id');
+}
+
+
+function load_single_rebuild_info(commit_sha1) {
+
+
+TODO FINISH ME
+
+	$("#commit-placeholder").html();
+
+	const query_parms = {
+		"login_redirect_path": get_url_path_for_redirect(),
+		"sha1": commit_sha1,
+	};
+
+	$("#throbber").show();
+	post_inquiry("/api/rebuild-flaky-candidates", query_parms, function(data) {
+		$("#throbber").hide();
+
+		$("#username-container").html(data.user);
+	});
+}
+
+
+function load_commit_rebuild_info(commit_sha1) {
 
 	$("#commit-placeholder").html();
 
@@ -87,9 +114,15 @@ function load_rebuild_info(commit_sha1) {
 function main() {
 
 	const commit_sha1 = get_sha1_query_parm();
+	
+	const build_id = get_build_id_query_parm();
+
 
 	if (commit_sha1) {
-		load_rebuild_info(commit_sha1);
+		load_commit_rebuild_info(commit_sha1);
+	} else if (build_id) {
+
+		load_single_rebuild_info(build_id);
 	} else {
 		alert("A commit SHA1 is expected as a URL query parameter!");
 	}

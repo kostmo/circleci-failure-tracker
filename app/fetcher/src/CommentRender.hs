@@ -4,11 +4,13 @@ module CommentRender where
 
 import qualified Data.HashMap.Strict as HashMap
 import           Data.List           (dropWhileEnd, intercalate, intersperse)
+import           Data.List.Extra     (maximumOn)
 import           Data.List.NonEmpty  (NonEmpty ((:|)))
 import qualified Data.List.NonEmpty  as NE
 import           Data.Text           (Text)
 import qualified Data.Text           as T
 import qualified Data.Text.Lazy      as LT
+import           Data.Time           (UTCTime)
 import qualified Data.Time.Format    as TF
 import qualified Data.Tree           as Tr
 import           Debug.Trace         (trace)
@@ -172,9 +174,9 @@ genFlakySections
 
     confirmed_flaky_section = if null confirmed_flaky_builds
       then mempty
-      else pure $ T.unwords [
+      else pure $ M.sentence [
           MyUtils.pluralize (length confirmed_flaky_builds) "failure"
-        , "confirmed as flaky and can be ignored."
+        , "confirmed as flaky and can be ignored"
         ]
 
     total_tentative_flaky_count = StatusUpdateTypes.count tentative_flakies
@@ -204,7 +206,7 @@ genFlakySections
     untriggered_intro_text = M.colonize [
         MyUtils.pluralize (length tentative_flaky_untriggered_reruns) "failure"
       , M.bold "tentatively classified as flaky"
-      , "but have not launched reruns to confirm"
+      , "but have not triggered reruns to confirm"
       ]
 
     triggered_intro_text = M.colonize [
@@ -217,6 +219,63 @@ genFlakySections
     make_details_block x = concat $
       zipWith (genMatchedBuildSection $ length x)
         [1..] x
+
+
+toBreakageTimeSpan upstream_cause = BreakageTimeSpan
+  (SqlRead._breakage_start_time upstream_cause)
+  (SqlRead._breakage_end_time upstream_cause)
+  (SqlRead._span_length upstream_cause)
+  upstream_cause
+
+data BreakageTimeSpan = BreakageTimeSpan {
+    start_time     :: UTCTime
+  , maybe_end_time :: Maybe UTCTime
+  , span_length    :: Int
+  , original_obj   :: SqlRead.UpstreamBrokenJob
+  }
+
+
+formatBreakageTimeSpan :: BreakageTimeSpan -> Text
+formatBreakageTimeSpan (BreakageTimeSpan breakage_start_time maybe_breakage_end_time span_length original_obj) =
+  T.unwords breakage_span_words_list
+  where
+    ft_date_only = T.pack . TF.formatTime TF.defaultTimeLocale "%b %d"
+    ft_time_only = T.pack . TF.formatTime TF.defaultTimeLocale "%l:%M%P"
+    start_time_date_only = ft_date_only breakage_start_time
+
+    breakage_span_words_list = case maybe_breakage_end_time of
+      Just end_time ->
+        if start_time_date_only == end_time_date_only
+        then [
+             "on"
+           , ft_date_only breakage_start_time
+           , "from"
+           , ft_time_only breakage_start_time
+           , "to"
+           , ft_time_only end_time
+           , commit_count_blurb
+           ]
+         else [
+             "from"
+           , start_time_date_only
+           , "until"
+           , end_time_date_only
+           , commit_count_blurb
+           ]
+         where
+           render_raw_commit (Builds.RawCommit x) = T.take Constants.gitCommitPrefixLength x
+
+           end_time_date_only = ft_date_only end_time
+           commit_count_blurb = M.parens $ T.unwords [
+               T.pack $ show span_length
+             , "commits;"
+             , render_raw_commit $ SqlRead._breakage_start_sha1 original_obj
+             , "-"
+               -- This Maybe should never be Nothing when the "end" timestamp is not Nothing
+             , maybe "XXX" render_raw_commit $
+                 SqlRead._breakage_end_sha1 original_obj
+             ]
+      Nothing -> ["since", start_time_date_only]
 
 
 genUpstreamFailuresSection upstream_breakages =
@@ -249,19 +308,7 @@ genUpstreamFailuresSection upstream_breakages =
         CommitBuilds.NewCommitBuild y _match_obj _ _ = CommitBuilds._commit_build x
         Builds.StorableBuild (DbHelpers.WithId ubuild_id _universal_build) build_obj = y
 
-        ft = T.pack . TF.formatTime TF.defaultTimeLocale "%b %d"
-        breakage_span_words = T.unwords $ since_words ++ until_words
-        since_words =  [
-            "from"
-          , ft $ SqlRead._breakage_start_time upstream_cause
-          ]
-
-        until_words = case SqlRead._breakage_end_time upstream_cause of
-          Nothing -> []
-          Just z -> [
-              "until"
-            , ft z
-            ]
+        breakage_span_words = formatBreakageTimeSpan $ toBreakageTimeSpan upstream_cause
 
         link_label = Builds.job_name build_obj
         link_url = LT.toStrict CommentRenderCommon.webserverBaseUrl <> "/build-details.html?build_id=" <> T.pack (show ubuild_id)
@@ -307,13 +354,29 @@ genMatchedBuildSection total_count idx wrapped_build_with_log_context = [
        | CommitBuilds._is_flaky failure_mode = [":snowflake:"]
        | otherwise = []
 
+    console_log_link = M.link "full log" $ LT.toStrict CommentRenderCommon.webserverBaseUrl <> "/api/view-log-full?build_id=" <> T.pack (show ubuild_id)
+
+    pattern_match_details_link = M.link "pattern match details" $ LT.toStrict CommentRenderCommon.webserverBaseUrl <> "/build-details.html?build_id=" <> T.pack (show ubuild_id)
+
+
+    single_rebuild_request_query_parms = [
+        ("build-id", show ubuild_id)
+      ]
+
+    single_build_rerun_trigger_url = T.pack $ LT.unpack CommentRenderCommon.webserverBaseUrl <> "/rebuild-from-pr-comment.html?"
+      <> MyUtils.genUrlQueryString single_rebuild_request_query_parms
+    rerun_link = M.link "rerun this build" single_build_rerun_trigger_url
+
+    single_build_quick_links = [
+        console_log_link
+      , pattern_match_details_link
+      , rerun_link
+      ]
+
     summary_info_pieces = [
         M.bold "Step:"
       , M.quote $ MatchOccurrences._build_step match_obj
-      , M.parens $ T.intercalate " | " [
-         M.link "full log" $ LT.toStrict CommentRenderCommon.webserverBaseUrl <> "/api/view-log-full?build_id=" <> T.pack (show ubuild_id)
-        , M.link "pattern match details" $ LT.toStrict CommentRenderCommon.webserverBaseUrl <> "/build-details.html?build_id=" <> T.pack (show ubuild_id)
-        ]
+      , M.parens $ T.intercalate " | " single_build_quick_links
       ] ++ optional_flakiness_indicator
 
     code_block_lines = NE.toList $ M.codeBlockFromList $
@@ -505,16 +568,14 @@ genMetricsTree
 
     grid_view_url = genGridViewSha1Link 1 merge_base_commit Nothing
 
-    latest_upstream_breakage = maximum $ map SqlRead._breakage_start_time $ HashMap.elems pre_broken_jobs_map
-    latest_breakage_formatted_time = TF.formatTime TF.defaultTimeLocale "%b %d" latest_upstream_breakage
+    latest_upstream_breakage = maximumOn SqlRead._breakage_start_time $ HashMap.elems pre_broken_jobs_map
 
     upstream_brokenness_declaration = T.unwords [
         bold_fraction upstream_broken_count total_failcount
       , M.link "broken upstream" grid_view_url
       , "at merge base"
       , T.take Constants.gitCommitPrefixLength merge_base_sha1_text
-      , "since"
-      , T.pack latest_breakage_formatted_time
+      , formatBreakageTimeSpan $ toBreakageTimeSpan latest_upstream_breakage
       ]
 
     rebase_advice_section = CommentRebaseAdvice.genRebaseAdviceSection ancestry_result
@@ -535,8 +596,6 @@ genMetricsTree
     tentatively_flaky_count_foo = StatusUpdateTypes.count tentatively_flaky_builds_partition
 
     tentatively_flaky_count = trace (unwords ["tentative_flaky_triggered_reruns count:", show $ StatusUpdateTypes.count $ StatusUpdateTypes.tentative_flaky_triggered_reruns tentatively_flaky_builds_partition, "tentative_flaky_untriggered_reruns count:", show $ StatusUpdateTypes.count $ StatusUpdateTypes.tentative_flaky_untriggered_reruns tentatively_flaky_builds_partition]) tentatively_flaky_count_foo
-
-
 
 
     flaky_bullet_tree_inner_heading = pure $ T.unwords [

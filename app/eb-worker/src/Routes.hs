@@ -1,4 +1,3 @@
-{-# LANGUAGE DeriveGeneric     #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Routes where
@@ -6,7 +5,6 @@ module Routes where
 import           Control.Monad.IO.Class     (liftIO)
 import           Control.Monad.Trans.Except (runExceptT)
 import           Control.Monad.Trans.Reader (runReaderT)
-import           Data.Aeson                 (FromJSON, ToJSON)
 import           Data.Text                  (Text)
 import qualified Data.Text                  as T
 import qualified Data.Text.Lazy             as LT
@@ -14,17 +12,16 @@ import           Data.Time                  (parseTimeM)
 import qualified Data.Time.Clock            as Clock
 import           Data.Time.Format           (defaultTimeLocale,
                                              iso8601DateFormat)
-import           GHC.Generics               (Generic)
 import           GHC.Int                    (Int64)
 import           Log                        (LogT)
 import           Network.Wai
 import qualified Web.Scotty                 as S
 import qualified Web.Scotty.Internal.Types  as ScottyTypes
 
+import qualified AmazonQueueData
 import qualified AuthConfig
 import qualified AuthStages
 import qualified BuildRetrieval
-import qualified Builds
 import qualified CircleApi
 import qualified CircleTrigger
 import qualified Constants
@@ -35,13 +32,6 @@ import qualified Sql.Write                  as SqlWrite
 import qualified StatusUpdate
 
 
-data SqsBuildScanMessage = SqsBuildScanMessage {
-    sha1 :: Builds.RawCommit
-  , msg  :: Text
-  } deriving (Show, Generic)
-
-instance ToJSON SqsBuildScanMessage
-instance FromJSON SqsBuildScanMessage
 
 
 data SetupData = SetupData {
@@ -53,20 +43,18 @@ data SetupData = SetupData {
   }
 
 
-parseCronHeaders :: ScottyTypes.ActionT LT.Text IO (Maybe SqlWrite.BeanstalkCronHeaders)
-parseCronHeaders = do
+parseSqsHeaders :: ScottyTypes.ActionT LT.Text IO SqlWrite.BeanstalkSqsReceiveHeaders
+parseSqsHeaders = do
   maybe_task_name <- S.header "X-Aws-Sqsd-Taskname"
   maybe_scheduled_at <- S.header "X-Aws-Sqsd-Scheduled-At"
   maybe_sender_id <- S.header "X-Aws-Sqsd-Sender-Id"
 
-  liftIO $ D.debugList [
-      "KARL -- maybe_task_name:"
-    , show maybe_task_name
-    , "maybe_scheduled_at:"
-    , show maybe_scheduled_at
-    , "maybe_sender_id:"
-    , show maybe_sender_id
-    ]
+  maybe_message_id <- S.header "X-Aws-Sqsd-Msgid"
+
+  maybe_first_received_at <- S.header "X-Aws-Sqsd-First-Received-At"
+  maybe_sent_at <- S.header "X-Aws-Sqsd-Sent-At"
+  maybe_queue_name <- S.header "X-Aws-Sqsd-Queue"
+  maybe_path <- S.header "X-Aws-Sqsd-Path"
 
   let maybe_parsed_time = parseTimeM False defaultTimeLocale (iso8601DateFormat (Just "%H:%M:%S")) . init . LT.unpack =<< maybe_scheduled_at
 
@@ -75,29 +63,45 @@ parseCronHeaders = do
        <*> maybe_parsed_time
        <*> maybe_sender_id
 
-  return maybe_cron_headers
+      maybe_standard_headers = SqlWrite.BeanstalkSqsStandardReceiveHeaders
+        <$> maybe_message_id
+        <*> maybe_first_received_at
+        <*> maybe_queue_name
+        <*> maybe_path
+
+  return $ SqlWrite.BeanstalkSqsReceiveHeaders
+    maybe_standard_headers
+    maybe_cron_headers
 
 
 wrapWithDbDurationRecords ::
      DbHelpers.DbConnectionData
-  -> (Int64 -> ScottyTypes.ActionT LT.Text IO ())
+  -> (Int64 -> Maybe LT.Text -> ScottyTypes.ActionT LT.Text IO ())
   -> ScottyTypes.ActionT LT.Text IO ()
 wrapWithDbDurationRecords connection_data func = do
   rq <- S.request
   let path_string = T.intercalate "/" $ pathInfo rq
 
-  maybe_cron_headers <- parseCronHeaders
+  sqs_headers <- parseSqsHeaders
 
   start_id <- liftIO $ do
-    putStrLn "Starting timed database operation..."
+    D.debugStr "Starting timed database operation..."
     conn <- DbHelpers.getConnectionWithStatementTimeout connection_data StatusUpdate.statementTimeoutSeconds
-    SqlWrite.insertEbWorkerStart
+
+    my_id <- SqlWrite.insertEbWorkerStart
       conn
       path_string
       "scanning builds"
-      maybe_cron_headers
+      sqs_headers
 
-  func start_id
+    D.debugList [
+        "Inserted EB Worker Start record with ID:"
+      , show my_id
+      ]
+
+    return my_id
+
+  func start_id $ SqlWrite.message_id <$> SqlWrite.standard_headers sqs_headers
 
   liftIO $ do
     conn <- DbHelpers.getConnectionWithStatementTimeout connection_data StatusUpdate.statementTimeoutSeconds
@@ -115,7 +119,7 @@ scottyApp
 
   S.post "/worker/scheduled-work" $
 
-    wrapWithDbDurationRecords connection_data $ \eb_worker_event_id -> do
+    wrapWithDbDurationRecords connection_data $ \eb_worker_event_id _maybe_message_id -> do
 
       liftIO $ do
 
@@ -149,8 +153,7 @@ scottyApp
 
   S.post "/worker/retry-flaky-master-jobs" $
 
-    wrapWithDbDurationRecords connection_data $ \_eb_worker_event_id -> do
-
+    wrapWithDbDurationRecords connection_data $ \_eb_worker_event_id _maybe_message_id -> do
       output <- liftIO $ do
 
         current_time <- Clock.getCurrentTime
@@ -175,7 +178,7 @@ scottyApp
 
   S.post "/worker/update-pr-associations" $
 
-    wrapWithDbDurationRecords connection_data $ \_eb_worker_event_id -> do
+    wrapWithDbDurationRecords connection_data $ \_eb_worker_event_id _maybe_message_id -> do
 
       liftIO $ do
         current_time <- Clock.getCurrentTime
@@ -216,27 +219,36 @@ scottyApp
 
     body_json <- S.jsonData
 
-    wrapWithDbDurationRecords connection_data $ \_ ->
+    wrapWithDbDurationRecords connection_data $ \eb_worker_event_id maybe_message_id ->
 
       liftIO $ doStuff
         connection_data
         third_party_auth
-        (DbHelpers.OwnerAndRepo Constants.projectName Constants.repoName)
+        owner_and_repo
+        eb_worker_event_id
+        maybe_message_id
         body_json
 
     S.json ["hello-post" :: Text]
+
+  where
+    owner_and_repo = DbHelpers.OwnerAndRepo Constants.projectName Constants.repoName
 
 
 doStuff ::
      DbHelpers.DbConnectionData
   -> CircleApi.ThirdPartyAuth
   -> DbHelpers.OwnerAndRepo
-  -> SqsBuildScanMessage
+  -> Int64
+  -> Maybe LT.Text
+  -> AmazonQueueData.SqsBuildScanMessage
   -> IO ()
 doStuff
     connection_data
     third_party_auth
     owned_repo
+    eb_worker_event_id
+    maybe_message_id
     body_json = do
 
   D.debugList [
@@ -244,9 +256,16 @@ doStuff
     , show commit_sha1
     ]
 
+
   conn <- DbHelpers.getConnectionWithStatementTimeout
     connection_data
     StatusUpdate.statementTimeoutSeconds
+
+  SqlWrite.insertEbWorkerSha1Dequeue
+    conn
+    eb_worker_event_id
+    maybe_message_id
+    commit_sha1
 
   StatusUpdate.wrappedScanAndPostCommit
     conn
@@ -255,16 +274,7 @@ doStuff
     True
     commit_sha1
 
-  either_deletion_count <- flip runReaderT conn $
-    SqlWrite.deleteSha1QueuePlaceholder commit_sha1
-
-  D.debugList [
-      "Removed"
-    , show either_deletion_count
-    , "sha1's from queue"
-    ]
-
   putStrLn "Finished sha1 scan."
 
   where
-    commit_sha1 = sha1 body_json
+    commit_sha1 = AmazonQueueData.sha1 body_json

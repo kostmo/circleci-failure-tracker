@@ -57,15 +57,6 @@ CREATE SCHEMA lambda_logging;
 ALTER SCHEMA lambda_logging OWNER TO postgres;
 
 --
--- Name: work_queues; Type: SCHEMA; Schema: -; Owner: postgres
---
-
-CREATE SCHEMA work_queues;
-
-
-ALTER SCHEMA work_queues OWNER TO postgres;
-
---
 -- Name: insert_derived_github_status_event_columns(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -226,6 +217,33 @@ ALTER SEQUENCE lambda_logging.eb_worker_event_start_id_seq OWNED BY lambda_loggi
 
 
 --
+-- Name: eb_worker_sha1_dequeing; Type: TABLE; Schema: lambda_logging; Owner: postgres
+--
+
+CREATE TABLE lambda_logging.eb_worker_sha1_dequeing (
+    eb_worker_event_id integer NOT NULL,
+    sha1 character(40) NOT NULL,
+    inserted_at timestamp with time zone DEFAULT now() NOT NULL,
+    sqs_message_id text
+);
+
+
+ALTER TABLE lambda_logging.eb_worker_sha1_dequeing OWNER TO postgres;
+
+--
+-- Name: eb_worker_sha1_enqueing; Type: TABLE; Schema: lambda_logging; Owner: postgres
+--
+
+CREATE TABLE lambda_logging.eb_worker_sha1_enqueing (
+    github_status_event_id integer NOT NULL,
+    inserted_at timestamp with time zone DEFAULT now() NOT NULL,
+    sqs_message_id text
+);
+
+
+ALTER TABLE lambda_logging.eb_worker_sha1_enqueing OWNER TO postgres;
+
+--
 -- Name: materialized_view_refresh_events; Type: TABLE; Schema: lambda_logging; Owner: postgres
 --
 
@@ -263,6 +281,126 @@ CREATE VIEW lambda_logging.materialized_view_refresh_event_stats WITH (security_
 ALTER TABLE lambda_logging.materialized_view_refresh_event_stats OWNER TO postgres;
 
 --
+-- Name: github_incoming_status_events; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.github_incoming_status_events (
+    id integer NOT NULL,
+    sha1 character(40),
+    name text,
+    description text,
+    state text,
+    target_url text,
+    context text,
+    created_at timestamp with time zone,
+    inserted_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+ALTER TABLE public.github_incoming_status_events OWNER TO postgres;
+
+--
+-- Name: sha1_queue_insertions; Type: VIEW; Schema: lambda_logging; Owner: postgres
+--
+
+CREATE VIEW lambda_logging.sha1_queue_insertions WITH (security_barrier='false') AS
+ SELECT github_incoming_status_events.sha1,
+    eb_worker_sha1_enqueing.inserted_at,
+    eb_worker_sha1_enqueing.sqs_message_id
+   FROM (lambda_logging.eb_worker_sha1_enqueing
+     JOIN public.github_incoming_status_events ON ((eb_worker_sha1_enqueing.github_status_event_id = github_incoming_status_events.id)));
+
+
+ALTER TABLE lambda_logging.sha1_queue_insertions OWNER TO postgres;
+
+--
+-- Name: sha1_queue_processing_intermediate; Type: VIEW; Schema: lambda_logging; Owner: postgres
+--
+
+CREATE VIEW lambda_logging.sha1_queue_processing_intermediate WITH (security_barrier='false') AS
+ SELECT COALESCE(dequeues.sha1, insertions.sha1) AS sha1,
+    COALESCE(insertions.count_inserted, (0)::bigint) AS count_inserted,
+    insertions.first_inserted,
+    insertions.last_inserted,
+    COALESCE(dequeues.count_dequeued, (0)::bigint) AS count_dequeued,
+    dequeues.first_dequeued,
+    dequeues.last_dequeued
+   FROM (( SELECT sha1_queue_insertions.sha1,
+            count(*) AS count_inserted,
+            min(sha1_queue_insertions.inserted_at) AS first_inserted,
+            max(sha1_queue_insertions.inserted_at) AS last_inserted
+           FROM lambda_logging.sha1_queue_insertions
+          GROUP BY sha1_queue_insertions.sha1) insertions
+     FULL JOIN ( SELECT eb_worker_sha1_dequeing.sha1,
+            count(*) AS count_dequeued,
+            min(eb_worker_sha1_dequeing.inserted_at) AS first_dequeued,
+            max(eb_worker_sha1_dequeing.inserted_at) AS last_dequeued
+           FROM lambda_logging.eb_worker_sha1_dequeing
+          GROUP BY eb_worker_sha1_dequeing.sha1) dequeues ON ((dequeues.sha1 = insertions.sha1)))
+  ORDER BY insertions.last_inserted DESC;
+
+
+ALTER TABLE lambda_logging.sha1_queue_processing_intermediate OWNER TO postgres;
+
+--
+-- Name: sha1_queue_sqs_message_id_processing; Type: VIEW; Schema: lambda_logging; Owner: postgres
+--
+
+CREATE VIEW lambda_logging.sha1_queue_sqs_message_id_processing WITH (security_barrier='false') AS
+ SELECT COALESCE(enqueues.sqs_message_id, dequeues.sqs_message_id) AS sqs_message_id,
+    COALESCE(enqueues.count_inserted, (0)::bigint) AS count_inserted,
+    enqueues.first_inserted,
+    enqueues.last_inserted,
+    COALESCE(dequeues.count_dequeued, (0)::bigint) AS count_dequeued,
+    dequeues.first_dequeued,
+    dequeues.last_dequeued,
+    enqueues.sha1,
+    (enqueues.last_inserted - enqueues.first_inserted) AS enqueueing_timespan,
+    (dequeues.last_dequeued - dequeues.first_dequeued) AS dequeueing_timespan,
+    (dequeues.first_dequeued - enqueues.first_inserted) AS first_queue_residence_timespan,
+    (dequeues.last_dequeued - enqueues.first_inserted) AS last_queue_residence_timespan,
+    (dequeues.last_dequeued - enqueues.last_inserted) AS complete_queue_residence_timespan
+   FROM (( SELECT bar.sqs_message_id,
+            bar.count_inserted,
+            bar.first_inserted,
+            bar.last_inserted,
+            bar.first_status_event,
+            github_incoming_status_events.sha1
+           FROM (( SELECT eb_worker_sha1_enqueing.sqs_message_id,
+                    count(*) AS count_inserted,
+                    min(eb_worker_sha1_enqueing.inserted_at) AS first_inserted,
+                    max(eb_worker_sha1_enqueing.inserted_at) AS last_inserted,
+                    min(eb_worker_sha1_enqueing.github_status_event_id) AS first_status_event
+                   FROM lambda_logging.eb_worker_sha1_enqueing
+                  GROUP BY eb_worker_sha1_enqueing.sqs_message_id) bar
+             JOIN public.github_incoming_status_events ON ((bar.first_status_event = github_incoming_status_events.id)))) enqueues
+     FULL JOIN ( SELECT eb_worker_sha1_dequeing.sqs_message_id,
+            count(*) AS count_dequeued,
+            min(eb_worker_sha1_dequeing.inserted_at) AS first_dequeued,
+            max(eb_worker_sha1_dequeing.inserted_at) AS last_dequeued
+           FROM lambda_logging.eb_worker_sha1_dequeing
+          GROUP BY eb_worker_sha1_dequeing.sqs_message_id) dequeues ON ((dequeues.sqs_message_id = enqueues.sqs_message_id)))
+  ORDER BY enqueues.last_inserted DESC;
+
+
+ALTER TABLE lambda_logging.sha1_queue_sqs_message_id_processing OWNER TO postgres;
+
+--
+-- Name: shq1_requeueings; Type: VIEW; Schema: lambda_logging; Owner: postgres
+--
+
+CREATE VIEW lambda_logging.shq1_requeueings AS
+ SELECT sha1_queue_sqs_message_id_processing.sha1,
+    count(*) AS count,
+    sum(sha1_queue_sqs_message_id_processing.count_inserted) AS total_insertions,
+    sum(sha1_queue_sqs_message_id_processing.count_dequeued) AS total_dequeues
+   FROM lambda_logging.sha1_queue_sqs_message_id_processing
+  GROUP BY sha1_queue_sqs_message_id_processing.sha1;
+
+
+ALTER TABLE lambda_logging.shq1_requeueings OWNER TO postgres;
+
+--
 -- Name: cached_master_merge_base; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -286,25 +424,6 @@ In general, it would be possible for the merge base to change over time if the m
 
 Therefore, this cache of merge bases never needs to be invalidated.';
 
-
---
--- Name: github_incoming_status_events; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.github_incoming_status_events (
-    id integer NOT NULL,
-    sha1 character(40),
-    name text,
-    description text,
-    state text,
-    target_url text,
-    context text,
-    created_at timestamp with time zone,
-    inserted_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
-ALTER TABLE public.github_incoming_status_events OWNER TO postgres;
 
 --
 -- Name: github_incoming_status_events_derived_circleci_columns; Type: TABLE; Schema: public; Owner: postgres
@@ -2576,7 +2695,8 @@ CREATE TABLE public.created_pull_request_comment_revisions (
     updated_at timestamp with time zone NOT NULL,
     sha1 character(40),
     was_new_push boolean DEFAULT false NOT NULL,
-    all_no_fault_failures boolean DEFAULT false NOT NULL
+    all_no_fault_failures boolean DEFAULT false NOT NULL,
+    all_successful_circleci_builds boolean DEFAULT false NOT NULL
 );
 
 
@@ -2784,7 +2904,8 @@ CREATE VIEW public.downstream_build_failures_from_upstream_inferred_breakages WI
     m2.committer_date AS closed_date,
     build_failure_standalone_causes.global_build AS universal_build,
     build_failure_standalone_causes.build_num AS provider_build_num,
-    build_failure_standalone_causes.provider
+    build_failure_standalone_causes.provider,
+    master_job_failure_spans_conservative_mview.span_length
    FROM (((((public.pr_merge_bases
      JOIN public.ordered_master_commits ON ((pr_merge_bases.master_commit = ordered_master_commits.sha1)))
      JOIN public.build_failure_standalone_causes ON (((build_failure_standalone_causes.vcs_revision = pr_merge_bases.branch_commit) AND (NOT build_failure_standalone_causes.succeeded))))
@@ -3649,7 +3770,8 @@ CREATE VIEW public.master_automated_rebuild_outcomes WITH (security_barrier='fal
     rebuild_trigger_event_counts.last_inserted_at AS rebuild_triggered_at,
     rebuild_trigger_event_counts.universal_build AS previous_universal_build,
     a2.global_build AS rebuild_universal_id,
-    a2.is_empirically_determined_flaky
+    a2.is_empirically_determined_flaky,
+    a1.commit_index
    FROM ((public.rebuild_trigger_event_counts
      JOIN public.master_failures_raw_causes_mview a1 ON ((rebuild_trigger_event_counts.universal_build = a1.global_build)))
      JOIN public.master_failures_raw_causes_mview a2 ON (((a2.sha1 = a1.sha1) AND (a2.job_name = a1.job_name))))
@@ -5185,73 +5307,6 @@ ALTER SEQUENCE public.scans_id_seq OWNED BY public.scans.id;
 
 
 --
--- Name: unvisited_builds; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.unvisited_builds WITH (security_barrier='false') AS
- SELECT global_builds_unfiltered.build_number AS build_num,
-    global_builds_unfiltered.global_build_num AS universal_build_id,
-    global_builds_unfiltered.build_namespace,
-    global_builds_unfiltered.provider,
-    global_builds_unfiltered.vcs_revision AS commit_sha1,
-    global_builds_unfiltered.succeeded
-   FROM (public.global_builds_unfiltered
-     LEFT JOIN public.build_steps ON ((global_builds_unfiltered.global_build_num = build_steps.universal_build)))
-  WHERE ((build_steps.universal_build IS NULL) AND (NOT global_builds_unfiltered.succeeded));
-
-
-ALTER TABLE public.unvisited_builds OWNER TO postgres;
-
---
--- Name: VIEW unvisited_builds; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON VIEW public.unvisited_builds IS 'Does not include succeeded builds.';
-
-
---
--- Name: unvisited_circleci_failures_with_github_event_metadata; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.unvisited_circleci_failures_with_github_event_metadata AS
- SELECT github_status_events_circleci_failures.job_name_extracted,
-    github_status_events_circleci_failures.created_at,
-    unvisited_builds.build_num,
-    unvisited_builds.universal_build_id,
-    unvisited_builds.build_namespace,
-    unvisited_builds.provider,
-    unvisited_builds.commit_sha1,
-    unvisited_builds.succeeded
-   FROM (public.github_status_events_circleci_failures
-     JOIN public.unvisited_builds ON ((github_status_events_circleci_failures.build_number_extracted = unvisited_builds.build_num)));
-
-
-ALTER TABLE public.unvisited_circleci_failures_with_github_event_metadata OWNER TO postgres;
-
---
--- Name: tiered_sha1_scan_priority_queue; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.tiered_sha1_scan_priority_queue AS
- SELECT (ordered_master_commits.sha1 IS NOT NULL) AS is_master,
-    ((date_part('epoch'::text, (now() - foo.last_event_time)) / (60)::double precision) <= (10)::double precision) AS is_within_10_min,
-    ((date_part('epoch'::text, (now() - foo.last_event_time)) / (3600)::double precision) <= (1)::double precision) AS is_within_1_hour,
-    ((date_part('epoch'::text, (now() - foo.last_event_time)) / (3600)::double precision) <= (4)::double precision) AS is_within_4_hours,
-    ((date_part('epoch'::text, (now() - foo.last_event_time)) / (3600)::double precision) <= (24)::double precision) AS is_within_1_day,
-    ((date_part('epoch'::text, (now() - foo.last_event_time)) / (3600)::double precision) <= ((24 * 7))::double precision) AS is_within_1_week,
-    foo.sha1,
-    foo.last_event_time
-   FROM (( SELECT unvisited_circleci_failures_with_github_event_metadata.commit_sha1 AS sha1,
-            max(unvisited_circleci_failures_with_github_event_metadata.created_at) AS last_event_time
-           FROM public.unvisited_circleci_failures_with_github_event_metadata
-          GROUP BY unvisited_circleci_failures_with_github_event_metadata.commit_sha1) foo
-     LEFT JOIN public.ordered_master_commits ON ((foo.sha1 = ordered_master_commits.sha1)))
-  ORDER BY ((date_part('epoch'::text, (now() - foo.last_event_time)) / (60)::double precision) <= (10)::double precision) DESC, ((date_part('epoch'::text, (now() - foo.last_event_time)) / (3600)::double precision) <= (1)::double precision) DESC, ((date_part('epoch'::text, (now() - foo.last_event_time)) / (3600)::double precision) <= (4)::double precision) DESC, ((date_part('epoch'::text, (now() - foo.last_event_time)) / (3600)::double precision) <= (24)::double precision) DESC, ((date_part('epoch'::text, (now() - foo.last_event_time)) / (3600)::double precision) <= ((24 * 7))::double precision) DESC, ordered_master_commits.id DESC NULLS LAST, foo.last_event_time DESC;
-
-
-ALTER TABLE public.tiered_sha1_scan_priority_queue OWNER TO postgres;
-
---
 -- Name: unattributed_failed_builds; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -5326,6 +5381,50 @@ CREATE VIEW public.unscanned_patterns WITH (security_barrier='false') AS
 ALTER TABLE public.unscanned_patterns OWNER TO postgres;
 
 --
+-- Name: unvisited_builds; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.unvisited_builds WITH (security_barrier='false') AS
+ SELECT global_builds_unfiltered.build_number AS build_num,
+    global_builds_unfiltered.global_build_num AS universal_build_id,
+    global_builds_unfiltered.build_namespace,
+    global_builds_unfiltered.provider,
+    global_builds_unfiltered.vcs_revision AS commit_sha1,
+    global_builds_unfiltered.succeeded
+   FROM (public.global_builds_unfiltered
+     LEFT JOIN public.build_steps ON ((global_builds_unfiltered.global_build_num = build_steps.universal_build)))
+  WHERE ((build_steps.universal_build IS NULL) AND (NOT global_builds_unfiltered.succeeded));
+
+
+ALTER TABLE public.unvisited_builds OWNER TO postgres;
+
+--
+-- Name: VIEW unvisited_builds; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.unvisited_builds IS 'Does not include succeeded builds.';
+
+
+--
+-- Name: unvisited_circleci_failures_with_github_event_metadata; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.unvisited_circleci_failures_with_github_event_metadata AS
+ SELECT github_status_events_circleci_failures.job_name_extracted,
+    github_status_events_circleci_failures.created_at,
+    unvisited_builds.build_num,
+    unvisited_builds.universal_build_id,
+    unvisited_builds.build_namespace,
+    unvisited_builds.provider,
+    unvisited_builds.commit_sha1,
+    unvisited_builds.succeeded
+   FROM (public.github_status_events_circleci_failures
+     JOIN public.unvisited_builds ON ((github_status_events_circleci_failures.build_number_extracted = unvisited_builds.build_num)));
+
+
+ALTER TABLE public.unvisited_circleci_failures_with_github_event_metadata OWNER TO postgres;
+
+--
 -- Name: upstream_breakage_author_stats; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -5377,6 +5476,109 @@ CREATE MATERIALIZED VIEW public.upstream_breakages_weekly_aggregation_mview AS
 ALTER TABLE public.upstream_breakages_weekly_aggregation_mview OWNER TO materialized_view_updater;
 
 --
+-- Name: viability_increase_by_week; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.viability_increase_by_week WITH (security_barrier='false') AS
+ SELECT q.commit_week,
+    q.first_commit_sha1,
+    q.last_commit_sha1,
+    q.total_commits,
+    q.viable_commit_count,
+    q.had_auto_triggered_rebuild_count,
+    q.viable_without_empirically_flaky_fraction,
+    q.viable_without_retriggered_flaky_fraction,
+    q.had_auto_triggered_rebuild_fraction,
+    q.viable_fraction,
+        CASE q.viable_without_empirically_flaky_fraction
+            WHEN 0 THEN NULL::double precision
+            ELSE ((q.viable_fraction - q.viable_without_empirically_flaky_fraction) / q.viable_without_empirically_flaky_fraction)
+        END AS increase_in_viability,
+    q.viable_without_empirically_flaky
+   FROM ( SELECT bar.commit_week,
+            x1.sha1 AS first_commit_sha1,
+            x2.sha1 AS last_commit_sha1,
+            bar.total_commits,
+            bar.viable_commit_count,
+            bar.viable_without_empirically_flaky,
+            bar.had_auto_triggered_rebuild_count,
+            ((bar.viable_without_empirically_flaky)::double precision / (bar.total_commits)::double precision) AS viable_without_empirically_flaky_fraction,
+            ((bar.viable_without_retriggered_flaky)::double precision / (bar.total_commits)::double precision) AS viable_without_retriggered_flaky_fraction,
+            ((bar.had_auto_triggered_rebuild_count)::double precision / (bar.total_commits)::double precision) AS had_auto_triggered_rebuild_fraction,
+            ((bar.viable_commit_count)::double precision / (bar.total_commits)::double precision) AS viable_fraction
+           FROM ((( SELECT foo.commit_week,
+                    min(foo.commit_index) AS first_commit_id,
+                    max(foo.commit_index) AS last_commit_id,
+                    sum((foo.is_green)::integer) AS viable_commit_count,
+                    sum(((foo.is_green AND (NOT foo.had_empirically_flaky_build)))::integer) AS viable_without_empirically_flaky,
+                    sum(((foo.is_green AND (NOT foo.had_retriggered_empirically_flaky)))::integer) AS viable_without_retriggered_flaky,
+                    sum((foo.had_auto_triggered_rebuild)::integer) AS had_auto_triggered_rebuild_count,
+                    count(*) AS total_commits
+                   FROM ( SELECT blarg.commit_index,
+                            date_trunc('week'::text, master_ordered_commits_with_metadata_mview.committer_date) AS commit_week,
+                            (cardinality(master_ordered_commits_with_metadata_mview.disqualifying_jobs_array) = 0) AS is_green,
+                            COALESCE(blarg.had_empirically_flaky_build, false) AS had_empirically_flaky_build,
+                            COALESCE(blarg.had_retriggered_empirically_flaky, false) AS had_retriggered_empirically_flaky,
+                            COALESCE(blarg.had_auto_triggered_rebuild, false) AS had_auto_triggered_rebuild
+                           FROM (public.master_ordered_commits_with_metadata_mview
+                             LEFT JOIN ( SELECT blah.commit_index,
+                                    bool_or(blah.is_empirically_determined_flaky) AS had_empirically_flaky_build,
+                                    bool_or(blah.did_trigger_rebuild) AS had_auto_triggered_rebuild,
+                                    bool_or((blah.did_trigger_rebuild AND blah.is_empirically_determined_flaky)) AS had_retriggered_empirically_flaky
+                                   FROM ( SELECT master_failures_raw_causes_mview.sha1,
+    master_failures_raw_causes_mview.succeeded,
+    master_failures_raw_causes_mview.is_idiopathic,
+    master_failures_raw_causes_mview.is_flaky,
+    master_failures_raw_causes_mview.is_timeout,
+    master_failures_raw_causes_mview.is_matched,
+    master_failures_raw_causes_mview.is_known_broken,
+    master_failures_raw_causes_mview.build_num,
+    master_failures_raw_causes_mview.queued_at,
+    master_failures_raw_causes_mview.job_name,
+    master_failures_raw_causes_mview.branch,
+    master_failures_raw_causes_mview.step_name,
+    master_failures_raw_causes_mview.pattern_id,
+    master_failures_raw_causes_mview.match_id,
+    master_failures_raw_causes_mview.line_number,
+    master_failures_raw_causes_mview.line_count,
+    master_failures_raw_causes_mview.line_text,
+    master_failures_raw_causes_mview.span_start,
+    master_failures_raw_causes_mview.span_end,
+    master_failures_raw_causes_mview.specificity,
+    master_failures_raw_causes_mview.is_serially_isolated,
+    master_failures_raw_causes_mview.contiguous_run_count,
+    master_failures_raw_causes_mview.contiguous_group_index,
+    master_failures_raw_causes_mview.contiguous_start_commit_index,
+    master_failures_raw_causes_mview.contiguous_end_commit_index,
+    master_failures_raw_causes_mview.commit_index,
+    master_failures_raw_causes_mview.contiguous_length,
+    master_failures_raw_causes_mview.global_build,
+    master_failures_raw_causes_mview.provider,
+    master_failures_raw_causes_mview.build_namespace,
+    master_failures_raw_causes_mview.cluster_id,
+    master_failures_raw_causes_mview.cluster_member_count,
+    master_failures_raw_causes_mview.started_at,
+    master_failures_raw_causes_mview.finished_at,
+    master_failures_raw_causes_mview.maybe_is_scheduled,
+    master_failures_raw_causes_mview.is_network,
+    master_failures_raw_causes_mview.is_isolated_or_flaky_failure,
+    master_failures_raw_causes_mview.is_empirically_determined_flaky,
+    (rebuild_trigger_events.universal_build IS NOT NULL) AS did_trigger_rebuild
+   FROM (public.master_failures_raw_causes_mview
+     LEFT JOIN public.rebuild_trigger_events ON (((master_failures_raw_causes_mview.global_build = rebuild_trigger_events.universal_build) AND (rebuild_trigger_events.initiator = ''::text))))
+  WHERE (NOT master_failures_raw_causes_mview.maybe_is_scheduled)) blah
+                                  GROUP BY blah.commit_index) blarg ON ((blarg.commit_index = master_ordered_commits_with_metadata_mview.id)))
+                          WHERE master_ordered_commits_with_metadata_mview.was_built) foo
+                  GROUP BY foo.commit_week) bar
+             JOIN public.ordered_master_commits x1 ON ((x1.id = bar.first_commit_id)))
+             JOIN public.ordered_master_commits x2 ON ((x2.id = bar.last_commit_id)))) q
+  ORDER BY q.commit_week DESC
+ OFFSET 1;
+
+
+ALTER TABLE public.viability_increase_by_week OWNER TO postgres;
+
+--
 -- Name: viable_master_commit_age_history; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -5392,44 +5594,6 @@ CREATE TABLE public.viable_master_commit_age_history (
 
 
 ALTER TABLE public.viable_master_commit_age_history OWNER TO postgres;
-
---
--- Name: queued_sha1_scans; Type: TABLE; Schema: work_queues; Owner: postgres
---
-
-CREATE TABLE work_queues.queued_sha1_scans (
-    sha1 character(40) NOT NULL,
-    inserted_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
-ALTER TABLE work_queues.queued_sha1_scans OWNER TO postgres;
-
---
--- Name: TABLE queued_sha1_scans; Type: COMMENT; Schema: work_queues; Owner: postgres
---
-
-COMMENT ON TABLE work_queues.queued_sha1_scans IS 'sha1''s shall be added to this table just before they are enqueued into SQS, and removed from this table at the end of the processing function that services the SQS queue.
-
-This table prevents multiple sha1''s from being enqueued into the SQS queue simultaneously.
-
-We use the SQS queue in addition to this database-backed queue because SQS is the native mechanism for distributing tasks to Elastic Beanstalk Worker Tier environments.';
-
-
---
--- Name: unqueued_sha1_scan_backlog; Type: VIEW; Schema: work_queues; Owner: postgres
---
-
-CREATE VIEW work_queues.unqueued_sha1_scan_backlog WITH (security_barrier='false') AS
- SELECT tiered_sha1_scan_priority_queue.sha1,
-    tiered_sha1_scan_priority_queue.is_master,
-    tiered_sha1_scan_priority_queue.last_event_time
-   FROM (public.tiered_sha1_scan_priority_queue
-     LEFT JOIN work_queues.queued_sha1_scans ON ((tiered_sha1_scan_priority_queue.sha1 = queued_sha1_scans.sha1)))
-  WHERE ((queued_sha1_scans.sha1 IS NULL) AND tiered_sha1_scan_priority_queue.is_within_1_week);
-
-
-ALTER TABLE work_queues.unqueued_sha1_scan_backlog OWNER TO postgres;
 
 --
 -- Name: eb_worker_event_start id; Type: DEFAULT; Schema: lambda_logging; Owner: postgres
@@ -5613,6 +5777,14 @@ ALTER TABLE ONLY lambda_logging.eb_worker_event_finish
 
 ALTER TABLE ONLY lambda_logging.eb_worker_event_start
     ADD CONSTRAINT eb_worker_event_start_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: eb_worker_sha1_enqueing eb_worker_sha1_enqueing_pkey; Type: CONSTRAINT; Schema: lambda_logging; Owner: postgres
+--
+
+ALTER TABLE ONLY lambda_logging.eb_worker_sha1_enqueing
+    ADD CONSTRAINT eb_worker_sha1_enqueing_pkey PRIMARY KEY (github_status_event_id);
 
 
 --
@@ -6064,11 +6236,10 @@ ALTER TABLE ONLY public.viable_master_commit_age_history
 
 
 --
--- Name: queued_sha1_scans queued_sha1_scans_pkey; Type: CONSTRAINT; Schema: work_queues; Owner: postgres
+-- Name: fk_eb_worker_event_start; Type: INDEX; Schema: lambda_logging; Owner: postgres
 --
 
-ALTER TABLE ONLY work_queues.queued_sha1_scans
-    ADD CONSTRAINT queued_sha1_scans_pkey PRIMARY KEY (sha1);
+CREATE INDEX fk_eb_worker_event_start ON lambda_logging.eb_worker_sha1_dequeing USING btree (eb_worker_event_id);
 
 
 --
@@ -6076,6 +6247,27 @@ ALTER TABLE ONLY work_queues.queued_sha1_scans
 --
 
 CREATE INDEX fki_fk_eb_worker_event_start_id ON lambda_logging.eb_worker_event_finish USING btree (start_id);
+
+
+--
+-- Name: idx_dequeue_sha1; Type: INDEX; Schema: lambda_logging; Owner: postgres
+--
+
+CREATE INDEX idx_dequeue_sha1 ON lambda_logging.eb_worker_sha1_dequeing USING btree (sha1);
+
+
+--
+-- Name: idx_sqs_message_id_dequeueing; Type: INDEX; Schema: lambda_logging; Owner: postgres
+--
+
+CREATE INDEX idx_sqs_message_id_dequeueing ON lambda_logging.eb_worker_sha1_dequeing USING btree (sqs_message_id);
+
+
+--
+-- Name: idx_sqs_message_id_enqueueing; Type: INDEX; Schema: lambda_logging; Owner: postgres
+--
+
+CREATE INDEX idx_sqs_message_id_enqueueing ON lambda_logging.eb_worker_sha1_enqueing USING btree (sqs_message_id);
 
 
 --
@@ -6562,6 +6754,22 @@ CREATE TRIGGER triggered_insert_derived_github_status_event_columns AFTER INSERT
 
 
 --
+-- Name: eb_worker_sha1_dequeing eb_worker_sha1_dequeing_eb_worker_event_id_fkey; Type: FK CONSTRAINT; Schema: lambda_logging; Owner: postgres
+--
+
+ALTER TABLE ONLY lambda_logging.eb_worker_sha1_dequeing
+    ADD CONSTRAINT eb_worker_sha1_dequeing_eb_worker_event_id_fkey FOREIGN KEY (eb_worker_event_id) REFERENCES lambda_logging.eb_worker_event_start(id) ON DELETE CASCADE NOT VALID;
+
+
+--
+-- Name: eb_worker_sha1_enqueing eb_worker_sha1_enqueing_github_status_event_id_fkey; Type: FK CONSTRAINT; Schema: lambda_logging; Owner: postgres
+--
+
+ALTER TABLE ONLY lambda_logging.eb_worker_sha1_enqueing
+    ADD CONSTRAINT eb_worker_sha1_enqueing_github_status_event_id_fkey FOREIGN KEY (github_status_event_id) REFERENCES public.github_incoming_status_events(id) ON DELETE CASCADE NOT VALID;
+
+
+--
 -- Name: eb_worker_event_finish fk_eb_worker_event_start_id; Type: FK CONSTRAINT; Schema: lambda_logging; Owner: postgres
 --
 
@@ -6945,13 +7153,6 @@ GRANT USAGE ON SCHEMA lambda_logging TO logan;
 
 
 --
--- Name: SCHEMA work_queues; Type: ACL; Schema: -; Owner: postgres
---
-
-GRANT ALL ON SCHEMA work_queues TO logan;
-
-
---
 -- Name: TABLE logs; Type: ACL; Schema: frontend_logging; Owner: postgres
 --
 
@@ -7001,6 +7202,20 @@ GRANT ALL ON SEQUENCE lambda_logging.eb_worker_event_start_id_seq TO logan;
 
 
 --
+-- Name: TABLE eb_worker_sha1_dequeing; Type: ACL; Schema: lambda_logging; Owner: postgres
+--
+
+GRANT ALL ON TABLE lambda_logging.eb_worker_sha1_dequeing TO logan;
+
+
+--
+-- Name: TABLE eb_worker_sha1_enqueing; Type: ACL; Schema: lambda_logging; Owner: postgres
+--
+
+GRANT ALL ON TABLE lambda_logging.eb_worker_sha1_enqueing TO logan;
+
+
+--
 -- Name: TABLE materialized_view_refresh_events; Type: ACL; Schema: lambda_logging; Owner: postgres
 --
 
@@ -7016,17 +7231,17 @@ GRANT SELECT ON TABLE lambda_logging.materialized_view_refresh_event_stats TO lo
 
 
 --
--- Name: TABLE cached_master_merge_base; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.cached_master_merge_base TO logan;
-
-
---
 -- Name: TABLE github_incoming_status_events; Type: ACL; Schema: public; Owner: postgres
 --
 
 GRANT ALL ON TABLE public.github_incoming_status_events TO logan;
+
+
+--
+-- Name: TABLE cached_master_merge_base; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.cached_master_merge_base TO logan;
 
 
 --
@@ -8404,27 +8619,6 @@ GRANT ALL ON SEQUENCE public.scans_id_seq TO logan;
 
 
 --
--- Name: TABLE unvisited_builds; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.unvisited_builds TO logan;
-
-
---
--- Name: TABLE unvisited_circleci_failures_with_github_event_metadata; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.unvisited_circleci_failures_with_github_event_metadata TO logan;
-
-
---
--- Name: TABLE tiered_sha1_scan_priority_queue; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.tiered_sha1_scan_priority_queue TO logan;
-
-
---
 -- Name: TABLE unattributed_failed_builds; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -8443,6 +8637,20 @@ GRANT ALL ON SEQUENCE public.universal_builds_id_seq TO logan;
 --
 
 GRANT ALL ON TABLE public.unscanned_patterns TO logan;
+
+
+--
+-- Name: TABLE unvisited_builds; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.unvisited_builds TO logan;
+
+
+--
+-- Name: TABLE unvisited_circleci_failures_with_github_event_metadata; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.unvisited_circleci_failures_with_github_event_metadata TO logan;
 
 
 --
@@ -8469,25 +8677,19 @@ GRANT SELECT ON TABLE public.upstream_breakages_weekly_aggregation_mview TO post
 
 
 --
+-- Name: TABLE viability_increase_by_week; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.viability_increase_by_week TO logan;
+GRANT SELECT ON TABLE public.viability_increase_by_week TO materialized_view_updater;
+
+
+--
 -- Name: TABLE viable_master_commit_age_history; Type: ACL; Schema: public; Owner: postgres
 --
 
 GRANT ALL ON TABLE public.viable_master_commit_age_history TO logan;
 GRANT SELECT ON TABLE public.viable_master_commit_age_history TO materialized_view_updater;
-
-
---
--- Name: TABLE queued_sha1_scans; Type: ACL; Schema: work_queues; Owner: postgres
---
-
-GRANT ALL ON TABLE work_queues.queued_sha1_scans TO logan;
-
-
---
--- Name: TABLE unqueued_sha1_scan_backlog; Type: ACL; Schema: work_queues; Owner: postgres
---
-
-GRANT ALL ON TABLE work_queues.unqueued_sha1_scan_backlog TO logan;
 
 
 --
@@ -8513,14 +8715,6 @@ ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT SELECT ON TABL
 
 ALTER DEFAULT PRIVILEGES FOR ROLE materialized_view_updater IN SCHEMA public REVOKE ALL ON TABLES  FROM materialized_view_updater;
 ALTER DEFAULT PRIVILEGES FOR ROLE materialized_view_updater IN SCHEMA public GRANT SELECT ON TABLES  TO logan;
-
-
---
--- Name: DEFAULT PRIVILEGES FOR TABLES; Type: DEFAULT ACL; Schema: work_queues; Owner: postgres
---
-
-ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA work_queues REVOKE ALL ON TABLES  FROM postgres;
-ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA work_queues GRANT ALL ON TABLES  TO logan;
 
 
 --

@@ -1,5 +1,7 @@
 #!/bin/bash -xe
 
+echo "This usually takes around 2-3 minutes."
+
 # Allows this script to be invoked from any directory:
 cd $(dirname "$0")
 

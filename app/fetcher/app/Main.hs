@@ -7,6 +7,7 @@ import qualified Data.Text                  as T
 import           Options.Applicative
 import           System.IO
 
+import qualified AmazonQueueData
 import qualified BuildRetrieval
 import qualified CircleApi
 import qualified CircleAuth
@@ -25,6 +26,7 @@ data CommandLineArgs = NewCommandLineArgs {
   , dbPassword          :: String
   , circleciApiToken    :: String
   , gitHubAppPemContent :: B.ByteString
+  , sqsQueueUrl         :: T.Text
   , wipeDatabase        :: Bool
   , rescanVisited       :: Bool
   }
@@ -47,6 +49,8 @@ myCliParser = NewCommandLineArgs
     <> help "CircleCI API token for triggering rebuilds")
   <*> strOption   (long "github-app-rsa-pem" <> metavar "GITHUB_APP_RSA_PEM"
     <> help "GitHub App PEM file content")
+  <*> strOption   (long "aws-sqs-queue-url" <> metavar "AWS_SQS_QUEUE_URL"
+    <> help "AWS SQS queue URL for commit SHA1 processing")
   <*> switch      (long "wipe"
     <> help "Wipe database content before beginning")
   <*> switch      (long "rescan"
@@ -79,6 +83,7 @@ mainAppCode args = do
     let third_party_auth = CircleApi.ThirdPartyAuth
           (CircleApi.CircleCIApiToken $ T.pack $ circleciApiToken args)
           rsa_signer
+          (AmazonQueueData.QueueURL $ sqsQueueUrl args)
 
     scan_resources <- ExceptT $ Scanning.prepareScanResources
       third_party_auth

@@ -42,6 +42,7 @@ import qualified Web.Scotty                    as S
 import           Web.Scotty.Internal.Types     (ActionT)
 
 import qualified AmazonQueue
+import qualified AmazonQueueData
 import qualified ApiPost
 import qualified AuthConfig
 import qualified AuthStages
@@ -71,7 +72,6 @@ import qualified StatusEventQuery
 import qualified StatusUpdateTypes
 import qualified UnmatchedBuilds
 import qualified Webhooks
-
 
 
 -- | 2 minutes
@@ -909,7 +909,7 @@ handleStatusWebhook ::
   -> IO (Either LT.Text Bool)
 handleStatusWebhook
     db_connection_data
-    _third_party_auth
+    third_party_auth
     status_event = do
 
   D.debugList [
@@ -924,18 +924,20 @@ handleStatusWebhook
       , notified_status_url_string
       ]
 
-
   synchronous_conn <- DbHelpers.getConnection db_connection_data
 
-    -- TODO: We should just insert into the SQS scanning queue here.
-  SqlWrite.insertReceivedGithubStatus synchronous_conn status_event
+  status_event_id <- SqlWrite.insertReceivedGithubStatus synchronous_conn status_event
 
+  sqs_message_id <- AmazonQueue.sendSqsMessage
+    (CircleApi.sqs_queue_url third_party_auth)
+    $ AmazonQueueData.SqsBuildScanMessage
+      (Builds.RawCommit $ LT.toStrict $ Webhooks.sha status_event)
+      "foo"
 
-
-
-  AmazonQueue.sendSqsMessage "a message"
-
-
+  SqlWrite.insertEbWorkerSha1Enqueue
+    synchronous_conn
+    status_event_id
+    sqs_message_id
 
   return $ return False
 

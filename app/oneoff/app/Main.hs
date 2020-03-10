@@ -15,6 +15,8 @@ import qualified Network.OAuth.OAuth2       as OAuth2
 import           Options.Applicative
 import           System.IO
 
+import qualified AmazonQueue
+import qualified AmazonQueueData
 import qualified Builds
 import qualified CircleApi
 import qualified CircleAuth
@@ -40,6 +42,7 @@ data CommandLineArgs = NewCommandLineArgs {
   , circleciApiToken    :: String
   , rescanVisited       :: Bool
   , gitHubAppPemContent :: B.ByteString
+  , sqsQueueUrl         :: Text
   , repoGitDir          :: FilePath
   }
 
@@ -57,6 +60,8 @@ myCliParser = NewCommandLineArgs
     <> help "Rescan previously visited builds")
   <*> strOption   (long "github-app-rsa-pem" <> metavar "GITHUB_APP_RSA_PEM"
     <> help "GitHub App PEM file content")
+  <*> strOption   (long "aws-sqs-queue-url" <> metavar "AWS_SQS_QUEUE_URL"
+    <> help "AWS SQS queue URL for commit SHA1 processing")
   <*> strOption   (long "repo-git-dir" <> metavar "GIT_DIR"
     <> help "Path to .git directory of repository, for use in computing merge bases")
 
@@ -77,10 +82,8 @@ benchmarkScan circle_token conn build_id = runExceptT $ do
     (Left $ Set.singleton build_id)
 
 
-testBotCommentGeneration oauth_access_token conn = do
-  let commit_sha1_text = "bce9ad0413a2327ca05d809cf7aaca4fac757457"
-      raw_commit = Builds.RawCommit commit_sha1_text
-      validated_sha1 = fromRight (error "BAD1") $ GitRev.validateSha1 commit_sha1_text
+testBotCommentGeneration conn raw_commit@(Builds.RawCommit commit_sha1_text) oauth_access_token = do
+  let validated_sha1 = fromRight (error "BAD1") $ GitRev.validateSha1 commit_sha1_text
 
   blah2 <- flip runReaderT conn $ SqlUpdate.findKnownBuildBreakages
       oauth_access_token
@@ -94,16 +97,17 @@ testBotCommentGeneration oauth_access_token conn = do
 
 
   blah_circleci_failed_job_names <- flip runReaderT conn $ SqlRead.getFailedCircleCIJobNames raw_commit
+
   let circleci_failed_job_names = fromRight (error "BAD3") blah_circleci_failed_job_names
 
-  let build_summary_stats = StatusUpdateTypes.NewBuildSummaryStats
+      build_summary_stats = StatusUpdateTypes.NewBuildSummaryStats
         upstream_breakages_info
         circleci_failed_job_names
 
 
-  let commit_page_info = fromRight (error "BAD4") blah3
+      commit_page_info = fromRight (error "BAD4") blah3
 
-  let Builds.RawCommit merge_base_commit_text = SqlUpdate.merge_base upstream_breakages_info
+      Builds.RawCommit merge_base_commit_text = SqlUpdate.merge_base upstream_breakages_info
 
   blah4 <- GadgitFetch.getIsAncestor $
       GadgitFetch.RefAncestryProposition merge_base_commit_text StatusUpdate.viableBranchName
@@ -114,7 +118,6 @@ testBotCommentGeneration oauth_access_token conn = do
         build_summary_stats
         commit_page_info
         raw_commit
-
 
   putStrLn $ T.unpack $
 --    T.unlines $ CommentRender.genBuildFailuresTable commit_page_info build_summary_stats
@@ -130,6 +133,7 @@ testGetSpanningBreakages conn args =
     let third_party_auth = CircleApi.ThirdPartyAuth
           (CircleApi.CircleCIApiToken $ T.pack $ circleciApiToken args)
           rsa_signer
+          (AmazonQueueData.QueueURL $ sqsQueueUrl args)
 
     scan_resources <- ExceptT $ Scanning.prepareScanResources
       third_party_auth
@@ -154,6 +158,22 @@ testGetSpanningBreakages conn args =
           ]
 
 
+testWithAccessToken args f =
+  runExceptT $ do
+    rsa_signer <- except $ CircleAuth.loadRsaKey $ gitHubAppPemContent args
+    let third_party_auth = CircleApi.ThirdPartyAuth
+          (CircleApi.CircleCIApiToken $ T.pack $ circleciApiToken args)
+          rsa_signer
+          (AmazonQueueData.QueueURL $ sqsQueueUrl args)
+
+    access_token_container <- ExceptT $ fmap (first T.pack) $
+      CircleAuth.getGitHubAppInstallationToken $ CircleApi.jwt_signer third_party_auth
+
+    let access_token = CircleAuth.token access_token_container
+
+    liftIO $ f access_token
+
+
 mainAppCode :: CommandLineArgs -> IO ()
 mainAppCode args = do
 
@@ -161,24 +181,19 @@ mainAppCode args = do
 
   conn <- DbPreparation.prepareDatabase connection_data False
 
-
 --  benchmarkScan circletoken conn $ Builds.UniversalBuildId 82047188
 
 --  testGetSpanningBreakages conn args
 
-  output <- runExceptT $ do
-    rsa_signer <- except $ CircleAuth.loadRsaKey $ gitHubAppPemContent args
-    let third_party_auth = CircleApi.ThirdPartyAuth
-          (CircleApi.CircleCIApiToken $ T.pack $ circleciApiToken args)
-          rsa_signer
+  testWithAccessToken args $ testBotCommentGeneration conn $ Builds.RawCommit "e05f97f167439d3133494c3fa6538b00172a5565"
 
-    access_token_container <- ExceptT $ fmap (first T.pack) $
-      CircleAuth.getGitHubAppInstallationToken $ CircleApi.jwt_signer third_party_auth
 
-    let access_token = CircleAuth.token access_token_container
-
-    liftIO $ testBotCommentGeneration access_token conn
-
+  {-
+  AmazonQueue.sendSqsMessage $
+    AmazonQueueData.SqsBuildScanMessage
+      (Builds.RawCommit "bce9ad0413a2327ca05d809cf7aaca4fac757457")
+      "testing"
+  -}
 
 --  GadgitTest.testGadgitApis
 --  putStrLn "============================="

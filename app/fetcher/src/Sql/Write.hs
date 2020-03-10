@@ -1009,10 +1009,26 @@ getAndStoreCIProviders conn =
   mapM $ traverse (insertSingleCIProvider conn) . swap
 
 
+
+
+data BeanstalkSqsStandardReceiveHeaders = BeanstalkSqsStandardReceiveHeaders {
+    message_id        :: TL.Text
+  , first_received_at :: TL.Text
+  , queue_name        :: TL.Text
+  , path              :: TL.Text
+  } deriving Show
+
+
 data BeanstalkCronHeaders = BeanstalkCronHeaders {
     task_name    :: TL.Text
   , scheduled_at :: UTCTime
   , sender_id    :: TL.Text
+  } deriving Show
+
+
+data BeanstalkSqsReceiveHeaders = BeanstalkSqsReceiveHeaders {
+    standard_headers :: Maybe BeanstalkSqsStandardReceiveHeaders
+  , cron_headers     :: Maybe BeanstalkCronHeaders
   } deriving Show
 
 
@@ -1045,20 +1061,26 @@ insertEbWorkerStart ::
      Connection
   -> Text -- ^ web request path
   -> Text -- ^ label
-  -> Maybe BeanstalkCronHeaders
+  -> BeanstalkSqsReceiveHeaders
   -> IO Int64
-insertEbWorkerStart conn web_request_path label maybe_beanstalk_headers = do
+insertEbWorkerStart
+    conn
+    web_request_path
+    label
+    beanstalk_headers = do
 
   [Only record_id] <- query conn sql (
       web_request_path
     , label
-    , task_name <$> maybe_beanstalk_headers
-    , scheduled_at <$> maybe_beanstalk_headers
-    , sender_id <$> maybe_beanstalk_headers
+    , task_name <$> maybe_beanstalk_cron_headers
+    , scheduled_at <$> maybe_beanstalk_cron_headers
+    , sender_id <$> maybe_beanstalk_cron_headers
     )
 
   return record_id
   where
+    maybe_beanstalk_cron_headers = cron_headers beanstalk_headers
+
     sql = Q.qjoin [
         "INSERT INTO lambda_logging.eb_worker_event_start"
       , Q.insertionValues [
@@ -1074,15 +1096,54 @@ insertEbWorkerStart conn web_request_path label maybe_beanstalk_headers = do
 
 insertEbWorkerFinish ::
      Connection
-  -> Int64 -- ^ label
+  -> Int64 -- ^ event ID
   -> IO ()
-insertEbWorkerFinish conn start_id = do
-  execute conn sql $ Only start_id
-  return ()
+insertEbWorkerFinish conn start_id =
+  void $ execute conn sql $ Only start_id
   where
     sql = Q.qjoin [
         "INSERT INTO lambda_logging.eb_worker_event_finish"
       , Q.insertionValues ["start_id"]
+      ]
+
+
+insertEbWorkerSha1Dequeue ::
+     Connection
+  -> Int64 -- ^ event ID
+  -> Maybe TL.Text
+  -> Builds.RawCommit
+  -> IO ()
+insertEbWorkerSha1Dequeue
+    conn
+    start_id
+    maybe_message_id
+    (Builds.RawCommit sha1) =
+  void $ execute conn sql (start_id, maybe_message_id, sha1)
+  where
+    sql = Q.qjoin [
+        "INSERT INTO lambda_logging.eb_worker_sha1_dequeing"
+      , Q.insertionValues [
+          "eb_worker_event_id"
+        , "sqs_message_id"
+        , "sha1"
+        ]
+      ]
+
+
+insertEbWorkerSha1Enqueue ::
+     Connection
+  -> Int64 -- ^ github status event ID
+  -> Maybe Text -- ^ SQS message id
+  -> IO ()
+insertEbWorkerSha1Enqueue conn github_status_event_id maybe_message_id =
+  void $ execute conn sql (github_status_event_id, maybe_message_id)
+  where
+    sql = Q.qjoin [
+        "INSERT INTO lambda_logging.eb_worker_sha1_enqueing"
+      , Q.insertionValues [
+          "github_status_event_id"
+        , "sqs_message_id"
+        ]
       ]
 
 
@@ -1271,40 +1332,6 @@ deleteCodeBreakage cause_id = do
   liftIO $ Right <$> execute conn sql (Only cause_id)
   where
     sql = "DELETE FROM code_breakage_cause WHERE id = ?"
-
-
-deleteStaleSha1QueueEntries ::
-     SqlRead.AuthDbIO (Either Text Int64)
-deleteStaleSha1QueueEntries = do
-  SqlRead.AuthConnection conn (AuthStages.Username _author) <- ask
-  liftIO $ do
-    [Only deletion_count] <- query conn sql (Only minutes_age_threshold)
-    return $ Right deletion_count
-  where
-    minutes_age_threshold = 30 :: Int
-    sql = Q.qjoin [
-        "WITH deleted AS"
-      , Q.parens $ Q.qjoin [
-          "DELETE FROM work_queues.queued_sha1_scans"
-        , "WHERE inserted_at < now() - interval '? minutes'"
-        , "RETURNING *"
-        ]
-      , "SELECT count(*)"
-      , "FROM deleted"
-      ]
-
-
-deleteSha1QueuePlaceholder ::
-     Builds.RawCommit
-  -> SqlRead.DbIO (Either Text Int64)
-deleteSha1QueuePlaceholder (Builds.RawCommit sha1) = do
-  conn <- ask
-  liftIO $ Right <$> execute conn sql (Only sha1)
-  where
-    sql = Q.qjoin [
-        "DELETE FROM work_queues.queued_sha1_scans"
-      , "WHERE sha1 = ?"
-      ]
 
 
 deleteCodeBreakageJob ::

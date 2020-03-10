@@ -35,6 +35,7 @@ def generate_app_nondefault_cli_arglist(
         db_mview_credentials_json,
         github_app_pem_content,
         circleci_api_token,
+        aws_sqs_queue_url,
         is_notification_ingester,
         no_force_ssl):
 
@@ -61,6 +62,8 @@ def generate_app_nondefault_cli_arglist(
         app_credentials_json["admin-password"],
         "--github-app-rsa-pem",
         base64.b64encode(github_app_pem_content.encode('ascii')).decode(),
+        "--aws-sqs-queue-url",
+        aws_sqs_queue_url,
     ]
 
     if no_force_ssl:

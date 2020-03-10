@@ -58,7 +58,6 @@ function gen_time_plot(container_id, api_path, title, time_unit) {
 }
 
 
-
 function regen_status_notifications_timeline() {
 
 	const hours_count = $("#hours-input").val();
@@ -70,7 +69,8 @@ function regen_status_notifications_timeline() {
 
 function main() {
 
-	gen_comment_postings_table("comment-postings-table", "/api/posted-pr-comments?count=50", "400px");
+	const pr_comment_post_count = 200;
+	gen_comment_postings_table("comment-postings-table", "/api/posted-pr-comments?count=" + pr_comment_post_count, "400px");
 
 	regen_status_notifications_timeline();
 }
