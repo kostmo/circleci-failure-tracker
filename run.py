@@ -85,9 +85,7 @@ if __name__ == "__main__":
 
 
 
-    with open(app_credentials_json_path) as fh_app,
-         open(db_credentials_json_path) as fh_db,
-         open(db_mview_credentials_json_path) as fh_mview_db:
+    with open(app_credentials_json_path) as fh_app, open(db_credentials_json_path) as fh_db, open(db_mview_credentials_json_path) as fh_mview_db:
 
         github_app_pem_content = open(options.github_app_pem_filepath).read().strip()
         circleci_api_token = open(options.circleci_api_token_file).read().strip()

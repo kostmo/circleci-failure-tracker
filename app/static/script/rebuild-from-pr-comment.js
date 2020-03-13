@@ -12,8 +12,7 @@ function get_build_id_query_parm() {
 
 function load_single_rebuild_info(commit_sha1) {
 
-
-TODO FINISH ME
+// TODO FINISH ME
 
 	$("#commit-placeholder").html();
 

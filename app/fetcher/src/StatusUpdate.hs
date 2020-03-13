@@ -928,16 +928,17 @@ handleStatusWebhook
 
   status_event_id <- SqlWrite.insertReceivedGithubStatus synchronous_conn status_event
 
-  sqs_message_id <- AmazonQueue.sendSqsMessage
-    (CircleApi.sqs_queue_url third_party_auth)
-    $ AmazonQueueData.SqsBuildScanMessage
-      (Builds.RawCommit $ LT.toStrict $ Webhooks.sha status_event)
-      "foo"
+  when (status_type `elem` conclusiveStatuses) $ do
+    sqs_message_id <- AmazonQueue.sendSqsMessage
+      (CircleApi.sqs_queue_url third_party_auth)
+      $ AmazonQueueData.SqsBuildScanMessage
+        (Builds.RawCommit $ LT.toStrict $ Webhooks.sha status_event)
+        "foo"
 
-  SqlWrite.insertEbWorkerSha1Enqueue
-    synchronous_conn
-    status_event_id
-    sqs_message_id
+    SqlWrite.insertEbWorkerSha1Enqueue
+      synchronous_conn
+      status_event_id
+      sqs_message_id
 
   return $ return False
 
@@ -945,6 +946,8 @@ handleStatusWebhook
     context_text = Webhooks.context status_event
     notified_status_context_string = LT.unpack context_text
     notified_status_context_text = LT.toStrict context_text
+
+    status_type = Webhooks.state status_event
 
 
 wrappedScanAndPostCommit ::
