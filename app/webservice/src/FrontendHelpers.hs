@@ -22,6 +22,7 @@ import           Network.Wai.Session        (Session)
 import qualified Web.Scotty                 as S
 import qualified Web.Scotty.Internal.Types  as ScottyTypes
 
+import qualified AmazonQueueData
 import qualified Auth
 import qualified AuthConfig
 import qualified AuthStages
@@ -185,9 +186,9 @@ getOffsetMode = do
 facilitateJobRebuild ::
      CircleApi.CircleCIApiToken
   -> Builds.UniversalBuildId
-  -> SqlRead.AuthDbIO (Either T.Text [(Builds.UniversalBuildId, Int64)])
+  -> SqlRead.AuthDbIO (Either T.Text (SqlRead.UserWrapper [(Builds.UniversalBuildId, Int64)]))
 facilitateJobRebuild circleci_api_token universal_build_id = do
-  dbauth@(SqlRead.AuthConnection conn _user) <- ask
+  dbauth@(SqlRead.AuthConnection conn user) <- ask
   liftIO $ fmap (first T.pack) $ runExceptT $ do
     storable_build <- ExceptT $ fmap (first T.unpack) $
       flip runReaderT conn $ SqlRead.getGlobalBuild universal_build_id
@@ -200,7 +201,7 @@ facilitateJobRebuild circleci_api_token universal_build_id = do
       [(universal_build_id, provider_build_num)]
 
     liftIO $ D.debugStr "Submitted rebuild request."
-    return results
+    return $ SqlRead.UserWrapper user results
 
 
 getLoggedInUser :: SqlRead.AuthDbIO (Either T.Text AuthStages.Username)
@@ -321,6 +322,7 @@ rescanCommitCallback third_party_auth commit = do
         (Just user_alias)
         owned_repo
         StatusUpdate.ShouldStoreDetailedSuccessRecords
+        (AmazonQueueData.SqsMessageId Nothing)
         commit
         StatusUpdate.ShouldScanLogs
         Scanning.RevisitScanned

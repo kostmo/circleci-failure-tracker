@@ -230,7 +230,7 @@ toBreakageTimeSpan upstream_cause = BreakageTimeSpan
 data BreakageTimeSpan = BreakageTimeSpan {
     start_time     :: UTCTime
   , maybe_end_time :: Maybe UTCTime
-  , span_length    :: Int
+  , span_length    :: Maybe Int
   , original_obj   :: SqlRead.UpstreamBrokenJob
   }
 
@@ -358,7 +358,7 @@ genMatchedBuildSection total_count idx wrapped_build_with_log_context = [
 
     pattern_match_details_link = M.link "pattern match details" $ LT.toStrict CommentRenderCommon.webserverBaseUrl <> "/build-details.html?build_id=" <> T.pack (show ubuild_id)
 
-
+    {-
     single_rebuild_request_query_parms = [
         ("build-id", show ubuild_id)
       ]
@@ -366,11 +366,12 @@ genMatchedBuildSection total_count idx wrapped_build_with_log_context = [
     single_build_rerun_trigger_url = T.pack $ LT.unpack CommentRenderCommon.webserverBaseUrl <> "/rebuild-from-pr-comment.html?"
       <> MyUtils.genUrlQueryString single_rebuild_request_query_parms
     rerun_link = M.link "rerun this build" single_build_rerun_trigger_url
+    -}
 
     single_build_quick_links = [
         console_log_link
       , pattern_match_details_link
-      , rerun_link
+--      , rerun_link
       ]
 
     summary_info_pieces = [

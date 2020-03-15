@@ -52,7 +52,7 @@ parseSqsHeaders = do
   maybe_message_id <- S.header "X-Aws-Sqsd-Msgid"
 
   maybe_first_received_at <- S.header "X-Aws-Sqsd-First-Received-At"
-  maybe_sent_at <- S.header "X-Aws-Sqsd-Sent-At"
+--  maybe_sent_at <- S.header "X-Aws-Sqsd-Sent-At"
   maybe_queue_name <- S.header "X-Aws-Sqsd-Queue"
   maybe_path <- S.header "X-Aws-Sqsd-Path"
 
@@ -226,7 +226,7 @@ scottyApp
         third_party_auth
         owner_and_repo
         eb_worker_event_id
-        maybe_message_id
+        (AmazonQueueData.SqsMessageId maybe_message_id)
         body_json
 
     S.json ["hello-post" :: Text]
@@ -240,7 +240,7 @@ doStuff ::
   -> CircleApi.ThirdPartyAuth
   -> DbHelpers.OwnerAndRepo
   -> Int64
-  -> Maybe LT.Text
+  -> AmazonQueueData.SqsMessageId
   -> AmazonQueueData.SqsBuildScanMessage
   -> IO ()
 doStuff
@@ -248,14 +248,13 @@ doStuff
     third_party_auth
     owned_repo
     eb_worker_event_id
-    maybe_message_id
+    sqs_message_id
     body_json = do
 
   D.debugList [
       "Starting sha1 scan of"
     , show commit_sha1
     ]
-
 
   conn <- DbHelpers.getConnectionWithStatementTimeout
     connection_data
@@ -264,7 +263,7 @@ doStuff
   SqlWrite.insertEbWorkerSha1Dequeue
     conn
     eb_worker_event_id
-    maybe_message_id
+    sqs_message_id
     commit_sha1
 
   StatusUpdate.wrappedScanAndPostCommit
@@ -272,6 +271,7 @@ doStuff
     third_party_auth
     owned_repo
     True
+    sqs_message_id
     commit_sha1
 
   putStrLn "Finished sha1 scan."

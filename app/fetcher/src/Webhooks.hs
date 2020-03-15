@@ -11,7 +11,7 @@ import           GHC.Generics
 
 data GitHubStatusEvent = GitHubStatusEvent {
     sha         :: Text
-  , name        :: Text -- ^ <org>/<repo>
+  , name        :: Text -- ^ "<org>/<repo>"
   , description :: Text
   , state       :: Text
   , target_url  :: Text

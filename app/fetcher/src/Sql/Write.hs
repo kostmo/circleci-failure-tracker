@@ -34,6 +34,7 @@ import           GHC.Int                           (Int64)
 import qualified Network.OAuth.OAuth2              as OAuth2
 import qualified Safe
 
+import qualified AmazonQueueData
 import qualified ApiPost
 import qualified AuthStages
 import qualified Breakages
@@ -1009,8 +1010,6 @@ getAndStoreCIProviders conn =
   mapM $ traverse (insertSingleCIProvider conn) . swap
 
 
-
-
 data BeanstalkSqsStandardReceiveHeaders = BeanstalkSqsStandardReceiveHeaders {
     message_id        :: TL.Text
   , first_received_at :: TL.Text
@@ -1110,13 +1109,13 @@ insertEbWorkerFinish conn start_id =
 insertEbWorkerSha1Dequeue ::
      Connection
   -> Int64 -- ^ event ID
-  -> Maybe TL.Text
+  -> AmazonQueueData.SqsMessageId
   -> Builds.RawCommit
   -> IO ()
 insertEbWorkerSha1Dequeue
     conn
     start_id
-    maybe_message_id
+    (AmazonQueueData.SqsMessageId maybe_message_id)
     (Builds.RawCommit sha1) =
   void $ execute conn sql (start_id, maybe_message_id, sha1)
   where

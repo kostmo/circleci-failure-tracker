@@ -2,11 +2,15 @@
 
 module AmazonQueueData where
 
-import           Data.Aeson   (FromJSON, ToJSON)
-import           Data.Text    (Text)
-import           GHC.Generics (Generic)
+import           Data.Aeson     (FromJSON, ToJSON)
+import           Data.Text      (Text)
+import qualified Data.Text.Lazy as TL
+import           GHC.Generics   (Generic)
 
 import qualified Builds
+
+
+newtype SqsMessageId = SqsMessageId (Maybe TL.Text)
 
 
 newtype QueueURL = QueueURL Text deriving Show

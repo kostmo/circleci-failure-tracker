@@ -1624,7 +1624,7 @@ data UpstreamBrokenJob = UpstreamBrokenJob {
   , _universal_build     :: Builds.UniversalBuildId
   , _provider            :: Int
   , _provider_build_num  :: Builds.BuildNumber
-  , _span_length         :: Int
+  , _span_length         :: Maybe Int
   } deriving (Generic, FromRow)
 
 instance ToJSON UpstreamBrokenJob where

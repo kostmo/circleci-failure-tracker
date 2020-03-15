@@ -10,19 +10,17 @@ function get_build_id_query_parm() {
 }
 
 
-function load_single_rebuild_info(commit_sha1) {
-
-// TODO FINISH ME
+function load_single_rebuild_info(build_id) {
 
 	$("#commit-placeholder").html();
 
 	const query_parms = {
 		"login_redirect_path": get_url_path_for_redirect(),
-		"sha1": commit_sha1,
+		"build": build_id,
 	};
 
 	$("#throbber").show();
-	post_inquiry("/api/rebuild-flaky-candidates", query_parms, function(data) {
+	post_inquiry("/api/rebuild-single-job", query_parms, function(data) {
 		$("#throbber").hide();
 
 		$("#username-container").html(data.user);

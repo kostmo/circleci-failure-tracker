@@ -329,6 +329,7 @@ scanAndPost ::
   -> Scanning.RevisitationMode
   -> [Builds.UniversalBuildId]
   -> DbHelpers.OwnerAndRepo
+  -> AmazonQueueData.SqsMessageId
   -> Builds.RawCommit
   -> ExceptT LT.Text IO ()
 scanAndPost
@@ -336,6 +337,7 @@ scanAndPost
     scan_revisitation_mode
     scannable_build_numbers
     owned_repo
+    sqs_message_id
     sha1 = do
 
   liftIO $ do
@@ -359,6 +361,7 @@ scanAndPost
     postCommitSummaryStatus
       (ScanRecords.fetching scan_resources)
       owned_repo
+      sqs_message_id
       sha1
 
   where
@@ -415,11 +418,13 @@ fetchCommitPageInfo pre_broken_info sha1 validated_sha1 = runExceptT $ do
 postCommitSummaryStatus ::
      ScanRecords.FetchingResources
   -> DbHelpers.OwnerAndRepo
+  -> AmazonQueueData.SqsMessageId
   -> Builds.RawCommit
   -> ExceptT LT.Text IO ()
 postCommitSummaryStatus
     fetching_resources
     owned_repo
+    _sqs_message_id -- TODO use this to obtain time in queue, include in posted comment
     sha1@(Builds.RawCommit commit_sha1_text) = do
 
   liftIO $ D.debugStr "Checkpoint A"
@@ -747,6 +752,7 @@ readGitHubStatusesAndScanAndPostSummaryForCommit ::
   -> Maybe AuthStages.Username -- ^ scan initiator
   -> DbHelpers.OwnerAndRepo
   -> SuccessRecordStorageMode
+  -> AmazonQueueData.SqsMessageId
   -> Builds.RawCommit
   -> ScanLogsMode
   -> Scanning.RevisitationMode
@@ -757,6 +763,7 @@ readGitHubStatusesAndScanAndPostSummaryForCommit
     maybe_initiator
     owned_repo
     should_store_second_level_success_records
+    sqs_message_id
     sha1
     should_scan
     should_revisit_scanned = do
@@ -791,6 +798,7 @@ readGitHubStatusesAndScanAndPostSummaryForCommit
         should_revisit_scanned
         scannable_build_numbers
         owned_repo
+        sqs_message_id
         sha1
     NoScanLogs -> return ()
 
@@ -928,12 +936,14 @@ handleStatusWebhook
 
   status_event_id <- SqlWrite.insertReceivedGithubStatus synchronous_conn status_event
 
-  when (status_type `elem` conclusiveStatuses) $ do
+--  when (status_type `elem` conclusiveStatuses) $ do
+  when (status_type == gitHubStatusFailureString) $ do
+
     sqs_message_id <- AmazonQueue.sendSqsMessage
       (CircleApi.sqs_queue_url third_party_auth)
       $ AmazonQueueData.SqsBuildScanMessage
         (Builds.RawCommit $ LT.toStrict $ Webhooks.sha status_event)
-        "foo"
+        (LT.toStrict status_type)
 
     SqlWrite.insertEbWorkerSha1Enqueue
       synchronous_conn
@@ -955,6 +965,7 @@ wrappedScanAndPostCommit ::
   -> CircleApi.ThirdPartyAuth
   -> DbHelpers.OwnerAndRepo
   -> Bool
+  -> AmazonQueueData.SqsMessageId
   -> Builds.RawCommit
   -> IO Bool
 wrappedScanAndPostCommit
@@ -962,6 +973,7 @@ wrappedScanAndPostCommit
     third_party_auth
     owned_repo
     is_failure_notification
+    sqs_message_id
     sha1 = do
 
   -- On builds from the *master* branch,
@@ -969,6 +981,7 @@ wrappedScanAndPostCommit
   -- build records,
   -- since the volume on the *master* branch should be relatively low.
   is_master_commit <- liftIO $ flip runReaderT conn $ SqlRead.isMasterCommit sha1
+
   let success_storage_mode = if is_master_commit
         then StatusUpdate.ShouldStoreDetailedSuccessRecords
         else StatusUpdate.NoStoreDetailedSuccessRecords
@@ -989,6 +1002,7 @@ wrappedScanAndPostCommit
         Nothing
         owned_repo
         success_storage_mode
+        sqs_message_id
         sha1
         ShouldScanLogs
         Scanning.NoRevisit
