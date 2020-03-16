@@ -1646,7 +1646,9 @@ getInferredSpanningBrokenJobsBetter ::
   -> DbIO [UpstreamBrokenJob]
 getInferredSpanningBrokenJobsBetter (Builds.RawCommit branch_sha1) = do
   conn <- ask
-  liftIO $ query conn sql $ Only branch_sha1
+  liftIO $ do
+    D.debugList ["SQL:", show sql, "PARMS:", show branch_sha1]
+    query conn sql $ Only branch_sha1
   where
     sql = Q.qjoin [
         "SELECT"

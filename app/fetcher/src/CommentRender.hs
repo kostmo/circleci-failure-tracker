@@ -221,30 +221,38 @@ genFlakySections
         [1..] x
 
 
-toBreakageTimeSpan upstream_cause = BreakageTimeSpan
-  (SqlRead._breakage_start_time upstream_cause)
-  (SqlRead._breakage_end_time upstream_cause)
-  (SqlRead._span_length upstream_cause)
-  upstream_cause
+data BreakageSpanEndInfo = BreakageSpanEndInfo {
+    end_time    :: UTCTime
+  , span_length :: Int
+  }
 
 data BreakageTimeSpan = BreakageTimeSpan {
-    start_time     :: UTCTime
-  , maybe_end_time :: Maybe UTCTime
-  , span_length    :: Maybe Int
-  , original_obj   :: SqlRead.UpstreamBrokenJob
+    start_time   :: UTCTime
+  , maybe_end    :: Maybe BreakageSpanEndInfo
+  , original_obj :: SqlRead.UpstreamBrokenJob
   }
 
 
+toBreakageTimeSpan upstream_cause = BreakageTimeSpan
+  (SqlRead._breakage_start_time upstream_cause)
+  end_info
+  upstream_cause
+  where
+    end_info = BreakageSpanEndInfo
+      <$> SqlRead._breakage_end_time upstream_cause
+      <*> SqlRead._span_length upstream_cause
+
+
 formatBreakageTimeSpan :: BreakageTimeSpan -> Text
-formatBreakageTimeSpan (BreakageTimeSpan breakage_start_time maybe_breakage_end_time span_length original_obj) =
+formatBreakageTimeSpan (BreakageTimeSpan breakage_start_time maybe_breakage_end original_obj) =
   T.unwords breakage_span_words_list
   where
     ft_date_only = T.pack . TF.formatTime TF.defaultTimeLocale "%b %d"
     ft_time_only = T.pack . TF.formatTime TF.defaultTimeLocale "%l:%M%P"
     start_time_date_only = ft_date_only breakage_start_time
 
-    breakage_span_words_list = case maybe_breakage_end_time of
-      Just end_time ->
+    breakage_span_words_list = case maybe_breakage_end of
+      Just (BreakageSpanEndInfo end_time span_length) ->
         if start_time_date_only == end_time_date_only
         then [
              "on"

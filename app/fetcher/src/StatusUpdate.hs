@@ -936,14 +936,15 @@ handleStatusWebhook
 
   status_event_id <- SqlWrite.insertReceivedGithubStatus synchronous_conn status_event
 
---  when (status_type `elem` conclusiveStatuses) $ do
-  when (status_type == gitHubStatusFailureString) $ do
+  when (status_type `elem` conclusiveStatuses) $ do
+--  when (status_type == gitHubStatusFailureString) $ do
 
     sqs_message_id <- AmazonQueue.sendSqsMessage
       (CircleApi.sqs_queue_url third_party_auth)
+      (LT.toStrict status_type)
       $ AmazonQueueData.SqsBuildScanMessage
         (Builds.RawCommit $ LT.toStrict $ Webhooks.sha status_event)
-        (LT.toStrict status_type)
+        "hello"
 
     SqlWrite.insertEbWorkerSha1Enqueue
       synchronous_conn

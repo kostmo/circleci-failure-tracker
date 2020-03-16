@@ -23,21 +23,30 @@ AE.wrapAWSService 'SQS.sqs "SQSService" "SQSSession"
 
 doSendMessage ::
      AmazonQueueData.QueueURL
-  -> Text
+  -> Text -- ^ group ID
+  -> Text -- ^ message_text
   -> SQSSession
   -> IO MySendMessage.SendMessageResponse
-doSendMessage (AmazonQueueData.QueueURL s) m =
+doSendMessage (AmazonQueueData.QueueURL s) group_id m =
   AE.withAWS $ send $
     SQS.sendMessage s m
-      & MySendMessage.smMessageGroupId .~ Just "foobar"
+      & (MySendMessage.smMessageGroupId ?~ group_id)
 
 
-sendSqsMessage :: ToJSON a => AmazonQueueData.QueueURL -> a -> IO (Maybe Text)
-sendSqsMessage queueURL my_msg_json = do
+sendSqsMessage :: ToJSON a =>
+     AmazonQueueData.QueueURL
+  -> Text -- ^ group ID
+  -> a
+  -> IO (Maybe Text)
+sendSqsMessage queueURL group_id my_msg_json = do
 
   sqsSession <- AE.connect awsInfo sqsService
 
-  foo <- doSendMessage queueURL my_msg_text sqsSession
+  foo <- doSendMessage
+    queueURL
+    group_id
+    my_msg_text
+    sqsSession
 
   return $ foo ^. MySendMessage.smrsMessageId
   where
