@@ -60,13 +60,18 @@ genRebaseAdviceSection ancestry_result =
       , M.codeInline CommentRenderCommon.viableBranchName
       ]
 
+    pytorch_remote_repo_url = "https://github.com/pytorch/pytorch"
     git_fetch_command = T.unwords [
-        "git fetch origin"
+        "git fetch"
+      , pytorch_remote_repo_url
       , CommentRenderCommon.viableBranchName
       ]
 
     older_commit_codeblock = M.codeBlock $
-      git_fetch_command :| [T.unwords ["git rebase", CommentRenderCommon.viableBranchName]]
+      git_fetch_command :| [T.unwords [
+          "git rebase"
+        , "FETCH_HEAD"
+        ]]
 
     newer_commit_advice = pure $ M.colonize [
         M.commaize [
@@ -80,7 +85,7 @@ genRebaseAdviceSection ancestry_result =
       git_fetch_command :| [
       T.unwords [
           "git rebase --onto"
-        , CommentRenderCommon.viableBranchName
+        , "FETCH_HEAD"
         , "$(git merge-base origin/master HEAD)"
         ]
      ]
