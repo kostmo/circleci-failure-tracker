@@ -2611,7 +2611,6 @@ data PostedPRComment = PostedPRComment {
   } deriving (Generic, FromRow)
 
 
-
 genPRPostedCommentQuery where_clauses = Q.qjoin [
     "SELECT"
   , Q.list [

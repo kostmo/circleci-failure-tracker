@@ -415,7 +415,8 @@ sanitizeLongLine line_text =
 
     chunk_count_to_preserve = 5
     chunk_count_to_drop = max 0 $ length carriage_return_chunks - chunk_count_to_preserve
-    carriage_return_chunks = T.split (== '\r') $ T.pack $ CircleCIParse.filterAnsiCursorMovement $ T.unpack line_text
+    carriage_return_chunks = T.split (== '\r') $ T.pack $
+      CircleCIParse.filterAnsiCursorMovement $ T.unpack line_text
 
 
 generateCommentFooter :: Maybe SqlRead.PostedPRComment -> [Text]

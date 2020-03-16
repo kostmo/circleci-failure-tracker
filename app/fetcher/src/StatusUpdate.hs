@@ -556,12 +556,11 @@ postCommitSummaryStatusInner
           middle_sections
           pr_number
 
-        Just previous_pr_comment -> updateCommentOrFallback
+        Just previous_pr_comment -> conditionallyPostIfNovelComment
           access_token
           owned_repo
           conn
           sha1
-          False
           middle_sections
           pr_number
           previous_pr_comment
@@ -584,7 +583,49 @@ postCommitSummaryStatusInner
         SqlRead.AuthConnection conn pr_author
 
 
--- | Falls back to Gadgit webservice if database lookup did not find anything
+conditionallyPostIfNovelComment
+    access_token
+    owned_repo
+    conn
+    sha1
+    middle_sections
+    pr_number
+    previous_pr_comment =
+  if SqlRead._body previous_pr_comment == recreated_old_pr_comment_text
+  then liftIO $ do
+    D.debugList [
+        "New comment would be the same as the last one! Not posting."
+      ]
+    return 0
+
+  else updateCommentOrFallback
+    access_token
+    owned_repo
+    conn
+    sha1
+    False
+    middle_sections
+    pr_number
+    previous_pr_comment
+
+  where
+    reduced_revision_count = SqlRead._revision_count previous_pr_comment - 1
+    count_modified_previous_comment = previous_pr_comment {
+        SqlRead._revision_count = reduced_revision_count
+      }
+
+    gen_comment prev_comment = CommentRender.generateCommentMarkdown
+      (Just prev_comment)
+      middle_sections
+      sha1
+
+    recreated_old_pr_comment_text = gen_comment count_modified_previous_comment
+
+--    proposed_new_pr_comment_text = gen_comment previous_pr_comment
+
+
+-- | Falls back to Gadgit webservice if database
+-- lookup did not find anything
 lookupPullRequestsByHeadCommit ::
      Connection
   -> Builds.RawCommit
