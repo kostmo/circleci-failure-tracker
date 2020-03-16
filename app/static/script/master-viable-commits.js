@@ -64,6 +64,8 @@ function latest_viable_age_timeline_highchart(chart_id, metric_type, y_units, da
 		}
 	}
 
+	series_list.reverse();
+
 
 	Highcharts.chart(chart_id, {
 		chart: {

@@ -941,7 +941,7 @@ handleStatusWebhook
 
     sqs_message_id <- AmazonQueue.sendSqsMessage
       (CircleApi.sqs_queue_url third_party_auth)
-      (LT.toStrict status_type)
+      (AmazonQueueData.MessageGroupId $ LT.toStrict status_type)
       $ AmazonQueueData.SqsBuildScanMessage
         (Builds.RawCommit $ LT.toStrict $ Webhooks.sha status_event)
         "hello"

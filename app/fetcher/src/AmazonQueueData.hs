@@ -12,6 +12,8 @@ import qualified Builds
 
 newtype SqsMessageId = SqsMessageId (Maybe TL.Text)
 
+newtype MessageGroupId = MessageGroupId Text
+
 
 newtype QueueURL = QueueURL Text deriving Show
 

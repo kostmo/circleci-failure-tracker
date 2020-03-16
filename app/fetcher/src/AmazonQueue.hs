@@ -23,11 +23,14 @@ AE.wrapAWSService 'SQS.sqs "SQSService" "SQSSession"
 
 doSendMessage ::
      AmazonQueueData.QueueURL
-  -> Text -- ^ group ID
+  -> AmazonQueueData.MessageGroupId
   -> Text -- ^ message_text
   -> SQSSession
   -> IO MySendMessage.SendMessageResponse
-doSendMessage (AmazonQueueData.QueueURL s) group_id m =
+doSendMessage
+    (AmazonQueueData.QueueURL s)
+    (AmazonQueueData.MessageGroupId group_id)
+    m =
   AE.withAWS $ send $
     SQS.sendMessage s m
       & (MySendMessage.smMessageGroupId ?~ group_id)
@@ -35,7 +38,7 @@ doSendMessage (AmazonQueueData.QueueURL s) group_id m =
 
 sendSqsMessage :: ToJSON a =>
      AmazonQueueData.QueueURL
-  -> Text -- ^ group ID
+  -> AmazonQueueData.MessageGroupId
   -> a
   -> IO (Maybe Text)
 sendSqsMessage queueURL group_id my_msg_json = do
@@ -51,6 +54,5 @@ sendSqsMessage queueURL group_id my_msg_json = do
   return $ foo ^. MySendMessage.smrsMessageId
   where
     my_msg_text = toStrict $ encodeToLazyText my_msg_json
-
 
     awsInfo = AE.awsConfig $ AE.AWSRegion CMTA.Ohio
