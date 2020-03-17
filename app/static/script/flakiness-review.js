@@ -242,7 +242,7 @@ function load_job_failure_details(job_name, commit_id_min, commit_id_max) {
 }
 
 
-function gen_pattern_matches_table(element_id, data_payload, height_string) {
+function gen_pattern_matches_table(element_id, data_payload) {
 
 	const column_list = [
 		{title: "Pattern expression", field: "expression", 
@@ -286,10 +286,13 @@ function gen_pattern_matches_table(element_id, data_payload, height_string) {
 	];
 
 	const table = new Tabulator("#" + element_id, {
-		height: height_string,
 		layout: "fitColumns",
 		placeholder: "No Data Set",
 		columns: column_list,
+		initialSort: [
+			{column: "total_flaky_or_isolated_count", dir: "desc"}, //sort by this first
+//			{column:" height", dir: "asc"}, //then sort by this second
+		],
 		data: data_payload,
 		rowClick:function(e, row) {
 			const row_data = row.getData()
@@ -417,7 +420,7 @@ function requery_by_pattern_table(query_args_dict) {
 				const commit_count = max_commit_number - min_commit_number + 1;
 			}
 
-			gen_pattern_matches_table("isolated-failures-by-pattern-table", data.payload, 200);
+			gen_pattern_matches_table("isolated-failures-by-pattern-table", data.payload);
 
 		} else {
 			alert("error: " + data.error);
