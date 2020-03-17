@@ -5416,7 +5416,7 @@ ALTER SEQUENCE public.universal_builds_id_seq OWNED BY public.universal_builds.i
 CREATE VIEW public.unscanned_patterns WITH (security_barrier='false') AS
  SELECT builds_join_steps.step_id,
     builds_join_steps.step_name,
-    builds_join_steps.universal_build,
+    blarg.universal_build,
     builds_join_steps.vcs_revision,
     builds_join_steps.job_name,
     array_to_string(blarg.unscanned_patterns_array, ';'::text) AS unscanned_patterns_delimited,
