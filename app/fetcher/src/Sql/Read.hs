@@ -470,6 +470,13 @@ getRevisitableWhitelistedBuilds ::
 getRevisitableWhitelistedBuilds universal_build_ids = do
   conn <- ask
   liftIO $ do
+    D.debugList [
+        "SQL:"
+      , show sql
+      , "PARMS:"
+      , show parms
+      ]
+
     (timing, xs) <- D.timeThisFloat $ query conn sql $ Only $ In parms
     D.debugList [
         "getRevisitableWhitelistedBuilds took"

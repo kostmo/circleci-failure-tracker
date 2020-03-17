@@ -306,7 +306,8 @@ ALTER TABLE public.github_incoming_status_events OWNER TO postgres;
 CREATE VIEW lambda_logging.sha1_queue_insertions WITH (security_barrier='false') AS
  SELECT github_incoming_status_events.sha1,
     eb_worker_sha1_enqueing.inserted_at,
-    eb_worker_sha1_enqueing.sqs_message_id
+    eb_worker_sha1_enqueing.sqs_message_id,
+    github_incoming_status_events.state
    FROM (lambda_logging.eb_worker_sha1_enqueing
      JOIN public.github_incoming_status_events ON ((eb_worker_sha1_enqueing.github_status_event_id = github_incoming_status_events.id)));
 
@@ -359,21 +360,28 @@ CREATE VIEW lambda_logging.sha1_queue_sqs_message_id_processing WITH (security_b
     (dequeues.last_dequeued - dequeues.first_dequeued) AS dequeueing_timespan,
     (dequeues.first_dequeued - enqueues.first_inserted) AS first_queue_residence_timespan,
     (dequeues.last_dequeued - enqueues.first_inserted) AS last_queue_residence_timespan,
-    (dequeues.last_dequeued - enqueues.last_inserted) AS complete_queue_residence_timespan
+    (dequeues.last_dequeued - enqueues.last_inserted) AS complete_queue_residence_timespan,
+    (now() - enqueues.first_inserted) AS first_insertion_age,
+    enqueues.first_state AS state,
+    enqueues.last_state
    FROM (( SELECT bar.sqs_message_id,
             bar.count_inserted,
             bar.first_inserted,
             bar.last_inserted,
             bar.first_status_event,
-            github_incoming_status_events.sha1
-           FROM (( SELECT eb_worker_sha1_enqueing.sqs_message_id,
+            g1.sha1,
+            g1.state AS first_state,
+            g2.state AS last_state
+           FROM ((( SELECT eb_worker_sha1_enqueing.sqs_message_id,
                     count(*) AS count_inserted,
                     min(eb_worker_sha1_enqueing.inserted_at) AS first_inserted,
                     max(eb_worker_sha1_enqueing.inserted_at) AS last_inserted,
-                    min(eb_worker_sha1_enqueing.github_status_event_id) AS first_status_event
+                    min(eb_worker_sha1_enqueing.github_status_event_id) AS first_status_event,
+                    max(eb_worker_sha1_enqueing.github_status_event_id) AS last_status_event
                    FROM lambda_logging.eb_worker_sha1_enqueing
                   GROUP BY eb_worker_sha1_enqueing.sqs_message_id) bar
-             JOIN public.github_incoming_status_events ON ((bar.first_status_event = github_incoming_status_events.id)))) enqueues
+             JOIN public.github_incoming_status_events g1 ON ((bar.first_status_event = g1.id)))
+             JOIN public.github_incoming_status_events g2 ON ((bar.last_status_event = g2.id)))) enqueues
      FULL JOIN ( SELECT eb_worker_sha1_dequeing.sqs_message_id,
             count(*) AS count_dequeued,
             min(eb_worker_sha1_dequeing.inserted_at) AS first_dequeued,
@@ -386,19 +394,69 @@ CREATE VIEW lambda_logging.sha1_queue_sqs_message_id_processing WITH (security_b
 ALTER TABLE lambda_logging.sha1_queue_sqs_message_id_processing OWNER TO postgres;
 
 --
--- Name: shq1_requeueings; Type: VIEW; Schema: lambda_logging; Owner: postgres
+-- Name: sha1_requeueings; Type: VIEW; Schema: lambda_logging; Owner: postgres
 --
 
-CREATE VIEW lambda_logging.shq1_requeueings AS
+CREATE VIEW lambda_logging.sha1_requeueings WITH (security_barrier='false') AS
  SELECT sha1_queue_sqs_message_id_processing.sha1,
-    count(*) AS count,
+    count(*) AS requeue_count,
     sum(sha1_queue_sqs_message_id_processing.count_inserted) AS total_insertions,
-    sum(sha1_queue_sqs_message_id_processing.count_dequeued) AS total_dequeues
+    sum(sha1_queue_sqs_message_id_processing.count_dequeued) AS total_dequeues,
+    min(sha1_queue_sqs_message_id_processing.first_inserted) AS first_inserted
    FROM lambda_logging.sha1_queue_sqs_message_id_processing
-  GROUP BY sha1_queue_sqs_message_id_processing.sha1;
+  GROUP BY sha1_queue_sqs_message_id_processing.sha1
+  ORDER BY (min(sha1_queue_sqs_message_id_processing.first_inserted)) DESC;
 
 
-ALTER TABLE lambda_logging.shq1_requeueings OWNER TO postgres;
+ALTER TABLE lambda_logging.sha1_requeueings OWNER TO postgres;
+
+--
+-- Name: sha1_scan_durations; Type: VIEW; Schema: lambda_logging; Owner: postgres
+--
+
+CREATE VIEW lambda_logging.sha1_scan_durations AS
+ SELECT eb_worker_event_durations.id,
+    eb_worker_event_durations.label,
+    eb_worker_event_durations.path,
+    eb_worker_event_durations.start_time,
+    eb_worker_event_durations.finish_time,
+    eb_worker_event_durations.duration,
+    eb_worker_sha1_dequeing.sha1
+   FROM (lambda_logging.eb_worker_event_durations
+     JOIN lambda_logging.eb_worker_sha1_dequeing ON ((eb_worker_sha1_dequeing.eb_worker_event_id = eb_worker_event_durations.id)))
+  WHERE (eb_worker_event_durations.finish_time IS NOT NULL)
+  ORDER BY eb_worker_event_durations.start_time DESC;
+
+
+ALTER TABLE lambda_logging.sha1_scan_durations OWNER TO postgres;
+
+--
+-- Name: unprocessed_queued_sha1s_from_today; Type: VIEW; Schema: lambda_logging; Owner: postgres
+--
+
+CREATE VIEW lambda_logging.unprocessed_queued_sha1s_from_today AS
+ SELECT sha1_queue_sqs_message_id_processing.sqs_message_id,
+    sha1_queue_sqs_message_id_processing.count_inserted,
+    sha1_queue_sqs_message_id_processing.first_inserted,
+    sha1_queue_sqs_message_id_processing.last_inserted,
+    sha1_queue_sqs_message_id_processing.count_dequeued,
+    sha1_queue_sqs_message_id_processing.first_dequeued,
+    sha1_queue_sqs_message_id_processing.last_dequeued,
+    sha1_queue_sqs_message_id_processing.sha1,
+    sha1_queue_sqs_message_id_processing.enqueueing_timespan,
+    sha1_queue_sqs_message_id_processing.dequeueing_timespan,
+    sha1_queue_sqs_message_id_processing.first_queue_residence_timespan,
+    sha1_queue_sqs_message_id_processing.last_queue_residence_timespan,
+    sha1_queue_sqs_message_id_processing.complete_queue_residence_timespan,
+    sha1_queue_sqs_message_id_processing.first_insertion_age,
+    sha1_queue_sqs_message_id_processing.state,
+    sha1_queue_sqs_message_id_processing.last_state
+   FROM lambda_logging.sha1_queue_sqs_message_id_processing
+  WHERE ((sha1_queue_sqs_message_id_processing.count_dequeued = 0) AND (sha1_queue_sqs_message_id_processing.first_inserted > (now() - '1 day'::interval)))
+  ORDER BY sha1_queue_sqs_message_id_processing.first_inserted DESC;
+
+
+ALTER TABLE lambda_logging.unprocessed_queued_sha1s_from_today OWNER TO postgres;
 
 --
 -- Name: cached_master_merge_base; Type: TABLE; Schema: public; Owner: postgres
@@ -2922,7 +2980,7 @@ ALTER TABLE public.downstream_build_failures_from_upstream_inferred_breakages OW
 
 COMMENT ON VIEW public.downstream_build_failures_from_upstream_inferred_breakages IS 'This view is different from "upstream_downstream_builds" in that it uses the inferred breakage spans (from a materialized view).
 
-The query performance is good.';
+The query performance *used to be* good.';
 
 
 --
@@ -6254,6 +6312,13 @@ CREATE INDEX fki_fk_eb_worker_event_start_id ON lambda_logging.eb_worker_event_f
 --
 
 CREATE INDEX idx_dequeue_sha1 ON lambda_logging.eb_worker_sha1_dequeing USING btree (sha1);
+
+
+--
+-- Name: idx_enequeued_inserted_at; Type: INDEX; Schema: lambda_logging; Owner: postgres
+--
+
+CREATE INDEX idx_enequeued_inserted_at ON lambda_logging.eb_worker_sha1_enqueing USING btree (inserted_at DESC NULLS LAST);
 
 
 --
