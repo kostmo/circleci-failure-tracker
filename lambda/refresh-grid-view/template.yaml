@@ -24,19 +24,6 @@ Resources:
             Path: /hello
             Method: get
 
-  EnqueSQSBuildScansFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: dr_ci_view_refresh/
-      Handler: build_scan_enqueing.enqueue_sha1_scans_lambda_handler
-      Runtime: python3.7
-      Events:
-        HelloWorld:
-          Type: Api
-          Properties:
-            Path: /enqueue-sha1-scans
-            Method: get
-
 
   PopulateCircleCIConfigYamlWorkflowsFunction:
     Type: AWS::Serverless::Function
@@ -59,13 +46,6 @@ Resources:
       Handler: record_master_viability_snapshot.record_master_viability_lambda_handler
       Runtime: python3.7
 
-
-  CleanupEnqueuedSha1ScanPlaceholdersFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: dr_ci_view_refresh/
-      Handler: cleanup_in_progress_sha1_scan_placeholders.do_cleanup_lambda_handler
-      Runtime: python3.7
 
 
 Outputs:

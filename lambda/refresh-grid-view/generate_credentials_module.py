@@ -12,6 +12,7 @@ def write_creds_module(source_filename, destination_filename):
 
     json_source_path = os.path.join(CREDENTIALS_DIR, source_filename)
     github_token_path = os.path.join(CREDENTIALS_DIR, "github-personal-access-token-repo-read-permissions.txt")
+    sqs_queue_url_path = os.path.join(CREDENTIALS_DIR, "aws-sqs-queue-url.txt")
 
     dest_path = os.path.join("dr_ci_view_refresh", destination_filename)
 
@@ -28,6 +29,11 @@ def write_creds_module(source_filename, destination_filename):
         with open(github_token_path) as token_fh:
             access_token = token_fh.read().strip()
             output_module_fh.write('repo_read_auth_token = "%s"\n' % access_token)
+
+
+        with open(sqs_queue_url_path) as fh:
+            queue_url = fh.read().strip()
+            output_module_fh.write('sqs_queue_url = "%s"\n' % queue_url)
 
 
 if __name__ == "__main__":
