@@ -1,0 +1,144 @@
+Retrieved merge base of RawCommit "e05f97f167439d3133494c3fa6538b00172a5565" from cache as RawCommit "2ce9513b0c8894987f6d42bfb57ff95b22e32c95"
+inferred_breakages_retrieval_timing 17.108374
+Fetching revision builds
+Fetching unmatched commit builds...
+Finishing fetchCommitPageInfo.
+tentative_flaky_triggered_reruns count: 0 tentative_flaky_untriggered_reruns count: 1
+nonupstream_tentatively_flaky_breakages count: 1 nonupstream_nonflaky_breakages: 2
+## :pill: CircleCI build failures summary and remediations
+As of commit e05f97f167 (more details [on the Dr. CI page](https://dr.pytorch.org/commit-details.html?sha1=e05f97f167439d3133494c3fa6538b00172a5565)):
+
+
+---
+* **2/4** failures introduced in this PR
+* **1/4** tentatively recognized as flaky :snowflake:
+    * [Click here to rerun these jobs](https://dr.pytorch.org/rebuild-from-pr-comment.html?sha1=e05f97f167439d3133494c3fa6538b00172a5565)
+* **1/4** [broken upstream](https://dr.pytorch.org/master-timeline.html?count=1&sha1=2ce9513b0c8894987f6d42bfb57ff95b22e32c95&should_suppress_scheduled_builds=true&should_suppress_fully_successful_columns=true&max_columns_suppress_successful=35) at merge base 2ce9513b0c on Mar 11 from  6:41am to  2:50pm (8 commits; 2ce9513 - 6f8a8e4)
+  <details>
+  <summary>
+  Please rebase on the <code>viable/strict</code> branch (expand for instructions)
+  </summary>
+  
+  Since your merge base is older than `viable/strict`, run these commands:
+  ```
+  git fetch origin viable/strict
+  git rebase viable/strict
+  ```
+  Check out the [recency history](https://dr.pytorch.org/master-viable-commits.html) of this "viable master" tracking branch.
+  
+  </details>
+  
+
+
+---
+### :detective: 2 new failures recognized by patterns
+The following build failures do not appear to be due to upstream breakages:
+#### [![See CircleCI build](https://avatars0.githubusercontent.com/ml/7?s=12)](https://circleci.com/gh/pytorch/pytorch/4774436) [pytorch_windows_vs2019_py36_cuda10.1_test2](https://circleci.com/gh/pytorch/pytorch/4774436) (1/2)
+**Step:** "Test" ([full log](https://dr.pytorch.org/api/view-log-full?build_id=108687547) | [pattern match details](https://dr.pytorch.org/build-details.html?build_id=108687547))
+<details>
+<summary>
+<code>ERROR: test_ctc_loss_cuda (__main__.TestAutogradDeviceTypeCUDA)</code>
+</summary>
+
+```
+[E ..\torch\csrc\autograd\engine.cpp:424] GraphTask set_exception: Trying to backward through the graph a second time, but the buffers have already been freed. Specify retain_graph=True when calling backward the first time.
+[E ..\torch\csrc\autograd\engine.cpp:339] ****evaluating function name: MulBackward0 thread on exception: Trying to backward through the graph a second time, but the buffers have already been freed. Specify retain_graph=True when calling backward the first time. for graphTask: 0000016C949D0F00
+[E ..\torch\csrc\autograd\python_engine.cpp:52] PythonEngine::thead_on_exception: Trying to backward through the graph a second time, but the buffers have already been freed. Specify retain_graph=True when calling backward the first time.
+[E ..\torch\csrc\autograd\engine.cpp:406] Engine::thread_on_exception: Trying to backward through the graph a second time, but the buffers have already been freed. Specify retain_graph=True when calling backward the first time.
+[E ..\torch\csrc\autograd\engine.cpp:424] GraphTask set_exception: Trying to backward through the graph a second time, but the buffers have already been freed. Specify retain_graph=True when calling backward the first time.
+ok 
+test_simple_backward (__main__.TestMultithreadAutograd) ... ok 
+test_simple_backward_same_input (__main__.TestMultithreadAutograd) ... ok 
+ 
+====================================================================== 
+ERROR: test_ctc_loss_cuda (__main__.TestAutogradDeviceTypeCUDA) 
+---------------------------------------------------------------------- 
+Traceback (most recent call last): 
+  File "C:\Users\circleci\project\build\win_tmp\build\torch\testing\_internal\common_device_type.py", line 207, in instantiated_test 
+    return test(self, device_arg) 
+  File "C:\Users\circleci\project\build\win_tmp\build\torch\testing\_internal\common_device_type.py", line 365, in dep_fn 
+    return fn(slf, device, *args, **kwargs) 
+  File "test_autograd.py", line 4491, in test_ctc_loss 
+    gradcheck(ctc_after_softmax, [x]) 
+  File "C:\Users\circleci\project\build\win_tmp\build\torch\autograd\gradcheck.py", line 297, in gradcheck 
+    'The tolerance for nondeterminism was {}.'.format(nondet_tol)) 
+```
+
+</details>
+
+#### [![See CircleCI build](https://avatars0.githubusercontent.com/ml/7?s=12)](https://circleci.com/gh/pytorch/pytorch/4774554) [pytorch_macos_10_13_py3_test](https://circleci.com/gh/pytorch/pytorch/4774554) (2/2)
+**Step:** "Test" ([full log](https://dr.pytorch.org/api/view-log-full?build_id=108687550) | [pattern match details](https://dr.pytorch.org/build-details.html?build_id=108687550))
+<details>
+<summary>
+<code>Mar 11 14:35:22 RuntimeError: test_autograd failed!</code>
+</summary>
+
+```
+Mar 11 14:35:22 Ran 1055 tests in 239.743s 
+Mar 11 14:35:22  
+Mar 11 14:35:22 FAILED (failures=1, skipped=13, expected failures=1) 
+Mar 11 14:35:22  
+Mar 11 14:35:22 Generating XML reports... 
+Mar 11 14:35:22 Traceback (most recent call last): 
+Mar 11 14:35:22   File "test/run_test.py", line 674, in <module> 
+Mar 11 14:35:22     main() 
+Mar 11 14:35:22   File "test/run_test.py", line 667, in main 
+Mar 11 14:35:22     raise RuntimeError(message) 
+Mar 11 14:35:22 RuntimeError: test_autograd failed! 
+Mar 11 14:35:22 + cleanup 
+Mar 11 14:35:22 + retcode=1 
+Mar 11 14:35:22 + set +x 
+```
+
+</details>
+
+
+---
+### :snowflake: 1 tentatively flaky failure
+1 failure **tentatively classified as flaky** but have not launched reruns to confirm:
+#### [![See CircleCI build](https://avatars0.githubusercontent.com/ml/7?s=12)](https://circleci.com/gh/pytorch/pytorch/4774639) [pytorch_linux_xenial_cuda10_2_cudnn7_py3_gcc7_test](https://circleci.com/gh/pytorch/pytorch/4774639) (1/1)
+**Step:** "Test" ([full log](https://dr.pytorch.org/api/view-log-full?build_id=108693680) | [pattern match details](https://dr.pytorch.org/build-details.html?build_id=108693680)) :snowflake:
+<details>
+<summary>
+<code>Mar 11 22:47:52 AssertionError: 1 not less than or equal to 1e-05 :</code>
+</summary>
+
+```
+Mar 11 22:47:52 ---------------------------------------------------------------------- 
+Mar 11 22:47:52 Traceback (most recent call last): 
+Mar 11 22:47:52   File "/opt/conda/lib/python3.6/site-packages/torch/testing/_internal/common_distributed.py", line 175, in wrapper 
+Mar 11 22:47:52     self._join_processes(fn) 
+Mar 11 22:47:52   File "/opt/conda/lib/python3.6/site-packages/torch/testing/_internal/common_distributed.py", line 256, in _join_processes 
+Mar 11 22:47:52     self._check_return_codes(elapsed_time) 
+Mar 11 22:47:52   File "/opt/conda/lib/python3.6/site-packages/torch/testing/_internal/common_distributed.py", line 280, in _check_return_codes 
+Mar 11 22:47:52     self.assertEqual(first_process.exitcode, 0) 
+Mar 11 22:47:52   File "/opt/conda/lib/python3.6/site-packages/torch/testing/_internal/common_utils.py", line 915, in assertEqual 
+Mar 11 22:47:52     super(TestCase, self).assertLessEqual(abs(x - y), prec, message) 
+Mar 11 22:47:52 AssertionError: 1 not less than or equal to 1e-05 :  
+Mar 11 22:47:52  
+Mar 11 22:47:52 ---------------------------------------------------------------------- 
+Mar 11 22:47:52 Ran 60 tests in 159.468s 
+Mar 11 22:47:52  
+Mar 11 22:47:52 FAILED (failures=2, errors=1, skipped=4) 
+Mar 11 22:47:52  
+Mar 11 22:47:52 Generating XML reports... 
+Mar 11 22:47:52 Traceback (most recent call last): 
+Mar 11 22:47:52   File "test/run_test.py", line 674, in <module> 
+Mar 11 22:47:52     main() 
+```
+
+</details>
+
+
+---
+### :construction: 1 upstream failure:
+These were probably **caused by upstream breakages**:
+* [pytorch_linux_xenial_py3_6_gcc5_4_test](https://dr.pytorch.org/build-details.html?build_id=108687584) on Mar 11 from  6:41am to  2:50pm (8 commits; 2ce9513 - 6f8a8e4)
+
+
+---
+<details><summary>This comment was automatically generated by <a href="https://github.com/kostmo/circleci-failure-tracker/tree/master/docs/from-pull-request-comment">Dr. CI</a> (expand for details).</summary>Follow <a href="https://dr.pytorch.org/admin/comments-opt-out.html">this link to opt-out</a> of these comments for your Pull Requests.
+
+Please report bugs/suggestions on the <a href="https://github.com/kostmo/circleci-failure-tracker/issues">GitHub issue tracker</a>.
+</details>
+
