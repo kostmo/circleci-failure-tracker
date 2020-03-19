@@ -1,12 +1,45 @@
 function get_throughput_data(hours_count) {
 
-	getJsonWithThrobber("#throbber-throughput", '/api/throughput-by-hour', {"hours": hours_count}, function (data) {
-		gen_throughput_plot(data, 'container-throughput-by-hour', "Throughput", "hour");
-	});
+	getJsonWithThrobber(
+		"#throbber-throughput",
+		'/api/throughput-by-hour',
+		{"hours": hours_count},
+		function (data) {
+			
+			const throughput_series_list = get_throughput_series_list(data);
+			gen_health_plot(throughput_series_list, 'container-throughput-by-hour', "Throughput", "hour");
+
+
+			const duration_series_list = get_duration_series_list(data);
+			gen_health_plot(duration_series_list, 'container-processing-time-by-hour', "Avg. Execution Duration", "hour");
+
+		}
+	);
 }
 
 
-function gen_throughput_plot(data, container_id, title, time_unit) {
+function get_duration_series_list(data) {
+
+	const rows = [];
+	for (var value of data.rows) {
+		const date_val = Date.parse(value.first_inserted_hour);
+
+		rows.push([date_val, value.average_duration]);
+	}
+
+	const series_list = [
+		{
+			type: 'line',
+			name: "Duration (s)",
+			data: rows,
+		},
+	];
+
+	return series_list;
+}
+
+
+function get_throughput_series_list(data) {
 
 	const enqueued_rows = [];
 	const completed_rows = [];
@@ -54,6 +87,12 @@ function gen_throughput_plot(data, container_id, title, time_unit) {
 		},
 	];
 
+	return series_list;
+}
+
+
+function gen_health_plot(series_list, container_id, title, time_unit) {
+
 	Highcharts.chart(container_id, {
 
 		chart: {
@@ -100,7 +139,6 @@ function gen_throughput_plot(data, container_id, title, time_unit) {
 			enabled: false,
 		},
 		series: series_list,
-	
 	});
 }
 

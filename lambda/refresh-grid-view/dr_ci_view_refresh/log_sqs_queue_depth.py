@@ -128,13 +128,15 @@ def run():
 
         start = timer()
 
-#        cur.execute("SELECT sha1, is_master, last_event_time FROM work_queues.unqueued_sha1_scan_backlog LIMIT %s;", (sha1_limit,))
-#        rows = cur.fetchall()
 
-#        print("Fetched %d rows from database..." % len(list(rows)))
+        queue_depth = get_queue_depth(logan_db_config.sqs_queue_url)
 
 
-        msg = get_queue_depth(logan_db_config.sqs_queue_url)
+        cur.execute("INSERT INTO lambda_logging.sqs_queue_depth_history (queue_depth) VALUES (%s) RETURNING inserted_at;", (queue_depth,))
+        insertion_timestamp = cur.fetchone()[0]
+
+        print("Inserted queue depth at %s..." % insertion_timestamp)
+
 
 
         msg2 = get_eb_worker_logs('e-ev8fq2dhbv')
