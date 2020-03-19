@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
--- Dumped from database version 10.6
+-- Dumped from database version 10.10
 -- Dumped by pg_dump version 12.2 (Ubuntu 12.2-2.pgdg18.04+1)
 
 SET statement_timeout = 0;
@@ -231,6 +231,47 @@ CREATE VIEW lambda_logging.eb_worker_sha1_dequeue_event_durations WITH (security
 ALTER TABLE lambda_logging.eb_worker_sha1_dequeue_event_durations OWNER TO postgres;
 
 --
+-- Name: ordered_master_commits; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.ordered_master_commits (
+    id integer NOT NULL,
+    sha1 character(40) NOT NULL
+);
+
+
+ALTER TABLE public.ordered_master_commits OWNER TO postgres;
+
+--
+-- Name: TABLE ordered_master_commits; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.ordered_master_commits IS 'Warning: the "id" column may not be contiguous.';
+
+
+--
+-- Name: pull_request_heads; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.pull_request_heads (
+    head_sha1 character(40) NOT NULL,
+    id integer NOT NULL,
+    "timestamp" timestamp with time zone DEFAULT now() NOT NULL,
+    pr_number integer NOT NULL,
+    from_webhook boolean DEFAULT false NOT NULL
+);
+
+
+ALTER TABLE public.pull_request_heads OWNER TO postgres;
+
+--
+-- Name: TABLE pull_request_heads; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.pull_request_heads IS 'tracks the current commit as well as the evolution over time (including rebases) of a pull request';
+
+
+--
 -- Name: completed_sha1_scan_durations; Type: VIEW; Schema: lambda_logging; Owner: postgres
 --
 
@@ -242,8 +283,12 @@ CREATE VIEW lambda_logging.completed_sha1_scan_durations WITH (security_barrier=
     eb_worker_sha1_dequeue_event_durations.finish_time,
     eb_worker_sha1_dequeue_event_durations.duration,
     eb_worker_sha1_dequeue_event_durations.sha1,
-    eb_worker_sha1_dequeue_event_durations.start_time_hour
-   FROM lambda_logging.eb_worker_sha1_dequeue_event_durations
+    eb_worker_sha1_dequeue_event_durations.start_time_hour,
+    pull_request_heads.pr_number,
+    (ordered_master_commits.sha1 IS NOT NULL) AS is_master_commit
+   FROM ((lambda_logging.eb_worker_sha1_dequeue_event_durations
+     LEFT JOIN public.pull_request_heads ON ((pull_request_heads.head_sha1 = eb_worker_sha1_dequeue_event_durations.sha1)))
+     LEFT JOIN public.ordered_master_commits ON ((ordered_master_commits.sha1 = eb_worker_sha1_dequeue_event_durations.sha1)))
   WHERE (eb_worker_sha1_dequeue_event_durations.finish_time IS NOT NULL)
   ORDER BY eb_worker_sha1_dequeue_event_durations.start_time DESC;
 
@@ -357,35 +402,6 @@ CREATE VIEW lambda_logging.sha1_queue_insertions WITH (security_barrier='false')
 ALTER TABLE lambda_logging.sha1_queue_insertions OWNER TO postgres;
 
 --
--- Name: sha1_queue_processing_intermediate; Type: VIEW; Schema: lambda_logging; Owner: postgres
---
-
-CREATE VIEW lambda_logging.sha1_queue_processing_intermediate WITH (security_barrier='false') AS
- SELECT COALESCE(dequeues.sha1, insertions.sha1) AS sha1,
-    COALESCE(insertions.count_inserted, (0)::bigint) AS count_inserted,
-    insertions.first_inserted,
-    insertions.last_inserted,
-    COALESCE(dequeues.count_dequeued, (0)::bigint) AS count_dequeued,
-    dequeues.first_dequeued,
-    dequeues.last_dequeued
-   FROM (( SELECT sha1_queue_insertions.sha1,
-            count(*) AS count_inserted,
-            min(sha1_queue_insertions.inserted_at) AS first_inserted,
-            max(sha1_queue_insertions.inserted_at) AS last_inserted
-           FROM lambda_logging.sha1_queue_insertions
-          GROUP BY sha1_queue_insertions.sha1) insertions
-     FULL JOIN ( SELECT eb_worker_sha1_dequeing.sha1,
-            count(*) AS count_dequeued,
-            min(eb_worker_sha1_dequeing.inserted_at) AS first_dequeued,
-            max(eb_worker_sha1_dequeing.inserted_at) AS last_dequeued
-           FROM lambda_logging.eb_worker_sha1_dequeing
-          GROUP BY eb_worker_sha1_dequeing.sha1) dequeues ON ((dequeues.sha1 = insertions.sha1)))
-  ORDER BY insertions.last_inserted DESC;
-
-
-ALTER TABLE lambda_logging.sha1_queue_processing_intermediate OWNER TO postgres;
-
---
 -- Name: sha1_queue_sqs_message_id_processing; Type: VIEW; Schema: lambda_logging; Owner: postgres
 --
 
@@ -407,7 +423,8 @@ CREATE VIEW lambda_logging.sha1_queue_sqs_message_id_processing WITH (security_b
     enqueues.first_state AS state,
     enqueues.last_state,
     date_trunc('hour'::text, enqueues.first_inserted) AS first_inserted_hour,
-    COALESCE(dequeues.count_finished, (0)::bigint) AS count_finished
+    COALESCE(dequeues.count_finished, (0)::bigint) AS count_finished,
+    dequeues.average_duration
    FROM (( SELECT bar.sqs_message_id,
             bar.count_inserted,
             bar.first_inserted,
@@ -430,7 +447,8 @@ CREATE VIEW lambda_logging.sha1_queue_sqs_message_id_processing WITH (security_b
             count(*) AS count_dequeued,
             count(eb_worker_sha1_dequeue_event_durations.finish_time) AS count_finished,
             min(eb_worker_sha1_dequeue_event_durations.dequeue_timestamp) AS first_dequeued,
-            max(eb_worker_sha1_dequeue_event_durations.dequeue_timestamp) AS last_dequeued
+            max(eb_worker_sha1_dequeue_event_durations.dequeue_timestamp) AS last_dequeued,
+            avg(eb_worker_sha1_dequeue_event_durations.duration) AS average_duration
            FROM lambda_logging.eb_worker_sha1_dequeue_event_durations
           GROUP BY eb_worker_sha1_dequeue_event_durations.sqs_message_id) dequeues ON ((dequeues.sqs_message_id = enqueues.sqs_message_id)))
   ORDER BY enqueues.last_inserted DESC;
@@ -461,6 +479,35 @@ CREATE VIEW lambda_logging.sha1_requeueings WITH (security_barrier='false') AS
 
 
 ALTER TABLE lambda_logging.sha1_requeueings OWNER TO postgres;
+
+--
+-- Name: sqs_queue_depth_history; Type: TABLE; Schema: lambda_logging; Owner: postgres
+--
+
+CREATE TABLE lambda_logging.sqs_queue_depth_history (
+    inserted_at timestamp with time zone DEFAULT now() NOT NULL,
+    queue_depth integer NOT NULL
+);
+
+
+ALTER TABLE lambda_logging.sqs_queue_depth_history OWNER TO postgres;
+
+--
+-- Name: throughput_by_hour; Type: VIEW; Schema: lambda_logging; Owner: postgres
+--
+
+CREATE VIEW lambda_logging.throughput_by_hour AS
+ SELECT sha1_queue_sqs_message_id_processing.first_inserted_hour,
+    count(*) AS enqueued_count,
+    sum(((sha1_queue_sqs_message_id_processing.first_dequeued IS NOT NULL))::integer) AS dequeued_count,
+    sum(((COALESCE(sha1_queue_sqs_message_id_processing.count_finished, (0)::bigint) > 0))::integer) AS completed_count,
+    avg(sha1_queue_sqs_message_id_processing.average_duration) AS average_duration
+   FROM lambda_logging.sha1_queue_sqs_message_id_processing
+  GROUP BY sha1_queue_sqs_message_id_processing.first_inserted_hour
+  ORDER BY sha1_queue_sqs_message_id_processing.first_inserted_hour DESC;
+
+
+ALTER TABLE lambda_logging.throughput_by_hour OWNER TO postgres;
 
 --
 -- Name: unprocessed_queued_sha1s_from_today; Type: VIEW; Schema: lambda_logging; Owner: postgres
@@ -962,25 +1009,6 @@ CREATE VIEW public.latest_master_failure_mode_attributions AS
 ALTER TABLE public.latest_master_failure_mode_attributions OWNER TO postgres;
 
 --
--- Name: ordered_master_commits; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.ordered_master_commits (
-    id integer NOT NULL,
-    sha1 character(40) NOT NULL
-);
-
-
-ALTER TABLE public.ordered_master_commits OWNER TO postgres;
-
---
--- Name: TABLE ordered_master_commits; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON TABLE public.ordered_master_commits IS 'Warning: the "id" column may not be contiguous.';
-
-
---
 -- Name: master_built_commit_groups; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -1229,28 +1257,6 @@ CREATE VIEW public.master_commits_contiguously_indexed AS
 
 
 ALTER TABLE public.master_commits_contiguously_indexed OWNER TO postgres;
-
---
--- Name: pull_request_heads; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.pull_request_heads (
-    head_sha1 character(40) NOT NULL,
-    id integer NOT NULL,
-    "timestamp" timestamp with time zone DEFAULT now() NOT NULL,
-    pr_number integer NOT NULL,
-    from_webhook boolean DEFAULT false NOT NULL
-);
-
-
-ALTER TABLE public.pull_request_heads OWNER TO postgres;
-
---
--- Name: TABLE pull_request_heads; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON TABLE public.pull_request_heads IS 'tracks the current commit as well as the evolution over time (including rebases) of a pull request';
-
 
 --
 -- Name: pr_merge_bases; Type: VIEW; Schema: public; Owner: postgres
@@ -3100,6 +3106,23 @@ COMMENT ON VIEW public.github_status_events_aggregate_circleci_failures IS 'NOTE
 
 
 --
+-- Name: github_status_events_circleci_deduped_states; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.github_status_events_circleci_deduped_states AS
+ SELECT (min(github_status_events_circleci.sha1))::character(40) AS sha1,
+    max(github_status_events_circleci.created_at) AS created_at,
+    github_status_events_circleci.job_name_extracted,
+    github_status_events_circleci.build_number_extracted,
+    github_status_events_circleci.state,
+    (count(*))::integer AS recurrence_count
+   FROM public.github_status_events_circleci
+  GROUP BY github_status_events_circleci.job_name_extracted, github_status_events_circleci.build_number_extracted, github_status_events_circleci.state;
+
+
+ALTER TABLE public.github_status_events_circleci_deduped_states OWNER TO postgres;
+
+--
 -- Name: github_status_events_state_counts; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -3112,14 +3135,14 @@ CREATE VIEW public.github_status_events_state_counts WITH (security_barrier='fal
     foo.error_count,
     ((foo.failure_count > 0) AND (foo.success_count > 0)) AS is_empirically_determined_flaky,
     ((foo.failure_count + foo.success_count) > 1) AS has_completed_rerun
-   FROM ( SELECT github_status_events_circleci.sha1,
-            github_status_events_circleci.job_name_extracted AS job_name,
-            sum(((github_status_events_circleci.state = 'failure'::text))::integer) AS failure_count,
-            sum(((github_status_events_circleci.state = 'pending'::text))::integer) AS pending_count,
-            sum(((github_status_events_circleci.state = 'success'::text))::integer) AS success_count,
-            sum(((github_status_events_circleci.state = 'error'::text))::integer) AS error_count
-           FROM public.github_status_events_circleci
-          GROUP BY github_status_events_circleci.sha1, github_status_events_circleci.job_name_extracted) foo;
+   FROM ( SELECT github_status_events_circleci_deduped_states.sha1,
+            github_status_events_circleci_deduped_states.job_name_extracted AS job_name,
+            sum(((github_status_events_circleci_deduped_states.state = 'failure'::text))::integer) AS failure_count,
+            sum(((github_status_events_circleci_deduped_states.state = 'pending'::text))::integer) AS pending_count,
+            sum(((github_status_events_circleci_deduped_states.state = 'success'::text))::integer) AS success_count,
+            sum(((github_status_events_circleci_deduped_states.state = 'error'::text))::integer) AS error_count
+           FROM public.github_status_events_circleci_deduped_states
+          GROUP BY github_status_events_circleci_deduped_states.sha1, github_status_events_circleci_deduped_states.job_name_extracted) foo;
 
 
 ALTER TABLE public.github_status_events_state_counts OWNER TO postgres;
@@ -7299,6 +7322,34 @@ GRANT ALL ON TABLE lambda_logging.eb_worker_sha1_dequeing TO logan;
 
 
 --
+-- Name: TABLE eb_worker_sha1_dequeue_event_durations; Type: ACL; Schema: lambda_logging; Owner: postgres
+--
+
+GRANT ALL ON TABLE lambda_logging.eb_worker_sha1_dequeue_event_durations TO logan;
+
+
+--
+-- Name: TABLE ordered_master_commits; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.ordered_master_commits TO logan;
+
+
+--
+-- Name: TABLE pull_request_heads; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.pull_request_heads TO logan;
+
+
+--
+-- Name: TABLE completed_sha1_scan_durations; Type: ACL; Schema: lambda_logging; Owner: postgres
+--
+
+GRANT ALL ON TABLE lambda_logging.completed_sha1_scan_durations TO logan;
+
+
+--
 -- Name: SEQUENCE eb_worker_event_start_id_seq; Type: ACL; Schema: lambda_logging; Owner: postgres
 --
 
@@ -7324,7 +7375,7 @@ GRANT SELECT ON TABLE lambda_logging.materialized_view_refresh_events TO logan;
 -- Name: TABLE materialized_view_refresh_event_stats; Type: ACL; Schema: lambda_logging; Owner: postgres
 --
 
-GRANT SELECT ON TABLE lambda_logging.materialized_view_refresh_event_stats TO logan;
+GRANT ALL ON TABLE lambda_logging.materialized_view_refresh_event_stats TO logan;
 
 
 --
@@ -7332,6 +7383,41 @@ GRANT SELECT ON TABLE lambda_logging.materialized_view_refresh_event_stats TO lo
 --
 
 GRANT ALL ON TABLE public.github_incoming_status_events TO logan;
+
+
+--
+-- Name: TABLE sha1_queue_insertions; Type: ACL; Schema: lambda_logging; Owner: postgres
+--
+
+GRANT ALL ON TABLE lambda_logging.sha1_queue_insertions TO logan;
+
+
+--
+-- Name: TABLE sha1_queue_sqs_message_id_processing; Type: ACL; Schema: lambda_logging; Owner: postgres
+--
+
+GRANT ALL ON TABLE lambda_logging.sha1_queue_sqs_message_id_processing TO logan;
+
+
+--
+-- Name: TABLE sha1_requeueings; Type: ACL; Schema: lambda_logging; Owner: postgres
+--
+
+GRANT ALL ON TABLE lambda_logging.sha1_requeueings TO logan;
+
+
+--
+-- Name: TABLE throughput_by_hour; Type: ACL; Schema: lambda_logging; Owner: postgres
+--
+
+GRANT ALL ON TABLE lambda_logging.throughput_by_hour TO logan;
+
+
+--
+-- Name: TABLE unprocessed_queued_sha1s_from_today; Type: ACL; Schema: lambda_logging; Owner: postgres
+--
+
+GRANT ALL ON TABLE lambda_logging.unprocessed_queued_sha1s_from_today TO logan;
 
 
 --
@@ -7497,13 +7583,6 @@ GRANT ALL ON TABLE public.latest_master_failure_mode_attributions TO logan;
 
 
 --
--- Name: TABLE ordered_master_commits; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.ordered_master_commits TO logan;
-
-
---
 -- Name: TABLE master_built_commit_groups; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -7563,13 +7642,6 @@ GRANT SELECT ON TABLE public.master_commit_reversion_spans_mview TO postgres;
 --
 
 GRANT ALL ON TABLE public.master_commits_contiguously_indexed TO logan;
-
-
---
--- Name: TABLE pull_request_heads; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.pull_request_heads TO logan;
 
 
 --
@@ -8102,6 +8174,14 @@ GRANT ALL ON SEQUENCE public.github_incoming_status_events_id_seq TO logan;
 --
 
 GRANT ALL ON TABLE public.github_status_events_aggregate_circleci_failures TO logan;
+
+
+--
+-- Name: TABLE github_status_events_circleci_deduped_states; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.github_status_events_circleci_deduped_states TO logan;
+GRANT SELECT ON TABLE public.github_status_events_circleci_deduped_states TO materialized_view_updater;
 
 
 --
