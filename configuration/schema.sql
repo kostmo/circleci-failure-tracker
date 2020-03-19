@@ -195,6 +195,62 @@ CREATE VIEW lambda_logging.eb_worker_event_durations AS
 ALTER TABLE lambda_logging.eb_worker_event_durations OWNER TO postgres;
 
 --
+-- Name: eb_worker_sha1_dequeing; Type: TABLE; Schema: lambda_logging; Owner: postgres
+--
+
+CREATE TABLE lambda_logging.eb_worker_sha1_dequeing (
+    eb_worker_event_id integer NOT NULL,
+    sha1 character(40) NOT NULL,
+    inserted_at timestamp with time zone DEFAULT now() NOT NULL,
+    sqs_message_id text
+);
+
+
+ALTER TABLE lambda_logging.eb_worker_sha1_dequeing OWNER TO postgres;
+
+--
+-- Name: eb_worker_sha1_dequeue_event_durations; Type: VIEW; Schema: lambda_logging; Owner: postgres
+--
+
+CREATE VIEW lambda_logging.eb_worker_sha1_dequeue_event_durations WITH (security_barrier='false') AS
+ SELECT eb_worker_event_durations.id,
+    eb_worker_event_durations.label,
+    eb_worker_event_durations.path,
+    eb_worker_event_durations.start_time,
+    eb_worker_event_durations.finish_time,
+    eb_worker_event_durations.duration,
+    eb_worker_sha1_dequeing.sha1,
+    date_trunc('hour'::text, eb_worker_event_durations.start_time) AS start_time_hour,
+    eb_worker_sha1_dequeing.inserted_at AS dequeue_timestamp,
+    eb_worker_sha1_dequeing.sqs_message_id
+   FROM (lambda_logging.eb_worker_event_durations
+     JOIN lambda_logging.eb_worker_sha1_dequeing ON ((eb_worker_sha1_dequeing.eb_worker_event_id = eb_worker_event_durations.id)))
+  ORDER BY eb_worker_event_durations.start_time DESC;
+
+
+ALTER TABLE lambda_logging.eb_worker_sha1_dequeue_event_durations OWNER TO postgres;
+
+--
+-- Name: completed_sha1_scan_durations; Type: VIEW; Schema: lambda_logging; Owner: postgres
+--
+
+CREATE VIEW lambda_logging.completed_sha1_scan_durations WITH (security_barrier='false') AS
+ SELECT eb_worker_sha1_dequeue_event_durations.id,
+    eb_worker_sha1_dequeue_event_durations.label,
+    eb_worker_sha1_dequeue_event_durations.path,
+    eb_worker_sha1_dequeue_event_durations.start_time,
+    eb_worker_sha1_dequeue_event_durations.finish_time,
+    eb_worker_sha1_dequeue_event_durations.duration,
+    eb_worker_sha1_dequeue_event_durations.sha1,
+    eb_worker_sha1_dequeue_event_durations.start_time_hour
+   FROM lambda_logging.eb_worker_sha1_dequeue_event_durations
+  WHERE (eb_worker_sha1_dequeue_event_durations.finish_time IS NOT NULL)
+  ORDER BY eb_worker_sha1_dequeue_event_durations.start_time DESC;
+
+
+ALTER TABLE lambda_logging.completed_sha1_scan_durations OWNER TO postgres;
+
+--
 -- Name: eb_worker_event_start_id_seq; Type: SEQUENCE; Schema: lambda_logging; Owner: postgres
 --
 
@@ -215,20 +271,6 @@ ALTER TABLE lambda_logging.eb_worker_event_start_id_seq OWNER TO postgres;
 
 ALTER SEQUENCE lambda_logging.eb_worker_event_start_id_seq OWNED BY lambda_logging.eb_worker_event_start.id;
 
-
---
--- Name: eb_worker_sha1_dequeing; Type: TABLE; Schema: lambda_logging; Owner: postgres
---
-
-CREATE TABLE lambda_logging.eb_worker_sha1_dequeing (
-    eb_worker_event_id integer NOT NULL,
-    sha1 character(40) NOT NULL,
-    inserted_at timestamp with time zone DEFAULT now() NOT NULL,
-    sqs_message_id text
-);
-
-
-ALTER TABLE lambda_logging.eb_worker_sha1_dequeing OWNER TO postgres;
 
 --
 -- Name: eb_worker_sha1_enqueing; Type: TABLE; Schema: lambda_logging; Owner: postgres
@@ -363,7 +405,9 @@ CREATE VIEW lambda_logging.sha1_queue_sqs_message_id_processing WITH (security_b
     (dequeues.last_dequeued - enqueues.last_inserted) AS complete_queue_residence_timespan,
     (now() - enqueues.first_inserted) AS first_insertion_age,
     enqueues.first_state AS state,
-    enqueues.last_state
+    enqueues.last_state,
+    date_trunc('hour'::text, enqueues.first_inserted) AS first_inserted_hour,
+    COALESCE(dequeues.count_finished, (0)::bigint) AS count_finished
    FROM (( SELECT bar.sqs_message_id,
             bar.count_inserted,
             bar.first_inserted,
@@ -382,16 +426,24 @@ CREATE VIEW lambda_logging.sha1_queue_sqs_message_id_processing WITH (security_b
                   GROUP BY eb_worker_sha1_enqueing.sqs_message_id) bar
              JOIN public.github_incoming_status_events g1 ON ((bar.first_status_event = g1.id)))
              JOIN public.github_incoming_status_events g2 ON ((bar.last_status_event = g2.id)))) enqueues
-     FULL JOIN ( SELECT eb_worker_sha1_dequeing.sqs_message_id,
+     FULL JOIN ( SELECT eb_worker_sha1_dequeue_event_durations.sqs_message_id,
             count(*) AS count_dequeued,
-            min(eb_worker_sha1_dequeing.inserted_at) AS first_dequeued,
-            max(eb_worker_sha1_dequeing.inserted_at) AS last_dequeued
-           FROM lambda_logging.eb_worker_sha1_dequeing
-          GROUP BY eb_worker_sha1_dequeing.sqs_message_id) dequeues ON ((dequeues.sqs_message_id = enqueues.sqs_message_id)))
+            count(eb_worker_sha1_dequeue_event_durations.finish_time) AS count_finished,
+            min(eb_worker_sha1_dequeue_event_durations.dequeue_timestamp) AS first_dequeued,
+            max(eb_worker_sha1_dequeue_event_durations.dequeue_timestamp) AS last_dequeued
+           FROM lambda_logging.eb_worker_sha1_dequeue_event_durations
+          GROUP BY eb_worker_sha1_dequeue_event_durations.sqs_message_id) dequeues ON ((dequeues.sqs_message_id = enqueues.sqs_message_id)))
   ORDER BY enqueues.last_inserted DESC;
 
 
 ALTER TABLE lambda_logging.sha1_queue_sqs_message_id_processing OWNER TO postgres;
+
+--
+-- Name: VIEW sha1_queue_sqs_message_id_processing; Type: COMMENT; Schema: lambda_logging; Owner: postgres
+--
+
+COMMENT ON VIEW lambda_logging.sha1_queue_sqs_message_id_processing IS 'Note that after an SQS message is "dequeued", it may be re-inserted into the queue if the processing was unsuccessful (i.e. if the webservice did not return HTTP code 2XX).';
+
 
 --
 -- Name: sha1_requeueings; Type: VIEW; Schema: lambda_logging; Owner: postgres
@@ -409,26 +461,6 @@ CREATE VIEW lambda_logging.sha1_requeueings WITH (security_barrier='false') AS
 
 
 ALTER TABLE lambda_logging.sha1_requeueings OWNER TO postgres;
-
---
--- Name: sha1_scan_durations; Type: VIEW; Schema: lambda_logging; Owner: postgres
---
-
-CREATE VIEW lambda_logging.sha1_scan_durations AS
- SELECT eb_worker_event_durations.id,
-    eb_worker_event_durations.label,
-    eb_worker_event_durations.path,
-    eb_worker_event_durations.start_time,
-    eb_worker_event_durations.finish_time,
-    eb_worker_event_durations.duration,
-    eb_worker_sha1_dequeing.sha1
-   FROM (lambda_logging.eb_worker_event_durations
-     JOIN lambda_logging.eb_worker_sha1_dequeing ON ((eb_worker_sha1_dequeing.eb_worker_event_id = eb_worker_event_durations.id)))
-  WHERE (eb_worker_event_durations.finish_time IS NOT NULL)
-  ORDER BY eb_worker_event_durations.start_time DESC;
-
-
-ALTER TABLE lambda_logging.sha1_scan_durations OWNER TO postgres;
 
 --
 -- Name: unprocessed_queued_sha1s_from_today; Type: VIEW; Schema: lambda_logging; Owner: postgres
@@ -7260,17 +7292,17 @@ GRANT ALL ON TABLE lambda_logging.eb_worker_event_durations TO logan;
 
 
 --
--- Name: SEQUENCE eb_worker_event_start_id_seq; Type: ACL; Schema: lambda_logging; Owner: postgres
---
-
-GRANT ALL ON SEQUENCE lambda_logging.eb_worker_event_start_id_seq TO logan;
-
-
---
 -- Name: TABLE eb_worker_sha1_dequeing; Type: ACL; Schema: lambda_logging; Owner: postgres
 --
 
 GRANT ALL ON TABLE lambda_logging.eb_worker_sha1_dequeing TO logan;
+
+
+--
+-- Name: SEQUENCE eb_worker_event_start_id_seq; Type: ACL; Schema: lambda_logging; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE lambda_logging.eb_worker_event_start_id_seq TO logan;
 
 
 --

@@ -199,6 +199,9 @@ scottyApp
   get "/api/viability-increase" $
     SqlRead.apiViabilityIncreaseByWeek <$> S.param "weeks"
 
+  get "/api/throughput-by-hour" $
+    SqlRead.apiThroughputByHour <$> S.param "hours"
+
   get "/api/status-notifications-by-hour" $
     SqlRead.apiStatusNotificationsByHour <$> S.param "hours"
 

@@ -1025,9 +1025,48 @@ apiMasterDownstreamCommits (Builds.RawCommit sha1) = do
     ]
 
 
+
+data ThroughputHourStats = ThroughputHourStats {
+    _first_inserted_hour :: UTCTime
+  , _enqueued_count      :: Int
+  , _dequeued_count      :: Int
+  , _completed_count     :: Int
+  , _average_duration    :: Maybe Double
+  } deriving (Generic, FromRow)
+
+instance ToJSON ThroughputHourStats where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
 -- | Note that Highcharts expects the dates to be in ascending order
 -- thus, use of reverse
-apiStatusNotificationsByHour :: Int -> DbIO (WebApi.ApiResponse (UTCTime, Int))
+apiThroughputByHour ::
+     Int
+  -> DbIO (WebApi.ApiResponse ThroughputHourStats)
+apiThroughputByHour hours = do
+  conn <- ask
+  liftIO $ WebApi.ApiResponse . reverse <$> query conn sql (Only hours)
+  where
+  sql = Q.qjoin [
+      "SELECT"
+    , Q.list [
+        "first_inserted_hour"
+      , "enqueued_count"
+      , "dequeued_count"
+      , "completed_count"
+      , "EXTRACT(EPOCH FROM average_duration)"
+      ]
+    , "FROM lambda_logging.throughput_by_hour"
+    , "OFFSET 1"
+    , "LIMIT ?"
+    ]
+
+
+-- | Note that Highcharts expects the dates to be in ascending order
+-- thus, use of reverse
+apiStatusNotificationsByHour ::
+     Int
+  -> DbIO (WebApi.ApiResponse (UTCTime, Int))
 apiStatusNotificationsByHour hours = do
   conn <- ask
   liftIO $ WebApi.ApiResponse . reverse <$> query conn sql (Only hours)
