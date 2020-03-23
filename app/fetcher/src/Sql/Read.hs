@@ -182,15 +182,55 @@ getPatternsDescById conn = do
 -- | Only searches for CircleCI builds
 getUnvisitedBuildIds ::
      Connection
-  -> Maybe Int
+  -> Either (Set Builds.UniversalBuildId) Int
   -> IO [DbHelpers.WithId Builds.UniversalBuild]
-getUnvisitedBuildIds conn maybe_limit = do
-  rows <- case maybe_limit of
-    Just limit -> query conn sql (circleCIProviderIndex, limit)
-    Nothing    -> query conn unlimited_sql $ Only circleCIProviderIndex
-  return $ map f rows
-  where
+getUnvisitedBuildIds
+    conn
+    whitelisted_builds_or_fetch_count = do
 
+  rows <- case whitelisted_builds_or_fetch_count of
+    Left whitelist_set -> do
+      D.debugList [
+          "Querying for unvisited builds in whitelist with SQL:"
+        , show sql
+        ]
+      query conn sql
+        (circleCIProviderIndex, In $ map (\(Builds.UniversalBuildId x) -> x) $ Set.toList whitelist_set)
+      where
+        sql = Q.qjoin [
+            sql_prefix
+          , "WHERE"
+          , Q.qconjunction where_conditions
+          ]
+
+        where_conditions = [
+            "provider = ?"
+          , "universal_build_id IN ?"
+          ]
+
+    Right limit -> do
+      D.debugList [
+          "Querying for unvisited builds using LIMIT with SQL:"
+        , show sql
+        ]
+      query conn sql
+        (circleCIProviderIndex, limit)
+      where
+        sql = Q.qjoin [
+            sql_prefix
+          , "WHERE"
+          , Q.qconjunction where_conditions
+          , "ORDER BY build_num DESC"
+          , "LIMIT ?"
+          ]
+
+        where_conditions = [
+            "provider = ?"
+          ]
+
+  return $ map f rows
+
+  where
     f (universal_build_id, provider_buildnum, provider_id, build_namespace, succeeded, sha1) = DbHelpers.WithId universal_build_id $ Builds.UniversalBuild
       (Builds.NewBuildNumber provider_buildnum)
       provider_id
@@ -198,7 +238,7 @@ getUnvisitedBuildIds conn maybe_limit = do
       succeeded
       (Builds.RawCommit sha1)
 
-    unlimited_sql = Q.qjoin [
+    sql_prefix = Q.qjoin [
         "SELECT"
       , Q.list [
           "universal_build_id"
@@ -209,11 +249,7 @@ getUnvisitedBuildIds conn maybe_limit = do
         , "commit_sha1"
         ]
       , "FROM unvisited_builds"
-      , "WHERE provider = ?"
-      , "ORDER BY build_num DESC"
       ]
-
-    sql = unlimited_sql <> " LIMIT ?"
 
 
 -- | Only searches for CircleCI builds
@@ -1027,11 +1063,12 @@ apiMasterDownstreamCommits (Builds.RawCommit sha1) = do
 
 
 data ThroughputHourStats = ThroughputHourStats {
-    _first_inserted_hour :: UTCTime
-  , _enqueued_count      :: Int
-  , _dequeued_count      :: Int
-  , _completed_count     :: Int
-  , _average_duration    :: Maybe Double
+    _first_inserted_hour                    :: UTCTime
+  , _enqueued_count                         :: Int
+  , _dequeued_count                         :: Int
+  , _completed_count                        :: Int
+  , _average_duration                       :: Maybe Double
+  , _average_first_queue_residence_timespan :: Maybe Double
   } deriving (Generic, FromRow)
 
 instance ToJSON ThroughputHourStats where
@@ -1055,10 +1092,32 @@ apiThroughputByHour hours = do
       , "dequeued_count"
       , "completed_count"
       , "EXTRACT(EPOCH FROM average_duration)"
+      , "EXTRACT(EPOCH FROM average_first_queue_residence_timespan)"
       ]
     , "FROM lambda_logging.throughput_by_hour"
+    , "WHERE first_inserted_hour > now() - interval '? hours'"
+    , "ORDER BY first_inserted_hour DESC"
     , "OFFSET 1"
-    , "LIMIT ?"
+    ]
+
+
+-- | Note that Highcharts expects the dates to be in ascending order
+-- thus, use of reverse
+apiQueueDepthTimeplot ::
+     Int
+  -> DbIO (WebApi.ApiResponse (UTCTime, Int))
+apiQueueDepthTimeplot hours = do
+  conn <- ask
+  liftIO $ WebApi.ApiResponse . reverse <$> query conn sql (Only hours)
+  where
+  sql = Q.qjoin [
+      "SELECT"
+    , Q.list [
+        "inserted_at"
+      , "queue_depth"
+      ]
+    , "FROM lambda_logging.sqs_queue_depth_history"
+    , "WHERE inserted_at > now() - interval '? hours'"
     ]
 
 

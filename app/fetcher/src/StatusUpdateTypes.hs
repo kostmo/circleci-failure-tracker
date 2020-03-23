@@ -2,7 +2,7 @@ module StatusUpdateTypes where
 
 import           Data.List       (partition)
 import           Data.Text       (Text)
-import           Debug.Trace     (trace)
+import qualified Data.Tree       as Tr
 
 import qualified CommitBuilds
 import qualified Sql.Read        as SqlRead
@@ -18,18 +18,38 @@ instance Partition [a] where
   count = length
 
 
-type CommitBuildWrapperTuple = (CommitBuilds.CommitBuildWrapper SqlRead.CommitBuildSupplementalPayload, CommitBuilds.BuildWithLogContext)
+-- TODO use this
+class ToTree a where
+  toTree :: a -> Tr.Tree a
+
+
+type StandardCommitBuildWrapper = CommitBuilds.CommitBuildWrapper SqlRead.CommitBuildSupplementalPayload
+
+type ParameterizedWrapperTuple a = (a, CommitBuilds.BuildWithLogContext)
+
+type CommitBuildWrapperTuple = ParameterizedWrapperTuple StandardCommitBuildWrapper
 
 
 data CommitPageInfo = NewCommitPageInfo {
-    upstream_builds :: [(CommitBuilds.CommitBuildWrapper SqlRead.CommitBuildSupplementalPayload, SqlRead.UpstreamBrokenJob)]
-  , nonupstream_builds       :: NonUpstreamBuildPartition
+    toplevel_partitioning :: UpstreamnessBuildsPartition StandardCommitBuildWrapper
   }
 
 
-data NonUpstreamBuildPartition = NewNonUpstreamBuildPartition {
-    pattern_matched_builds :: FlakyBuildPartition CommitBuildWrapperTuple
-  , unmatched_builds       :: [UnmatchedBuilds.UnmatchedBuild]
+data UpstreamnessBuildsPartition a = NewUpstreamnessBuildsPartition {
+    my_upstream_builds    :: [(a, SqlRead.UpstreamBrokenJob)]
+  , my_nonupstream_builds :: NonUpstreamBuildPartition a
+  }
+
+
+data SpecialCasedBuilds a = NewSpecialCasedBuilds {
+    xla_build_failures :: [a]
+  }
+
+
+data NonUpstreamBuildPartition a = NewNonUpstreamBuildPartition {
+    pattern_matched_builds             :: FlakyBuildPartition (ParameterizedWrapperTuple a)
+  , unmatched_builds                   :: [UnmatchedBuilds.UnmatchedBuild]
+  , special_cased_nonupstream_failures :: SpecialCasedBuilds a
   }
 
 
@@ -82,14 +102,7 @@ partitionMatchedBuilds pattern_matched_builds =
   where
     tentative_flaky_builds_partition = NewTentativeFlakyBuilds rerun_was_triggered_breakages rerun_not_triggered_breakages
 
-    nonflaky_builds_partition_foo = NewNonFlakyBuilds nonupstream_nonflaky_breakages negatively_confirmed_flaky_breakages
-
-
-
-    nonflaky_builds_partition = trace (unwords ["nonupstream_tentatively_flaky_breakages count:", show $ length nonupstream_tentatively_flaky_breakages, "nonupstream_nonflaky_breakages:", show $ length nonupstream_nonflaky_breakages]) nonflaky_builds_partition_foo
-
-
-
+    nonflaky_builds_partition = NewNonFlakyBuilds nonupstream_nonflaky_breakages negatively_confirmed_flaky_breakages
 
 
 

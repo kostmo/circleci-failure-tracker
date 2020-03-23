@@ -379,15 +379,28 @@ fetchCommitPageInfo pre_broken_info sha1 validated_sha1 = runExceptT $ do
   DbHelpers.BenchmarkedResponse _ revision_builds <- ExceptT $
     SqlRead.getRevisionBuilds validated_sha1
 
+  let get_job_name = Builds.job_name . Builds.build_record . CommitBuilds._build . CommitBuilds._commit_build
+
+
+  let is_xla_job jobname = not $ null $ T.breakOnAll "xla" $ T.toLower jobname
+
+
   -- Partition builds between upstream and non-upstream breakages
-  let f = MyUtils.derivePair $ (`HashMap.lookup` pre_broken_jobs_map) . Builds.job_name . Builds.build_record . CommitBuilds._build . CommitBuilds._commit_build
+  let f = MyUtils.derivePair $ (`HashMap.lookup` pre_broken_jobs_map) . get_job_name
 
       (upstream_breakages, non_upstream_breakages_raw) = partition (not . null . snd) $ map f revision_builds
       paired_upstream_breakages = Maybe.mapMaybe sequenceA upstream_breakages
 
-      non_upstream_breakages = map fst non_upstream_breakages_raw
+      raw_non_upstream_breakages = map fst non_upstream_breakages_raw
 
-  matched_builds_with_log_context <- for non_upstream_breakages $ \x ->
+
+  let (xla_nonupstream_build_failures, non_xla_nonupstream_build_failures) = partition (is_xla_job . get_job_name) raw_non_upstream_breakages
+
+
+  let special_cased_builds_wrapper = StatusUpdateTypes.NewSpecialCasedBuilds xla_nonupstream_build_failures
+
+
+  matched_builds_with_log_context <- for non_xla_nonupstream_build_failures $ \x ->
     ExceptT $ (fmap . fmap) (\y -> (x, CommitBuilds.BuildWithLogContext (CommitBuilds._commit_build x) y)) $
       SqlRead.logContextFunc 0
         (MatchOccurrences._match_id $ CommitBuilds._match $ CommitBuilds._commit_build x)
@@ -406,10 +419,17 @@ fetchCommitPageInfo pre_broken_info sha1 validated_sha1 = runExceptT $ do
   liftIO $ D.debugStr "Finishing fetchCommitPageInfo."
 
   let pattern_matched_builds_partition = StatusUpdateTypes.partitionMatchedBuilds matched_builds_with_log_context
+  let nonupstream_partition = StatusUpdateTypes.NewNonUpstreamBuildPartition
+        pattern_matched_builds_partition
+        nonupstream_unmatched_builds
+        special_cased_builds_wrapper
 
-  return $ StatusUpdateTypes.NewCommitPageInfo
-    paired_upstream_breakages
-    (StatusUpdateTypes.NewNonUpstreamBuildPartition pattern_matched_builds_partition nonupstream_unmatched_builds)
+
+  let upstreamness_partition = StatusUpdateTypes.NewUpstreamnessBuildsPartition
+        paired_upstream_breakages
+        nonupstream_partition
+
+  return $ StatusUpdateTypes.NewCommitPageInfo upstreamness_partition
 
   where
     pre_broken_jobs_map = SqlUpdate.inferred_upstream_breakages_by_job pre_broken_info

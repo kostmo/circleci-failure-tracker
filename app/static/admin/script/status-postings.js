@@ -10,11 +10,34 @@ function get_throughput_data(hours_count) {
 			gen_health_plot(throughput_series_list, 'container-throughput-by-hour', "Throughput", "hour");
 
 
-			const duration_series_list = get_duration_series_list(data);
-			gen_health_plot(duration_series_list, 'container-processing-time-by-hour', "Avg. Execution Duration", "hour");
+			const execution_duration_series_list = get_duration_series_list(data);
+			gen_health_plot(execution_duration_series_list, 'container-processing-time-by-hour', "Avg. Execution Duration", "hour");
 
+
+			const residency_duration_series_list = get_queue_residency_series_list(data);
+			gen_health_plot(residency_duration_series_list, 'container-queue-residency-time-by-hour', "Avg. Queue Residency", "hour");
 		}
 	);
+}
+
+
+function get_queue_residency_series_list(data) {
+
+	const rows = [];
+	for (var value of data.rows) {
+		const date_val = Date.parse(value.first_inserted_hour);
+		rows.push([date_val, value.average_first_queue_residence_timespan / 60.0]);
+	}
+
+	const series_list = [
+		{
+			type: 'line',
+			name: "Duration (min)",
+			data: rows,
+		},
+	];
+
+	return series_list;
 }
 
 
@@ -23,7 +46,6 @@ function get_duration_series_list(data) {
 	const rows = [];
 	for (var value of data.rows) {
 		const date_val = Date.parse(value.first_inserted_hour);
-
 		rows.push([date_val, value.average_duration]);
 	}
 
@@ -204,12 +226,77 @@ function gen_time_plot(container_id, hours_count, title, time_unit) {
 }
 
 
+
+
+function gen_queue_depth_plot(container_id, hours_count, title) {
+
+	getJsonWithThrobber("#throbber-queue-depth", '/api/sqs-queue-depth', {"hours": hours_count}, function (data) {
+
+		const rows = [];
+		for (var value of data.rows) {
+			rows.push([Date.parse(value[0]), value[1]]);
+		}
+
+		Highcharts.chart(container_id, {
+
+			chart: {
+				type: 'line'
+			},
+			time: {
+				useUTC: false
+			},
+			title: {
+				text: title
+			},
+			xAxis: {
+				type: 'datetime',
+				dateTimeLabelFormats: { // don't display the dummy year
+					month: '%e. %b',
+					year: '%b'
+				},
+				title: {
+					text: 'Date'
+				}
+			},
+			yAxis: {
+				title: {
+					text: title
+				},
+				min: 0
+			},
+			tooltip: {
+				headerFormat: '<b>{series.name}</b><br>',
+				pointFormat: '{point.x:%e. %b}: {point.y}'
+			},
+			plotOptions: {
+				line: {
+					marker: {
+						enabled: true
+					}
+				}
+			},
+			credits: {
+				enabled: false
+			},
+			series: [
+				{
+					name: title,
+					data: rows,
+				},
+			],
+		});
+	});
+}
+
+
 function regen_status_notifications_timeline() {
 
 	const hours_count = $("#hours-input").val();
 	gen_time_plot('container-status-notifications-by-hour', hours_count, "Status notifications", "hour");
 
 	get_throughput_data(hours_count);
+
+	gen_queue_depth_plot('container-queue-depth', hours_count, "SQS Queue Depth");
 
 	return false;
 }

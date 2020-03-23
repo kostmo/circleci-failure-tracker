@@ -13,7 +13,6 @@ import qualified Data.Text.Lazy      as LT
 import           Data.Time           (UTCTime)
 import qualified Data.Time.Format    as TF
 import qualified Data.Tree           as Tr
-import           Debug.Trace         (trace)
 
 import qualified Builds
 import qualified CircleCIParse
@@ -86,13 +85,15 @@ genBuildFailuresTable ::
      StatusUpdateTypes.CommitPageInfo
   -> [[Text]]
 genBuildFailuresTable
-    (StatusUpdateTypes.NewCommitPageInfo upstream_breakages nonupstream_builds) =
+    (StatusUpdateTypes.NewCommitPageInfo toplevel_partitioning) =
   pattern_matched_sections ++ [pattern_unmatched_section, upstream_matched_section]
   where
 
-    pattern_matched_sections = genPatternMatchedSections pattern_matched_builds
+    StatusUpdateTypes.NewUpstreamnessBuildsPartition upstream_breakages nonupstream_builds = toplevel_partitioning
 
-    StatusUpdateTypes.NewNonUpstreamBuildPartition pattern_matched_builds unmatched_nonupstream_builds = nonupstream_builds
+    StatusUpdateTypes.NewNonUpstreamBuildPartition pattern_matched_builds unmatched_nonupstream_builds _special_cased_builds = nonupstream_builds
+
+    pattern_matched_sections = genPatternMatchedSections pattern_matched_builds
 
     pattern_unmatched_header = M.heading 3 $ M.colonize [
         MyUtils.pluralize (length unmatched_nonupstream_builds) "failure"
@@ -275,8 +276,7 @@ formatBreakageTimeSpan (BreakageTimeSpan breakage_start_time maybe_breakage_end 
 
            end_time_date_only = ft_date_only end_time
            commit_count_blurb = M.parens $ T.unwords [
-               T.pack $ show span_length
-             , "commits;"
+               MyUtils.pluralize span_length "commit" <> ";"
              , render_raw_commit $ SqlRead._breakage_start_sha1 original_obj
              , "-"
                -- This Maybe should never be Nothing when the "end" timestamp is not Nothing
@@ -523,13 +523,15 @@ genMetricsTree ::
   -> Builds.RawCommit
   -> ([Text], Tr.Forest (NonEmpty Text), Bool, Bool)
 genMetricsTree
-    commit_page_info
+    x_commit_page_info
     ancestry_response
     (StatusUpdateTypes.NewBuildSummaryStats pre_broken_info all_failures)
     (Builds.RawCommit commit_sha1_text) =
 
   (summary_header, forrest_parts, not has_user_caused_failures, is_all_successful_circleci_builds)
   where
+
+    toplevel_builds = StatusUpdateTypes.toplevel_partitioning x_commit_page_info
 
     is_all_successful_circleci_builds = null all_failures
 
@@ -557,7 +559,9 @@ genMetricsTree
         ]
 
     optional_kb_metric = [upstream_breakage_bullet_tree | not $ HashMap.null pre_broken_jobs_map]
+
     introduced_failures_section = [introduced_failures_section_inner | broken_in_pr_count > 0]
+
     flaky_bullet_tree = [flaky_bullet_tree_inner | tentatively_flaky_count > 0]
 
 
@@ -600,13 +604,9 @@ genMetricsTree
 
 
     tentatively_flaky_builds_partition = StatusUpdateTypes.tentatively_flaky_builds $
-      StatusUpdateTypes.pattern_matched_builds $ StatusUpdateTypes.nonupstream_builds commit_page_info
+      StatusUpdateTypes.pattern_matched_builds $ StatusUpdateTypes.my_nonupstream_builds toplevel_builds
 
-
-    tentatively_flaky_count_foo = StatusUpdateTypes.count tentatively_flaky_builds_partition
-
-    tentatively_flaky_count = trace (unwords ["tentative_flaky_triggered_reruns count:", show $ StatusUpdateTypes.count $ StatusUpdateTypes.tentative_flaky_triggered_reruns tentatively_flaky_builds_partition, "tentative_flaky_untriggered_reruns count:", show $ StatusUpdateTypes.count $ StatusUpdateTypes.tentative_flaky_untriggered_reruns tentatively_flaky_builds_partition]) tentatively_flaky_count_foo
-
+    tentatively_flaky_count = StatusUpdateTypes.count tentatively_flaky_builds_partition
 
     flaky_bullet_tree_inner_heading = pure $ T.unwords [
         bold_fraction tentatively_flaky_count total_failcount

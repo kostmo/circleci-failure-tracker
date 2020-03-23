@@ -12,7 +12,7 @@ import           Data.Aeson.Lens                 (key, _Array, _Bool, _String)
 import           Data.Bifunctor                  (first)
 import           Data.Either                     (partitionEithers)
 import qualified Data.Either                     as Either
-import           Data.Either.Combinators         (rightToMaybe, swapEither)
+import           Data.Either.Combinators         (swapEither)
 import           Data.Either.Utils               (maybeToEither)
 import qualified Data.HashMap.Strict             as HashMap
 import           Data.List                       (partition)
@@ -105,7 +105,11 @@ scanBuilds
       putStrLn "NOT rescanning previously-visited builds!"
       return []
 
-  unvisited_builds_list <- SqlRead.getUnvisitedBuildIds conn maybe_fetch_limit
+  -- TODO FIXME XXXXX
+  unvisited_builds_list <- SqlRead.getUnvisitedBuildIds
+    conn
+    whitelisted_builds_or_fetch_count
+
   let whitelisted_unvisited = unvisited_filter unvisited_builds_list
   first_scan_matches <- processUnvisitedBuilds
     scan_resources
@@ -115,7 +119,6 @@ scanBuilds
 
   where
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
-    maybe_fetch_limit = rightToMaybe whitelisted_builds_or_fetch_count
 
     (visited_filter, unvisited_filter) = case whitelisted_builds_or_fetch_count of
       Right _ -> (id, id)
@@ -521,6 +524,7 @@ processUnvisitedBuilds scan_resources unvisited_builds_list =
     either_matches <- runExceptT $ do
       visitation_result <- except $
         first (const "This build did not have a failed step!") either_visitation_result
+
       let Builds.BuildWithStepFailure _build_obj (Builds.NewBuildStepFailure step_name _step_index mode) = visitation_result
 
       ExceptT $ case mode of
@@ -530,8 +534,8 @@ processUnvisitedBuilds scan_resources unvisited_builds_list =
           RefetchLog -- Re-download parameter is irrelevant, since this is the first time visiting the build
           build_step_id
           step_name
-          (universal_build_obj, Just failure_output) $
-            ScanRecords.getPatternsWithId scan_resources
+          (universal_build_obj, Just failure_output)
+          (ScanRecords.getPatternsWithId scan_resources)
 
     return (universal_build_obj, Either.fromRight [] either_matches)
 

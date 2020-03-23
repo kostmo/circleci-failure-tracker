@@ -185,7 +185,7 @@ mainAppCode args = do
 
 --  testGetSpanningBreakages conn args
 
-  testWithAccessToken args $ testBotCommentGeneration conn $ Builds.RawCommit "e05f97f167439d3133494c3fa6538b00172a5565"
+  testWithAccessToken args $ testBotCommentGeneration conn $ Builds.RawCommit "ade3c1bd83041c2fb7be4ecb41803aee251ed693"
 
 
   {-

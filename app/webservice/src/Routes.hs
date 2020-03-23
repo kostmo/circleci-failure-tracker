@@ -202,6 +202,9 @@ scottyApp
   get "/api/throughput-by-hour" $
     SqlRead.apiThroughputByHour <$> S.param "hours"
 
+  get "/api/sqs-queue-depth" $
+    SqlRead.apiQueueDepthTimeplot <$> S.param "hours"
+
   get "/api/status-notifications-by-hour" $
     SqlRead.apiStatusNotificationsByHour <$> S.param "hours"
 
