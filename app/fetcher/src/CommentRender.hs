@@ -220,12 +220,16 @@ genFlakySections
   where
     StatusUpdateTypes.NewTentativeFlakyBuilds tentative_flaky_triggered_reruns tentative_flaky_untriggered_reruns = tentative_flakies
 
+
+    get_job_name = Builds.job_name . Builds.build_record . CommitBuilds._build . CommitBuilds._commit_build . fst
+
     confirmed_flaky_section = if null confirmed_flaky_builds
       then mempty
-      else pure $ M.sentence [
+      else NE.toList $ M.colonize [
           MyUtils.pluralize (length confirmed_flaky_builds) "failure"
-        , "confirmed as flaky and can be ignored"
-        ]
+        , M.bold "confirmed as flaky"
+        , "and can be ignored"
+        ] :| map ((\x -> "* " <> M.codeInline x) . get_job_name) confirmed_flaky_builds
 
     total_tentative_flaky_count = StatusUpdateTypes.count tentative_flakies
 

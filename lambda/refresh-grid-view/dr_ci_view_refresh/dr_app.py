@@ -119,7 +119,7 @@ if __name__ == "__main__":
 #        "job_schedule_discriminated_mview",
 #        "master_ordered_commits_with_metadata_mview",
 #       "master_commit_reversion_spans_mview",
-       "pr_merge_time_build_stats_by_master_commit_mview",
+       "master_ordered_commits_with_metadata_mview",
     ]
 
     payload = update_multiple_views(view_names, "test")

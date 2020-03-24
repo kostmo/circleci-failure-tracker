@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
--- Dumped from database version 10.10
+-- Dumped from database version 11.5
 -- Dumped by pg_dump version 12.2 (Ubuntu 12.2-2.pgdg18.04+1)
 
 SET statement_timeout = 0;
@@ -7273,6 +7273,14 @@ GRANT USAGE ON SCHEMA frontend_logging TO logan;
 
 GRANT USAGE ON SCHEMA lambda_logging TO materialized_view_updater;
 GRANT USAGE ON SCHEMA lambda_logging TO logan;
+
+
+--
+-- Name: SCHEMA public; Type: ACL; Schema: -; Owner: rdsadmin
+--
+
+GRANT USAGE ON SCHEMA public TO logan;
+GRANT USAGE ON SCHEMA public TO materialized_view_updater;
 
 
 --
