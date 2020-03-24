@@ -414,14 +414,17 @@ fetchCommitPageInfo pre_broken_info sha1 validated_sha1 = runExceptT $ do
   let g = not . (`HashMap.member` pre_broken_jobs_map) . UnmatchedBuilds._job_name
       nonupstream_unmatched_builds = filter g unmatched_builds
 
-
   liftIO $ D.debugStr "Finishing fetchCommitPageInfo."
 
   let pattern_matched_builds_partition = StatusUpdateTypes.partitionMatchedBuilds matched_builds_with_log_context
+
+  timed_out_builds <- ExceptT $ SqlRead.apiTimeoutCommitBuilds sha1
+
   let nonupstream_partition = StatusUpdateTypes.NewNonUpstreamBuildPartition
         pattern_matched_builds_partition
         nonupstream_unmatched_builds
         special_cased_builds_wrapper
+        timed_out_builds
 
 
   let upstreamness_partition = StatusUpdateTypes.NewUpstreamnessBuildsPartition
@@ -660,7 +663,10 @@ lookupPullRequestsByHeadCommit conn sha1 = do
         , show sha1
         , "- Falling back to Gadgit webservice"
         ]
-      ExceptT $ first LT.pack <$> GadgitFetch.getContainingPRs sha1
+      pr_numbers <- ExceptT $ first LT.pack <$> GadgitFetch.getContainingPRs sha1
+      liftIO $ flip runReaderT conn $ SqlWrite.insertPullRequestHeads False $ map (\pr_number -> (pr_number, sha1)) pr_numbers
+      return pr_numbers
+
     else return found_prs
 
 

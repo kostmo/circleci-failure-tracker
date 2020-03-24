@@ -50,6 +50,7 @@ data NonUpstreamBuildPartition a = NewNonUpstreamBuildPartition {
     pattern_matched_builds             :: FlakyBuildPartition (ParameterizedWrapperTuple a)
   , unmatched_builds                   :: [UnmatchedBuilds.UnmatchedBuild]
   , special_cased_nonupstream_failures :: SpecialCasedBuilds a
+  , timed_out_builds :: [UnmatchedBuilds.UnmatchedBuild]
   }
 
 

@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+import           Control.Monad              (void, when)
 import           Control.Monad.IO.Class     (liftIO)
 import           Control.Monad.Trans.Except (ExceptT (ExceptT), except,
                                              runExceptT)
@@ -66,10 +67,16 @@ myCliParser = NewCommandLineArgs
     <> help "Path to .git directory of repository, for use in computing merge bases")
 
 
-benchmarkScan circle_token conn build_id = runExceptT $ do
+benchmarkScan conn args build_id = runExceptT $ do
+
+  rsa_signer <- except $ CircleAuth.loadRsaKey $ gitHubAppPemContent args
+  let third_party_auth = CircleApi.ThirdPartyAuth
+          (CircleApi.CircleCIApiToken $ T.pack $ circleciApiToken args)
+          rsa_signer
+          (AmazonQueueData.QueueURL $ sqsQueueUrl args)
 
   scan_resources <- ExceptT $ Scanning.prepareScanResources
-    circle_token
+    third_party_auth
     conn
     Scanning.NoPersist
     Nothing
@@ -127,7 +134,7 @@ testBotCommentGeneration conn raw_commit@(Builds.RawCommit commit_sha1_text) oau
       raw_commit
 
 
-testGetSpanningBreakages conn args =
+testGetSpanningBreakages conn args sha1 =
   runExceptT $ do
     rsa_signer <- except $ CircleAuth.loadRsaKey $ gitHubAppPemContent args
     let third_party_auth = CircleApi.ThirdPartyAuth
@@ -143,7 +150,7 @@ testGetSpanningBreakages conn args =
 
     foo <- ExceptT $ SqlRead.getSpanningBreakages
       conn
-      (Builds.RawCommit "c1fa71972e9cdc50562d6f807fc6ca893c585112")
+      sha1
 
     liftIO $ do
       D.debugList [
@@ -181,22 +188,20 @@ mainAppCode args = do
 
   conn <- DbPreparation.prepareDatabase connection_data False
 
---  benchmarkScan circletoken conn $ Builds.UniversalBuildId 82047188
+  when False $ do
+    void $ benchmarkScan conn args $ Builds.UniversalBuildId 82047188
 
---  testGetSpanningBreakages conn args
+  when False $
+    void $ testGetSpanningBreakages conn args $
+      Builds.RawCommit "c1fa71972e9cdc50562d6f807fc6ca893c585112"
 
-  testWithAccessToken args $ testBotCommentGeneration conn $ Builds.RawCommit "ade3c1bd83041c2fb7be4ecb41803aee251ed693"
 
+  testWithAccessToken args $ testBotCommentGeneration conn $
+--    Builds.RawCommit "ade3c1bd83041c2fb7be4ecb41803aee251ed693" -- XLA
+      Builds.RawCommit "8a8fc28d38c41b156dfd2fe8459e6fb4d7708f86"
 
-  {-
-  AmazonQueue.sendSqsMessage $
-    AmazonQueueData.SqsBuildScanMessage
-      (Builds.RawCommit "bce9ad0413a2327ca05d809cf7aaca4fac757457")
-      "testing"
-  -}
-
---  GadgitTest.testGadgitApis
---  putStrLn "============================="
+  when False $
+    GadgitTest.testGadgitApis
 
 
   {-

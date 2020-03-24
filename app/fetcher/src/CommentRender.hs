@@ -89,6 +89,19 @@ genUnmatchedBuildsTable unmatched_nonupstream_builds =
       ]
 
 
+genTimedOutSection ::
+     [UnmatchedBuilds.UnmatchedBuild]
+  -> [Text]
+genTimedOutSection
+  timed_out_builds =
+  if null timed_out_builds
+  then mempty
+  else NE.toList $ M.colonize [
+          MyUtils.pluralize (length timed_out_builds) "job"
+        , M.bold "timed out"
+        ] :| map ((\x -> "* " <> M.codeInline x) . UnmatchedBuilds._job_name) timed_out_builds
+
+
 genSpecialCasedNonupstreamSection ::
      StatusUpdateTypes.SpecialCasedBuilds StatusUpdateTypes.StandardCommitBuildWrapper
   -> [Text]
@@ -130,6 +143,7 @@ genBuildFailuresSections
     (StatusUpdateTypes.NewCommitPageInfo toplevel_partitioning) =
   pattern_matched_sections ++ [
       pattern_unmatched_section
+    , timed_out_section
     , special_cased_nonupstream_section
     , upstream_matched_section
     ]
@@ -137,9 +151,15 @@ genBuildFailuresSections
 
     StatusUpdateTypes.NewUpstreamnessBuildsPartition upstream_breakages nonupstream_builds = toplevel_partitioning
 
-    StatusUpdateTypes.NewNonUpstreamBuildPartition pattern_matched_builds unmatched_nonupstream_builds special_cased_builds = nonupstream_builds
+    StatusUpdateTypes.NewNonUpstreamBuildPartition
+      pattern_matched_builds
+      unmatched_nonupstream_builds
+      special_cased_builds
+      timed_out_builds = nonupstream_builds
 
     special_cased_nonupstream_section = genSpecialCasedNonupstreamSection special_cased_builds
+
+    timed_out_section = genTimedOutSection timed_out_builds
 
     pattern_matched_sections = genPatternMatchedSections pattern_matched_builds
 
