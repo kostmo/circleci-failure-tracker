@@ -496,12 +496,13 @@ ALTER TABLE lambda_logging.sqs_queue_depth_history OWNER TO postgres;
 -- Name: throughput_by_hour; Type: VIEW; Schema: lambda_logging; Owner: postgres
 --
 
-CREATE VIEW lambda_logging.throughput_by_hour AS
+CREATE VIEW lambda_logging.throughput_by_hour WITH (security_barrier='false') AS
  SELECT sha1_queue_sqs_message_id_processing.first_inserted_hour,
     count(*) AS enqueued_count,
     sum(((sha1_queue_sqs_message_id_processing.first_dequeued IS NOT NULL))::integer) AS dequeued_count,
     sum(((COALESCE(sha1_queue_sqs_message_id_processing.count_finished, (0)::bigint) > 0))::integer) AS completed_count,
-    avg(sha1_queue_sqs_message_id_processing.average_duration) AS average_duration
+    avg(sha1_queue_sqs_message_id_processing.average_duration) AS average_duration,
+    avg(sha1_queue_sqs_message_id_processing.first_queue_residence_timespan) AS average_first_queue_residence_timespan
    FROM lambda_logging.sha1_queue_sqs_message_id_processing
   GROUP BY sha1_queue_sqs_message_id_processing.first_inserted_hour
   ORDER BY sha1_queue_sqs_message_id_processing.first_inserted_hour DESC;
@@ -3135,14 +3136,14 @@ CREATE VIEW public.github_status_events_state_counts WITH (security_barrier='fal
     foo.error_count,
     ((foo.failure_count > 0) AND (foo.success_count > 0)) AS is_empirically_determined_flaky,
     ((foo.failure_count + foo.success_count) > 1) AS has_completed_rerun
-   FROM ( SELECT github_status_events_circleci_deduped_states.sha1,
-            github_status_events_circleci_deduped_states.job_name_extracted AS job_name,
-            sum(((github_status_events_circleci_deduped_states.state = 'failure'::text))::integer) AS failure_count,
-            sum(((github_status_events_circleci_deduped_states.state = 'pending'::text))::integer) AS pending_count,
-            sum(((github_status_events_circleci_deduped_states.state = 'success'::text))::integer) AS success_count,
-            sum(((github_status_events_circleci_deduped_states.state = 'error'::text))::integer) AS error_count
-           FROM public.github_status_events_circleci_deduped_states
-          GROUP BY github_status_events_circleci_deduped_states.sha1, github_status_events_circleci_deduped_states.job_name_extracted) foo;
+   FROM ( SELECT g1.sha1,
+            g1.job_name_extracted AS job_name,
+            sum(((g1.state = 'failure'::text))::integer) AS failure_count,
+            sum(((g1.state = 'pending'::text))::integer) AS pending_count,
+            sum(((g1.state = 'success'::text))::integer) AS success_count,
+            sum(((g1.state = 'error'::text))::integer) AS error_count
+           FROM public.github_status_events_circleci g1
+          GROUP BY g1.sha1, g1.job_name_extracted) foo;
 
 
 ALTER TABLE public.github_status_events_state_counts OWNER TO postgres;
@@ -3562,7 +3563,9 @@ CREATE VIEW public.latest_created_pull_request_comment_revision WITH (security_b
     created_pull_request_comments.pr_number,
     created_pull_request_comment_revisions.sha1,
     pull_request_static_metadata.github_user_login,
-    created_pull_request_comment_revisions.was_new_push
+    created_pull_request_comment_revisions.was_new_push,
+    created_pull_request_comment_revisions.all_no_fault_failures,
+    created_pull_request_comment_revisions.all_successful_circleci_builds
    FROM (((( SELECT created_pull_request_comment_revisions_1.comment_id,
             max(created_pull_request_comment_revisions_1.id) AS latest_revision_id,
             count(created_pull_request_comment_revisions_1.id) AS revision_count
@@ -7404,6 +7407,13 @@ GRANT ALL ON TABLE lambda_logging.sha1_queue_sqs_message_id_processing TO logan;
 --
 
 GRANT ALL ON TABLE lambda_logging.sha1_requeueings TO logan;
+
+
+--
+-- Name: TABLE sqs_queue_depth_history; Type: ACL; Schema: lambda_logging; Owner: postgres
+--
+
+GRANT ALL ON TABLE lambda_logging.sqs_queue_depth_history TO logan;
 
 
 --
