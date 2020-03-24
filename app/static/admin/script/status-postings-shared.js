@@ -7,7 +7,7 @@ function gen_comment_postings_table(element_id, data_url, height) {
 		layout: "fitColumns",
 		placeholder:"No Data Set",
 		columns:[
-			{title: "PR", field: "pr_number", sorter: "number", width: 80,
+			{title: "PR", field: "pr_number", sorter: "number", width: 60,
 				formatter: function(cell, formatterParams, onRendered) {
 
 					const row_data = cell.getRow().getData();
@@ -29,10 +29,16 @@ function gen_comment_postings_table(element_id, data_url, height) {
 					return moment(cell.getValue()).fromNow();
 				}
 			},
+/*
 			{title: "Created", field: "created_at", width: 150, formatter: function(cell, formatterParams, onRendered) {
 					return moment(cell.getValue()).fromNow();
 				}
 			},
+*/
+
+			{title: "Repush", field: "was_new_push", formatter:"tickCross", sorter:"boolean", width: 100},
+			{title: "No fault", field: "all_no_fault_failures", formatter:"tickCross", sorter:"boolean", width: 100},
+			{title: "All green", field: "all_successful_circleci_builds", formatter:"tickCross", sorter:"boolean", width: 100},
 			{title: "Revisions", field: "revision_count", sorter: "number", width: 125},
 			{title: "Length", field: "body", sorter: "number", width: 90, formatter: function(cell, formatterParams, onRendered) {
 					return cell.getValue().length;

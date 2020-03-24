@@ -31,6 +31,14 @@ import qualified StatusUpdateTypes
 import qualified UnmatchedBuilds
 
 
+xlaContacts :: [Text]
+xlaContacts = [
+    "ailzhang"
+  , "dlibenzi"
+  , "jackCaoG"
+  ]
+
+
 pullRequestCommentsLogContextLineCount :: Int
 pullRequestCommentsLogContextLineCount = 10
 
@@ -81,17 +89,56 @@ genUnmatchedBuildsTable unmatched_nonupstream_builds =
       ]
 
 
-genBuildFailuresTable ::
+genSpecialCasedNonupstreamSection ::
+     StatusUpdateTypes.SpecialCasedBuilds StatusUpdateTypes.StandardCommitBuildWrapper
+--     _
+  -> [Text]
+genSpecialCasedNonupstreamSection
+  (StatusUpdateTypes.NewSpecialCasedBuilds xla_build_failures) =
+  if null xla_build_failures
+  then mempty
+  else pure $ T.unwords $ map M.sentence [
+      [ "Job"
+      , build_name_list
+      , "is failing"
+      ]
+    , [ "Please create an issue"
+      , M.codeInline "[PT_BREAK]"
+      , "in"
+      , M.codeInline $ M.link
+          "pytorch/xla"
+          "https://github.com/pytorch/xla/issues"
+      , "and link to to this PR"
+      ]
+    , [ "If you have questions, please reach out to"
+      , rendered_xla_contacts
+      ]
+    ]
+  where
+    build_name_list = T.intercalate ", " $ map (M.bold . get_job_name) xla_build_failures
+
+    get_job_name = Builds.job_name . Builds.build_record . CommitBuilds._build . CommitBuilds._commit_build
+
+    rendered_xla_contacts = T.intercalate "/" $ map (T.cons '@') xlaContacts
+
+
+genBuildFailuresSections ::
      StatusUpdateTypes.CommitPageInfo
   -> [[Text]]
-genBuildFailuresTable
+genBuildFailuresSections
     (StatusUpdateTypes.NewCommitPageInfo toplevel_partitioning) =
-  pattern_matched_sections ++ [pattern_unmatched_section, upstream_matched_section]
+  pattern_matched_sections ++ [
+      pattern_unmatched_section
+    , special_cased_nonupstream_section
+    , upstream_matched_section
+    ]
   where
 
     StatusUpdateTypes.NewUpstreamnessBuildsPartition upstream_breakages nonupstream_builds = toplevel_partitioning
 
-    StatusUpdateTypes.NewNonUpstreamBuildPartition pattern_matched_builds unmatched_nonupstream_builds _special_cased_builds = nonupstream_builds
+    StatusUpdateTypes.NewNonUpstreamBuildPartition pattern_matched_builds unmatched_nonupstream_builds special_cased_builds = nonupstream_builds
+
+    special_cased_nonupstream_section = genSpecialCasedNonupstreamSection special_cased_builds
 
     pattern_matched_sections = genPatternMatchedSections pattern_matched_builds
 
@@ -513,7 +560,7 @@ generateMiddleSections
       then mempty
       else [M.bulletTree summary_forrest]
 
-    build_failures_table_sections = genBuildFailuresTable commit_page_info
+    build_failures_table_sections = genBuildFailuresSections commit_page_info
 
 
 genMetricsTree ::

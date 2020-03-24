@@ -1,19 +1,37 @@
 Retrieved merge base of RawCommit "ade3c1bd83041c2fb7be4ecb41803aee251ed693" from cache as RawCommit "bbec4520c6be6023aa91eecbf8088523bfe0ba84"
 SQL: "SELECT job_name, open_date, closed_date, open_sha1, closed_sha1, universal_build, provider, provider_build_num, span_length FROM downstream_build_failures_from_upstream_inferred_breakages WHERE branch_commit = ?" PARMS: "ade3c1bd83041c2fb7be4ecb41803aee251ed693"
-inferred_breakages_retrieval_timing 9.797393
+inferred_breakages_retrieval_timing 17.435665
 Fetching revision builds
 Fetching unmatched commit builds...
 Finishing fetchCommitPageInfo.
-tentative_flaky_triggered_reruns count: 0 tentative_flaky_untriggered_reruns count: 1
-nonupstream_tentatively_flaky_breakages count: 1 nonupstream_nonflaky_breakages: 0
 ## :pill: CircleCI build failures summary and remediations
 As of commit ade3c1bd83 (more details [on the Dr. CI page](https://dr.pytorch.org/commit-details.html?sha1=ade3c1bd83041c2fb7be4ecb41803aee251ed693)):
 
 
 ---
-* **1/2** failures introduced in this PR
-* **1/2** tentatively recognized as flaky :snowflake:
+* **1/3** failures introduced in this PR
+* **1/3** tentatively recognized as flaky :snowflake:
     * [Click here to rerun these jobs](https://dr.pytorch.org/rebuild-from-pr-comment.html?sha1=ade3c1bd83041c2fb7be4ecb41803aee251ed693)
+* **1/3** [broken upstream](https://dr.pytorch.org/master-timeline.html?count=1&sha1=bbec4520c6be6023aa91eecbf8088523bfe0ba84&should_suppress_scheduled_builds=true&should_suppress_fully_successful_columns=true&max_columns_suppress_successful=35) at merge base bbec4520c6 from Mar 21 until Mar 23 (51 commits; 62f11f0a35 - 0e0386b434)
+  <details>
+  <summary>
+  Please rebase on the <code>viable/strict</code> branch (expand for instructions)
+  </summary>
+  
+  If your commit is newer than `viable/strict`, you can try basing on an older, stable commit:
+  ```
+  git fetch https://github.com/pytorch/pytorch viable/strict
+  git rebase --onto FETCH_HEAD $(git merge-base origin/master HEAD)
+  ```
+  If your commit is older than `viable/strict`:
+  ```
+  git fetch https://github.com/pytorch/pytorch viable/strict
+  git rebase FETCH_HEAD
+  ```
+  Check out the [recency history](https://dr.pytorch.org/master-viable-commits.html) of this "viable master" tracking branch.
+  
+  </details>
+  
 
 
 ---
@@ -51,6 +69,15 @@ THCTensor.cu
 ```
 
 </details>
+
+
+---
+Build pytorch_xla_linux_xenial_py3_6_clang7_build is failing. Please create an issue [PT_BREAK] in pytorch/xla and link to to this PR. If you have questions, please reach out to @ailzhang/@dlibenzi/@jackCaoG
+
+---
+### :construction: 1 upstream failure:
+These were probably **caused by upstream breakages**:
+* [pytorch_linux_xenial_py3_clang5_asan_test](https://dr.pytorch.org/build-details.html?build_id=110435982) from Mar 21 until Mar 23 (51 commits; 62f11f0a35 - 0e0386b434)
 
 
 ---

@@ -615,7 +615,8 @@ apiPostedPRComments ::
   -> DbIO [PostedComments.PostedComment]
 apiPostedPRComments count = do
   conn <- ask
-  liftIO $ query conn sql $ Only $ min count maxApiPrCommentRevisionsToFetch
+  liftIO $ query conn sql $
+    Only $ min count maxApiPrCommentRevisionsToFetch
   where
     sql = Q.qjoin [
         "SELECT"
@@ -628,6 +629,9 @@ apiPostedPRComments count = do
         , "updated_at"
         , "revision_count"
         , "comment_id"
+        , "was_new_push"
+        , "all_no_fault_failures"
+        , "all_successful_circleci_builds"
         ]
       , "FROM latest_created_pull_request_comment_revision"
       , "ORDER BY updated_at DESC"

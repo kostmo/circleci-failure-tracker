@@ -381,9 +381,8 @@ fetchCommitPageInfo pre_broken_info sha1 validated_sha1 = runExceptT $ do
 
   let get_job_name = Builds.job_name . Builds.build_record . CommitBuilds._build . CommitBuilds._commit_build
 
-
-  let is_xla_job jobname = not $ null $ T.breakOnAll "xla" $ T.toLower jobname
-
+      is_xla_job jobname = not $ null $ T.breakOnAll "xla" $ T.toLower jobname
+--      is_xla_job= const False
 
   -- Partition builds between upstream and non-upstream breakages
   let f = MyUtils.derivePair $ (`HashMap.lookup` pre_broken_jobs_map) . get_job_name
