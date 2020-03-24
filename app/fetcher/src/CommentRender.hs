@@ -91,7 +91,6 @@ genUnmatchedBuildsTable unmatched_nonupstream_builds =
 
 genSpecialCasedNonupstreamSection ::
      StatusUpdateTypes.SpecialCasedBuilds StatusUpdateTypes.StandardCommitBuildWrapper
---     _
   -> [Text]
 genSpecialCasedNonupstreamSection
   (StatusUpdateTypes.NewSpecialCasedBuilds xla_build_failures) =
@@ -102,11 +101,11 @@ genSpecialCasedNonupstreamSection
       , build_name_list
       , "is failing"
       ]
-    , [ "Please create an issue"
+    , [ "Please create an issue with title prefixed by"
       , M.codeInline "[PT_BREAK]"
       , "in"
-      , M.codeInline $ M.link
-          "pytorch/xla"
+      , M.link
+          (M.codeInline "pytorch/xla")
           "https://github.com/pytorch/xla/issues"
       , "and link to to this PR"
       ]
@@ -115,11 +114,13 @@ genSpecialCasedNonupstreamSection
       ]
     ]
   where
-    build_name_list = T.intercalate ", " $ map (M.bold . get_job_name) xla_build_failures
+    build_name_list = T.intercalate ", " $
+      map (M.bold . get_job_name) xla_build_failures
 
     get_job_name = Builds.job_name . Builds.build_record . CommitBuilds._build . CommitBuilds._commit_build
 
-    rendered_xla_contacts = T.intercalate "/" $ map (T.cons '@') xlaContacts
+    rendered_xla_contacts = T.intercalate "/" $
+      map (T.cons '@') xlaContacts
 
 
 genBuildFailuresSections ::
