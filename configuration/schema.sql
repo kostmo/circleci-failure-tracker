@@ -3007,8 +3007,8 @@ CREATE VIEW public.downstream_build_failures_from_upstream_inferred_breakages WI
      JOIN public.ordered_master_commits ON ((pr_merge_bases.master_commit = ordered_master_commits.sha1)))
      JOIN public.build_failure_standalone_causes ON (((build_failure_standalone_causes.vcs_revision = pr_merge_bases.branch_commit) AND (NOT build_failure_standalone_causes.succeeded))))
      JOIN public.master_job_failure_spans_conservative_mview ON (((master_job_failure_spans_conservative_mview.job_name = build_failure_standalone_causes.job_name) AND (master_job_failure_spans_conservative_mview.failure_commit_id_range @> (ordered_master_commits.id)::bigint))))
-     JOIN public.master_ordered_commits_with_metadata m1 ON ((lower(master_job_failure_spans_conservative_mview.failure_commit_id_range) = m1.id)))
-     LEFT JOIN public.master_ordered_commits_with_metadata m2 ON ((upper(master_job_failure_spans_conservative_mview.failure_commit_id_range) = m2.id)));
+     JOIN public.master_ordered_commits_with_metadata_mview m1 ON ((lower(master_job_failure_spans_conservative_mview.failure_commit_id_range) = m1.id)))
+     LEFT JOIN public.master_ordered_commits_with_metadata_mview m2 ON ((upper(master_job_failure_spans_conservative_mview.failure_commit_id_range) = m2.id)));
 
 
 ALTER TABLE public.downstream_build_failures_from_upstream_inferred_breakages OWNER TO postgres;
@@ -3019,7 +3019,7 @@ ALTER TABLE public.downstream_build_failures_from_upstream_inferred_breakages OW
 
 COMMENT ON VIEW public.downstream_build_failures_from_upstream_inferred_breakages IS 'This view is different from "upstream_downstream_builds" in that it uses the inferred breakage spans (from a materialized view).
 
-The query performance *used to be* good.';
+The query performance is good.';
 
 
 --
