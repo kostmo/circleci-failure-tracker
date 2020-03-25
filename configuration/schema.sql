@@ -613,6 +613,29 @@ CREATE VIEW lambda_logging.sha1_queue_insertions WITH (security_barrier='false')
 ALTER TABLE lambda_logging.sha1_queue_insertions OWNER TO postgres;
 
 --
+-- Name: sha1_message_grouped_queue_insertions; Type: VIEW; Schema: lambda_logging; Owner: postgres
+--
+
+CREATE VIEW lambda_logging.sha1_message_grouped_queue_insertions AS
+ SELECT sha1_queue_insertions.sha1,
+    sha1_queue_insertions.sqs_message_id,
+    count(*) AS sha1_message_id_repetition_count,
+    tstzrange(min(sha1_queue_insertions.inserted_at), max(sha1_queue_insertions.inserted_at)) AS insertion_timerange
+   FROM lambda_logging.sha1_queue_insertions
+  GROUP BY sha1_queue_insertions.sha1, sha1_queue_insertions.sqs_message_id
+  ORDER BY (count(*)) DESC;
+
+
+ALTER TABLE lambda_logging.sha1_message_grouped_queue_insertions OWNER TO postgres;
+
+--
+-- Name: VIEW sha1_message_grouped_queue_insertions; Type: COMMENT; Schema: lambda_logging; Owner: postgres
+--
+
+COMMENT ON VIEW lambda_logging.sha1_message_grouped_queue_insertions IS 'This is for observing how many times a sha1 is present in the queue during non-overlapping timespans';
+
+
+--
 -- Name: sha1_queue_sqs_message_id_processing; Type: VIEW; Schema: lambda_logging; Owner: postgres
 --
 
@@ -7633,6 +7656,13 @@ GRANT ALL ON TABLE lambda_logging.materialized_view_refresh_event_stats TO logan
 --
 
 GRANT ALL ON TABLE lambda_logging.sha1_queue_insertions TO logan;
+
+
+--
+-- Name: TABLE sha1_message_grouped_queue_insertions; Type: ACL; Schema: lambda_logging; Owner: postgres
+--
+
+GRANT ALL ON TABLE lambda_logging.sha1_message_grouped_queue_insertions TO logan;
 
 
 --

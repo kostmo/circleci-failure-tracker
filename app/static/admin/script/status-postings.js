@@ -11,11 +11,11 @@ function get_throughput_data(hours_count) {
 
 
 			const execution_duration_series_list = get_duration_series_list(data);
-			gen_health_plot(execution_duration_series_list, 'container-processing-time-by-hour', "Avg. Execution Duration", "hour");
+			gen_health_plot(execution_duration_series_list, 'container-processing-time-by-hour', "Avg. Execution Duration (s)", "hour");
 
 
 			const residency_duration_series_list = get_queue_residency_series_list(data);
-			gen_health_plot(residency_duration_series_list, 'container-queue-residency-time-by-hour', "Avg. Queue Residency", "hour");
+			gen_health_plot(residency_duration_series_list, 'container-queue-residency-time-by-hour', "Avg. Queue Residency (min)", "hour");
 		}
 	);
 }

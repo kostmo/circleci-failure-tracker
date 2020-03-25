@@ -519,7 +519,7 @@ generateCommentFooter
 
     performance_link_url = dr_ci_base_url <> "/posted-comment-details.html?pr=" <> T.pack (show pr_number)
 
-    performance_link = T.unwords [
+    performance_link = M.sentence [
         "See"
       , M.link "how this bot performed" performance_link_url
       ]
