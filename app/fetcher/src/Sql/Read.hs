@@ -630,8 +630,10 @@ apiPostedPRComments count = do
         , "was_new_push"
         , "all_no_fault_failures"
         , "all_successful_circleci_builds"
+        , "EXTRACT(EPOCH FROM queue_residency_duration)"
+        , "EXTRACT(EPOCH FROM execution_duration)"
         ]
-      , "FROM latest_created_pull_request_comment_revision"
+      , "FROM lambda_logging.latest_pr_comment_revision_processing_stats"
       , "ORDER BY updated_at DESC"
       , "LIMIT ?"
       ]

@@ -308,6 +308,53 @@ CREATE VIEW lambda_logging.completed_sha1_scan_durations WITH (security_barrier=
 ALTER TABLE lambda_logging.completed_sha1_scan_durations OWNER TO postgres;
 
 --
+-- Name: deduped_eb_worker_sha1_dequeue_event_durations; Type: VIEW; Schema: lambda_logging; Owner: postgres
+--
+
+CREATE VIEW lambda_logging.deduped_eb_worker_sha1_dequeue_event_durations AS
+ SELECT eb_worker_sha1_dequeue_event_durations.sqs_message_id,
+    count(*) AS count_dequeued,
+    count(eb_worker_sha1_dequeue_event_durations.finish_time) AS count_finished,
+    min(eb_worker_sha1_dequeue_event_durations.dequeue_timestamp) AS first_dequeued,
+    max(eb_worker_sha1_dequeue_event_durations.dequeue_timestamp) AS last_dequeued,
+    avg(eb_worker_sha1_dequeue_event_durations.duration) AS average_duration
+   FROM lambda_logging.eb_worker_sha1_dequeue_event_durations
+  GROUP BY eb_worker_sha1_dequeue_event_durations.sqs_message_id;
+
+
+ALTER TABLE lambda_logging.deduped_eb_worker_sha1_dequeue_event_durations OWNER TO postgres;
+
+--
+-- Name: eb_worker_sha1_enqueing; Type: TABLE; Schema: lambda_logging; Owner: postgres
+--
+
+CREATE TABLE lambda_logging.eb_worker_sha1_enqueing (
+    github_status_event_id integer NOT NULL,
+    inserted_at timestamp with time zone DEFAULT now() NOT NULL,
+    sqs_message_id text
+);
+
+
+ALTER TABLE lambda_logging.eb_worker_sha1_enqueing OWNER TO postgres;
+
+--
+-- Name: deduped_eb_worker_sha1_enqueing; Type: VIEW; Schema: lambda_logging; Owner: postgres
+--
+
+CREATE VIEW lambda_logging.deduped_eb_worker_sha1_enqueing AS
+ SELECT eb_worker_sha1_enqueing.sqs_message_id,
+    count(*) AS count_inserted,
+    min(eb_worker_sha1_enqueing.inserted_at) AS first_inserted,
+    max(eb_worker_sha1_enqueing.inserted_at) AS last_inserted,
+    min(eb_worker_sha1_enqueing.github_status_event_id) AS first_status_event,
+    max(eb_worker_sha1_enqueing.github_status_event_id) AS last_status_event
+   FROM lambda_logging.eb_worker_sha1_enqueing
+  GROUP BY eb_worker_sha1_enqueing.sqs_message_id;
+
+
+ALTER TABLE lambda_logging.deduped_eb_worker_sha1_enqueing OWNER TO postgres;
+
+--
 -- Name: eb_worker_event_start_id_seq; Type: SEQUENCE; Schema: lambda_logging; Owner: postgres
 --
 
@@ -330,17 +377,188 @@ ALTER SEQUENCE lambda_logging.eb_worker_event_start_id_seq OWNED BY lambda_loggi
 
 
 --
--- Name: eb_worker_sha1_enqueing; Type: TABLE; Schema: lambda_logging; Owner: postgres
+-- Name: github_incoming_status_events; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE TABLE lambda_logging.eb_worker_sha1_enqueing (
-    github_status_event_id integer NOT NULL,
-    inserted_at timestamp with time zone DEFAULT now() NOT NULL,
-    sqs_message_id text
+CREATE TABLE public.github_incoming_status_events (
+    id integer NOT NULL,
+    sha1 character(40),
+    name text,
+    description text,
+    state text,
+    target_url text,
+    context text,
+    created_at timestamp with time zone,
+    inserted_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
 
-ALTER TABLE lambda_logging.eb_worker_sha1_enqueing OWNER TO postgres;
+ALTER TABLE public.github_incoming_status_events OWNER TO postgres;
+
+--
+-- Name: sqs_enqueues_elaborated; Type: VIEW; Schema: lambda_logging; Owner: postgres
+--
+
+CREATE VIEW lambda_logging.sqs_enqueues_elaborated WITH (security_barrier='false') AS
+ SELECT bar.sqs_message_id,
+    bar.count_inserted,
+    bar.first_inserted,
+    bar.last_inserted,
+    bar.first_status_event,
+    g1.sha1,
+    g1.state AS first_state,
+    g2.state AS last_state,
+    g1.inserted_at AS first_status_event_received_timestamp
+   FROM ((lambda_logging.deduped_eb_worker_sha1_enqueing bar
+     JOIN public.github_incoming_status_events g1 ON ((bar.first_status_event = g1.id)))
+     JOIN public.github_incoming_status_events g2 ON ((bar.last_status_event = g2.id)));
+
+
+ALTER TABLE lambda_logging.sqs_enqueues_elaborated OWNER TO postgres;
+
+--
+-- Name: sqs_message_residency; Type: VIEW; Schema: lambda_logging; Owner: postgres
+--
+
+CREATE VIEW lambda_logging.sqs_message_residency AS
+ SELECT eb_worker_sha1_dequeue_event_durations.id AS eb_worker_event_id,
+    eb_worker_sha1_dequeue_event_durations.sqs_message_id,
+    sqs_enqueues_elaborated.first_status_event_received_timestamp,
+    sqs_enqueues_elaborated.first_inserted AS first_queue_insertion_timetamp,
+    eb_worker_sha1_dequeue_event_durations.dequeue_timestamp,
+    eb_worker_sha1_dequeue_event_durations.finish_time AS eb_worker_finish_timestamp,
+    (eb_worker_sha1_dequeue_event_durations.dequeue_timestamp - sqs_enqueues_elaborated.first_inserted) AS queue_residency_duration,
+    eb_worker_sha1_dequeue_event_durations.duration AS execution_duration
+   FROM (lambda_logging.eb_worker_sha1_dequeue_event_durations
+     JOIN lambda_logging.sqs_enqueues_elaborated ON ((eb_worker_sha1_dequeue_event_durations.sqs_message_id = sqs_enqueues_elaborated.sqs_message_id)));
+
+
+ALTER TABLE lambda_logging.sqs_message_residency OWNER TO postgres;
+
+--
+-- Name: VIEW sqs_message_residency; Type: COMMENT; Schema: lambda_logging; Owner: postgres
+--
+
+COMMENT ON VIEW lambda_logging.sqs_message_residency IS 'NOTE: This counts all enqueues of the same message ONCE, but individually lists ALL dequeues for that message (as multiple dequeues can represent failed events/retries, which produce side effects during the attempts).';
+
+
+--
+-- Name: created_pull_request_comment_revisions; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.created_pull_request_comment_revisions (
+    id integer NOT NULL,
+    comment_id integer NOT NULL,
+    body text,
+    updated_at timestamp with time zone NOT NULL,
+    sha1 character(40),
+    was_new_push boolean DEFAULT false NOT NULL,
+    all_no_fault_failures boolean DEFAULT false NOT NULL,
+    all_successful_circleci_builds boolean DEFAULT false NOT NULL
+);
+
+
+ALTER TABLE public.created_pull_request_comment_revisions OWNER TO postgres;
+
+--
+-- Name: created_pull_request_comments; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.created_pull_request_comments (
+    comment_id integer NOT NULL,
+    project text NOT NULL,
+    repo text NOT NULL,
+    created_at timestamp with time zone,
+    pr_number integer NOT NULL,
+    deleted boolean DEFAULT false NOT NULL
+);
+
+
+ALTER TABLE public.created_pull_request_comments OWNER TO postgres;
+
+--
+-- Name: pull_request_static_metadata; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.pull_request_static_metadata (
+    pr_number integer NOT NULL,
+    github_user_login text NOT NULL,
+    base_repo_owner text NOT NULL,
+    base_repo_name text NOT NULL,
+    head_repo_owner text NOT NULL,
+    head_repo_name text NOT NULL,
+    base_ref text NOT NULL,
+    head_ref text NOT NULL
+);
+
+
+ALTER TABLE public.pull_request_static_metadata OWNER TO postgres;
+
+--
+-- Name: latest_created_pull_request_comment_revision; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.latest_created_pull_request_comment_revision WITH (security_barrier='false') AS
+ SELECT created_pull_request_comment_revisions.id,
+    created_pull_request_comment_revisions.comment_id,
+    created_pull_request_comment_revisions.body,
+    created_pull_request_comment_revisions.updated_at,
+    foo.revision_count,
+    created_pull_request_comments.project,
+    created_pull_request_comments.repo,
+    created_pull_request_comments.created_at,
+    created_pull_request_comments.pr_number,
+    created_pull_request_comment_revisions.sha1,
+    pull_request_static_metadata.github_user_login,
+    created_pull_request_comment_revisions.was_new_push,
+    created_pull_request_comment_revisions.all_no_fault_failures,
+    created_pull_request_comment_revisions.all_successful_circleci_builds
+   FROM (((( SELECT created_pull_request_comment_revisions_1.comment_id,
+            max(created_pull_request_comment_revisions_1.id) AS latest_revision_id,
+            count(created_pull_request_comment_revisions_1.id) AS revision_count
+           FROM public.created_pull_request_comment_revisions created_pull_request_comment_revisions_1
+          GROUP BY created_pull_request_comment_revisions_1.comment_id) foo
+     JOIN public.created_pull_request_comments ON ((created_pull_request_comments.comment_id = foo.comment_id)))
+     JOIN public.created_pull_request_comment_revisions ON ((foo.latest_revision_id = created_pull_request_comment_revisions.id)))
+     LEFT JOIN public.pull_request_static_metadata ON ((pull_request_static_metadata.pr_number = created_pull_request_comments.pr_number)))
+  WHERE (NOT created_pull_request_comments.deleted);
+
+
+ALTER TABLE public.latest_created_pull_request_comment_revision OWNER TO postgres;
+
+--
+-- Name: latest_pr_comment_revision_processing_stats; Type: VIEW; Schema: lambda_logging; Owner: postgres
+--
+
+CREATE VIEW lambda_logging.latest_pr_comment_revision_processing_stats AS
+ SELECT latest_created_pull_request_comment_revision.id,
+    latest_created_pull_request_comment_revision.comment_id,
+    latest_created_pull_request_comment_revision.body,
+    latest_created_pull_request_comment_revision.updated_at,
+    latest_created_pull_request_comment_revision.revision_count,
+    latest_created_pull_request_comment_revision.project,
+    latest_created_pull_request_comment_revision.repo,
+    latest_created_pull_request_comment_revision.created_at,
+    latest_created_pull_request_comment_revision.pr_number,
+    latest_created_pull_request_comment_revision.sha1,
+    latest_created_pull_request_comment_revision.github_user_login,
+    latest_created_pull_request_comment_revision.was_new_push,
+    latest_created_pull_request_comment_revision.all_no_fault_failures,
+    latest_created_pull_request_comment_revision.all_successful_circleci_builds,
+    sqs_message_residency.eb_worker_event_id,
+    sqs_message_residency.sqs_message_id,
+    sqs_message_residency.first_status_event_received_timestamp,
+    sqs_message_residency.first_queue_insertion_timetamp,
+    sqs_message_residency.dequeue_timestamp,
+    sqs_message_residency.eb_worker_finish_timestamp,
+    sqs_message_residency.queue_residency_duration,
+    sqs_message_residency.execution_duration
+   FROM ((public.latest_created_pull_request_comment_revision
+     LEFT JOIN lambda_logging.comment_revision_worker_associations ON ((latest_created_pull_request_comment_revision.id = comment_revision_worker_associations.pr_comment_revision_id)))
+     LEFT JOIN lambda_logging.sqs_message_residency ON ((comment_revision_worker_associations.eb_worker_event_id = sqs_message_residency.eb_worker_event_id)));
+
+
+ALTER TABLE lambda_logging.latest_pr_comment_revision_processing_stats OWNER TO postgres;
 
 --
 -- Name: materialized_view_refresh_events; Type: TABLE; Schema: lambda_logging; Owner: postgres
@@ -378,25 +596,6 @@ CREATE VIEW lambda_logging.materialized_view_refresh_event_stats WITH (security_
 
 
 ALTER TABLE lambda_logging.materialized_view_refresh_event_stats OWNER TO postgres;
-
---
--- Name: github_incoming_status_events; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.github_incoming_status_events (
-    id integer NOT NULL,
-    sha1 character(40),
-    name text,
-    description text,
-    state text,
-    target_url text,
-    context text,
-    created_at timestamp with time zone,
-    inserted_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
-ALTER TABLE public.github_incoming_status_events OWNER TO postgres;
 
 --
 -- Name: sha1_queue_insertions; Type: VIEW; Schema: lambda_logging; Owner: postgres
@@ -437,32 +636,8 @@ CREATE VIEW lambda_logging.sha1_queue_sqs_message_id_processing WITH (security_b
     date_trunc('hour'::text, enqueues.first_inserted) AS first_inserted_hour,
     COALESCE(dequeues.count_finished, (0)::bigint) AS count_finished,
     dequeues.average_duration
-   FROM (( SELECT bar.sqs_message_id,
-            bar.count_inserted,
-            bar.first_inserted,
-            bar.last_inserted,
-            bar.first_status_event,
-            g1.sha1,
-            g1.state AS first_state,
-            g2.state AS last_state
-           FROM ((( SELECT eb_worker_sha1_enqueing.sqs_message_id,
-                    count(*) AS count_inserted,
-                    min(eb_worker_sha1_enqueing.inserted_at) AS first_inserted,
-                    max(eb_worker_sha1_enqueing.inserted_at) AS last_inserted,
-                    min(eb_worker_sha1_enqueing.github_status_event_id) AS first_status_event,
-                    max(eb_worker_sha1_enqueing.github_status_event_id) AS last_status_event
-                   FROM lambda_logging.eb_worker_sha1_enqueing
-                  GROUP BY eb_worker_sha1_enqueing.sqs_message_id) bar
-             JOIN public.github_incoming_status_events g1 ON ((bar.first_status_event = g1.id)))
-             JOIN public.github_incoming_status_events g2 ON ((bar.last_status_event = g2.id)))) enqueues
-     FULL JOIN ( SELECT eb_worker_sha1_dequeue_event_durations.sqs_message_id,
-            count(*) AS count_dequeued,
-            count(eb_worker_sha1_dequeue_event_durations.finish_time) AS count_finished,
-            min(eb_worker_sha1_dequeue_event_durations.dequeue_timestamp) AS first_dequeued,
-            max(eb_worker_sha1_dequeue_event_durations.dequeue_timestamp) AS last_dequeued,
-            avg(eb_worker_sha1_dequeue_event_durations.duration) AS average_duration
-           FROM lambda_logging.eb_worker_sha1_dequeue_event_durations
-          GROUP BY eb_worker_sha1_dequeue_event_durations.sqs_message_id) dequeues ON ((dequeues.sqs_message_id = enqueues.sqs_message_id)))
+   FROM (lambda_logging.sqs_enqueues_elaborated enqueues
+     FULL JOIN lambda_logging.deduped_eb_worker_sha1_dequeue_event_durations dequeues ON ((dequeues.sqs_message_id = enqueues.sqs_message_id)))
   ORDER BY enqueues.last_inserted DESC;
 
 
@@ -2794,24 +2969,6 @@ ALTER SEQUENCE public.code_breakage_resolution_id_seq OWNED BY public.code_break
 
 
 --
--- Name: created_pull_request_comment_revisions; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.created_pull_request_comment_revisions (
-    id integer NOT NULL,
-    comment_id integer NOT NULL,
-    body text,
-    updated_at timestamp with time zone NOT NULL,
-    sha1 character(40),
-    was_new_push boolean DEFAULT false NOT NULL,
-    all_no_fault_failures boolean DEFAULT false NOT NULL,
-    all_successful_circleci_builds boolean DEFAULT false NOT NULL
-);
-
-
-ALTER TABLE public.created_pull_request_comment_revisions OWNER TO postgres;
-
---
 -- Name: created_pull_request_comment_revisions_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
 --
 
@@ -2832,22 +2989,6 @@ ALTER TABLE public.created_pull_request_comment_revisions_id_seq OWNER TO postgr
 
 ALTER SEQUENCE public.created_pull_request_comment_revisions_id_seq OWNED BY public.created_pull_request_comment_revisions.id;
 
-
---
--- Name: created_pull_request_comments; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.created_pull_request_comments (
-    comment_id integer NOT NULL,
-    project text NOT NULL,
-    repo text NOT NULL,
-    created_at timestamp with time zone,
-    pr_number integer NOT NULL,
-    deleted boolean DEFAULT false NOT NULL
-);
-
-
-ALTER TABLE public.created_pull_request_comments OWNER TO postgres;
 
 --
 -- Name: github_circleci_latest_statuses_by_build; Type: VIEW; Schema: public; Owner: postgres
@@ -3540,56 +3681,6 @@ CREATE VIEW public.jobs_non_scheduled_built_yesterday AS
 
 
 ALTER TABLE public.jobs_non_scheduled_built_yesterday OWNER TO postgres;
-
---
--- Name: pull_request_static_metadata; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.pull_request_static_metadata (
-    pr_number integer NOT NULL,
-    github_user_login text NOT NULL,
-    base_repo_owner text NOT NULL,
-    base_repo_name text NOT NULL,
-    head_repo_owner text NOT NULL,
-    head_repo_name text NOT NULL,
-    base_ref text NOT NULL,
-    head_ref text NOT NULL
-);
-
-
-ALTER TABLE public.pull_request_static_metadata OWNER TO postgres;
-
---
--- Name: latest_created_pull_request_comment_revision; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.latest_created_pull_request_comment_revision WITH (security_barrier='false') AS
- SELECT created_pull_request_comment_revisions.id,
-    created_pull_request_comment_revisions.comment_id,
-    created_pull_request_comment_revisions.body,
-    created_pull_request_comment_revisions.updated_at,
-    foo.revision_count,
-    created_pull_request_comments.project,
-    created_pull_request_comments.repo,
-    created_pull_request_comments.created_at,
-    created_pull_request_comments.pr_number,
-    created_pull_request_comment_revisions.sha1,
-    pull_request_static_metadata.github_user_login,
-    created_pull_request_comment_revisions.was_new_push,
-    created_pull_request_comment_revisions.all_no_fault_failures,
-    created_pull_request_comment_revisions.all_successful_circleci_builds
-   FROM (((( SELECT created_pull_request_comment_revisions_1.comment_id,
-            max(created_pull_request_comment_revisions_1.id) AS latest_revision_id,
-            count(created_pull_request_comment_revisions_1.id) AS revision_count
-           FROM public.created_pull_request_comment_revisions created_pull_request_comment_revisions_1
-          GROUP BY created_pull_request_comment_revisions_1.comment_id) foo
-     JOIN public.created_pull_request_comments ON ((created_pull_request_comments.comment_id = foo.comment_id)))
-     JOIN public.created_pull_request_comment_revisions ON ((foo.latest_revision_id = created_pull_request_comment_revisions.id)))
-     LEFT JOIN public.pull_request_static_metadata ON ((pull_request_static_metadata.pr_number = created_pull_request_comments.pr_number)))
-  WHERE (NOT created_pull_request_comments.deleted);
-
-
-ALTER TABLE public.latest_created_pull_request_comment_revision OWNER TO postgres;
 
 --
 -- Name: scanned_patterns; Type: TABLE; Schema: public; Owner: postgres
@@ -7418,10 +7509,10 @@ GRANT ALL ON TABLE lambda_logging.completed_sha1_scan_durations TO logan;
 
 
 --
--- Name: SEQUENCE eb_worker_event_start_id_seq; Type: ACL; Schema: lambda_logging; Owner: postgres
+-- Name: TABLE deduped_eb_worker_sha1_dequeue_event_durations; Type: ACL; Schema: lambda_logging; Owner: postgres
 --
 
-GRANT ALL ON SEQUENCE lambda_logging.eb_worker_event_start_id_seq TO logan;
+GRANT ALL ON TABLE lambda_logging.deduped_eb_worker_sha1_dequeue_event_durations TO logan;
 
 
 --
@@ -7429,6 +7520,80 @@ GRANT ALL ON SEQUENCE lambda_logging.eb_worker_event_start_id_seq TO logan;
 --
 
 GRANT ALL ON TABLE lambda_logging.eb_worker_sha1_enqueing TO logan;
+
+
+--
+-- Name: TABLE deduped_eb_worker_sha1_enqueing; Type: ACL; Schema: lambda_logging; Owner: postgres
+--
+
+GRANT ALL ON TABLE lambda_logging.deduped_eb_worker_sha1_enqueing TO logan;
+
+
+--
+-- Name: SEQUENCE eb_worker_event_start_id_seq; Type: ACL; Schema: lambda_logging; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE lambda_logging.eb_worker_event_start_id_seq TO logan;
+
+
+--
+-- Name: TABLE github_incoming_status_events; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.github_incoming_status_events TO logan;
+
+
+--
+-- Name: TABLE sqs_enqueues_elaborated; Type: ACL; Schema: lambda_logging; Owner: postgres
+--
+
+GRANT ALL ON TABLE lambda_logging.sqs_enqueues_elaborated TO logan;
+
+
+--
+-- Name: TABLE sqs_message_residency; Type: ACL; Schema: lambda_logging; Owner: postgres
+--
+
+GRANT ALL ON TABLE lambda_logging.sqs_message_residency TO logan;
+
+
+--
+-- Name: TABLE created_pull_request_comment_revisions; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.created_pull_request_comment_revisions TO logan;
+GRANT SELECT ON TABLE public.created_pull_request_comment_revisions TO materialized_view_updater;
+
+
+--
+-- Name: TABLE created_pull_request_comments; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.created_pull_request_comments TO logan;
+GRANT SELECT ON TABLE public.created_pull_request_comments TO materialized_view_updater;
+
+
+--
+-- Name: TABLE pull_request_static_metadata; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.pull_request_static_metadata TO logan;
+GRANT SELECT ON TABLE public.pull_request_static_metadata TO materialized_view_updater;
+
+
+--
+-- Name: TABLE latest_created_pull_request_comment_revision; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.latest_created_pull_request_comment_revision TO logan;
+GRANT SELECT ON TABLE public.latest_created_pull_request_comment_revision TO materialized_view_updater;
+
+
+--
+-- Name: TABLE latest_pr_comment_revision_processing_stats; Type: ACL; Schema: lambda_logging; Owner: postgres
+--
+
+GRANT ALL ON TABLE lambda_logging.latest_pr_comment_revision_processing_stats TO logan;
 
 
 --
@@ -7444,13 +7609,6 @@ GRANT SELECT ON TABLE lambda_logging.materialized_view_refresh_events TO logan;
 --
 
 GRANT ALL ON TABLE lambda_logging.materialized_view_refresh_event_stats TO logan;
-
-
---
--- Name: TABLE github_incoming_status_events; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.github_incoming_status_events TO logan;
 
 
 --
@@ -8152,26 +8310,10 @@ GRANT ALL ON SEQUENCE public.code_breakage_resolution_id_seq TO logan;
 
 
 --
--- Name: TABLE created_pull_request_comment_revisions; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.created_pull_request_comment_revisions TO logan;
-GRANT SELECT ON TABLE public.created_pull_request_comment_revisions TO materialized_view_updater;
-
-
---
 -- Name: SEQUENCE created_pull_request_comment_revisions_id_seq; Type: ACL; Schema: public; Owner: postgres
 --
 
 GRANT ALL ON SEQUENCE public.created_pull_request_comment_revisions_id_seq TO logan;
-
-
---
--- Name: TABLE created_pull_request_comments; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.created_pull_request_comments TO logan;
-GRANT SELECT ON TABLE public.created_pull_request_comments TO materialized_view_updater;
 
 
 --
@@ -8351,22 +8493,6 @@ GRANT ALL ON TABLE public.master_commit_job_coverage_by_day TO logan;
 --
 
 GRANT ALL ON TABLE public.jobs_non_scheduled_built_yesterday TO logan;
-
-
---
--- Name: TABLE pull_request_static_metadata; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.pull_request_static_metadata TO logan;
-GRANT SELECT ON TABLE public.pull_request_static_metadata TO materialized_view_updater;
-
-
---
--- Name: TABLE latest_created_pull_request_comment_revision; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.latest_created_pull_request_comment_revision TO logan;
-GRANT SELECT ON TABLE public.latest_created_pull_request_comment_revision TO materialized_view_updater;
 
 
 --

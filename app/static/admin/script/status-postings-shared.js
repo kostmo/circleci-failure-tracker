@@ -36,6 +36,20 @@ function gen_comment_postings_table(element_id, data_url, height) {
 			},
 */
 
+
+
+			{title: "Q time", field: "queue_residency_duration", sorter: "number", width: 90, formatter: function(cell, formatterParams, onRendered) {
+					return cell.getValue().toFixed(1) + "s";
+				}
+			},
+
+			{title: "Exec time", field: "execution_duration", sorter: "number", width: 90, formatter: function(cell, formatterParams, onRendered) {
+					return cell.getValue().toFixed(1) + "s";
+				}
+			},
+
+
+
 			{title: "Repush", field: "was_new_push", formatter:"tickCross", sorter:"boolean", width: 100},
 			{title: "No fault", field: "all_no_fault_failures", formatter:"tickCross", sorter:"boolean", width: 100},
 			{title: "All green", field: "all_successful_circleci_builds", formatter:"tickCross", sorter:"boolean", width: 100},

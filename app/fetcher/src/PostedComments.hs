@@ -27,6 +27,8 @@ data PostedComment = PostedComment {
   , _was_new_push                   :: Bool
   , _all_no_fault_failures          :: Bool
   , _all_successful_circleci_builds :: Bool
+  , _queue_residency_duration       :: Maybe Double
+  , _execution_duration             :: Maybe Double
   } deriving (Generic, FromRow)
 
 instance ToJSON PostedComment where
