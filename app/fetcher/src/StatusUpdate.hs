@@ -376,8 +376,16 @@ fetchCommitPageInfo ::
 fetchCommitPageInfo pre_broken_info sha1 validated_sha1 = runExceptT $ do
 
   liftIO $ D.debugStr "Fetching revision builds"
-  DbHelpers.BenchmarkedResponse _ revision_builds <- ExceptT $
+  DbHelpers.BenchmarkedResponse _ revision_builds_with_timeouts <- ExceptT $
     SqlRead.getRevisionBuilds validated_sha1
+
+  let SqlRead.RevisionBuildsWithTimeouts timed_out_builds revision_builds = revision_builds_with_timeouts
+
+  liftIO $ D.debugList [
+      "Fetched"
+    , show $ length revision_builds
+    , "revision builds."
+    ]
 
   let get_job_name = Builds.job_name . Builds.build_record . CommitBuilds._build . CommitBuilds._commit_build
 
@@ -418,7 +426,6 @@ fetchCommitPageInfo pre_broken_info sha1 validated_sha1 = runExceptT $ do
 
   let pattern_matched_builds_partition = StatusUpdateTypes.partitionMatchedBuilds matched_builds_with_log_context
 
-  timed_out_builds <- ExceptT $ SqlRead.apiTimeoutCommitBuilds sha1
 
   let nonupstream_partition = StatusUpdateTypes.NewNonUpstreamBuildPartition
         pattern_matched_builds_partition

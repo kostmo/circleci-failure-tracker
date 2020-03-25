@@ -5,14 +5,12 @@
 
 module Sql.Read where
 
-import           Control.Exception                    (throwIO)
 import           Control.Monad                        (unless)
 import           Control.Monad.IO.Class               (liftIO)
 import           Control.Monad.Trans.Except           (ExceptT (ExceptT),
                                                        except, runExceptT)
 import           Control.Monad.Trans.Reader           (ReaderT, ask, runReaderT)
 import           Data.Aeson
-import qualified Data.ByteString.Char8                as BS
 import           Data.Either.Utils                    (maybeToEither)
 import           Data.List                            (partition, sortOn)
 import qualified Data.Maybe                           as Maybe
@@ -48,10 +46,10 @@ import qualified MatchOccurrences
 import qualified MyUtils
 import qualified Pagination
 import qualified PostedComments
-import qualified PostgresHelpers
 import qualified ScanPatterns
 import qualified ScanUtils
 import qualified Sql.QueryUtils                       as Q
+import qualified Sql.ReadTypes                        as SqlReadTypes
 import qualified UnmatchedBuilds
 import qualified WebApi
 import qualified WeeklyStats
@@ -1724,26 +1722,6 @@ knownBreakageAffectedJobs cause_id = do
       ]
 
 
-data UpstreamBrokenJob = UpstreamBrokenJob {
-    _job_name            :: Text
-  , _breakage_start_time :: UTCTime
-  , _breakage_end_time   :: Maybe UTCTime
-  , _breakage_start_sha1 :: Builds.RawCommit
-  , _breakage_end_sha1   :: Maybe Builds.RawCommit
-  , _universal_build     :: Builds.UniversalBuildId
-  , _provider            :: Int
-  , _provider_build_num  :: Builds.BuildNumber
-  , _span_length         :: Maybe Int
-  } deriving (Generic, FromRow)
-
-instance ToJSON UpstreamBrokenJob where
-  toJSON = genericToJSON JsonUtils.dropUnderscore
-
-
-extractJobName :: UpstreamBrokenJob -> Text
-extractJobName (UpstreamBrokenJob x _ _ _ _ _ _ _ _) = x
-
-
 -- | Compare to: getSpanningBreakages
 --
 -- This query is only valid after the PR commit ancestor in the master branch
@@ -1752,7 +1730,7 @@ extractJobName (UpstreamBrokenJob x _ _ _ _ _ _ _ _) = x
 -- It does not need to know the master commit (merge base).
 getInferredSpanningBrokenJobsBetter ::
      Builds.RawCommit -- ^ branch commit
-  -> DbIO [UpstreamBrokenJob]
+  -> DbIO [SqlReadTypes.UpstreamBrokenJob]
 getInferredSpanningBrokenJobsBetter (Builds.RawCommit branch_sha1) = do
   conn <- ask
   liftIO $ do
@@ -2180,27 +2158,33 @@ genAllBuildMatchesSubquery sql_where_conditions = Q.qjoin [
     ]
 
 
-data CommitBuildSupplementalPayload = CommitBuildSupplementalPayload {
-    is_empirically_determined_flaky :: Bool
-  , has_completed_rerun             :: Bool
-  , has_triggered_rebuild           :: Bool
-  , failure_count                   :: Int
-  } deriving (Generic, FromRow, ToJSON)
+data RevisionBuildsWithTimeouts = RevisionBuildsWithTimeouts {
+    timed_out_builds     :: [UnmatchedBuilds.UnmatchedBuild]
+  , non_timed_out_builds :: [SqlReadTypes.StandardCommitBuildWrapper]
+  } deriving (Generic, ToJSON)
 
 
 -- | For commit-details page in web frontend and
--- for preparing PR-comment-posting data in postCommitSummaryStatus
+-- for preparing PR-comment-posting data in postCommitSummaryStatus.
 getRevisionBuilds ::
      GitRev.GitSha1
-  -> DbIO (Either Text (DbHelpers.BenchmarkedResponse Float [CommitBuilds.CommitBuildWrapper CommitBuildSupplementalPayload]))
+  -> DbIO (Either Text (DbHelpers.BenchmarkedResponse Float RevisionBuildsWithTimeouts))
 getRevisionBuilds git_revision = do
   conn <- ask
 
-  liftIO $ do
---    D.debugList ["MY SQL:", show sql, "PARMS:", show sql_parms]
-    PostgresHelpers.catchDatabaseError catcher $ do
-      (timing, content) <- D.timeThisFloat $ query conn sql sql_parms
-      return $ Right $ DbHelpers.BenchmarkedResponse timing content
+  either_timed_out_builds <- apiTimeoutCommitBuilds $
+      Builds.RawCommit $ GitRev.sha1 git_revision
+
+  liftIO $ runExceptT $ do
+
+    (timing, my_non_timed_out_builds) <- liftIO $ D.timeThisFloat $
+      query conn sql sql_parms
+
+    timed_out_builds <- except either_timed_out_builds
+    return $ DbHelpers.BenchmarkedResponse timing $
+      RevisionBuildsWithTimeouts
+        timed_out_builds
+        my_non_timed_out_builds
 
   where
     git_revision_text = GitRev.sha1 git_revision
@@ -2230,12 +2214,6 @@ getRevisionBuilds git_revision = do
       , "LEFT JOIN rebuild_trigger_event_counts"
       , "ON global_builds.global_build_num = rebuild_trigger_event_counts.universal_build"
       ]
-
-
-    catcher _ (PostgresHelpers.QueryCancelled some_error) = return $ Left $
-      "Query error in getRevisionBuilds: " <> T.pack (BS.unpack some_error)
-    catcher e _                                  = throwIO e
-
 
     inner_sql_where_conditions = ["vcs_revision = ?"]
 

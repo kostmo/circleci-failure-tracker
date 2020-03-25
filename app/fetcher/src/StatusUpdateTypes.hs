@@ -5,7 +5,7 @@ import           Data.Text       (Text)
 import qualified Data.Tree       as Tr
 
 import qualified CommitBuilds
-import qualified Sql.Read        as SqlRead
+import qualified Sql.ReadTypes   as SqlReadTypes
 import qualified Sql.Update      as SqlUpdate
 import qualified UnmatchedBuilds
 
@@ -23,20 +23,18 @@ class ToTree a where
   toTree :: a -> Tr.Tree a
 
 
-type StandardCommitBuildWrapper = CommitBuilds.CommitBuildWrapper SqlRead.CommitBuildSupplementalPayload
-
 type ParameterizedWrapperTuple a = (a, CommitBuilds.BuildWithLogContext)
 
-type CommitBuildWrapperTuple = ParameterizedWrapperTuple StandardCommitBuildWrapper
+type CommitBuildWrapperTuple = ParameterizedWrapperTuple SqlReadTypes.StandardCommitBuildWrapper
 
 
 data CommitPageInfo = NewCommitPageInfo {
-    toplevel_partitioning :: UpstreamnessBuildsPartition StandardCommitBuildWrapper
+    toplevel_partitioning :: UpstreamnessBuildsPartition SqlReadTypes.StandardCommitBuildWrapper
   }
 
 
 data UpstreamnessBuildsPartition a = NewUpstreamnessBuildsPartition {
-    my_upstream_builds    :: [(a, SqlRead.UpstreamBrokenJob)]
+    my_upstream_builds    :: [(a, SqlReadTypes.UpstreamBrokenJob)]
   , my_nonupstream_builds :: NonUpstreamBuildPartition a
   }
 
@@ -116,21 +114,21 @@ partitionMatchedBuilds pattern_matched_builds =
       partition tentative_flakiness_predicate pattern_matched_builds
 
 
-    has_completed_rerun_predicate = SqlRead.has_completed_rerun . CommitBuilds._supplemental . fst
+    has_completed_rerun_predicate = SqlReadTypes.has_completed_rerun . CommitBuilds._supplemental . fst
 
     (completed_rerun_flaky_breakages, not_completed_rerun_flaky_breakages) =
       partition has_completed_rerun_predicate nonupstream_tentatively_flaky_breakages
 
 
 
-    has_triggered_rerun_predicate = SqlRead.has_triggered_rebuild . CommitBuilds._supplemental . fst
+    has_triggered_rerun_predicate = SqlReadTypes.has_triggered_rebuild . CommitBuilds._supplemental . fst
 
     (rerun_was_triggered_breakages, rerun_not_triggered_breakages) =
       partition has_triggered_rerun_predicate not_completed_rerun_flaky_breakages
 
 
 
-    flakiness_confirmed_predicate = SqlRead.is_empirically_determined_flaky . CommitBuilds._supplemental . fst
+    flakiness_confirmed_predicate = SqlReadTypes.is_empirically_determined_flaky . CommitBuilds._supplemental . fst
 
     (confirmed_flaky_breakages, negatively_confirmed_flaky_breakages) =
       partition flakiness_confirmed_predicate completed_rerun_flaky_breakages

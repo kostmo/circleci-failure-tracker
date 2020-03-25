@@ -198,7 +198,7 @@ mainAppCode args = do
 
   testWithAccessToken args $ testBotCommentGeneration conn $
 --    Builds.RawCommit "ade3c1bd83041c2fb7be4ecb41803aee251ed693" -- XLA
-      Builds.RawCommit "8a8fc28d38c41b156dfd2fe8459e6fb4d7708f86"
+      Builds.RawCommit "b027b3b5d9e37292e26073fecf96ed33b8f1f488"
 
   when False $
     GadgitTest.testGadgitApis

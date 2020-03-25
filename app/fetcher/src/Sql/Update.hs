@@ -39,6 +39,7 @@ import qualified JsonUtils
 import qualified MyUtils
 import qualified Sql.QueryUtils             as Q
 import qualified Sql.Read                   as SqlRead
+import qualified Sql.ReadTypes              as SqlReadTypes
 import qualified Sql.Write                  as SqlWrite
 
 
@@ -89,7 +90,7 @@ instance ToJSON BuildInfoRetrievalBenchmarks where
 data UpstreamBreakagesInfo = UpstreamBreakagesInfo {
     merge_base :: Builds.RawCommit
   , manually_annotated_breakages :: [DbHelpers.WithId SqlRead.CodeBreakage]
-  , inferred_upstream_breakages_by_job :: HashMap Text SqlRead.UpstreamBrokenJob
+  , inferred_upstream_breakages_by_job :: HashMap Text SqlReadTypes.UpstreamBrokenJob
   }
 
 
@@ -327,7 +328,7 @@ findKnownBuildBreakages access_token owned_repo sha1 = do
       liftIO $ flip runReaderT conn $ SqlRead.getInferredSpanningBrokenJobsBetter sha1
 
     let inferred_breakages_map = HashMap.fromList $ map
-          (swap . MyUtils.derivePair SqlRead.extractJobName)
+          (swap . MyUtils.derivePair SqlReadTypes.extractJobName)
           inferred_upstream_caused_broken_jobs
 
     liftIO $ D.debugList ["inferred_breakages_retrieval_timing", show inferred_breakages_retrieval_timing]
@@ -367,10 +368,10 @@ findAnnotatedBuildBreakages access_token owned_repo sha1 = do
 
 
 data CommitRebuildsResponse = CommitRebuildsResponse {
-    _all_builds :: [CommitBuilds.CommitBuildWrapper SqlRead.CommitBuildSupplementalPayload]
-  , _flaky_candidates :: [CommitBuilds.CommitBuildWrapper SqlRead.CommitBuildSupplementalPayload]
-  , _flaky_noncandidates :: [CommitBuilds.CommitBuildWrapper SqlRead.CommitBuildSupplementalPayload]
-  , _reran_builds :: [(CommitBuilds.CommitBuildWrapper SqlRead.CommitBuildSupplementalPayload, Int64)]
+    _all_builds          :: SqlRead.RevisionBuildsWithTimeouts
+  , _flaky_candidates    :: [SqlReadTypes.StandardCommitBuildWrapper]
+  , _flaky_noncandidates :: [SqlReadTypes.StandardCommitBuildWrapper]
+  , _reran_builds        :: [(SqlReadTypes.StandardCommitBuildWrapper, Int64)]
   } deriving Generic
 
 instance ToJSON CommitRebuildsResponse where
@@ -378,8 +379,8 @@ instance ToJSON CommitRebuildsResponse where
 
 
 getFlakyRebuildTuples ::
-     [CommitBuilds.CommitBuildWrapper SqlRead.CommitBuildSupplementalPayload]
-  -> ([(Builds.UniversalBuildId, Builds.BuildNumber)], [CommitBuilds.CommitBuildWrapper SqlRead.CommitBuildSupplementalPayload], [CommitBuilds.CommitBuildWrapper SqlRead.CommitBuildSupplementalPayload])
+     [CommitBuilds.CommitBuildWrapper SqlReadTypes.CommitBuildSupplementalPayload]
+  -> ([(Builds.UniversalBuildId, Builds.BuildNumber)], [CommitBuilds.CommitBuildWrapper SqlReadTypes.CommitBuildSupplementalPayload], [CommitBuilds.CommitBuildWrapper SqlReadTypes.CommitBuildSupplementalPayload])
 getFlakyRebuildTuples builds =
   (rebuild_id_tuples, retryable_flaky_builds, non_retryable_flaky_builds)
   where
@@ -391,7 +392,7 @@ getFlakyRebuildTuples builds =
     pattern_matched_flaky_predicate = CommitBuilds._is_flaky . CommitBuilds._failure_mode . CommitBuilds._commit_build
     possibly_flaky_builds = filter pattern_matched_flaky_predicate builds
 
-    is_retryable_predicate x = not (SqlRead.is_empirically_determined_flaky sup || SqlRead.has_triggered_rebuild sup)
+    is_retryable_predicate x = not (SqlReadTypes.is_empirically_determined_flaky sup || SqlReadTypes.has_triggered_rebuild sup)
       where
         sup = CommitBuilds._supplemental x
 
@@ -420,7 +421,10 @@ triggerFlakyRebuildCandidates
     DbHelpers.BenchmarkedResponse timing builds <- ExceptT $
       flip runReaderT conn $ SqlRead.getRevisionBuilds git_revision
 
-    let (rebuild_id_tuples, retryable_flaky_builds, non_retryable_flaky_builds) = getFlakyRebuildTuples builds
+    -- TODO Timed-out builds could be considered flaky!
+    let SqlRead.RevisionBuildsWithTimeouts _timed_out_builds non_timed_out_builds = builds
+
+    let (rebuild_id_tuples, retryable_flaky_builds, non_retryable_flaky_builds) = getFlakyRebuildTuples non_timed_out_builds
 
     results <- ExceptT $ fmap (first T.pack) $
       runExceptT $ CircleTrigger.rebuildCircleJobsInWorkflow

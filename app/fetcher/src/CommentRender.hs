@@ -26,6 +26,7 @@ import qualified Markdown            as M
 import qualified MatchOccurrences
 import qualified MyUtils
 import qualified Sql.Read            as SqlRead
+import qualified Sql.ReadTypes       as SqlReadTypes
 import qualified Sql.Update          as SqlUpdate
 import qualified StatusUpdateTypes
 import qualified UnmatchedBuilds
@@ -103,7 +104,7 @@ genTimedOutSection
 
 
 genSpecialCasedNonupstreamSection ::
-     StatusUpdateTypes.SpecialCasedBuilds StatusUpdateTypes.StandardCommitBuildWrapper
+     StatusUpdateTypes.SpecialCasedBuilds SqlReadTypes.StandardCommitBuildWrapper
   -> [Text]
 genSpecialCasedNonupstreamSection
   (StatusUpdateTypes.NewSpecialCasedBuilds xla_build_failures) =
@@ -302,18 +303,18 @@ data BreakageSpanEndInfo = BreakageSpanEndInfo {
 data BreakageTimeSpan = BreakageTimeSpan {
     start_time   :: UTCTime
   , maybe_end    :: Maybe BreakageSpanEndInfo
-  , original_obj :: SqlRead.UpstreamBrokenJob
+  , original_obj :: SqlReadTypes.UpstreamBrokenJob
   }
 
 
 toBreakageTimeSpan upstream_cause = BreakageTimeSpan
-  (SqlRead._breakage_start_time upstream_cause)
+  (SqlReadTypes._breakage_start_time upstream_cause)
   end_info
   upstream_cause
   where
     end_info = BreakageSpanEndInfo
-      <$> SqlRead._breakage_end_time upstream_cause
-      <*> SqlRead._span_length upstream_cause
+      <$> SqlReadTypes._breakage_end_time upstream_cause
+      <*> SqlReadTypes._span_length upstream_cause
 
 
 formatBreakageTimeSpan :: BreakageTimeSpan -> Text
@@ -349,11 +350,11 @@ formatBreakageTimeSpan (BreakageTimeSpan breakage_start_time maybe_breakage_end 
            end_time_date_only = ft_date_only end_time
            commit_count_blurb = M.parens $ T.unwords [
                MyUtils.pluralize span_length "commit" <> ";"
-             , render_raw_commit $ SqlRead._breakage_start_sha1 original_obj
+             , render_raw_commit $ SqlReadTypes._breakage_start_sha1 original_obj
              , "-"
                -- This Maybe should never be Nothing when the "end" timestamp is not Nothing
              , maybe "XXX" render_raw_commit $
-                 SqlRead._breakage_end_sha1 original_obj
+                 SqlReadTypes._breakage_end_sha1 original_obj
              ]
       Nothing -> ["since", start_time_date_only]
 
@@ -419,14 +420,14 @@ genMatchedBuildSection total_count idx wrapped_build_with_log_context = [
     job_name = Builds.job_name build_obj
 
     supplemental_commi_build_info = CommitBuilds._supplemental wrapped_commit_build
-    is_confirmed_non_flaky = SqlRead.has_completed_rerun supplemental_commi_build_info
-      && not (SqlRead.is_empirically_determined_flaky supplemental_commi_build_info)
+    is_confirmed_non_flaky = SqlReadTypes.has_completed_rerun supplemental_commi_build_info
+      && not (SqlReadTypes.is_empirically_determined_flaky supplemental_commi_build_info)
 
     not_flaky_confirmation_text = M.htmlAngleBrackets $ T.unwords [
         "confirmed"
       , M.bold "not flaky"
       , "by"
-      , M.bold $ MyUtils.pluralize (SqlRead.failure_count supplemental_commi_build_info) "failure"
+      , M.bold $ MyUtils.pluralize (SqlReadTypes.failure_count supplemental_commi_build_info) "failure"
       ]
 
     optional_flakiness_indicator
@@ -654,7 +655,7 @@ genMetricsTree
 
     grid_view_url = genGridViewSha1Link 1 merge_base_commit Nothing
 
-    latest_upstream_breakage = maximumOn SqlRead._breakage_start_time $ HashMap.elems pre_broken_jobs_map
+    latest_upstream_breakage = maximumOn SqlReadTypes._breakage_start_time $ HashMap.elems pre_broken_jobs_map
 
     upstream_brokenness_declaration = T.unwords [
         bold_fraction upstream_broken_count total_failcount
