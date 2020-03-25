@@ -1003,27 +1003,35 @@ ALTER TABLE public.commit_metadata OWNER TO postgres;
 --
 
 CREATE VIEW public.master_commit_circleci_scheduled_job_discrimination WITH (security_barrier='false') AS
- SELECT foo.job_name,
-    foo.commit_sha1,
-    bool_and(foo.is_scheduled) AS is_scheduled,
-    count(*) AS count
-   FROM ( SELECT circleci_workflow_jobs.job_name,
-            circleci_expanded_config_yaml_hashes_by_commit.commit_sha1,
-            ((circleci_workflow_schedules.cron_schedule IS NOT NULL) OR COALESCE(bar.not_run_on_master, false)) AS is_scheduled
-           FROM ((((public.circleci_workflow_jobs
-             JOIN public.circleci_workflows_by_yaml_file ON ((circleci_workflows_by_yaml_file.id = circleci_workflow_jobs.workflow)))
-             JOIN public.circleci_expanded_config_yaml_hashes_by_commit ON ((circleci_expanded_config_yaml_hashes_by_commit.repo_yaml_sha1 = circleci_workflows_by_yaml_file.yaml_content_sha1)))
-             LEFT JOIN public.circleci_workflow_schedules ON ((circleci_workflows_by_yaml_file.id = circleci_workflow_schedules.workflow)))
-             LEFT JOIN ( SELECT foo_1.workflow,
-                    foo_1.job_name,
-                    (NOT bool_or(foo_1.include_master_branch)) AS not_run_on_master
-                   FROM ( SELECT circleci_job_branch_filters.workflow,
-                            circleci_job_branch_filters.job_name,
-                            circleci_job_branch_filters.branch,
-                            ((circleci_job_branch_filters.branch = 'master'::text) AND circleci_job_branch_filters.filter_include) AS include_master_branch
-                           FROM public.circleci_job_branch_filters) foo_1
-                  GROUP BY foo_1.workflow, foo_1.job_name) bar ON (((circleci_workflows_by_yaml_file.id = bar.workflow) AND (circleci_workflow_jobs.job_name = bar.job_name))))) foo
-  GROUP BY foo.job_name, foo.commit_sha1;
+ SELECT zzz.job_name,
+    zzz.commit_sha1,
+    zzz.is_scheduled,
+    zzz.count,
+    zzz.is_build_workflow,
+    (zzz.is_build_workflow AND (NOT zzz.is_scheduled)) AS is_viability_prerequisite
+   FROM ( SELECT foo.job_name,
+            foo.commit_sha1,
+            bool_and(foo.is_scheduled) AS is_scheduled,
+            count(*) AS count,
+            bool_or((foo.workflow_name = 'build'::text)) AS is_build_workflow
+           FROM ( SELECT circleci_workflow_jobs.job_name,
+                    circleci_expanded_config_yaml_hashes_by_commit.commit_sha1,
+                    circleci_workflows_by_yaml_file.name AS workflow_name,
+                    ((circleci_workflow_schedules.cron_schedule IS NOT NULL) OR COALESCE(bar.not_run_on_master, false)) AS is_scheduled
+                   FROM ((((public.circleci_workflow_jobs
+                     JOIN public.circleci_workflows_by_yaml_file ON ((circleci_workflows_by_yaml_file.id = circleci_workflow_jobs.workflow)))
+                     JOIN public.circleci_expanded_config_yaml_hashes_by_commit ON ((circleci_expanded_config_yaml_hashes_by_commit.repo_yaml_sha1 = circleci_workflows_by_yaml_file.yaml_content_sha1)))
+                     LEFT JOIN public.circleci_workflow_schedules ON ((circleci_workflows_by_yaml_file.id = circleci_workflow_schedules.workflow)))
+                     LEFT JOIN ( SELECT foo_1.workflow,
+                            foo_1.job_name,
+                            (NOT bool_or(foo_1.include_master_branch)) AS not_run_on_master
+                           FROM ( SELECT circleci_job_branch_filters.workflow,
+                                    circleci_job_branch_filters.job_name,
+                                    circleci_job_branch_filters.branch,
+                                    ((circleci_job_branch_filters.branch = 'master'::text) AND circleci_job_branch_filters.filter_include) AS include_master_branch
+                                   FROM public.circleci_job_branch_filters) foo_1
+                          GROUP BY foo_1.workflow, foo_1.job_name) bar ON (((circleci_workflows_by_yaml_file.id = bar.workflow) AND (circleci_workflow_jobs.job_name = bar.job_name))))) foo
+          GROUP BY foo.job_name, foo.commit_sha1) zzz;
 
 
 ALTER TABLE public.master_commit_circleci_scheduled_job_discrimination OWNER TO postgres;
@@ -1034,7 +1042,9 @@ ALTER TABLE public.master_commit_circleci_scheduled_job_discrimination OWNER TO 
 
 COMMENT ON VIEW public.master_commit_circleci_scheduled_job_discrimination IS 'NOTE:
 A job name may appear more than once in the config.yml file (once per workflow).
-The "is_scheduled" column means that *all* of the occurrences of that workflow are scheduled.';
+The "is_scheduled" column means that *all* of the occurrences of that workflow are scheduled.
+
+Likewise, when we get a status notification on GitHub for a CircleCI job name, we don''t know which workflow it came from.  We only want to consider jobs from the "build" workflow as prerequisites for "viable master" commits.  There is the potential for erroneous results if a job name from the "build" workflow is ever duplicated to another workflow.';
 
 
 --
@@ -1091,7 +1101,7 @@ NOTE: These records are stored even if the build succeeds.
 -- Name: global_builds_unfiltered; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.global_builds_unfiltered AS
+CREATE VIEW public.global_builds_unfiltered WITH (security_barrier='false') AS
  SELECT universal_builds.id AS global_build_num,
     universal_builds.succeeded,
     universal_builds.commit_sha1 AS vcs_revision,
@@ -1104,7 +1114,8 @@ CREATE VIEW public.global_builds_unfiltered AS
     universal_builds.x_finished_at AS finished_at,
     universal_builds.provider,
     universal_builds.x_ci_provider_scan AS ci_provider_scan,
-    master_commit_circleci_scheduled_job_discrimination.is_scheduled AS maybe_is_scheduled
+    master_commit_circleci_scheduled_job_discrimination.is_scheduled AS maybe_is_scheduled,
+    master_commit_circleci_scheduled_job_discrimination.is_viability_prerequisite AS maybe_is_viability_prerequisite
    FROM ((public.universal_builds
      JOIN public.provider_build_numbers ON ((universal_builds.provider_build_surrogate = provider_build_numbers.id)))
      LEFT JOIN public.master_commit_circleci_scheduled_job_discrimination ON (((universal_builds.x_job_name = master_commit_circleci_scheduled_job_discrimination.job_name) AND (universal_builds.commit_sha1 = master_commit_circleci_scheduled_job_discrimination.commit_sha1))));
@@ -1129,7 +1140,8 @@ CREATE VIEW public.global_builds WITH (security_barrier='false') AS
     global_builds_unfiltered.finished_at,
     global_builds_unfiltered.provider,
     global_builds_unfiltered.ci_provider_scan,
-    global_builds_unfiltered.maybe_is_scheduled
+    global_builds_unfiltered.maybe_is_scheduled,
+    global_builds_unfiltered.maybe_is_viability_prerequisite
    FROM public.global_builds_unfiltered
   WHERE (global_builds_unfiltered.job_name IS NOT NULL);
 
@@ -1313,7 +1325,7 @@ CREATE VIEW public.master_commit_job_success_completeness WITH (security_barrier
                                     global_builds_empirical_flakiness.sha1
                                    FROM public.global_builds_empirical_flakiness
                                   WHERE (NOT (global_builds_empirical_flakiness.succeeded OR global_builds_empirical_flakiness.is_empirically_determined_flaky))) failed_jobs_table ON (((failed_jobs_table.job_name = master_commit_circleci_scheduled_job_discrimination.job_name) AND (failed_jobs_table.sha1 = master_commit_circleci_scheduled_job_discrimination.commit_sha1))))
-                          WHERE (NOT master_commit_circleci_scheduled_job_discrimination.is_scheduled)) foo
+                          WHERE master_commit_circleci_scheduled_job_discrimination.is_viability_prerequisite) foo
                   GROUP BY foo.joblist_commit_sha1) bar ON ((master_commits_basic_metadata.sha1 = bar.joblist_commit_sha1)))
           ORDER BY master_commits_basic_metadata.id DESC) foobar;
 
@@ -2181,7 +2193,8 @@ CREATE VIEW public.build_failure_standalone_causes WITH (security_barrier='false
     global_builds.started_at,
     global_builds.finished_at,
     global_builds.maybe_is_scheduled,
-    COALESCE(best_pattern_match_for_builds.is_network, false) AS is_network
+    COALESCE(best_pattern_match_for_builds.is_network, false) AS is_network,
+    global_builds.maybe_is_viability_prerequisite
    FROM ((public.global_builds
      LEFT JOIN public.build_steps ON ((build_steps.universal_build = global_builds.global_build_num)))
      LEFT JOIN public.best_pattern_match_for_builds ON ((best_pattern_match_for_builds.universal_build = global_builds.global_build_num)));
@@ -2256,7 +2269,8 @@ CREATE VIEW public.build_failure_causes WITH (security_barrier='false') AS
     build_failure_standalone_causes.finished_at,
     known_broken_builds.cause_count,
     build_failure_standalone_causes.maybe_is_scheduled,
-    build_failure_standalone_causes.is_network
+    build_failure_standalone_causes.is_network,
+    build_failure_standalone_causes.maybe_is_viability_prerequisite
    FROM (public.build_failure_standalone_causes
      LEFT JOIN public.known_broken_builds ON ((known_broken_builds.universal_build = build_failure_standalone_causes.global_build)));
 
@@ -3875,7 +3889,8 @@ CREATE VIEW public.master_failures_raw_causes WITH (security_barrier='false') AS
     build_failure_causes.maybe_is_scheduled,
     build_failure_causes.is_network,
     ((build_failure_causes.is_flaky OR (master_detected_adjacent_breakages.universal_build IS NULL)) AND (NOT build_failure_causes.succeeded)) AS is_isolated_or_flaky_failure,
-    (circleci_empirically_flaky_builds.sha1 IS NOT NULL) AS is_empirically_determined_flaky
+    (circleci_empirically_flaky_builds.sha1 IS NOT NULL) AS is_empirically_determined_flaky,
+    build_failure_causes.maybe_is_viability_prerequisite
    FROM ((((public.ordered_master_commits
      JOIN public.build_failure_causes ON ((build_failure_causes.vcs_revision = ordered_master_commits.sha1)))
      LEFT JOIN public.best_pattern_match_augmented_builds ON ((build_failure_causes.global_build = best_pattern_match_augmented_builds.universal_build)))
@@ -3934,7 +3949,8 @@ CREATE MATERIALIZED VIEW public.master_failures_raw_causes_mview AS
     master_failures_raw_causes.maybe_is_scheduled,
     master_failures_raw_causes.is_network,
     master_failures_raw_causes.is_isolated_or_flaky_failure,
-    master_failures_raw_causes.is_empirically_determined_flaky
+    master_failures_raw_causes.is_empirically_determined_flaky,
+    master_failures_raw_causes.maybe_is_viability_prerequisite
    FROM public.master_failures_raw_causes
   WITH NO DATA;
 
@@ -4155,10 +4171,10 @@ CREATE VIEW public.master_daily_isolated_failures_cached WITH (security_barrier=
             ELSE ((foo.isolated_failure_count)::double precision / (foo.total_build_count)::double precision)
         END AS isolated_failure_fraction
    FROM ( SELECT (timezone('America/Los_Angeles'::text, m2.committer_date))::date AS date_california_time,
-            sum((master_failures_raw_causes_mview.is_isolated_or_flaky_failure)::integer) AS isolated_failure_count,
+            sum((mv.is_isolated_or_flaky_failure)::integer) AS isolated_failure_count,
             count(*) AS total_build_count
-           FROM (public.master_failures_raw_causes_mview
-             JOIN public.master_ordered_commits_with_metadata_mview m2 ON ((master_failures_raw_causes_mview.commit_index = m2.id)))
+           FROM (public.master_failures_raw_causes_mview mv
+             JOIN public.master_ordered_commits_with_metadata_mview m2 ON ((mv.commit_index = m2.id)))
           WHERE (m2.committer_date IS NOT NULL)
           GROUP BY ((timezone('America/Los_Angeles'::text, m2.committer_date))::date)) foo
   ORDER BY foo.date_california_time DESC
@@ -4562,14 +4578,14 @@ ALTER TABLE public.master_job_failure_spans_mview OWNER TO materialized_view_upd
 -- Name: master_required_unbuilt_jobs; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.master_required_unbuilt_jobs AS
+CREATE VIEW public.master_required_unbuilt_jobs WITH (security_barrier='false') AS
  SELECT ordered_master_commits.id,
     master_commit_circleci_scheduled_job_discrimination.commit_sha1 AS sha1,
     master_commit_circleci_scheduled_job_discrimination.job_name
    FROM ((public.master_commit_circleci_scheduled_job_discrimination
      JOIN public.ordered_master_commits ON ((master_commit_circleci_scheduled_job_discrimination.commit_sha1 = ordered_master_commits.sha1)))
      LEFT JOIN public.global_builds ON (((global_builds.job_name = master_commit_circleci_scheduled_job_discrimination.job_name) AND (global_builds.vcs_revision = master_commit_circleci_scheduled_job_discrimination.commit_sha1))))
-  WHERE ((NOT master_commit_circleci_scheduled_job_discrimination.is_scheduled) AND (global_builds.job_name IS NULL))
+  WHERE (master_commit_circleci_scheduled_job_discrimination.is_viability_prerequisite AND (global_builds.job_name IS NULL))
   ORDER BY ordered_master_commits.id DESC, master_commit_circleci_scheduled_job_discrimination.job_name;
 
 
@@ -5744,48 +5760,49 @@ CREATE VIEW public.viability_increase_by_week WITH (security_barrier='false') AS
                                     bool_or(blah.is_empirically_determined_flaky) AS had_empirically_flaky_build,
                                     bool_or(blah.did_trigger_rebuild) AS had_auto_triggered_rebuild,
                                     bool_or((blah.did_trigger_rebuild AND blah.is_empirically_determined_flaky)) AS had_retriggered_empirically_flaky
-                                   FROM ( SELECT master_failures_raw_causes_mview.sha1,
-    master_failures_raw_causes_mview.succeeded,
-    master_failures_raw_causes_mview.is_idiopathic,
-    master_failures_raw_causes_mview.is_flaky,
-    master_failures_raw_causes_mview.is_timeout,
-    master_failures_raw_causes_mview.is_matched,
-    master_failures_raw_causes_mview.is_known_broken,
-    master_failures_raw_causes_mview.build_num,
-    master_failures_raw_causes_mview.queued_at,
-    master_failures_raw_causes_mview.job_name,
-    master_failures_raw_causes_mview.branch,
-    master_failures_raw_causes_mview.step_name,
-    master_failures_raw_causes_mview.pattern_id,
-    master_failures_raw_causes_mview.match_id,
-    master_failures_raw_causes_mview.line_number,
-    master_failures_raw_causes_mview.line_count,
-    master_failures_raw_causes_mview.line_text,
-    master_failures_raw_causes_mview.span_start,
-    master_failures_raw_causes_mview.span_end,
-    master_failures_raw_causes_mview.specificity,
-    master_failures_raw_causes_mview.is_serially_isolated,
-    master_failures_raw_causes_mview.contiguous_run_count,
-    master_failures_raw_causes_mview.contiguous_group_index,
-    master_failures_raw_causes_mview.contiguous_start_commit_index,
-    master_failures_raw_causes_mview.contiguous_end_commit_index,
-    master_failures_raw_causes_mview.commit_index,
-    master_failures_raw_causes_mview.contiguous_length,
-    master_failures_raw_causes_mview.global_build,
-    master_failures_raw_causes_mview.provider,
-    master_failures_raw_causes_mview.build_namespace,
-    master_failures_raw_causes_mview.cluster_id,
-    master_failures_raw_causes_mview.cluster_member_count,
-    master_failures_raw_causes_mview.started_at,
-    master_failures_raw_causes_mview.finished_at,
-    master_failures_raw_causes_mview.maybe_is_scheduled,
-    master_failures_raw_causes_mview.is_network,
-    master_failures_raw_causes_mview.is_isolated_or_flaky_failure,
-    master_failures_raw_causes_mview.is_empirically_determined_flaky,
+                                   FROM ( SELECT mv.sha1,
+    mv.succeeded,
+    mv.is_idiopathic,
+    mv.is_flaky,
+    mv.is_timeout,
+    mv.is_matched,
+    mv.is_known_broken,
+    mv.build_num,
+    mv.queued_at,
+    mv.job_name,
+    mv.branch,
+    mv.step_name,
+    mv.pattern_id,
+    mv.match_id,
+    mv.line_number,
+    mv.line_count,
+    mv.line_text,
+    mv.span_start,
+    mv.span_end,
+    mv.specificity,
+    mv.is_serially_isolated,
+    mv.contiguous_run_count,
+    mv.contiguous_group_index,
+    mv.contiguous_start_commit_index,
+    mv.contiguous_end_commit_index,
+    mv.commit_index,
+    mv.contiguous_length,
+    mv.global_build,
+    mv.provider,
+    mv.build_namespace,
+    mv.cluster_id,
+    mv.cluster_member_count,
+    mv.started_at,
+    mv.finished_at,
+    mv.maybe_is_scheduled,
+    mv.maybe_is_viability_prerequisite,
+    mv.is_network,
+    mv.is_isolated_or_flaky_failure,
+    mv.is_empirically_determined_flaky,
     (rebuild_trigger_events.universal_build IS NOT NULL) AS did_trigger_rebuild
-   FROM (public.master_failures_raw_causes_mview
-     LEFT JOIN public.rebuild_trigger_events ON (((master_failures_raw_causes_mview.global_build = rebuild_trigger_events.universal_build) AND (rebuild_trigger_events.initiator = ''::text))))
-  WHERE (NOT master_failures_raw_causes_mview.maybe_is_scheduled)) blah
+   FROM (public.master_failures_raw_causes_mview mv
+     LEFT JOIN public.rebuild_trigger_events ON (((mv.global_build = rebuild_trigger_events.universal_build) AND (rebuild_trigger_events.initiator = ''::text))))
+  WHERE mv.maybe_is_viability_prerequisite) blah
                                   GROUP BY blah.commit_index) blarg ON ((blarg.commit_index = master_ordered_commits_with_metadata_mview.id)))
                           WHERE master_ordered_commits_with_metadata_mview.was_built) foo
                   GROUP BY foo.commit_week) bar
@@ -6771,10 +6788,10 @@ CREATE INDEX fki_idx_remed_patterns ON public.remediations_patterns USING btree 
 
 
 --
--- Name: global_build_idx_uniq2; Type: INDEX; Schema: public; Owner: materialized_view_updater
+-- Name: global_build_idx_uniq3; Type: INDEX; Schema: public; Owner: materialized_view_updater
 --
 
-CREATE UNIQUE INDEX global_build_idx_uniq2 ON public.master_failures_raw_causes_mview USING btree (global_build DESC NULLS LAST);
+CREATE UNIQUE INDEX global_build_idx_uniq3 ON public.master_failures_raw_causes_mview USING btree (global_build DESC NULLS LAST);
 
 
 --
@@ -6988,10 +7005,10 @@ CREATE UNIQUE INDEX idx_upsteream_breakages_weekly_week ON public.upstream_break
 
 
 --
--- Name: mview_commit_index4; Type: INDEX; Schema: public; Owner: materialized_view_updater
+-- Name: mview_commit_index5; Type: INDEX; Schema: public; Owner: materialized_view_updater
 --
 
-CREATE INDEX mview_commit_index4 ON public.master_failures_raw_causes_mview USING btree (commit_index);
+CREATE INDEX mview_commit_index5 ON public.master_failures_raw_causes_mview USING btree (commit_index);
 
 
 --
@@ -7421,7 +7438,7 @@ GRANT USAGE ON SCHEMA lambda_logging TO logan;
 --
 
 GRANT USAGE ON SCHEMA public TO logan;
-GRANT USAGE ON SCHEMA public TO materialized_view_updater;
+GRANT ALL ON SCHEMA public TO materialized_view_updater;
 
 
 --
@@ -8543,7 +8560,6 @@ GRANT SELECT ON TABLE public.master_failures_raw_causes TO materialized_view_upd
 --
 
 GRANT SELECT ON TABLE public.master_failures_raw_causes_mview TO logan;
-GRANT SELECT ON TABLE public.master_failures_raw_causes_mview TO postgres;
 
 
 --

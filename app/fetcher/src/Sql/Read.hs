@@ -608,6 +608,41 @@ apiPrBatchList pr_numbers = do
       ]
 
 
+prCommentSqlPrefix = Q.qjoin [
+    "SELECT"
+  , Q.list [
+      "pr_number"
+    , "sha1"
+    , "github_user_login"
+    , "body"
+    , "created_at"
+    , "updated_at"
+    , "revision_count"
+    , "comment_id"
+    , "was_new_push"
+    , "all_no_fault_failures"
+    , "all_successful_circleci_builds"
+    , "EXTRACT(EPOCH FROM queue_residency_duration)"
+    , "EXTRACT(EPOCH FROM execution_duration)"
+    ]
+  , "FROM lambda_logging.latest_pr_comment_revision_processing_stats"
+  ]
+
+
+apiPostedCommentsForPR ::
+     Builds.PullRequestNumber
+  -> DbIO [PostedComments.PostedComment]
+apiPostedCommentsForPR (Builds.PullRequestNumber pr_number) = do
+  conn <- ask
+  liftIO $ query conn sql $ Only pr_number
+  where
+    sql = Q.qjoin [
+        prCommentSqlPrefix
+      , "WHERE pr_number = ?"
+      , "ORDER BY updated_at DESC"
+      ]
+
+
 apiPostedPRComments ::
      Int
   -> DbIO [PostedComments.PostedComment]
@@ -617,23 +652,7 @@ apiPostedPRComments count = do
     Only $ min count maxApiPrCommentRevisionsToFetch
   where
     sql = Q.qjoin [
-        "SELECT"
-      , Q.list [
-          "pr_number"
-        , "sha1"
-        , "github_user_login"
-        , "body"
-        , "created_at"
-        , "updated_at"
-        , "revision_count"
-        , "comment_id"
-        , "was_new_push"
-        , "all_no_fault_failures"
-        , "all_successful_circleci_builds"
-        , "EXTRACT(EPOCH FROM queue_residency_duration)"
-        , "EXTRACT(EPOCH FROM execution_duration)"
-        ]
-      , "FROM lambda_logging.latest_pr_comment_revision_processing_stats"
+        prCommentSqlPrefix
       , "ORDER BY updated_at DESC"
       , "LIMIT ?"
       ]
@@ -1106,13 +1125,12 @@ apiThroughputByHour hours = do
 
 
 -- | Note that Highcharts expects the dates to be in ascending order
--- thus, use of reverse
 apiQueueDepthTimeplot ::
      Int
   -> DbIO (WebApi.ApiResponse (UTCTime, Int))
 apiQueueDepthTimeplot hours = do
   conn <- ask
-  liftIO $ WebApi.ApiResponse . reverse <$> query conn sql (Only hours)
+  liftIO $ WebApi.ApiResponse <$> query conn sql (Only hours)
   where
   sql = Q.qjoin [
       "SELECT"
@@ -1122,6 +1140,7 @@ apiQueueDepthTimeplot hours = do
       ]
     , "FROM lambda_logging.sqs_queue_depth_history"
     , "WHERE inserted_at > now() - interval '? hours'"
+    , "ORDER BY inserted_at"
     ]
 
 

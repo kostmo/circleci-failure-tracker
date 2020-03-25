@@ -309,6 +309,9 @@ scottyApp
   get "/api/posted-pr-comments" $
     SqlRead.apiPostedPRComments <$> S.param "count"
 
+  get "/api/posted-comments-for-pr" $
+    SqlRead.apiPostedCommentsForPR <$> (Builds.PullRequestNumber <$> S.param "pr")
+
   get "/api/upstream-broken-jobs-for-commit" $
     SqlRead.getInferredSpanningBrokenJobsBetter . Builds.RawCommit <$> S.param "sha1"
 
@@ -465,7 +468,8 @@ scottyApp
       sha1 <- except $ GitRev.validateSha1 commit_sha1_text
       either_result <- liftIO $ do
         conn <- DbHelpers.getConnection connection_data
-        flip runReaderT conn $ SqlRead.getRevisionBuilds sha1
+        two_build_types <- flip runReaderT conn $ SqlRead.getRevisionBuilds sha1
+        return $ ((fmap . fmap) SqlRead.non_timed_out_builds) two_build_types
       except either_result
 
     S.json $ WebApi.toJsonEither json_result

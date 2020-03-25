@@ -131,6 +131,7 @@ testBotCommentGeneration conn raw_commit@(Builds.RawCommit commit_sha1_text) oau
     CommentRender.generateCommentMarkdown
       Nothing
       middle_sections
+      (Builds.PullRequestNumber 123456)
       raw_commit
 
 
@@ -188,7 +189,7 @@ mainAppCode args = do
 
   conn <- DbPreparation.prepareDatabase connection_data False
 
-  when False $ do
+  when False $
     void $ benchmarkScan conn args $ Builds.UniversalBuildId 82047188
 
   when False $

@@ -651,6 +651,7 @@ conditionallyPostIfNovelComment
     gen_comment prev_comment = CommentRender.generateCommentMarkdown
       (Just prev_comment)
       middle_sections
+      pr_number
       sha1
 
     recreated_old_pr_comment_text = gen_comment count_modified_previous_comment
@@ -719,6 +720,7 @@ postInitialComment
     pr_comment_text = CommentRender.generateCommentMarkdown
       Nothing
       pr_comment_payload
+      pr_number
       sha1
 
 
@@ -779,6 +781,7 @@ updateCommentOrFallback
     pr_comment_text = CommentRender.generateCommentMarkdown
       (Just previous_pr_comment)
       pr_comment_payload
+      pr_number
       sha1
 
     comment_id = ApiPost.CommentId $ SqlRead._comment_id previous_pr_comment

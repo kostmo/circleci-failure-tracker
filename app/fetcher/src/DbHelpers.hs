@@ -82,6 +82,8 @@ data BenchmarkedResponse a b = BenchmarkedResponse {
 instance (ToJSON a, ToJSON b) => ToJSON (BenchmarkedResponse a b) where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
+instance Functor (BenchmarkedResponse a) where
+    fmap f (BenchmarkedResponse x y) = BenchmarkedResponse x $ f y
 
 
 newtype FieldAsRowWrapper a = FieldAsRowWrapper a
