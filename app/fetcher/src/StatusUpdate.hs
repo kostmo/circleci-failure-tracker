@@ -352,11 +352,13 @@ scanAndPost
     D.debugList ["About to enter postCommitSummaryStatus"]
 
   -- TODO Don't bother with posting a status if this
-  -- is a master commit.
-  -- A Pull Request with this HEAD commit will not
+  -- is a master commit;
+  -- a Pull Request with this HEAD commit would not
   -- be found, anyway.
 
-  is_master_commit <- liftIO $ flip runReaderT conn $ SqlRead.isMasterCommit sha1
+  is_master_commit <- liftIO $ flip runReaderT conn $
+    SqlRead.isMasterCommit sha1
+
   unless is_master_commit $
     postCommitSummaryStatus
       (ScanRecords.fetching scan_resources)
@@ -576,7 +578,7 @@ postCommitSummaryStatusInner
         SqlRead.getPostedCommentForPR pr_number
 
       case maybe_previous_pr_comment of
-        Nothing -> postInitialComment
+        Nothing -> Just <$> postInitialComment
           access_token
           owned_repo
           conn
@@ -608,8 +610,10 @@ postCommitSummaryStatusInner
     can_post_comments <- ExceptT $ SqlRead.canPostPullRequestComments conn pr_author
     if can_post_comments
       then f
-      else ExceptT $ runReaderT (SqlWrite.recordBlockedPRCommentPosting pr_number) $
-        SqlRead.AuthConnection conn pr_author
+      else ExceptT $ do
+        runReaderT (SqlWrite.recordBlockedPRCommentPosting pr_number) $
+          SqlRead.AuthConnection conn pr_author
+        return $ Right Nothing
 
 
 conditionallyPostIfNovelComment
@@ -625,9 +629,9 @@ conditionallyPostIfNovelComment
     D.debugList [
         "New comment would be the same as the last one! Not posting."
       ]
-    return 0
+    return Nothing
 
-  else updateCommentOrFallback
+  else Just <$> updateCommentOrFallback
     access_token
     owned_repo
     conn
@@ -685,7 +689,7 @@ postInitialComment ::
   -> Bool -- ^ was new push
   -> CommentRenderCommon.PrCommentPayload
   -> Builds.PullRequestNumber
-  -> ExceptT LT.Text IO Int64
+  -> ExceptT LT.Text IO CommentRenderCommon.CommentRevisionId
 postInitialComment
     access_token
     owned_repo
@@ -726,7 +730,7 @@ updateCommentOrFallback ::
   -> CommentRenderCommon.PrCommentPayload
   -> Builds.PullRequestNumber
   -> SqlRead.PostedPRComment
-  -> ExceptT LT.Text IO Int64
+  -> ExceptT LT.Text IO CommentRenderCommon.CommentRevisionId
 updateCommentOrFallback
     access_token
     owned_repo

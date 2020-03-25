@@ -1224,7 +1224,7 @@ insertPostedGithubComment ::
   -> Bool -- ^ was new push
   -> CommentRenderCommon.PrCommentPayload
   -> ApiPost.CommentPostResult
-  -> IO Int64
+  -> IO CommentRenderCommon.CommentRevisionId
 insertPostedGithubComment
     conn
     (DbHelpers.OwnerAndRepo owner repo)
@@ -1239,7 +1239,7 @@ insertPostedGithubComment
   [Only comment_revision_id] <- query conn commentBodyInsertionSql
     (comment_id, body, updated_at, sha1, was_new_push, all_no_fault_failures, all_successful_circleci_builds)
 
-  return comment_revision_id
+  return $ CommentRenderCommon.CommentRevisionId comment_revision_id
 
   where
     comment_insertion_sql = Q.qjoin [
@@ -1274,7 +1274,7 @@ modifyPostedGithubComment ::
   -> Bool -- ^ was new push
   -> CommentRenderCommon.PrCommentPayload
   -> ApiPost.CommentPostResult
-  -> IO Int64
+  -> IO CommentRenderCommon.CommentRevisionId
 modifyPostedGithubComment
     conn
     (Builds.RawCommit sha1)
@@ -1285,7 +1285,7 @@ modifyPostedGithubComment
   [Only comment_revision_id] <- query conn commentBodyInsertionSql
     (comment_id, body, updated_at, sha1, was_new_push, all_no_fault_failures, all_successful_circleci_builds)
 
-  return comment_revision_id
+  return $ CommentRenderCommon.CommentRevisionId comment_revision_id
 
 
 addPatternTag ::
