@@ -322,7 +322,7 @@ rescanCommitCallback third_party_auth commit = do
         (Just user_alias)
         owned_repo
         StatusUpdate.ShouldStoreDetailedSuccessRecords
-        (AmazonQueueData.SqsMessageId Nothing)
+        (AmazonQueueData.NewSqsMessageId Nothing)
         commit
         StatusUpdate.ShouldScanLogs
         Scanning.RevisitScanned

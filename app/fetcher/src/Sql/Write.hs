@@ -55,6 +55,7 @@ import qualified ScanRecords
 import qualified ScanUtils
 import qualified Sql.QueryUtils                    as Q
 import qualified Sql.Read                          as SqlRead
+import qualified Sql.ReadTypes                     as SqlReadTypes
 import qualified Webhooks
 
 
@@ -618,7 +619,7 @@ data SurrogateProviderIdUniversalPair = SurrogateProviderIdUniversalPair {
 storeCircleCiBuildsList ::
      UTCTime -- ^ fetch initiation time
   -> Text -- ^ branch name
-  -> Maybe Int64 -- ^ EB worker event ID
+  -> Maybe SqlReadTypes.ElasticBeanstalkWorkerEventID
   -> [(Builds.Build, Bool)]
   -> SqlRead.DbIO Int64
 storeCircleCiBuildsList
@@ -876,11 +877,16 @@ storeScanRecord ::
      Int64 -- ^ provider ID
   -> Text -- ^ branch filter
   -> UTCTime -- ^ scan initiation time
-  -> Maybe Int64 -- ^ EB worker event ID
+  -> Maybe SqlReadTypes.ElasticBeanstalkWorkerEventID
   -> SqlRead.DbIO Int64
-storeScanRecord provider_id branch_filter initiated_at maybe_eb_worker_event_id = do
+storeScanRecord
+    provider_id
+    branch_filter
+    initiated_at
+    maybe_eb_worker_event_id = do
+
   conn <- ask
-  [Only new_id] <- liftIO $ query conn sql (provider_id, branch_filter, initiated_at, maybe_eb_worker_event_id)
+  [Only new_id] <- liftIO $ query conn sql (provider_id, branch_filter, initiated_at, SqlReadTypes.getId <$> maybe_eb_worker_event_id)
   return new_id
   where
     sql = Q.qjoin [
@@ -1095,9 +1101,12 @@ insertEbWorkerStart
 
 insertEbWorkerFinish ::
      Connection
-  -> Int64 -- ^ event ID
+  -> SqlReadTypes.ElasticBeanstalkWorkerEventID
   -> IO ()
-insertEbWorkerFinish conn start_id =
+insertEbWorkerFinish
+    conn
+    (SqlReadTypes.NewElasticBeanstalkWorkerEventID start_id) =
+
   void $ execute conn sql $ Only start_id
   where
     sql = Q.qjoin [
@@ -1108,14 +1117,14 @@ insertEbWorkerFinish conn start_id =
 
 insertEbWorkerSha1Dequeue ::
      Connection
-  -> Int64 -- ^ event ID
+  -> SqlReadTypes.ElasticBeanstalkWorkerEventID
   -> AmazonQueueData.SqsMessageId
   -> Builds.RawCommit
   -> IO ()
 insertEbWorkerSha1Dequeue
     conn
-    start_id
-    (AmazonQueueData.SqsMessageId maybe_message_id)
+    (SqlReadTypes.NewElasticBeanstalkWorkerEventID start_id)
+    (AmazonQueueData.NewSqsMessageId maybe_message_id)
     (Builds.RawCommit sha1) =
   void $ execute conn sql (start_id, maybe_message_id, sha1)
   where
@@ -1125,6 +1134,33 @@ insertEbWorkerSha1Dequeue
           "eb_worker_event_id"
         , "sqs_message_id"
         , "sha1"
+        ]
+      ]
+
+
+associateCommentRevisionsWithWorkerEvent ::
+     Connection
+  -> SqlReadTypes.ElasticBeanstalkWorkerEventID
+  -> [(Builds.PullRequestNumber, Maybe CommentRenderCommon.CommentRevisionId)]
+  -> IO ()
+associateCommentRevisionsWithWorkerEvent
+    conn
+    (SqlReadTypes.NewElasticBeanstalkWorkerEventID start_id)
+    pr_comment_revisions =
+
+  -- TODO Use executeMany
+  for_ comment_revision_list $ \(CommentRenderCommon.CommentRevisionId comment_revision_id) ->
+
+    void $ execute conn sql (start_id, comment_revision_id)
+  where
+
+    comment_revision_list = Maybe.mapMaybe snd pr_comment_revisions
+
+    sql = Q.qjoin [
+        "INSERT INTO lambda_logging.comment_revision_worker_associations"
+      , Q.insertionValues [
+          "eb_worker_event_id"
+        , "pr_comment_revision_id"
         ]
       ]
 

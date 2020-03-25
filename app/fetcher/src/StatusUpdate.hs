@@ -12,14 +12,13 @@ module StatusUpdate (
   , statementTimeoutSeconds
   ) where
 
-import           Control.Monad                 (guard, unless, when)
+import           Control.Monad                 (guard, when)
 import           Control.Monad.IO.Class        (liftIO)
 import           Control.Monad.Trans.Except    (ExceptT (ExceptT), except,
                                                 runExceptT)
 import           Control.Monad.Trans.Reader    (runReaderT)
 import           Data.Bifunctor                (first)
 import qualified Data.ByteString.Lazy          as LBS
-import           Data.Foldable                 (for_)
 import qualified Data.HashMap.Strict           as HashMap
 import           Data.List                     (filter, partition)
 import           Data.List.Split               (splitOn)
@@ -66,6 +65,7 @@ import qualified PushWebhooks
 import qualified Scanning
 import qualified ScanRecords
 import qualified Sql.Read                      as SqlRead
+import qualified Sql.ReadTypes                 as SqlReadTypes
 import qualified Sql.Update                    as SqlUpdate
 import qualified Sql.Write                     as SqlWrite
 import qualified StatusEventQuery
@@ -331,7 +331,7 @@ scanAndPost ::
   -> DbHelpers.OwnerAndRepo
   -> AmazonQueueData.SqsMessageId
   -> Builds.RawCommit
-  -> ExceptT LT.Text IO ()
+  -> ExceptT LT.Text IO [(Builds.PullRequestNumber, Maybe CommentRenderCommon.CommentRevisionId)]
 scanAndPost
     scan_resources
     scan_revisitation_mode
@@ -359,8 +359,9 @@ scanAndPost
   is_master_commit <- liftIO $ flip runReaderT conn $
     SqlRead.isMasterCommit sha1
 
-  unless is_master_commit $
-    postCommitSummaryStatus
+  if is_master_commit
+    then return []
+    else postCommitSummaryStatus
       (ScanRecords.fetching scan_resources)
       owned_repo
       sqs_message_id
@@ -451,7 +452,7 @@ postCommitSummaryStatus ::
   -> DbHelpers.OwnerAndRepo
   -> AmazonQueueData.SqsMessageId
   -> Builds.RawCommit
-  -> ExceptT LT.Text IO ()
+  -> ExceptT LT.Text IO [(Builds.PullRequestNumber, Maybe CommentRenderCommon.CommentRevisionId)]
 postCommitSummaryStatus
     fetching_resources
     owned_repo
@@ -536,7 +537,7 @@ postCommitSummaryStatusInner ::
   -> OAuth2.AccessToken
   -> DbHelpers.OwnerAndRepo
   -> Builds.RawCommit
-  -> ExceptT LT.Text IO ()
+  -> ExceptT LT.Text IO [(Builds.PullRequestNumber, Maybe CommentRenderCommon.CommentRevisionId)]
 postCommitSummaryStatusInner
     circleci_fail_joblist
     upstream_breakages_info
@@ -572,12 +573,12 @@ postCommitSummaryStatusInner
         commit_page_info
         sha1
 
-  for_ containing_pr_list $ \pr_number ->
+  for containing_pr_list $ \pr_number ->
     handleCommentPostingOptOut pr_number $ do
       maybe_previous_pr_comment <- liftIO $ flip runReaderT conn $
         SqlRead.getPostedCommentForPR pr_number
 
-      case maybe_previous_pr_comment of
+      maybe_comment_revision_id <- case maybe_previous_pr_comment of
         Nothing -> Just <$> postInitialComment
           access_token
           owned_repo
@@ -595,6 +596,7 @@ postCommitSummaryStatusInner
           middle_sections
           pr_number
           previous_pr_comment
+      return (pr_number, maybe_comment_revision_id)
 
   where
   build_summary_stats = StatusUpdateTypes.NewBuildSummaryStats
@@ -602,7 +604,6 @@ postCommitSummaryStatusInner
     circleci_fail_joblist
 
   Builds.RawCommit merge_base_commit_text = SqlUpdate.merge_base upstream_breakages_info
-
 
   handleCommentPostingOptOut pr_number f = do
     pr_author <- fetchAndCachePrAuthor conn access_token pr_number
@@ -613,7 +614,7 @@ postCommitSummaryStatusInner
       else ExceptT $ do
         runReaderT (SqlWrite.recordBlockedPRCommentPosting pr_number) $
           SqlRead.AuthConnection conn pr_author
-        return $ Right Nothing
+        return $ Right (pr_number, Nothing)
 
 
 conditionallyPostIfNovelComment
@@ -833,7 +834,7 @@ readGitHubStatusesAndScanAndPostSummaryForCommit ::
   -> Builds.RawCommit
   -> ScanLogsMode
   -> Scanning.RevisitationMode
-  -> ExceptT LT.Text IO ()
+  -> ExceptT LT.Text IO [(Builds.PullRequestNumber, Maybe CommentRenderCommon.CommentRevisionId)]
 readGitHubStatusesAndScanAndPostSummaryForCommit
     third_party_auth
     conn
@@ -877,7 +878,7 @@ readGitHubStatusesAndScanAndPostSummaryForCommit
         owned_repo
         sqs_message_id
         sha1
-    NoScanLogs -> return ()
+    NoScanLogs -> return []
 
 
 handlePullRequestWebhook ::
@@ -1044,6 +1045,7 @@ wrappedScanAndPostCommit ::
   -> DbHelpers.OwnerAndRepo
   -> Bool
   -> AmazonQueueData.SqsMessageId
+  -> SqlReadTypes.ElasticBeanstalkWorkerEventID
   -> Builds.RawCommit
   -> IO Bool
 wrappedScanAndPostCommit
@@ -1052,6 +1054,7 @@ wrappedScanAndPostCommit
     owned_repo
     is_failure_notification
     sqs_message_id
+    eb_worker_event_id
     sha1 = do
 
   -- On builds from the *master* branch,
@@ -1073,8 +1076,8 @@ wrappedScanAndPostCommit
 
   when will_post $ do
 
-    runExceptT $
-      readGitHubStatusesAndScanAndPostSummaryForCommit
+    runExceptT $ do
+      pr_comment_revisions <- readGitHubStatusesAndScanAndPostSummaryForCommit
         third_party_auth
         conn
         Nothing
@@ -1084,6 +1087,11 @@ wrappedScanAndPostCommit
         sha1
         ShouldScanLogs
         Scanning.NoRevisit
+
+      liftIO $ SqlWrite.associateCommentRevisionsWithWorkerEvent
+        conn
+        eb_worker_event_id
+        pr_comment_revisions
 
     return ()
 

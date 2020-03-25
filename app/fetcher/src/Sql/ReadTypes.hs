@@ -8,11 +8,14 @@ import           Data.Text                  (Text)
 import           Data.Time                  (UTCTime)
 import           Database.PostgreSQL.Simple (FromRow)
 import           GHC.Generics
+import           GHC.Int                    (Int64)
 
 import qualified Builds
 import qualified CommitBuilds
 import qualified JsonUtils
 
+
+newtype ElasticBeanstalkWorkerEventID = NewElasticBeanstalkWorkerEventID {getId :: Int64}
 
 type StandardCommitBuildWrapper = CommitBuilds.CommitBuildWrapper CommitBuildSupplementalPayload
 

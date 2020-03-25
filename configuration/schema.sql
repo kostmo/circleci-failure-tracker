@@ -149,6 +149,18 @@ CREATE VIEW frontend_logging.page_requests_by_week WITH (security_barrier='false
 ALTER TABLE frontend_logging.page_requests_by_week OWNER TO postgres;
 
 --
+-- Name: comment_revision_worker_associations; Type: TABLE; Schema: lambda_logging; Owner: postgres
+--
+
+CREATE TABLE lambda_logging.comment_revision_worker_associations (
+    eb_worker_event_id integer NOT NULL,
+    pr_comment_revision_id integer NOT NULL
+);
+
+
+ALTER TABLE lambda_logging.comment_revision_worker_associations OWNER TO postgres;
+
+--
 -- Name: eb_worker_event_finish; Type: TABLE; Schema: lambda_logging; Owner: postgres
 --
 
@@ -5880,6 +5892,14 @@ ALTER TABLE ONLY public.universal_builds ALTER COLUMN id SET DEFAULT nextval('pu
 
 
 --
+-- Name: comment_revision_worker_associations comment_revision_worker_associations_pkey; Type: CONSTRAINT; Schema: lambda_logging; Owner: postgres
+--
+
+ALTER TABLE ONLY lambda_logging.comment_revision_worker_associations
+    ADD CONSTRAINT comment_revision_worker_associations_pkey PRIMARY KEY (eb_worker_event_id, pr_comment_revision_id);
+
+
+--
 -- Name: eb_worker_event_finish eb_worker_event_finish_pkey; Type: CONSTRAINT; Schema: lambda_logging; Owner: postgres
 --
 
@@ -6359,10 +6379,24 @@ CREATE INDEX fk_eb_worker_event_start ON lambda_logging.eb_worker_sha1_dequeing 
 
 
 --
+-- Name: fki_fk_blah8; Type: INDEX; Schema: lambda_logging; Owner: postgres
+--
+
+CREATE INDEX fki_fk_blah8 ON lambda_logging.comment_revision_worker_associations USING btree (pr_comment_revision_id);
+
+
+--
 -- Name: fki_fk_eb_worker_event_start_id; Type: INDEX; Schema: lambda_logging; Owner: postgres
 --
 
 CREATE INDEX fki_fk_eb_worker_event_start_id ON lambda_logging.eb_worker_event_finish USING btree (start_id);
+
+
+--
+-- Name: fki_idx_blah9; Type: INDEX; Schema: lambda_logging; Owner: postgres
+--
+
+CREATE INDEX fki_idx_blah9 ON lambda_logging.comment_revision_worker_associations USING btree (eb_worker_event_id);
 
 
 --
@@ -6893,11 +6927,27 @@ ALTER TABLE ONLY lambda_logging.eb_worker_sha1_enqueing
 
 
 --
+-- Name: comment_revision_worker_associations fk_blah8; Type: FK CONSTRAINT; Schema: lambda_logging; Owner: postgres
+--
+
+ALTER TABLE ONLY lambda_logging.comment_revision_worker_associations
+    ADD CONSTRAINT fk_blah8 FOREIGN KEY (pr_comment_revision_id) REFERENCES public.created_pull_request_comment_revisions(id) ON DELETE CASCADE NOT VALID;
+
+
+--
 -- Name: eb_worker_event_finish fk_eb_worker_event_start_id; Type: FK CONSTRAINT; Schema: lambda_logging; Owner: postgres
 --
 
 ALTER TABLE ONLY lambda_logging.eb_worker_event_finish
     ADD CONSTRAINT fk_eb_worker_event_start_id FOREIGN KEY (start_id) REFERENCES lambda_logging.eb_worker_event_start(id) NOT VALID;
+
+
+--
+-- Name: comment_revision_worker_associations idx_blah9; Type: FK CONSTRAINT; Schema: lambda_logging; Owner: postgres
+--
+
+ALTER TABLE ONLY lambda_logging.comment_revision_worker_associations
+    ADD CONSTRAINT idx_blah9 FOREIGN KEY (eb_worker_event_id) REFERENCES lambda_logging.eb_worker_event_start(id) ON DELETE CASCADE NOT VALID;
 
 
 --
@@ -7302,6 +7352,13 @@ GRANT ALL ON TABLE frontend_logging.page_requests_extracted_fields TO logan;
 --
 
 GRANT ALL ON TABLE frontend_logging.page_requests_by_week TO logan;
+
+
+--
+-- Name: TABLE comment_revision_worker_associations; Type: ACL; Schema: lambda_logging; Owner: postgres
+--
+
+GRANT ALL ON TABLE lambda_logging.comment_revision_worker_associations TO logan;
 
 
 --
@@ -8893,6 +8950,14 @@ GRANT SELECT ON TABLE public.viable_master_commit_age_history TO materialized_vi
 
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA frontend_logging REVOKE ALL ON TABLES  FROM postgres;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA frontend_logging GRANT ALL ON TABLES  TO logan;
+
+
+--
+-- Name: DEFAULT PRIVILEGES FOR TABLES; Type: DEFAULT ACL; Schema: lambda_logging; Owner: postgres
+--
+
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA lambda_logging REVOKE ALL ON TABLES  FROM postgres;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA lambda_logging GRANT ALL ON TABLES  TO logan;
 
 
 --

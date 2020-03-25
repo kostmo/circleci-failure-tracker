@@ -10,7 +10,7 @@ import           GHC.Generics   (Generic)
 import qualified Builds
 
 
-newtype SqsMessageId = SqsMessageId (Maybe TL.Text)
+newtype SqsMessageId = NewSqsMessageId (Maybe TL.Text)
 
 newtype MessageGroupId = MessageGroupId Text
 

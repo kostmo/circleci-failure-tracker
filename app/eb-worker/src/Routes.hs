@@ -12,7 +12,6 @@ import           Data.Time                  (parseTimeM)
 import qualified Data.Time.Clock            as Clock
 import           Data.Time.Format           (defaultTimeLocale,
                                              iso8601DateFormat)
-import           GHC.Int                    (Int64)
 import           Log                        (LogT)
 import           Network.Wai
 import qualified Web.Scotty                 as S
@@ -28,10 +27,9 @@ import qualified Constants
 import qualified DbHelpers
 import qualified DebugUtils                 as D
 import qualified Sql.Read                   as SqlRead
+import qualified Sql.ReadTypes              as SqlReadTypes
 import qualified Sql.Write                  as SqlWrite
 import qualified StatusUpdate
-
-
 
 
 data SetupData = SetupData {
@@ -76,7 +74,7 @@ parseSqsHeaders = do
 
 wrapWithDbDurationRecords ::
      DbHelpers.DbConnectionData
-  -> (Int64 -> Maybe LT.Text -> ScottyTypes.ActionT LT.Text IO ())
+  -> (SqlReadTypes.ElasticBeanstalkWorkerEventID -> Maybe LT.Text -> ScottyTypes.ActionT LT.Text IO ())
   -> ScottyTypes.ActionT LT.Text IO ()
 wrapWithDbDurationRecords connection_data func = do
   rq <- S.request
@@ -99,7 +97,7 @@ wrapWithDbDurationRecords connection_data func = do
       , show my_id
       ]
 
-    return my_id
+    return $ SqlReadTypes.NewElasticBeanstalkWorkerEventID my_id
 
   func start_id $ SqlWrite.message_id <$> SqlWrite.standard_headers sqs_headers
 
@@ -226,7 +224,7 @@ scottyApp
         third_party_auth
         owner_and_repo
         eb_worker_event_id
-        (AmazonQueueData.SqsMessageId maybe_message_id)
+        (AmazonQueueData.NewSqsMessageId maybe_message_id)
         body_json
 
     S.json ["hello-post" :: Text]
@@ -239,7 +237,7 @@ doStuff ::
      DbHelpers.DbConnectionData
   -> CircleApi.ThirdPartyAuth
   -> DbHelpers.OwnerAndRepo
-  -> Int64
+  -> SqlReadTypes.ElasticBeanstalkWorkerEventID
   -> AmazonQueueData.SqsMessageId
   -> AmazonQueueData.SqsBuildScanMessage
   -> IO ()
@@ -272,6 +270,7 @@ doStuff
     owned_repo
     True
     sqs_message_id
+    eb_worker_event_id
     commit_sha1
 
   putStrLn "Finished sha1 scan."

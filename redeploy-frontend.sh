@@ -4,6 +4,9 @@
 # for the duration of the "eb deploy" command.
 
 # Prerequsite:
+# The following command should be re-run anytime a new third-party
+# dependency is introduced:
+#
 #     docker build -f Dockerfile-base --tag="karl-base" .
 
 

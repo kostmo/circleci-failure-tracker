@@ -30,8 +30,9 @@ import qualified DebugUtils                 as D
 import qualified FetchHelpers
 import qualified MyUtils
 import           SillyMonoids               ()
-import qualified Sql.Read as SqlRead
-import qualified Sql.Write as SqlWrite
+import qualified Sql.Read                   as SqlRead
+import qualified Sql.ReadTypes              as SqlReadTypes
+import qualified Sql.Write                  as SqlWrite
 
 
 maxBuildPerPage :: Int
@@ -61,7 +62,7 @@ toOutcomeString x = case x of
 -- and assumes all the builds are failed builds
 updateCircleCIBuildsList ::
      Connection
-  -> Maybe Int64 -- ^ EB worker event ID
+  -> Maybe SqlReadTypes.ElasticBeanstalkWorkerEventID
   -> CircleCIFetchFilter
   -> Int -- ^ starting offset
   -> [String]
@@ -106,7 +107,6 @@ updateCircleCIBuildsList
       ]
 
     flip runReaderT conn $ SqlWrite.storeCircleCiBuildsList
-
       fetch_initiation_timestamp
       (T.pack branch_name)
       maybe_eb_worker_event_id
