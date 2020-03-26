@@ -324,47 +324,12 @@ lookupUniversalBuildFromProviderBuild conn (Builds.NewBuildNumber build_num) = d
       ]
 
 
-getFlakyMasterBuildsToRetry ::
-  DbIO [(Builds.UniversalBuildId, Builds.BuildNumber)]
-getFlakyMasterBuildsToRetry = do
-  conn <- ask
-  liftIO $ query_ conn sql
-  where
-    sql = Q.qjoin [
-        "SELECT"
-      , Q.list [
-          "global_build"
-        , "build_num"
-        ]
-      , "FROM master_flaky_builds_to_retry"
-      ]
-
-
-getCachedPullRequestAuthor ::
-     Builds.PullRequestNumber
-  -> DbIO (Maybe AuthStages.Username)
-getCachedPullRequestAuthor (Builds.PullRequestNumber pr_number) = do
-  conn <- ask
-  liftIO $ do
-    xs <- query conn sql $ Only pr_number
-    return $ Safe.headMay $ map (\(Only x) -> AuthStages.Username x) xs
-  where
-    sql = Q.qjoin [
-        "SELECT"
-      , Q.list [
-          "github_user_login"
-        ]
-      , "FROM pull_request_static_metadata"
-      , "WHERE pr_number = ?"
-      ]
-
-
 lookupUniversalBuild ::
-     Builds.UniversalBuildId -- ^ oldest build number
+     Builds.UniversalBuildId
   -> DbIO (Either Text (DbHelpers.WithId Builds.UniversalBuild))
 lookupUniversalBuild (Builds.UniversalBuildId universal_build_num) = do
   conn <- ask
-  xs <- liftIO $ query conn sql (Only universal_build_num)
+  xs <- liftIO $ query conn sql $ Only universal_build_num
   return $ maybeToEither "build not found" $ Safe.headMay xs
   where
     sql = Q.qjoin [
@@ -413,6 +378,41 @@ getGlobalBuild (Builds.UniversalBuildId global_build_num) = do
         ]
       , "FROM global_builds"
       , "WHERE global_build_num = ?"
+      ]
+
+
+getFlakyMasterBuildsToRetry ::
+  DbIO [(Builds.UniversalBuildId, Builds.BuildNumber)]
+getFlakyMasterBuildsToRetry = do
+  conn <- ask
+  liftIO $ query_ conn sql
+  where
+    sql = Q.qjoin [
+        "SELECT"
+      , Q.list [
+          "global_build"
+        , "build_num"
+        ]
+      , "FROM master_flaky_builds_to_retry"
+      ]
+
+
+getCachedPullRequestAuthor ::
+     Builds.PullRequestNumber
+  -> DbIO (Maybe AuthStages.Username)
+getCachedPullRequestAuthor (Builds.PullRequestNumber pr_number) = do
+  conn <- ask
+  liftIO $ do
+    xs <- query conn sql $ Only pr_number
+    return $ Safe.headMay $ map (\(Only x) -> AuthStages.Username x) xs
+  where
+    sql = Q.qjoin [
+        "SELECT"
+      , Q.list [
+          "github_user_login"
+        ]
+      , "FROM pull_request_static_metadata"
+      , "WHERE pr_number = ?"
       ]
 
 
@@ -3788,15 +3788,37 @@ getLatestMasterCommitWithMetadata = do
       ]
 
 
+checkHasTestResults ::
+     Connection
+  -> Builds.ProviderSurrogateId
+  -> IO Bool
+checkHasTestResults
+  conn
+  (Builds.ProviderSurrogateId provider_surrogate_id) = do
+
+  [Only result] <- query conn sql $ Only provider_surrogate_id
+  return result
+  where
+    sql = Q.qjoin [
+        "SELECT EXISTS"
+      , Q.parens $ Q.qjoin [
+          "SELECT *"
+        , "FROM circleci_test_reports"
+        , "WHERE provider_build_surrogate_id = ?"
+        , "LIMIT 1"
+        ]
+      ]
+
+
 getProviderSurrogateIdFromUniversalBuild ::
      Builds.UniversalBuildId
-  -> DbIO (Either Text Int64)
+  -> DbIO (Either Text Builds.ProviderSurrogateId)
 getProviderSurrogateIdFromUniversalBuild (Builds.UniversalBuildId ubuild_id) = do
   conn <- ask
   liftIO $ do
     xs <- query conn sql $ Only ubuild_id
     return $ maybeToEither err_msg $ Safe.headMay $
-      map (\(Only x) -> x) xs
+      map (\(Only x) -> Builds.ProviderSurrogateId x) xs
   where
     err_msg = T.unwords [
         "build"

@@ -16,7 +16,6 @@ data DatabaseError =
   | SomeOtherError
 
 
-
 -- Parsers just try to extract quoted strings from error messages, number
 -- of quoted strings depend on error type.
 scanTillQuote :: Parser ByteString

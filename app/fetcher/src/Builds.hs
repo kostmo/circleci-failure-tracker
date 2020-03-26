@@ -15,6 +15,9 @@ import           GHC.Int                              (Int64)
 import qualified DbHelpers
 
 
+newtype ProviderSurrogateId = ProviderSurrogateId Int64
+
+
 newtype PullRequestNumber = PullRequestNumber Int
  deriving (Generic, Eq, Ord, Show)
 

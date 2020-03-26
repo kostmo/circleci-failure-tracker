@@ -45,6 +45,7 @@ import qualified ScanRecords
 import qualified ScanUtils
 import           SillyMonoids                    ()
 import qualified Sql.Read                        as SqlRead
+import qualified Sql.ReadTypes                   as SqlReadTypes
 import qualified Sql.Write                       as SqlWrite
 
 
@@ -90,11 +91,14 @@ scanBuilds
 
   rescan_matches <- case revisit of
     RevisitScanned -> do
-      visited_builds_list <- flip runReaderT conn $ case whitelisted_builds_or_fetch_count of
-        Left whitelisted_build_ids -> SqlRead.getRevisitableWhitelistedBuilds $
-          Set.toAscList whitelisted_build_ids
-        Right _ -> SqlRead.getRevisitableBuilds
+      visited_builds_list <- flip runReaderT conn $
+        case whitelisted_builds_or_fetch_count of
+          Left whitelisted_build_ids -> SqlRead.getRevisitableWhitelistedBuilds $
+            Set.toAscList whitelisted_build_ids
+          Right _ -> SqlRead.getRevisitableBuilds
+
       let whitelisted_visited = visited_filter visited_builds_list
+
       rescanVisitedBuilds
         scan_resources
         pattern_culling_mode
@@ -105,12 +109,12 @@ scanBuilds
       putStrLn "NOT rescanning previously-visited builds!"
       return []
 
-  -- TODO FIXME XXXXX
   unvisited_builds_list <- SqlRead.getUnvisitedBuildIds
     conn
     whitelisted_builds_or_fetch_count
 
   let whitelisted_unvisited = unvisited_filter unvisited_builds_list
+
   first_scan_matches <- processUnvisitedBuilds
     scan_resources
     whitelisted_unvisited
@@ -169,6 +173,7 @@ apiRescanBuilds third_party_auth scannable_build_numbers = do
 
 -- | Does not re-download the log from AWS.
 -- However, does re-fetch build info from CircleCI.
+-- (TODO: Why?)
 rescanSingleBuild ::
      CircleApi.ThirdPartyAuth
   -> Connection
@@ -519,7 +524,9 @@ processUnvisitedBuilds scan_resources unvisited_builds_list =
       (Builds.provider_buildnum $ DbHelpers.record universal_build_obj)
 
     let pair = (universal_build_obj, either_visitation_result)
-    build_step_id <- SqlWrite.insertBuildVisitation scan_resources pair
+    build_step_id <- SqlWrite.insertBuildVisitation
+      scan_resources
+      pair
 
     either_matches <- runExceptT $ do
       visitation_result <- except $
@@ -584,14 +591,43 @@ getCircleCIFailedBuildInfo scan_resources build_number = do
     sess = ScanRecords.circle_sess $ ScanRecords.fetching scan_resources
 
 
--- | TODO Finish me
+-- | Checks whether there is already a record in the DB
+-- for these tests. If so, skips the CircleCI API
+-- query.
 storeTestResults ::
      ScanRecords.ScanCatchupResources
-  -> DbHelpers.WithTypedId  Builds.UniversalBuildId Builds.UniversalBuild
-  -> IO (Either String Int64)
-storeTestResults scan_resources (DbHelpers.WithTypedId ubuild_id universal_build) = runExceptT $ do
-  test_parent <- CircleTest.getCircleTestResults scan_resources provider_build_num
-  ExceptT $ first T.unpack <$> SqlWrite.storeCircleTestResults conn ubuild_id test_parent
+  -> DbHelpers.WithTypedId Builds.UniversalBuildId Builds.UniversalBuild
+  -> IO (Either String (Maybe SqlReadTypes.RecordCount))
+storeTestResults
+    scan_resources
+    (DbHelpers.WithTypedId ubuild_id universal_build) =
+
+  runExceptT $ do
+
+    provider_surrogate_id <- ExceptT $ fmap (first T.unpack) $
+      flip runReaderT conn $
+        SqlRead.getProviderSurrogateIdFromUniversalBuild ubuild_id
+
+    has_test <- liftIO $ SqlRead.checkHasTestResults
+      conn
+      provider_surrogate_id
+
+    if has_test
+    then do
+      liftIO $ D.debugStr "Test results already stored in DB!"
+      return Nothing
+    else do
+      test_parent <- CircleTest.getCircleTestResults
+        scan_resources
+        provider_build_num
+
+      record_count <- ExceptT $ first T.unpack <$> SqlWrite.storeCircleTestResults
+        conn
+        provider_surrogate_id
+        test_parent
+
+      return $ Just record_count
+
   where
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
     provider_build_num = Builds.provider_buildnum universal_build
@@ -617,14 +653,20 @@ getAndStoreLog
 
   maybe_console_log <- case overwrite of
     RefetchLog   -> return Nothing
-    NoRefetchLog -> flip runReaderT conn $ SqlRead.readLog build_step_id
+    NoRefetchLog -> flip runReaderT conn $
+      SqlRead.readLog build_step_id
 
   case maybe_console_log of
-    Just console_log -> return $ Right $ LT.lines console_log  -- Log was already fetched
+    Just console_log -> return $ Right $
+      LT.lines console_log  -- Log was already fetched
+
     Nothing -> runExceptT $ do
+
       download_url <- case maybe_failed_build_output of
-        Just failed_build_output -> except $ Right $ Builds.log_url failed_build_output
+        Just failed_build_output -> except $ Right $
+          Builds.log_url failed_build_output
         Nothing -> do
+
           visitation_result <- ExceptT $
             first (const "This build did not have a failed step!") <$> getCircleCIFailedBuildInfo
               scan_resources
@@ -640,19 +682,31 @@ getAndStoreLog
             [DbHelpers.WithTypedId universal_build_id build_obj]
 
           except $ case mode of
-              Builds.BuildTimeoutFailure             -> Left "This build didn't have a console log because it was a timeout!"
-              Builds.ScannableFailure failure_output -> Right $ Builds.log_url failure_output
+            Builds.BuildTimeoutFailure             -> Left "This build didn't have a console log because it was a timeout!"
+            Builds.ScannableFailure failure_output -> Right $ Builds.log_url failure_output
 
       liftIO $ D.debugList [
           "Downloading log from:"
         , T.unpack download_url
         ]
 
-      log_download_result <- ExceptT $ FetchHelpers.safeGetUrl $ Sess.get aws_sess $ T.unpack download_url
+      log_download_result <- ExceptT $ FetchHelpers.safeGetUrl $
+        Sess.get aws_sess $ T.unpack download_url
 
-      parsed <- CircleCIParse.doLogParse scan_resources build_step_id log_download_result
+      parsed <- CircleCIParse.doLogParse
+        scan_resources
+        build_step_id
+        log_download_result
 
-      liftIO $ D.debugStr "Finished getAndStoreLog."
+      test_result_count <- ExceptT $ storeTestResults
+        scan_resources
+        (DbHelpers.WithTypedId universal_build_id $ DbHelpers.record universal_build)
+
+      liftIO $ D.debugList [
+          "Finished getAndStoreLog and recorded"
+        , show test_result_count
+        , "test result(s)."
+        ]
 
       return parsed
 

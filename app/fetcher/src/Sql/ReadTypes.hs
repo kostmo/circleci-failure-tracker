@@ -15,6 +15,9 @@ import qualified CommitBuilds
 import qualified JsonUtils
 
 
+newtype RecordCount = NewRecordCount Int64
+  deriving Show
+
 newtype ElasticBeanstalkWorkerEventID = NewElasticBeanstalkWorkerEventID {getId :: Int64}
 
 type StandardCommitBuildWrapper = CommitBuilds.CommitBuildWrapper CommitBuildSupplementalPayload

@@ -4,6 +4,7 @@
 module CircleTest where
 
 import           Control.Lens               hiding ((<.>))
+import           Control.Monad.IO.Class     (liftIO)
 import           Control.Monad.Trans.Except (ExceptT (ExceptT))
 import           Data.Aeson
 import           Data.List                  (intercalate)
@@ -15,6 +16,7 @@ import qualified Network.Wreq.Session       as Sess
 import qualified Builds
 import qualified CircleApi
 import qualified Constants
+import qualified DebugUtils                 as D
 import qualified FetchHelpers
 import qualified ScanRecords
 
@@ -28,7 +30,8 @@ import qualified ScanRecords
 
 {- HLINT ignore "Use newtype instead of data" -}
 data CircleCISingleTestsParent = CircleCISingleTestsParent {
-    tests :: [CircleCISingleTestResult]
+    items           :: [CircleCISingleTestResult]
+  , next_page_token :: Maybe Text
   } deriving Generic
 
 instance FromJSON CircleCISingleTestsParent
@@ -37,14 +40,11 @@ instance FromJSON CircleCISingleTestsParent
 -- | Note: The "message" field is non-null when the value of
 -- the "result" field is "failure"
 data CircleCISingleTestResult = CircleCISingleTestResult {
-    classname   :: Text
-  , file        :: Text
-  , name        :: Text
-  , result      :: Text
-  , run_time    :: Double
-  , message     :: Maybe Text
-  , source      :: Text
-  , source_type :: Text
+    message   :: Maybe Text
+  , file      :: Text
+  , result    :: Text
+  , name      :: Text
+  , classname :: Text
   } deriving (Show, Generic)
 
 instance FromJSON CircleCISingleTestResult
@@ -58,6 +58,11 @@ getCircleTestResults
     scan_resources
     (Builds.NewBuildNumber provider_build_num) = do
 
+  liftIO $ D.debugList [
+      "Fetching test data from:"
+    , test_results_url
+    ]
+
   api_response <- ExceptT $ FetchHelpers.safeGetUrl $
     Sess.getWith opts sess test_results_url
 
@@ -68,7 +73,7 @@ getCircleTestResults
     CircleApi.CircleCIApiToken circleci_api_token = ScanRecords.circle_token fetching_resources
     sess = ScanRecords.circle_sess fetching_resources
     test_results_url = intercalate "/" [
-        Constants.circleciApiBase
+        Constants.circleciApiV2Base
       , show provider_build_num
       , "tests"
       ]

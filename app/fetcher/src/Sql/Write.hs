@@ -369,46 +369,42 @@ storeCachedMergeBases conn merge_base_records =
     catcher e _                            = throwIO e
 
 
+
+
 storeCircleTestResults ::
      Connection
-  -> Builds.UniversalBuildId
+  -> Builds.ProviderSurrogateId
   -> CircleTest.CircleCISingleTestsParent
-  -> IO (Either Text Int64)
+  -> IO (Either Text SqlReadTypes.RecordCount)
 storeCircleTestResults
     conn
-    universal_build
-    (CircleTest.CircleCISingleTestsParent test_results) = runExceptT $ do
-
-  provider_surrogate_id <- ExceptT $ flip runReaderT conn $
-    SqlRead.getProviderSurrogateIdFromUniversalBuild universal_build
+    (Builds.ProviderSurrogateId provider_surrogate_id)
+    (CircleTest.CircleCISingleTestsParent test_results _) = runExceptT $ do
 
   ExceptT $ catchViolation catcher $ do
-    [Only echoed_provider_surrogate_id] <- query conn parent_test_insertion_sql $ Only provider_surrogate_id
+    [Only echoed_provider_surrogate_id] <- query conn parent_test_insertion_sql $
+      Only provider_surrogate_id
 
     let f p = (
             echoed_provider_surrogate_id :: Int64
-          , classname
-          , file
-          , name
-          , result
-          , run_time
           , message
-          , source
-          , source_type
+          , file
+          , result
+          , name
+          , classname
           )
           where
             CircleTest.CircleCISingleTestResult
-              classname
-              file
-              name
-              result
-              run_time
               message
-              source
-              source_type = p
+              file
+              result
+              name
+              classname = p
 
-    count <- executeMany conn single_test_insertion_sql $ map f test_results
-    return $ Right count
+    count <- executeMany conn single_test_insertion_sql $
+      map f test_results
+
+    return $ Right $ SqlReadTypes.NewRecordCount count
 
   where
     parent_test_insertion_sql = Q.qjoin [
@@ -423,14 +419,11 @@ storeCircleTestResults
         "INSERT INTO circleci_test_results"
       , Q.insertionValues [
           "provider_build_surrogate_id"
-        , "classname"
-        , "file"
-        , "name"
-        , "result"
-        , "run_time"
         , "message"
-        , "source"
-        , "source_type"
+        , "file"
+        , "result"
+        , "name"
+        , "classname"
         ]
       ]
 
