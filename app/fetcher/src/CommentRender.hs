@@ -110,24 +110,26 @@ genSpecialCasedNonupstreamSection
   (StatusUpdateTypes.NewSpecialCasedBuilds xla_build_failures) =
   if null xla_build_failures
   then mempty
-  else pure $ T.unwords $ map M.sentence [
-      [ "Job"
-      , build_name_list
-      , "is failing"
-      ]
-    , [ "Please create an issue with title prefixed by"
-      , M.codeInline "[PT_BREAK]"
-      , "in"
-      , M.link
-          (M.codeInline "pytorch/xla")
-          "https://github.com/pytorch/xla/issues"
-      , "and link to to this PR"
-      ]
-    , [ "If you have questions, please reach out to"
-      , rendered_xla_contacts
-      ]
-    ]
+  else (M.heading 3 "XLA failure" :) $ pure $ T.unwords $ map M.sentence explanation_sentences
   where
+    explanation_sentences = [
+        [ "Job"
+        , build_name_list
+        , "is failing"
+        ]
+      , [ "Please create an issue with title prefixed by"
+        , M.codeInline "[PT_BREAK]"
+        , "in"
+        , M.link
+            (M.codeInline "pytorch/xla")
+            "https://github.com/pytorch/xla/issues"
+        , "and link to to this PR"
+        ]
+      , [ "If you have questions, please reach out to"
+        , rendered_xla_contacts
+        ]
+      ]
+
     build_name_list = T.intercalate ", " $
       map (M.bold . get_job_name) xla_build_failures
 

@@ -406,11 +406,17 @@ fetchCommitPageInfo pre_broken_info sha1 validated_sha1 = runExceptT $ do
 
   let (xla_nonupstream_build_failures, non_xla_nonupstream_build_failures) = partition (is_xla_job . get_job_name) raw_non_upstream_breakages
 
+      -- Only special-case the XLA failure if it is the
+      -- *only kind* of failure
+      (special_cased_xla_failures, non_special_cased_failures) =
+        if null non_xla_nonupstream_build_failures
+        then (xla_nonupstream_build_failures, non_xla_nonupstream_build_failures)
+        else ([], raw_non_upstream_breakages)
 
-  let special_cased_builds_wrapper = StatusUpdateTypes.NewSpecialCasedBuilds xla_nonupstream_build_failures
+  let special_cased_builds_wrapper = StatusUpdateTypes.NewSpecialCasedBuilds special_cased_xla_failures
 
 
-  matched_builds_with_log_context <- for non_xla_nonupstream_build_failures $ \x ->
+  matched_builds_with_log_context <- for non_special_cased_failures $ \x ->
     ExceptT $ (fmap . fmap) (\y -> (x, CommitBuilds.BuildWithLogContext (CommitBuilds._commit_build x) y)) $
       SqlRead.logContextFunc 0
         (MatchOccurrences._match_id $ CommitBuilds._match $ CommitBuilds._commit_build x)
