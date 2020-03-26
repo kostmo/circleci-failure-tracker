@@ -133,7 +133,7 @@ genSpecialCasedNonupstreamSection
 
     get_job_name = Builds.job_name . Builds.build_record . CommitBuilds._build . CommitBuilds._commit_build
 
-    rendered_xla_contacts = T.intercalate "/" $
+    rendered_xla_contacts = T.intercalate " / " $
       map (T.cons '@') xlaContacts
 
 

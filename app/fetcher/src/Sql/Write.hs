@@ -369,8 +369,11 @@ storeCachedMergeBases conn merge_base_records =
     catcher e _                            = throwIO e
 
 
-
-
+-- | NOTE: For now, this *only* stores the *first*
+-- failed test.  All other tests are dropped.
+-- Note that DB queries/views are be written
+-- to assume that there cannot be duplicate failed tests
+-- or non-failed tests present.
 storeCircleTestResults ::
      Connection
   -> Builds.ProviderSurrogateId
@@ -379,11 +382,10 @@ storeCircleTestResults ::
 storeCircleTestResults
     conn
     (Builds.ProviderSurrogateId provider_surrogate_id)
-    (CircleTest.CircleCISingleTestsParent test_results _) = runExceptT $ do
+    (CircleTest.CircleCISingleTestsParent test_results next_page_token) = runExceptT $ do
 
   ExceptT $ catchViolation catcher $ do
-    [Only echoed_provider_surrogate_id] <- query conn parent_test_insertion_sql $
-      Only provider_surrogate_id
+    [Only echoed_provider_surrogate_id] <- query conn parent_test_insertion_sql (provider_surrogate_id, next_page_token)
 
     let f p = (
             echoed_provider_surrogate_id :: Int64
@@ -401,16 +403,23 @@ storeCircleTestResults
               name
               classname = p
 
-    count <- executeMany conn single_test_insertion_sql $
-      map f test_results
+    let filtered_test_results = filter ((== "failure") . CircleTest.result) test_results
+        first_failed_test = take 1 filtered_test_results
 
-    return $ Right $ SqlReadTypes.NewRecordCount count
+    if null first_failed_test
+      then return $ Right $ SqlReadTypes.NewRecordCount 0
+      else do
+        count <- executeMany conn single_test_insertion_sql $
+          map f first_failed_test
+
+        return $ Right $ SqlReadTypes.NewRecordCount count
 
   where
     parent_test_insertion_sql = Q.qjoin [
         "INSERT INTO circleci_test_reports"
       , Q.insertionValues [
           "provider_build_surrogate_id"
+        , "next_page_token"
         ],
         "RETURNING provider_build_surrogate_id"
       ]

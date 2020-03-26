@@ -219,7 +219,7 @@ mainAppCode args = do
         Builds.RawCommit "b027b3b5d9e37292e26073fecf96ed33b8f1f488"
 
 
-  testTestRetrieval conn args $ Builds.UniversalBuildId 110522436
+  testTestRetrieval conn args $ Builds.UniversalBuildId 110871872
 
 
   when False $
