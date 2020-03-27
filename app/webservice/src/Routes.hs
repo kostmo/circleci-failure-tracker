@@ -433,18 +433,24 @@ scottyApp
       <*> (FrontendHelpers.checkboxIsTrue <$> S.param "exclude_named_tests")
 
   get "/api/isolated-failures-timespan-by-test" $
-    fmap WebApi.toJsonEither . SqlReadFlaky.apiIsolatedJobFailuresTimespan
+    fmap WebApi.toJsonEither . SqlReadFlaky.apiIsolatedTestFailuresTimespan
       <$> parseTimeRangeParms
 
 
   get "/api/master-job-failures-in-timespan" $
-    (fmap . fmap) WebApi.toJsonEither $ SqlRead.apiJobFailuresInTimespan
+    (fmap . fmap) WebApi.toJsonEither $ SqlReadFlaky.apiJobFailuresInTimespan
       <$> S.param "job"
       <*> (DbHelpers.InclusiveNumericBounds <$> S.param "commit-id-min" <*> S.param "commit-id-max")
 
   get "/api/master-pattern-failures-in-timespan" $
-    (fmap . fmap) WebApi.toJsonEither $ SqlRead.apiPatternFailuresInTimespan
+    (fmap . fmap) WebApi.toJsonEither $ SqlReadFlaky.apiPatternFailuresInTimespan
       <$> (ScanPatterns.PatternId <$> S.param "pattern")
+      <*> (DbHelpers.InclusiveNumericBounds <$> S.param "commit-id-min" <*> S.param "commit-id-max")
+
+
+  get "/api/master-test-failures-in-timespan" $
+    (fmap . fmap) WebApi.toJsonEither $ SqlReadFlaky.apiTestFailuresInTimespan
+      <$> S.param "test"
       <*> (DbHelpers.InclusiveNumericBounds <$> S.param "commit-id-min" <*> S.param "commit-id-max")
 
   get "/api/latest-viable-master-commits" $

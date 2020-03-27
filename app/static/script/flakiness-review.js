@@ -24,6 +24,34 @@ function gen_failure_details_table(element_id, data_payload, height_string, sele
 }
 
 
+function load_test_failure_details(test_name, commit_id_min, commit_id_max) {
+
+	$("#selected-details-row-title-container").html("test " + test_name);
+	
+	const query_args_dict = {
+		"test": test_name,
+		"commit-id-min": commit_id_min,
+		"commit-id-max": commit_id_max,
+	};
+
+	$("#failure-details-section").show();
+
+	$("#failure-details-table").hide();
+	getJsonWithThrobber("#throbber-details-table", "/api/master-test-failures-in-timespan", query_args_dict, function (data) {
+
+		if (data.success) {
+
+			$("#failure-details-table").show();
+			gen_failure_details_table("failure-details-table", data.payload, 300, true);
+
+		} else {
+
+			alert("error: " + data.error);
+		}
+	});
+}
+
+
 function load_pattern_failure_details(pattern_id, commit_id_min, commit_id_max) {
 
 	$("#selected-details-row-title-container").html("pattern " + pattern_id);
@@ -321,6 +349,61 @@ function gen_pattern_matches_table(element_id, data_payload) {
 }
 
 
+
+function gen_tests_table(element_id, data_payload) {
+
+	const column_list = [
+		{title: "Test name", field: "test_name"},
+		{title: "Total", field: "total_flaky_or_isolated_count", width: 200,
+		},
+		{title: "Isolated failures", field: "isolated_failure_count", width: 150,
+		},
+		{title: "Recognized as flaky", field: "recognized_flaky_count", width: 200,
+		},
+		{title: "Timeline Span", field: "min_commit_index",
+			formatter: function(cell, formatterParams, onRendered) {
+				const row_data = cell.getRow().getData();
+
+				const extra_args = {
+					"max_columns_suppress_successful": 35,
+					"should_suppress_scheduled_builds": true,
+					"should_suppress_fully_successful_columns": true,
+					"highlight_job": row_data.job,
+				};
+
+				const commit_count = row_data["max_commit_number"] - row_data["min_commit_number"] + 1;
+
+				return link(pluralize(commit_count, "commit"), gen_master_timeline_commit_bounds_url(row_data.min_commit_index, row_data.max_commit_index, extra_args));
+			},
+		},
+	];
+
+	const table = new Tabulator("#" + element_id, {
+		layout: "fitColumns",
+		placeholder: "No Data Set",
+		columns: column_list,
+		initialSort: [
+			{column: "total_flaky_or_isolated_count", dir: "desc"}, //sort by this first
+//			{column:" height", dir: "asc"}, //then sort by this second
+		],
+		data: data_payload,
+		rowClick:function(e, row) {
+			const row_data = row.getData()
+			const test_name = row_data["test_name"];
+
+			console.log("Clicked test:", test_name);
+
+			const commit_id_min = row_data["min_commit_index"];
+			const commit_id_max = row_data["max_commit_index"];
+
+//			$("#rescan-failures-button").hide();
+			$("#rescan-failures-button").show();
+			load_test_failure_details(test_name, commit_id_min, commit_id_max);
+		},
+	});
+}
+
+
 function gen_unmatched_failures_table(query_args_dict) {
 
 	getJsonWithThrobber("#throbber-details-table", "/api/isolated-unmatched-failed-builds-master-commit-range", query_args_dict, function (data) {
@@ -421,7 +504,7 @@ function requery_by_test_table(query_args_dict) {
 				const commit_count = max_commit_number - min_commit_number + 1;
 			}
 
-			gen_pattern_matches_table("isolated-failures-by-test-table", data.payload);
+			gen_tests_table("isolated-failures-by-test-table", data.payload);
 
 		} else {
 			alert("error: " + data.error);

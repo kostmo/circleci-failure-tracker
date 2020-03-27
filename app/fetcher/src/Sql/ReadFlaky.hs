@@ -19,7 +19,9 @@ import           GHC.Generics
 import           GHC.Int                    (Int64)
 import qualified Safe
 
+import qualified CommitBuilds
 import qualified DbHelpers
+import qualified DebugUtils                 as D
 import qualified JsonUtils
 import qualified ScanPatterns
 import qualified Sql.QueryUtils             as Q
@@ -346,3 +348,189 @@ apiIsolatedPatternFailuresTimespan time_bounds exclude_named_tests = do
       , Q.qconjunction inner_where_clauses
       , "GROUP BY master_failures_raw_causes_mview.pattern_id"
       ]
+
+
+data FailuresByTestReviewCounts = FailuresByTestReviewCounts {
+    _test_name                     :: Text
+  , _isolated_failure_count        :: Int
+  , _recognized_flaky_count        :: Int
+  , _total_flaky_or_isolated_count :: Int
+  , _matched_count                 :: Int
+  , _min_commit_index              :: Int
+  , _max_commit_index              :: Int
+  , _min_commit_number             :: Int
+  , _max_commit_number             :: Int
+  } deriving (Generic, FromRow)
+
+instance ToJSON FailuresByTestReviewCounts where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+-- | TODO: Deduplicate common logic
+-- with apiIsolatedPatternFailuresTimespan
+apiIsolatedTestFailuresTimespan ::
+     SqlReadTypes.TimeRange
+  -> DbIO (Either Text [FailuresByTestReviewCounts])
+apiIsolatedTestFailuresTimespan time_bounds = do
+  conn <- ask
+  liftIO $ do
+    D.debugList [
+        "SQL:"
+      , show sql
+      , "PARMS:"
+      , show query_parms
+      ]
+
+    rows <- query conn sql query_parms
+    return $ Right rows
+  where
+    query_parms = case time_bounds of
+      SqlReadTypes.Bounded (DbHelpers.StartEnd start_time end_time) -> (start_time, Just end_time)
+      SqlReadTypes.StartOnly start_time -> (start_time, Nothing)
+
+    sql = Q.qjoin [
+        "SELECT"
+      , Q.list [
+          "maybe_test_name"
+        , "isolated_count"
+        , "recognized_flaky_count"
+        , "total_flaky_or_isolated_count"
+        , "matched_count"
+        , "min_commit_index"
+        , "max_commit_index"
+        , "min_commit_number"
+        , "max_commit_number"
+        ]
+      , "FROM"
+      , Q.parens inner_sql
+      , "foo"
+      , "ORDER BY"
+      , Q.list [
+          "isolated_count DESC"
+        ]
+      ]
+
+    inner_where_clauses = [
+        "master_failures_raw_causes_mview.is_isolated_or_flaky_failure"
+      , "NOT master_failures_raw_causes_mview.is_idiopathic"
+      , "NOT master_failures_raw_causes_mview.is_timeout"
+      , "tstzrange(?::timestamp, ?::timestamp) @> master_ordered_commits_with_metadata_mview.committer_date"
+      , "test_failures_by_universal_build.universal_build IS NOT NULL"
+      ]
+
+    inner_sql = Q.qjoin [
+        "SELECT"
+      , Q.list [
+          "test_failures_by_universal_build.maybe_test_name"
+        , "SUM(master_failures_raw_causes_mview.is_serially_isolated::int) AS isolated_count"
+        , "SUM(master_failures_raw_causes_mview.is_flaky::int) AS recognized_flaky_count"
+        , "COUNT(*) AS total_flaky_or_isolated_count"
+        , "SUM(master_failures_raw_causes_mview.is_matched::int) AS matched_count"
+        , "MIN(master_failures_raw_causes_mview.commit_index) AS min_commit_index"
+        , "MAX(master_failures_raw_causes_mview.commit_index) AS max_commit_index"
+        , "MIN(master_ordered_commits_with_metadata_mview.commit_number) AS min_commit_number"
+        , "MAX(master_ordered_commits_with_metadata_mview.commit_number) AS max_commit_number"
+        ]
+      , "FROM master_failures_raw_causes_mview"
+      , "JOIN master_ordered_commits_with_metadata_mview"
+      , "ON master_failures_raw_causes_mview.commit_index = master_ordered_commits_with_metadata_mview.id"
+      , "LEFT JOIN test_failures_by_universal_build"
+      , "ON test_failures_by_universal_build.universal_build = master_failures_raw_causes_mview.global_build"
+      , "WHERE"
+      , Q.qconjunction inner_where_clauses
+      , "GROUP BY test_failures_by_universal_build.maybe_test_name"
+      ]
+
+
+apiJobFailuresInTimespan ::
+     Text -- ^ job name
+  -> DbHelpers.InclusiveNumericBounds Int64
+  -> DbIO (Either Text [CommitBuilds.CommitBuild])
+apiJobFailuresInTimespan
+    job_name
+    (DbHelpers.InclusiveNumericBounds lower_commit_id upper_commit_id) = do
+
+  conn <- ask
+  liftIO $ do
+    rows <- query conn sql query_parms
+    return $ Right rows
+  where
+    sql = genMasterFailureDetailsQuery "master_failures_raw_causes_mview.job_name = ?"
+    query_parms = (lower_commit_id, upper_commit_id, job_name)
+
+
+genMasterFailureDetailsQuery extra_where_condition =
+  Q.qjoin [
+        "SELECT"
+      , Q.list [
+          "master_failures_raw_causes_mview.step_name"
+        , "master_failures_raw_causes_mview.match_id"
+        , "master_failures_raw_causes_mview.build_num"
+        , "master_failures_raw_causes_mview.sha1"
+        , "master_failures_raw_causes_mview.queued_at"
+        , "master_failures_raw_causes_mview.job_name"
+        , "master_failures_raw_causes_mview.branch"
+        , "master_failures_raw_causes_mview.pattern_id"
+        , "master_failures_raw_causes_mview.line_number"
+        , "master_failures_raw_causes_mview.line_count"
+        , "master_failures_raw_causes_mview.line_text"
+        , "master_failures_raw_causes_mview.span_start"
+        , "master_failures_raw_causes_mview.span_end"
+        , "master_failures_raw_causes_mview.specificity"
+        , "master_failures_raw_causes_mview.global_build"
+        , "master_failures_raw_causes_mview.provider"
+        , "master_failures_raw_causes_mview.build_namespace"
+        , "master_failures_raw_causes_mview.succeeded"
+        , "ci_providers.label"
+        , "ci_providers.icon_url"
+        , "master_failures_raw_causes_mview.started_at"
+        , "master_failures_raw_causes_mview.finished_at"
+        , "master_failures_raw_causes_mview.is_timeout"
+        , "master_failures_raw_causes_mview.is_flaky"
+        ]
+      , "FROM master_failures_raw_causes_mview"
+      , "JOIN ci_providers"
+      , "ON ci_providers.id = master_failures_raw_causes_mview.provider"
+      , "LEFT JOIN test_failures_by_universal_build"
+      , "ON test_failures_by_universal_build.universal_build = master_failures_raw_causes_mview.global_build"
+      , "WHERE"
+      , Q.qconjunction [
+          "master_failures_raw_causes_mview.is_isolated_or_flaky_failure"
+        , "int8range(?, ?, '[]') @> master_failures_raw_causes_mview.commit_index::int8"
+        , extra_where_condition
+        ]
+      ]
+
+
+apiPatternFailuresInTimespan ::
+     ScanPatterns.PatternId
+  -> DbHelpers.InclusiveNumericBounds Int64
+  -> DbIO (Either Text [CommitBuilds.CommitBuild])
+apiPatternFailuresInTimespan
+    (ScanPatterns.PatternId pattern_id)
+    (DbHelpers.InclusiveNumericBounds lower_commit_id upper_commit_id) = do
+
+  conn <- ask
+  liftIO $ do
+    rows <- query conn sql query_parms
+    return $ Right rows
+  where
+    sql = genMasterFailureDetailsQuery "master_failures_raw_causes_mview.pattern_id = ?"
+    query_parms = (lower_commit_id, upper_commit_id, pattern_id)
+
+
+apiTestFailuresInTimespan ::
+     Text
+  -> DbHelpers.InclusiveNumericBounds Int64
+  -> DbIO (Either Text [CommitBuilds.CommitBuild])
+apiTestFailuresInTimespan
+    test_name
+    (DbHelpers.InclusiveNumericBounds lower_commit_id upper_commit_id) = do
+
+  conn <- ask
+  liftIO $ do
+    rows <- query conn sql query_parms
+    return $ Right rows
+  where
+    sql = genMasterFailureDetailsQuery "test_failures_by_universal_build.maybe_test_name = ?"
+    query_parms = (lower_commit_id, upper_commit_id, test_name)
