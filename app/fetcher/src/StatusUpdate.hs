@@ -375,7 +375,7 @@ fetchCommitPageInfo ::
      SqlUpdate.UpstreamBreakagesInfo
   -> Builds.RawCommit
   -> GitRev.GitSha1
-  -> SqlRead.DbIO (Either Text StatusUpdateTypes.CommitPageInfo)
+  -> SqlReadTypes.DbIO (Either Text StatusUpdateTypes.CommitPageInfo)
 fetchCommitPageInfo pre_broken_info sha1 validated_sha1 = runExceptT $ do
 
   liftIO $ D.debugStr "Fetching revision builds"
@@ -619,7 +619,7 @@ postCommitSummaryStatusInner
       then f
       else ExceptT $ do
         runReaderT (SqlWrite.recordBlockedPRCommentPosting pr_number) $
-          SqlRead.AuthConnection conn pr_author
+          SqlReadTypes.AuthConnection conn pr_author
         return $ Right (pr_number, Nothing)
 
 

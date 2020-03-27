@@ -97,7 +97,7 @@ data UpstreamBreakagesInfo = UpstreamBreakagesInfo {
 getBuildInfo ::
      CircleApi.ThirdPartyAuth
   -> Builds.UniversalBuildId
-  -> SqlRead.DbIO (Either Text (DbHelpers.BenchmarkedResponse BuildInfoRetrievalBenchmarks SingleBuildInfo))
+  -> SqlReadTypes.DbIO (Either Text (DbHelpers.BenchmarkedResponse BuildInfoRetrievalBenchmarks SingleBuildInfo))
 getBuildInfo
     (CircleApi.ThirdPartyAuth _ jwt_signer _)
     build@(Builds.UniversalBuildId build_id) = do
@@ -226,7 +226,7 @@ instance ToJSON RevisionBuildCountBenchmarks where
 countRevisionBuilds ::
      CircleApi.ThirdPartyAuth
   -> GitRev.GitSha1
-  -> SqlRead.DbIO (Either Text (DbHelpers.BenchmarkedResponse RevisionBuildCountBenchmarks CommitInfo))
+  -> SqlReadTypes.DbIO (Either Text (DbHelpers.BenchmarkedResponse RevisionBuildCountBenchmarks CommitInfo))
 countRevisionBuilds
     (CircleApi.ThirdPartyAuth _ jwt_signer _)
     git_revision = do
@@ -312,7 +312,7 @@ findKnownBuildBreakages ::
      OAuth2.AccessToken
   -> DbHelpers.OwnerAndRepo
   -> Builds.RawCommit
-  -> SqlRead.DbIO (Either Text UpstreamBreakagesInfo)
+  -> SqlReadTypes.DbIO (Either Text UpstreamBreakagesInfo)
 findKnownBuildBreakages access_token owned_repo sha1 = do
   conn <- ask
   liftIO $ runExceptT $ do
@@ -409,12 +409,12 @@ getFlakyRebuildTuples builds =
 triggerFlakyRebuildCandidates ::
      CircleApi.CircleCIApiToken
   -> Builds.RawCommit
-  -> SqlRead.AuthDbIO (Either Text (SqlRead.UserWrapper (DbHelpers.BenchmarkedResponse Float CommitRebuildsResponse)))
+  -> SqlReadTypes.AuthDbIO (Either Text (SqlRead.UserWrapper (DbHelpers.BenchmarkedResponse Float CommitRebuildsResponse)))
 triggerFlakyRebuildCandidates
     circleci_api_token
     (Builds.RawCommit commit_sha1_text) = do
 
-  dbauth@(SqlRead.AuthConnection conn user) <- ask
+  dbauth@(SqlReadTypes.AuthConnection conn user) <- ask
 
   liftIO $ runExceptT $ do
     git_revision <- except $ GitRev.validateSha1 commit_sha1_text

@@ -38,6 +38,7 @@ import qualified Pagination
 import qualified Scanning
 import qualified ScanPatterns
 import qualified Sql.Read                   as SqlRead
+import qualified Sql.ReadTypes              as SqlReadTypes
 import qualified StatusUpdate
 import qualified WebApi
 
@@ -186,9 +187,9 @@ getOffsetMode = do
 facilitateJobRebuild ::
      CircleApi.CircleCIApiToken
   -> Builds.UniversalBuildId
-  -> SqlRead.AuthDbIO (Either T.Text (SqlRead.UserWrapper [(Builds.UniversalBuildId, Int64)]))
+  -> SqlReadTypes.AuthDbIO (Either T.Text (SqlRead.UserWrapper [(Builds.UniversalBuildId, Int64)]))
 facilitateJobRebuild circleci_api_token universal_build_id = do
-  dbauth@(SqlRead.AuthConnection conn user) <- ask
+  dbauth@(SqlReadTypes.AuthConnection conn user) <- ask
   liftIO $ fmap (first T.pack) $ runExceptT $ do
     storable_build <- ExceptT $ fmap (first T.unpack) $
       flip runReaderT conn $ SqlRead.getGlobalBuild universal_build_id
@@ -204,9 +205,9 @@ facilitateJobRebuild circleci_api_token universal_build_id = do
     return $ SqlRead.UserWrapper user results
 
 
-getLoggedInUser :: SqlRead.AuthDbIO (Either T.Text AuthStages.Username)
+getLoggedInUser :: SqlReadTypes.AuthDbIO (Either T.Text AuthStages.Username)
 getLoggedInUser = do
-  SqlRead.AuthConnection _conn user <- ask
+  SqlReadTypes.AuthConnection _conn user <- ask
   return $ Right user
 
 
@@ -263,11 +264,11 @@ jsonAuthorizedDbInteractCommon =
 
 postWithAuthentication :: ToJSON a =>
      AuthHelperBundle
-  -> ScottyTypes.ActionT LT.Text IO (ReaderT SqlRead.AuthConnection IO (Either Text a))
+  -> ScottyTypes.ActionT LT.Text IO (ReaderT SqlReadTypes.AuthConnection IO (Either Text a))
   -> ScottyTypes.ActionT LT.Text IO ()
 postWithAuthentication = jsonAuthorizedDbInteractCommon2
   DbInsertion.toInsertionResponse
-  SqlRead.AuthConnection
+  SqlReadTypes.AuthConnection
 
 
 jsonAuthorizedDbInteractCommon2 :: (ToJSON a, ToJSON a2) =>
@@ -307,9 +308,9 @@ jsonAuthorizedDbInteractCommon2
 rescanCommitCallback :: (MonadIO m) =>
      CircleApi.ThirdPartyAuth
   -> Builds.RawCommit
-  -> ReaderT SqlRead.AuthConnection m (Either Text Text)
+  -> ReaderT SqlReadTypes.AuthConnection m (Either Text Text)
 rescanCommitCallback third_party_auth commit = do
-  SqlRead.AuthConnection conn user_alias <- ask
+  SqlReadTypes.AuthConnection conn user_alias <- ask
 
   liftIO $ do
 

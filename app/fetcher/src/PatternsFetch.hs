@@ -13,12 +13,12 @@ import qualified Network.HTTP.Client        as NC
 import           Network.Wreq               as NW
 
 import qualified FetchHelpers
-import qualified Sql.Read as SqlRead
-import qualified Sql.Write as SqlWrite
+import qualified Sql.ReadTypes              as SqlReadTypes
+import qualified Sql.Write                  as SqlWrite
 
 
 -- | For seeding initial data
-populatePatterns :: SqlRead.DbIO (Either String [Int64])
+populatePatterns :: SqlReadTypes.DbIO (Either String [Int64])
 populatePatterns = runExceptT $ do
 
   response <- ExceptT $ liftIO $ FetchHelpers.safeGetUrl $ NW.get url_string

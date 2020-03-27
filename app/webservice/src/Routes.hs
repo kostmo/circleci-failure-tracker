@@ -39,6 +39,8 @@ import qualified MatchOccurrences
 import qualified Scanning
 import qualified ScanPatterns
 import qualified Sql.Read                        as SqlRead
+import qualified Sql.ReadFlaky                   as SqlReadFlaky
+import qualified Sql.ReadTypes                   as SqlReadTypes
 import qualified Sql.Update                      as SqlUpdate
 import qualified Sql.Write                       as SqlWrite
 import qualified StatusUpdate
@@ -215,7 +217,7 @@ scottyApp
     pure SqlRead.prCommentRevisionsByWeek
 
   get "/api/failed-commits-by-day" $
-    pure SqlRead.apiFailedCommitsByDay
+    pure SqlReadFlaky.apiFailedCommitsByDay
 
   get "/api/code-breakages-leftover-by-commit" $
     pure SqlRead.apiLeftoverCodeBreakagesByCommit
@@ -410,24 +412,30 @@ scottyApp
     S.json $ WebApi.toJsonEither json_result
 
   get "/api/isolated-master-failures-by-day" $
-    fmap WebApi.toJsonEither . SqlRead.apiIsolatedMasterFailuresByDay
+    fmap WebApi.toJsonEither . SqlReadFlaky.apiIsolatedMasterFailuresByDay
       <$> S.param "age-days"
 
   get "/api/isolated-failures-timespan-coarse-bins" $
-    fmap WebApi.toJsonEither . SqlRead.apiCoarseBinsIsolatedJobFailuresTimespan
+    fmap WebApi.toJsonEither . SqlReadFlaky.apiCoarseBinsIsolatedJobFailuresTimespan
       <$> parseTimeRangeParms
 
   get "/api/isolated-unmatched-failed-builds-master-commit-range" $
-    (fmap . fmap) WebApi.toJsonEither $ SqlRead.apiIsolatedUnmatchedBuildsMasterCommitRange
+    (fmap . fmap) WebApi.toJsonEither $ SqlReadFlaky.apiIsolatedUnmatchedBuildsMasterCommitRange
       <$> (DbHelpers.InclusiveNumericBounds <$> S.param "commit-id-min" <*> S.param "commit-id-max")
 
   get "/api/isolated-failures-timespan-by-job" $
-    fmap WebApi.toJsonEither . SqlRead.apiIsolatedJobFailuresTimespan
+    fmap WebApi.toJsonEither . SqlReadFlaky.apiIsolatedJobFailuresTimespan
       <$> parseTimeRangeParms
 
   get "/api/isolated-failures-timespan-by-pattern" $
-    fmap WebApi.toJsonEither . SqlRead.apiIsolatedPatternFailuresTimespan
+    (fmap . fmap) WebApi.toJsonEither $ SqlReadFlaky.apiIsolatedPatternFailuresTimespan
       <$> parseTimeRangeParms
+      <*> (FrontendHelpers.checkboxIsTrue <$> S.param "exclude_named_tests")
+
+  get "/api/isolated-failures-timespan-by-test" $
+    fmap WebApi.toJsonEither . SqlReadFlaky.apiIsolatedJobFailuresTimespan
+      <$> parseTimeRangeParms
+
 
   get "/api/master-job-failures-in-timespan" $
     (fmap . fmap) WebApi.toJsonEither $ SqlRead.apiJobFailuresInTimespan
@@ -487,14 +495,14 @@ scottyApp
     S.json $ WebApi.toJsonEither x
 
   S.get "/api/get-user-opt-out-settings" $
-    FrontendHelpers.jsonAuthorizedDbInteractCommon SqlRead.AuthConnection auth_helper_bundle $
+    FrontendHelpers.jsonAuthorizedDbInteractCommon SqlReadTypes.AuthConnection auth_helper_bundle $
       pure SqlRead.userOptOutSettings
 
   S.post "/api/update-user-opt-out-settings" $
     withAuth $ SqlWrite.updateUserOptOutSettings <$> S.param "enabled"
 
   get "/api/view-log-context" $ (fmap . fmap) WebApi.toJsonEither $
-    SqlRead.logContextFunc SqlRead.hiddenContextLinecount
+    SqlRead.logContextFunc SqlReadTypes.hiddenContextLinecount
       <$> (MatchOccurrences.MatchId <$> S.param "match_id")
       <*> S.param "context_linecount"
 
@@ -600,13 +608,13 @@ scottyApp
         y
 
     withAuth :: ToJSON a =>
-         ScottyTypes.ActionT LT.Text IO (SqlRead.AuthDbIO (Either Text a))
+         ScottyTypes.ActionT LT.Text IO (SqlReadTypes.AuthDbIO (Either Text a))
       -> ScottyTypes.ActionT LT.Text IO ()
     withAuth = FrontendHelpers.postWithAuthentication auth_helper_bundle
 
     logger_domain_identifier = if AuthConfig.is_local github_config
-      then "localhost"
-      else "dr.pytorch.org"
+      then Constants.localhostDomainName
+      else Constants.drCIDomainName
 
 
 parseRemediationObject :: ScottyTypes.ActionT LT.Text IO SqlWrite.FailureRemediation
@@ -622,15 +630,15 @@ parseRemediationObject = do
     (Just info_url)
 
 
-parseTimeRangeParms :: ScottyTypes.ActionT LT.Text IO SqlRead.TimeRange
+parseTimeRangeParms :: ScottyTypes.ActionT LT.Text IO SqlReadTypes.TimeRange
 parseTimeRangeParms = do
   start_timestamp <- BuildRetrieval.decodeUtcTimeString <$> S.param "start-timestamp"
 
   let bounded_result = do
         end_timestamp <- BuildRetrieval.decodeUtcTimeString <$> S.param "end-timestamp"
-        return $ SqlRead.Bounded $ DbHelpers.StartEnd start_timestamp end_timestamp
+        return $ SqlReadTypes.Bounded $ DbHelpers.StartEnd start_timestamp end_timestamp
 
-  bounded_result `S.rescue` (\_msg -> return $ SqlRead.StartOnly start_timestamp)
+  bounded_result `S.rescue` (\_msg -> return $ SqlReadTypes.StartOnly start_timestamp)
 
 
 

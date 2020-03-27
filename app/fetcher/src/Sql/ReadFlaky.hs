@@ -1,0 +1,348 @@
+{-# LANGUAGE DeriveAnyClass        #-}
+{-# LANGUAGE DeriveGeneric         #-}
+{-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE OverloadedStrings     #-}
+
+module Sql.ReadFlaky where
+
+import           Control.Monad              (unless)
+import           Control.Monad.IO.Class     (liftIO)
+import           Control.Monad.Trans.Except (except, runExceptT)
+import           Control.Monad.Trans.Reader (ask)
+import           Data.Aeson
+import           Data.Either.Utils          (maybeToEither)
+import           Data.Text                  (Text)
+import qualified Data.Text                  as T
+import           Data.Time.Calendar         (Day)
+import           Database.PostgreSQL.Simple
+import           GHC.Generics
+import           GHC.Int                    (Int64)
+import qualified Safe
+
+import qualified DbHelpers
+import qualified JsonUtils
+import qualified ScanPatterns
+import qualified Sql.QueryUtils             as Q
+import           Sql.ReadTypes              (DbIO)
+import qualified Sql.ReadTypes              as SqlReadTypes
+import qualified WebApi
+
+
+-- | Note that Highcharts expects the dates to be in ascending order
+apiIsolatedMasterFailuresByDay ::
+     Int
+  -> SqlReadTypes.DbIO (Either Text [(Day, Double)])
+apiIsolatedMasterFailuresByDay day_count = do
+  conn <- ask
+  liftIO $ do
+    xs <- query conn sql $ Only day_count
+    return $ Right $ reverse xs
+  where
+  sql = Q.qjoin [
+      "SELECT"
+    , Q.list [
+        "date_california_time"
+      , "isolated_failure_fraction"
+      ]
+      -- This view already exludes the current (incomplete) day
+    , "FROM master_daily_isolated_failures_cached"
+    , "WHERE date_california_time > (now() - interval '? days')"
+    , "ORDER BY date_california_time DESC"
+    ]
+
+
+-- | Note that Highcharts expects the dates to be in ascending order
+apiFailedCommitsByDay :: SqlReadTypes.DbIO (WebApi.ApiResponse (Day, Int))
+apiFailedCommitsByDay = WebApi.ApiResponse <$> SqlReadTypes.runQuery q
+  where
+  q = Q.qjoin [
+      "SELECT"
+    , Q.list [
+        "queued_at::date AS date"
+      , "COUNT(*)"
+      ]
+    , "FROM"
+    , Q.aliasedSubquery subquery "foo"
+    , "GROUP BY date"
+    , "ORDER BY date ASC"
+    ]
+    where
+      subquery = Q.qjoin [
+          "SELECT"
+        , Q.list [
+            "vcs_revision"
+          , "MAX(queued_at) queued_at"
+          ]
+        , "FROM global_builds GROUP BY vcs_revision"
+        ]
+
+
+apiCoarseBinsIsolatedJobFailuresTimespan ::
+     SqlReadTypes.TimeRange
+  -> DbIO (Either Text [WebApi.PieSliceApiRecord])
+apiCoarseBinsIsolatedJobFailuresTimespan time_bounds = do
+  conn <- ask
+  liftIO $ do
+    rows <- query conn sql query_parms
+    runExceptT $ do
+      (
+          timeout_count
+        , no_logs_count
+        , network_count
+        , other_count
+        , unmatched_count
+        , sanity_check_consistent_total
+        ) <- except $ maybeToEither "No rows" $ Safe.headMay rows
+
+      let result = [
+              (WebApi.PieSliceApiRecord "Timeout" timeout_count)
+            , (WebApi.PieSliceApiRecord "No logs" no_logs_count)
+            , (WebApi.PieSliceApiRecord "Network" network_count)
+            , (WebApi.PieSliceApiRecord "Other match" other_count)
+            , (WebApi.PieSliceApiRecord "Unmatched" unmatched_count)
+            ]
+
+      unless sanity_check_consistent_total $
+        except $ Left $ T.unwords [
+          "Inconsisent build counts;"
+        , T.pack $ show result
+        ]
+
+      return result
+
+  where
+    query_parms = SqlReadTypes.queryParmsFromTimeRange time_bounds
+
+    -- Compare to "build_failure_causes_disjoint" view for logic
+    -- of categorizing mutually-exclusive failure modes
+    sql = Q.qjoin [
+        "SELECT"
+      , Q.list [
+          "timeout_count"
+        , "no_logs_count"
+        , "network_count"
+        , "other_count"
+        , "unmatched_count"
+        , "timeout_count + no_logs_count + network_count + other_count + unmatched_count = total_count AS sanity_check_consistent_total"
+        ]
+      , "FROM"
+      , Q.parens inner_sql
+      , "foo"
+      ]
+
+    inner_sql = Q.qjoin [
+        "SELECT"
+      , Q.list [
+          "COALESCE(SUM(is_timeout::int), 0) AS timeout_count"
+        , "COALESCE(SUM(is_idiopathic::int), 0) AS no_logs_count"
+        , "COALESCE(SUM(is_network::int), 0) AS network_count"
+        , "COALESCE(SUM((is_matched AND (NOT (is_network OR is_timeout)))::int), 0) AS other_count"
+        , "COALESCE(SUM((NOT (is_timeout OR is_matched OR is_idiopathic))::int), 0) AS unmatched_count"
+        , "COUNT(*) AS total_count"
+        ]
+      , "FROM master_failures_raw_causes_mview"
+      , "JOIN master_ordered_commits_with_metadata_mview"
+      , "ON master_failures_raw_causes_mview.commit_index = master_ordered_commits_with_metadata_mview.id"
+      , "WHERE"
+      , Q.qconjunction [
+          "is_isolated_or_flaky_failure"
+        , "tstzrange(?::timestamp, ?::timestamp) @> committer_date"
+        ]
+      ]
+
+
+apiIsolatedUnmatchedBuildsMasterCommitRange ::
+     DbHelpers.InclusiveNumericBounds Int64
+  -> DbIO (Either Text [WebApi.BuildBranchDateRecord])
+apiIsolatedUnmatchedBuildsMasterCommitRange
+    (DbHelpers.InclusiveNumericBounds lower_commit_id upper_commit_id) = do
+
+  conn <- ask
+  liftIO $ do
+    rows <- query conn sql query_parms
+    return $ Right rows
+  where
+    query_parms = (lower_commit_id, upper_commit_id)
+
+    sql = Q.qjoin [
+        "SELECT"
+      , Q.list [
+          "master_failures_raw_causes_mview.global_build"
+        , "master_failures_raw_causes_mview.step_name"
+        , "master_failures_raw_causes_mview.job_name"
+        , "master_failures_raw_causes_mview.sha1"
+        , "master_failures_raw_causes_mview.queued_at"
+        ]
+      , "FROM master_failures_raw_causes_mview"
+      , "JOIN ci_providers"
+      , "ON ci_providers.id = master_failures_raw_causes_mview.provider"
+      , "WHERE"
+      , Q.qconjunction [
+          "master_failures_raw_causes_mview.is_serially_isolated"
+        , "NOT master_failures_raw_causes_mview.succeeded"
+        , "NOT master_failures_raw_causes_mview.is_timeout"
+        , "NOT master_failures_raw_causes_mview.is_idiopathic"
+        , "master_failures_raw_causes_mview.pattern_id < 0"
+        , "int8range(?, ?, '[]') @> master_failures_raw_causes_mview.commit_index::int8"
+        ]
+      ]
+
+
+data FailuresByJobReviewCounts = FailuresByJobReviewCounts {
+    _job                           :: Text
+  , _isolated_failure_count        :: Int
+  , _recognized_flaky_count        :: Int
+  , _total_flaky_or_isolated_count :: Int
+  , _matched_count                 :: Int
+  , _timeout_count                 :: Int
+  , _min_commit_index              :: Int
+  , _max_commit_index              :: Int
+  , _min_commit_number             :: Int
+  , _max_commit_number             :: Int
+  } deriving (Generic, FromRow)
+
+instance ToJSON FailuresByJobReviewCounts where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+apiIsolatedJobFailuresTimespan ::
+     SqlReadTypes.TimeRange
+  -> DbIO (Either Text [FailuresByJobReviewCounts])
+apiIsolatedJobFailuresTimespan time_bounds = do
+  conn <- ask
+  liftIO $ do
+    rows <- query conn sql query_parms
+    return $ Right rows
+  where
+
+    query_parms = SqlReadTypes.queryParmsFromTimeRange time_bounds
+
+    where_clauses = [
+        "is_isolated_or_flaky_failure"
+      , Q.qjoin [
+          "tstzrange(?::timestamp, ?::timestamp)"
+        , "@> master_ordered_commits_with_metadata_mview.committer_date"
+        ]
+      ]
+
+    sql = Q.qjoin [
+        "SELECT"
+      , Q.list [
+          "job_name"
+        , "SUM(is_serially_isolated::int) AS isolated_count"
+        , "SUM(is_flaky::int) AS recognized_flaky_count"
+        , "COUNT(*) AS total_flaky_or_isolated_count"
+        , "SUM(is_matched::int) AS matched_count"
+        , "SUM(is_timeout::int) AS timeout_count"
+        , "MIN(master_failures_raw_causes_mview.commit_index) AS min_commit_index"
+        , "MAX(master_failures_raw_causes_mview.commit_index) AS max_commit_index"
+        , "MIN(master_ordered_commits_with_metadata_mview.commit_number) AS min_commit_number"
+        , "MAX(master_ordered_commits_with_metadata_mview.commit_number) AS max_commit_number"
+        ]
+      , "FROM master_failures_raw_causes_mview"
+      , "JOIN master_ordered_commits_with_metadata_mview"
+      , "ON master_failures_raw_causes_mview.commit_index = master_ordered_commits_with_metadata_mview.id"
+      , "WHERE"
+      , Q.qconjunction where_clauses
+      , "GROUP BY job_name"
+      , "ORDER BY"
+      , Q.list [
+          "isolated_count DESC"
+        , "job_name"
+        ]
+      ]
+
+
+data FailuresByPatternReviewCounts = FailuresByPatternReviewCounts {
+    _pattern_id                    :: Maybe ScanPatterns.PatternId
+  , _expression                    :: Maybe Text
+  , _isolated_failure_count        :: Int
+  , _recognized_flaky_count        :: Int
+  , _total_flaky_or_isolated_count :: Int
+  , _matched_count                 :: Int
+  , _min_commit_index              :: Int
+  , _max_commit_index              :: Int
+  , _min_commit_number             :: Int
+  , _max_commit_number             :: Int
+  , _has_pattern_match             :: Bool
+  , _is_network                    :: Bool
+  } deriving (Generic, FromRow)
+
+instance ToJSON FailuresByPatternReviewCounts where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+apiIsolatedPatternFailuresTimespan ::
+     SqlReadTypes.TimeRange
+  -> Bool -- ^ exclude named tests
+  -> DbIO (Either Text [FailuresByPatternReviewCounts])
+apiIsolatedPatternFailuresTimespan time_bounds exclude_named_tests = do
+  conn <- ask
+  liftIO $ do
+    rows <- query conn sql query_parms
+    return $ Right rows
+  where
+    query_parms = case time_bounds of
+      SqlReadTypes.Bounded (DbHelpers.StartEnd start_time end_time) -> (start_time, Just end_time)
+      SqlReadTypes.StartOnly start_time -> (start_time, Nothing)
+
+    sql = Q.qjoin [
+        "SELECT"
+      , Q.list [
+          "patterns_rich.id AS pattern_id"
+        , "patterns_rich.expression"
+        , "isolated_count"
+        , "recognized_flaky_count"
+        , "total_flaky_or_isolated_count"
+        , "matched_count"
+        , "min_commit_index"
+        , "max_commit_index"
+        , "min_commit_number"
+        , "max_commit_number"
+        , "patterns_rich.id IS NOT NULL AS has_pattern_match"
+        , "COALESCE(patterns_rich.is_network, FALSE)"
+        ]
+      , "FROM"
+      , Q.parens inner_sql
+      , "foo"
+      , "LEFT JOIN patterns_rich"
+      , "ON patterns_rich.id = foo.pid"
+      , "ORDER BY"
+      , Q.list [
+          "has_pattern_match"
+        , "isolated_count DESC"
+        , "pattern_id DESC"
+        ]
+      ]
+
+    optional_named_test_exclusion_clause = ["test_failures_by_universal_build.universal_build IS NULL" | exclude_named_tests]
+
+    inner_where_clauses = [
+        "master_failures_raw_causes_mview.is_isolated_or_flaky_failure"
+      , "NOT master_failures_raw_causes_mview.is_idiopathic"
+      , "NOT master_failures_raw_causes_mview.is_timeout"
+      , "tstzrange(?::timestamp, ?::timestamp) @> master_ordered_commits_with_metadata_mview.committer_date"
+      ] ++ optional_named_test_exclusion_clause
+
+    inner_sql = Q.qjoin [
+        "SELECT"
+      , Q.list [
+          "pattern_id AS pid"
+        , "SUM(master_failures_raw_causes_mview.is_serially_isolated::int) AS isolated_count"
+        , "SUM(master_failures_raw_causes_mview.is_flaky::int) AS recognized_flaky_count"
+        , "COUNT(*) AS total_flaky_or_isolated_count"
+        , "SUM(master_failures_raw_causes_mview.is_matched::int) AS matched_count"
+        , "MIN(master_failures_raw_causes_mview.commit_index) AS min_commit_index"
+        , "MAX(master_failures_raw_causes_mview.commit_index) AS max_commit_index"
+        , "MIN(master_ordered_commits_with_metadata_mview.commit_number) AS min_commit_number"
+        , "MAX(master_ordered_commits_with_metadata_mview.commit_number) AS max_commit_number"
+        ]
+      , "FROM master_failures_raw_causes_mview"
+      , "JOIN master_ordered_commits_with_metadata_mview"
+      , "ON master_failures_raw_causes_mview.commit_index = master_ordered_commits_with_metadata_mview.id"
+      , "LEFT JOIN test_failures_by_universal_build"
+      , "ON test_failures_by_universal_build.universal_build = master_failures_raw_causes_mview.global_build"
+      , "WHERE"
+      , Q.qconjunction inner_where_clauses
+      , "GROUP BY master_failures_raw_causes_mview.pattern_id"
+      ]

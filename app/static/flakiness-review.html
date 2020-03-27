@@ -65,7 +65,12 @@ Such a failure is additionally <em>recognized as flaky</em> if a predefined log-
 
 <div style="float: left; margin-right: 6em;">
 <ul>
-<li>Group by: <label><input type="radio" name="grouping-mode" value="by-job"/>job</label> <label><input type="radio" name="grouping-mode" value="by-pattern" checked="true"/>pattern</label></li>
+<li>
+Group by:
+<label><input type="radio" name="grouping-mode" value="by-job"/>job</label>
+<label><input type="radio" name="grouping-mode" value="by-pattern" checked="true"/>pattern</label>
+<label><input type="radio" name="grouping-mode" value="by-test" checked="true"/>test</label>
+</li>
 
 <li>
 <span style="margin-right: 1em;">
@@ -100,7 +105,6 @@ Days:
 </div>
 
 
-
 <div>
 <div id="throbber-coarse-cause-bins" style="display: none;"><img src="/images/duck.gif"/></div>
 
@@ -115,8 +119,21 @@ Days:
 <div id="by-pattern-container">
 
 <h3>Failures by pattern</h3>
+
+<label><input id="exclude-named-tests-checkbox" type="checkbox" checked="checked"/>Exclude named tests</label>
+
 <div id="throbber-by-pattern" style="display: none;"><img src="/images/duck.gif"/></div>
 <div id="isolated-failures-by-pattern-table"></div>
+
+</div>
+
+
+<div id="by-test-container">
+
+<h3>Failures by test</h3>
+
+<div id="throbber-by-test" style="display: none;"><img src="/images/duck.gif"/></div>
+<div id="isolated-failures-by-test-table"></div>
 
 </div>
 
@@ -144,8 +161,6 @@ Days:
 	<div id="failure-details-table"></div>
 </div>
 
-
-
 <h3>Stats</h3>
 <div id="throbber-isolated-failures-timeline-by-day" style="display: none;"><img src="/images/duck.gif"/></div>
 
@@ -153,8 +168,6 @@ Days:
 
 
 <br clear="all" />
-
-
 
 <dialog id="myDialog">This is a dialog window</dialog>
 

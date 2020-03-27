@@ -324,7 +324,7 @@ updateMergedPullRequestHeadCommits conn = do
 insertPullRequestHeads ::
      Bool -- ^ datasource was webhook notification
   -> [(Builds.PullRequestNumber, Builds.RawCommit)]
-  -> SqlRead.DbIO Int64
+  -> SqlReadTypes.DbIO Int64
 insertPullRequestHeads from_webhook retrieved_pr_heads = do
   conn <- ask
   liftIO $ do
@@ -382,14 +382,13 @@ storeCircleTestResults ::
 storeCircleTestResults
     conn
     (Builds.ProviderSurrogateId provider_surrogate_id)
-    (CircleTest.CircleCISingleTestsParent test_results next_page_token) = runExceptT $ do
-
-  ExceptT $ catchViolation catcher $ do
+    (CircleTest.CircleCISingleTestsParent test_results next_page_token) =
+  catchViolation catcher $ do
     [Only echoed_provider_surrogate_id] <- query conn parent_test_insertion_sql (provider_surrogate_id, next_page_token)
 
     let f p = (
             echoed_provider_surrogate_id :: Int64
-          , message
+          , T.strip <$> message
           , file
           , result
           , name
@@ -623,7 +622,7 @@ storeCircleCiBuildsList ::
   -> Text -- ^ branch name
   -> Maybe SqlReadTypes.ElasticBeanstalkWorkerEventID
   -> [(Builds.Build, Bool)]
-  -> SqlRead.DbIO Int64
+  -> SqlReadTypes.DbIO Int64
 storeCircleCiBuildsList
     fetch_initiation_timestamp
     branch_name
@@ -637,7 +636,7 @@ storeCircleCiBuildsList
         zipped_output1
 
   ci_scan_id <- storeScanRecord
-    SqlRead.circleCIProviderIndex
+    SqlReadTypes.circleCIProviderIndex
     branch_name
     fetch_initiation_timestamp
     maybe_eb_worker_event_id
@@ -652,7 +651,7 @@ storeCircleCiBuildsList
 -- filtering/deduplication.
 storeHelper ::
      [(a, (Builds.Build, Bool))]
-  -> SqlRead.DbIO [(a, Builds.StorableBuild)]
+  -> SqlReadTypes.DbIO [(a, Builds.StorableBuild)]
 storeHelper deduped_builds_list = do
    conn <- ask
    liftIO $ storeHelperInner conn deduped_builds_list
@@ -731,7 +730,7 @@ storeHelperInner conn deduped_builds_list = do
         j = Builds.job_name b
         u = Builds.UniversalBuild
           (Builds.build_id b)
-          SqlRead.circleCIProviderIndex
+          SqlReadTypes.circleCIProviderIndex
           "" -- no build numbering namespace qualifier for CircleCI builds
           succeeded
           (Builds.vcs_revision b)
@@ -754,7 +753,7 @@ storeHelperInner conn deduped_builds_list = do
 storeBuildsList ::
      Maybe Int64
   -> [DbHelpers.WithTypedId Builds.UniversalBuildId Builds.Build]
-  -> SqlRead.DbIO Int64
+  -> SqlReadTypes.DbIO Int64
 storeBuildsList maybe_provider_scan_id builds_list = do
   conn <- ask
   liftIO $ do
@@ -834,12 +833,12 @@ data FailureRemediation = FailureRemediation {
 createPatternRemediation ::
      ScanPatterns.PatternId
   -> FailureRemediation
-  -> SqlRead.AuthDbIO (Either Text Int64)
+  -> SqlReadTypes.AuthDbIO (Either Text Int64)
 createPatternRemediation
     (ScanPatterns.PatternId pattern_id)
     (FailureRemediation maybe_notes maybe_github_issue_number maybe_info_url) = do
 
-  SqlRead.AuthConnection conn (AuthStages.Username author) <- ask
+  SqlReadTypes.AuthConnection conn (AuthStages.Username author) <- ask
   liftIO $ do
     [Only new_remediation_id] <- query conn remediation_insertion_sql (
         author
@@ -880,7 +879,7 @@ storeScanRecord ::
   -> Text -- ^ branch filter
   -> UTCTime -- ^ scan initiation time
   -> Maybe SqlReadTypes.ElasticBeanstalkWorkerEventID
-  -> SqlRead.DbIO Int64
+  -> SqlReadTypes.DbIO Int64
 storeScanRecord
     provider_id
     branch_filter
@@ -908,7 +907,7 @@ recordTimeoutIncident ::
      ScanRecords.ScanId
   -> Builds.BuildStepId
   -> [ScanUtils.PatternScanTimeout]
-  -> SqlRead.DbIO Int64
+  -> SqlReadTypes.DbIO Int64
 recordTimeoutIncident
     (ScanRecords.ScanId scan_id)
     (Builds.NewBuildStepId build_step_id)
@@ -934,7 +933,7 @@ storeMatches ::
      ScanRecords.ScanId
   -> Builds.BuildStepId
   -> ([ScanUtils.PatternScanTimeout], [ScanPatterns.ScanMatch])
-  -> SqlRead.DbIO Int64
+  -> SqlReadTypes.DbIO Int64
 storeMatches scan_id_obj step@(Builds.NewBuildStepId build_step_id) (scan_timeouts, scoped_matches) = do
 
   conn <- ask
@@ -1042,12 +1041,12 @@ data BeanstalkSqsReceiveHeaders = BeanstalkSqsReceiveHeaders {
 insertRebuildTriggerEvent ::
      Builds.UniversalBuildId
   -> Text
-  -> SqlRead.AuthDbIO (Either String Int64)
+  -> SqlReadTypes.AuthDbIO (Either String Int64)
 insertRebuildTriggerEvent
     (Builds.UniversalBuildId universal_build_id)
     msg = do
 
-  SqlRead.AuthConnection conn (AuthStages.Username author) <- ask
+  SqlReadTypes.AuthConnection conn (AuthStages.Username author) <- ask
   let values_tuple = (universal_build_id, msg, author)
   [Only x] <- liftIO $ query conn sql values_tuple
   return $ Right x
@@ -1186,9 +1185,9 @@ insertEbWorkerSha1Enqueue conn github_status_event_id maybe_message_id =
 
 updateUserOptOutSettings ::
      Bool
-  -> SqlRead.AuthDbIO (Either Text SqlRead.OptOutResponse)
+  -> SqlReadTypes.AuthDbIO (Either Text SqlRead.OptOutResponse)
 updateUserOptOutSettings posting_is_enabled = do
-  SqlRead.AuthConnection conn (AuthStages.Username author) <- ask
+  SqlReadTypes.AuthConnection conn (AuthStages.Username author) <- ask
   [x] <- liftIO $ query conn sql (author, not posting_is_enabled)
   return $ Right x
   where
@@ -1329,7 +1328,7 @@ modifyPostedGithubComment
 addPatternTag ::
      ScanPatterns.PatternId
   -> Text
-  -> SqlRead.DbIO (Either Text Int64)
+  -> SqlReadTypes.DbIO (Either Text Int64)
 addPatternTag (ScanPatterns.PatternId pattern_id) tag = do
   conn <- ask
   liftIO $ Right <$> execute conn sql (pattern_id, tag)
@@ -1346,7 +1345,7 @@ addPatternTag (ScanPatterns.PatternId pattern_id) tag = do
 removePatternTag ::
      ScanPatterns.PatternId
   -> Text
-  -> SqlRead.DbIO (Either Text Int64)
+  -> SqlReadTypes.DbIO (Either Text Int64)
 removePatternTag (ScanPatterns.PatternId pattern_id) tag = do
   conn <- ask
   liftIO $ Right <$> execute conn sql (pattern_id, tag)
@@ -1363,7 +1362,7 @@ removePatternTag (ScanPatterns.PatternId pattern_id) tag = do
 
 deleteCodeBreakage ::
      Int64
-  -> SqlRead.DbIO (Either Text Int64)
+  -> SqlReadTypes.DbIO (Either Text Int64)
 deleteCodeBreakage cause_id = do
   conn <- ask
   liftIO $ Right <$> execute conn sql (Only cause_id)
@@ -1374,7 +1373,7 @@ deleteCodeBreakage cause_id = do
 deleteCodeBreakageJob ::
      Int64
   -> Text
-  -> SqlRead.DbIO (Either Text Int64)
+  -> SqlReadTypes.DbIO (Either Text Int64)
 deleteCodeBreakageJob cause_id job = do
   conn <- ask
   liftIO $ Right <$> execute conn sql (cause_id, job)
@@ -1392,7 +1391,7 @@ deleteCodeBreakageJob cause_id job = do
 updateCodeBreakageDescription ::
      Int64
   -> Text
-  -> SqlRead.DbIO (Either Text Int64)
+  -> SqlReadTypes.DbIO (Either Text Int64)
 updateCodeBreakageDescription cause_id description = do
   conn <- ask
   liftIO $ Right <$> execute conn sql (description, cause_id)
@@ -1407,7 +1406,7 @@ updateCodeBreakageDescription cause_id description = do
 updateCodeBreakageResolutionSha1 ::
      Int64
   -> Builds.RawCommit
-  -> SqlRead.DbIO (Either Text Int64)
+  -> SqlReadTypes.DbIO (Either Text Int64)
 updateCodeBreakageResolutionSha1 cause_id (Builds.RawCommit sha1) = do
   conn <- ask
   liftIO $ Right <$> execute conn sql (sha1, cause_id)
@@ -1422,7 +1421,7 @@ updateCodeBreakageResolutionSha1 cause_id (Builds.RawCommit sha1) = do
 updateCodeBreakageCauseSha1 ::
      Int64
   -> Builds.RawCommit
-  -> SqlRead.DbIO (Either Text Int64)
+  -> SqlReadTypes.DbIO (Either Text Int64)
 updateCodeBreakageCauseSha1 cause_id (Builds.RawCommit sha1) = do
   conn <- ask
   liftIO $ Right <$> execute conn sql (sha1, cause_id)
@@ -1436,7 +1435,7 @@ updateCodeBreakageCauseSha1 cause_id (Builds.RawCommit sha1) = do
 
 deleteCodeBreakageResolution ::
      Int64
-  -> SqlRead.DbIO (Either Text Int64)
+  -> SqlReadTypes.DbIO (Either Text Int64)
 deleteCodeBreakageResolution cause_id = do
   conn <- ask
   liftIO $ Right <$> execute conn sql (Only cause_id)
@@ -1450,9 +1449,9 @@ deleteCodeBreakageResolution cause_id = do
 addCodeBreakageJobName ::
      Int64 -- ^ cause
   -> Text -- ^ job name
-  -> SqlRead.AuthDbIO (Either Text Int64)
+  -> SqlReadTypes.AuthDbIO (Either Text Int64)
 addCodeBreakageJobName cause_id job_name = do
-  SqlRead.AuthConnection conn (AuthStages.Username author) <- ask
+  SqlReadTypes.AuthConnection conn (AuthStages.Username author) <- ask
   liftIO $ Right <$> execute conn job_insertion_sql (job_name, cause_id, author)
   where
     job_insertion_sql = Q.qjoin [
@@ -1468,9 +1467,9 @@ addCodeBreakageJobName cause_id job_name = do
 updateCodeBreakageMode ::
      Int64 -- ^ cause
   -> Int64 -- ^ mode
-  -> SqlRead.AuthDbIO (Either Text Int64)
+  -> SqlReadTypes.AuthDbIO (Either Text Int64)
 updateCodeBreakageMode cause_id mode = do
-  SqlRead.AuthConnection conn (AuthStages.Username author) <- ask
+  SqlReadTypes.AuthConnection conn (AuthStages.Username author) <- ask
   liftIO $ Right <$> execute conn insertion_sql (cause_id, author, mode)
   where
     insertion_sql = Q.qjoin [
@@ -1486,7 +1485,7 @@ updateCodeBreakageMode cause_id mode = do
 storePullRequestStaticMetadata ::
      Builds.PullRequestNumber
   -> GithubApiFetch.PullRequestResponseSubset
-  -> SqlRead.DbIO (Either Text Int64)
+  -> SqlReadTypes.DbIO (Either Text Int64)
 storePullRequestStaticMetadata pr_number pr_metadata = do
   conn <- ask
   liftIO $ Right <$> execute conn insertion_sql (GithubApiFetch.toDbFields pr_number pr_metadata)
@@ -1508,9 +1507,9 @@ storePullRequestStaticMetadata pr_number pr_metadata = do
 
 recordBlockedPRCommentPosting ::
      Builds.PullRequestNumber
-  -> SqlRead.AuthDbIO (Either TL.Text Int64)
+  -> SqlReadTypes.AuthDbIO (Either TL.Text Int64)
 recordBlockedPRCommentPosting (Builds.PullRequestNumber pr_number) = do
-  SqlRead.AuthConnection conn (AuthStages.Username author) <- ask
+  SqlReadTypes.AuthConnection conn (AuthStages.Username author) <- ask
   liftIO $ Right <$> execute conn insertion_sql (author, pr_number)
   where
     insertion_sql = Q.qjoin [
@@ -1525,7 +1524,7 @@ recordBlockedPRCommentPosting (Builds.PullRequestNumber pr_number) = do
 updatePatternDescription ::
      ScanPatterns.PatternId
   -> Text
-  -> SqlRead.DbIO (Either Text Int64)
+  -> SqlReadTypes.DbIO (Either Text Int64)
 updatePatternDescription (ScanPatterns.PatternId pattern_id) description = do
   conn <- ask
   liftIO $ Right <$> execute conn sql (description, pattern_id)
@@ -1540,7 +1539,7 @@ updatePatternDescription (ScanPatterns.PatternId pattern_id) description = do
 updatePatternSpecificity ::
      ScanPatterns.PatternId
   -> Int
-  -> SqlRead.DbIO (Either Text Int64)
+  -> SqlReadTypes.DbIO (Either Text Int64)
 updatePatternSpecificity (ScanPatterns.PatternId pattern_id) specificity = do
   conn <- ask
   liftIO $ Right <$> execute conn sql (specificity, pattern_id)
@@ -1554,7 +1553,7 @@ updatePatternSpecificity (ScanPatterns.PatternId pattern_id) specificity = do
 
 insertSinglePattern ::
      Either (ScanPatterns.Pattern, AuthStages.Username) (DbHelpers.WithAuthorship ScanPatterns.DbPattern)
-  -> SqlRead.DbIO (Either Text Int64)
+  -> SqlReadTypes.DbIO (Either Text Int64)
 insertSinglePattern either_pattern =
 
   if is_regex && author /= authorizedRegexCreatorUser
@@ -1662,7 +1661,7 @@ insertSinglePattern either_pattern =
 
 restorePatterns ::
      [DbHelpers.WithAuthorship ScanPatterns.DbPattern]
-  -> SqlRead.DbIO (Either Text [Int64])
+  -> SqlReadTypes.DbIO (Either Text [Int64])
 restorePatterns pattern_list = do
   eithers <- for pattern_list $ apiNewPattern . Right
   return $ sequenceA eithers
@@ -1729,7 +1728,7 @@ insertLatestPatternBuildScan ::
      ScanRecords.ScanId
   -> Builds.BuildStepId
   -> Int64
-  -> SqlRead.DbIO ()
+  -> SqlReadTypes.DbIO ()
 insertLatestPatternBuildScan
     (ScanRecords.ScanId scan_id)
     (Builds.NewBuildStepId step_id)
@@ -1822,7 +1821,7 @@ reportBreakage ::
   -> Builds.RawCommit
   -> Builds.RawCommit
   -> Text
-  -> SqlRead.AuthDbIO (Either Text Int64)
+  -> SqlReadTypes.AuthDbIO (Either Text Int64)
 reportBreakage
     jobs_delimited
     failure_mode_id
@@ -1831,7 +1830,7 @@ reportBreakage
     breakage_sha1
     notes = do
 
-  auth_conn@(SqlRead.AuthConnection conn user_alias) <- ask
+  auth_conn@(SqlReadTypes.AuthConnection conn user_alias) <- ask
 
   let breakage_report = Breakages.NewBreakageReport
         breakage_sha1
@@ -1916,10 +1915,10 @@ apiCodeBreakageCauseInsert
 apiCodeBreakageResolutionInsertMultiple ::
      Builds.RawCommit
   -> String
-  -> SqlRead.AuthDbIO (Either Text [Int64])
+  -> SqlReadTypes.AuthDbIO (Either Text [Int64])
 apiCodeBreakageResolutionInsertMultiple sha1 cause_ids_delimited = do
 
-  SqlRead.AuthConnection conn user_alias <- ask
+  SqlReadTypes.AuthConnection conn user_alias <- ask
   let gen_resolution_report cause_id = Breakages.NewResolutionReport
         sha1
         cause_id
@@ -1996,9 +1995,9 @@ data PatternFieldOverrides = PatternFieldOverrides {
 
 elaborateBuildFailure ::
      Builds.UniversalBuildId
-  -> SqlRead.AuthDbIO (Either Text Int64)
+  -> SqlReadTypes.AuthDbIO (Either Text Int64)
 elaborateBuildFailure (Builds.UniversalBuildId build_id) = do
-  SqlRead.AuthConnection conn (AuthStages.Username username) <- ask
+  SqlReadTypes.AuthConnection conn (AuthStages.Username username) <- ask
   liftIO $ catchViolation catcher $ do
     [Only echoed_build_id] <- query conn sql (build_id, username)
     return echoed_build_id
@@ -2019,9 +2018,9 @@ elaborateBuildFailure (Builds.UniversalBuildId build_id) = do
 
 promoteMatch ::
      MatchOccurrences.MatchId
-  -> SqlRead.AuthDbIO (Either Text Int64)
+  -> SqlReadTypes.AuthDbIO (Either Text Int64)
 promoteMatch (MatchOccurrences.MatchId match_id) = do
-  SqlRead.AuthConnection conn (AuthStages.Username username) <- ask
+  SqlReadTypes.AuthConnection conn (AuthStages.Username username) <- ask
   liftIO $ catchViolation catcher $ do
     [Only match_id] <- query conn sql (match_id, username)
     return match_id
@@ -2042,9 +2041,9 @@ promoteMatch (MatchOccurrences.MatchId match_id) = do
 
 apiNewPatternWrapped ::
      ScanPatterns.Pattern
-  -> SqlRead.AuthDbIO (Either Text Int64)
+  -> SqlReadTypes.AuthDbIO (Either Text Int64)
 apiNewPatternWrapped new_pattern = do
-  SqlRead.AuthConnection conn user <- ask
+  SqlReadTypes.AuthConnection conn user <- ask
   response <- liftIO $ flip runReaderT conn $ apiNewPattern $ Left (new_pattern, user)
   liftIO $ D.debugList [
       "I got here with response:"
@@ -2058,7 +2057,7 @@ apiNewPatternWrapped new_pattern = do
 -- without deconstructing/reconstructing it?
 apiNewPattern ::
      Either (ScanPatterns.Pattern, AuthStages.Username) (DbHelpers.WithAuthorship ScanPatterns.DbPattern)
-  -> SqlRead.DbIO (Either Text Int64)
+  -> SqlReadTypes.DbIO (Either Text Int64)
 apiNewPattern new_pattern = do
 
   liftIO $ D.debugStr "Inserting new pattern..."

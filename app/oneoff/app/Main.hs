@@ -12,16 +12,13 @@ import           Data.Foldable              (for_)
 import qualified Data.Set                   as Set
 import           Data.Text                  (Text)
 import qualified Data.Text                  as T
-import qualified Network.OAuth.OAuth2       as OAuth2
 import           Options.Applicative
 import           System.IO
 
-import qualified AmazonQueue
 import qualified AmazonQueueData
 import qualified Builds
 import qualified CircleApi
 import qualified CircleAuth
-import qualified CircleTrigger
 import qualified CommentRender
 import qualified Constants
 import qualified DbHelpers

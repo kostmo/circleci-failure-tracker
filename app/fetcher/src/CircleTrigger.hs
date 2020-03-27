@@ -25,7 +25,7 @@ import qualified CircleBuild
 import qualified Constants
 import qualified FetchHelpers
 import qualified MyUtils
-import qualified Sql.Read                   as SqlRead
+import qualified Sql.ReadTypes              as SqlReadTypes
 import qualified Sql.Write                  as SqlWrite
 
 
@@ -138,7 +138,7 @@ rebuildJobsBatch
 
 
 rebuildCircleJobsInWorkflow ::
-     SqlRead.AuthConnection
+     SqlReadTypes.AuthConnection
   -> CircleApi.CircleCIApiToken
   -> [(Builds.UniversalBuildId, Builds.BuildNumber)]
   -> ExceptT String IO [(Builds.UniversalBuildId, Int64)]

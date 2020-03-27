@@ -167,7 +167,7 @@ scottyApp
         build_num_tuples <- runReaderT SqlRead.getFlakyMasterBuildsToRetry conn
 
         runExceptT $ CircleTrigger.rebuildCircleJobsInWorkflow
-          (SqlRead.AuthConnection conn $ AuthStages.Username "")
+          (SqlReadTypes.AuthConnection conn $ AuthStages.Username "")
           (CircleApi.circle_api_token third_party_auth)
           build_num_tuples
 

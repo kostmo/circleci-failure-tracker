@@ -134,9 +134,9 @@ scanBuilds
 rescanSingleBuildWrapped ::
      CircleApi.ThirdPartyAuth
   -> Builds.UniversalBuildId
-  -> SqlRead.AuthDbIO (Either a T.Text)
+  -> SqlReadTypes.AuthDbIO (Either a T.Text)
 rescanSingleBuildWrapped third_party_auth build_to_scan = do
-  SqlRead.AuthConnection conn user <- ask
+  SqlReadTypes.AuthConnection conn user <- ask
   liftIO $ rescanSingleBuild
     third_party_auth
     conn
@@ -148,9 +148,9 @@ rescanSingleBuildWrapped third_party_auth build_to_scan = do
 apiRescanBuilds ::
      CircleApi.ThirdPartyAuth
   -> [Builds.UniversalBuildId]
-  -> SqlRead.AuthDbIO (Either T.Text Int)
+  -> SqlReadTypes.AuthDbIO (Either T.Text Int)
 apiRescanBuilds third_party_auth scannable_build_numbers = do
-  SqlRead.AuthConnection conn user <- ask
+  SqlReadTypes.AuthConnection conn user <- ask
   either_matches <- liftIO $ runExceptT $ do
     scan_resources <- ExceptT $ prepareScanResources
       third_party_auth
@@ -424,7 +424,7 @@ storeScanResult ::
   -> Builds.BuildStepId
   -> Int64
   -> ([ScanUtils.PatternScanTimeout], [ScanPatterns.ScanMatch])
-  -> SqlRead.DbIO ()
+  -> SqlReadTypes.DbIO ()
 storeScanResult
     scan_id
     buildstep_id

@@ -12,6 +12,12 @@ import qualified CircleApi
 import qualified DbHelpers
 
 
+drCIDomainName :: Text
+drCIDomainName = "dr.pytorch.org"
+
+localhostDomainName :: Text
+localhostDomainName = "localhost"
+
 pytorchRepoOwner :: DbHelpers.OwnerAndRepo
 pytorchRepoOwner = DbHelpers.OwnerAndRepo projectName repoName
 

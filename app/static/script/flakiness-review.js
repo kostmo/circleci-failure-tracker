@@ -399,10 +399,45 @@ function gen_jobs_table(element_id, data_payload, height_string) {
 }
 
 
+
+
+function requery_by_test_table(query_args_dict) {
+
+	getJsonWithThrobber("#throbber-by-test", "/api/isolated-failures-timespan-by-test", query_args_dict, function (data) {
+
+		if (data.success) {
+
+			if (data.payload.length) {
+				const min_commit_idx = Math.min(...data.payload.map(x => x.min_commit_index));
+				const max_commit_idx = Math.max(...data.payload.map(x => x.max_commit_index));
+
+				console.log("commit index span:", min_commit_idx, max_commit_idx);
+
+
+				const min_commit_number = Math.min(...data.payload.map(x => x.min_commit_number));
+				const max_commit_number = Math.max(...data.payload.map(x => x.max_commit_number));
+
+				console.log("commit number span:", min_commit_number, max_commit_number);
+				const commit_count = max_commit_number - min_commit_number + 1;
+			}
+
+			gen_pattern_matches_table("isolated-failures-by-test-table", data.payload);
+
+		} else {
+			alert("error: " + data.error);
+		}
+	});
+}
+
+
 function requery_by_pattern_table(query_args_dict) {
 
+	const modified_query_args_dict = Object.assign({}, query_args_dict);
+
+	modified_query_args_dict["exclude_named_tests"] = $("#exclude-named-tests-checkbox").is(":checked");
+
 //	$("#full-span-grid-link-placeholder-by-job").hide();
-	getJsonWithThrobber("#throbber-by-pattern", "/api/isolated-failures-timespan-by-pattern", query_args_dict, function (data) {
+	getJsonWithThrobber("#throbber-by-pattern", "/api/isolated-failures-timespan-by-pattern", modified_query_args_dict, function (data) {
 
 		if (data.success) {
 
@@ -477,14 +512,25 @@ function requery_tables(query_args_dict) {
 	if (grouping_mode == "by-job") {
 
 		$("#by-pattern-container").hide();
+		$("#by-test-container").hide();
 		$("#by-job-container").show();
 
 		requery_by_job_table(query_args_dict);
-	} else {
+
+	} else if (grouping_mode == "by-pattern") {
+
 		$("#by-job-container").hide();
+		$("#by-test-container").hide();
 		$("#by-pattern-container").show();
 
 		requery_by_pattern_table(query_args_dict);
+
+	} else {
+		$("#by-job-container").hide();
+		$("#by-pattern-container").hide();
+		$("#by-test-container").show();
+
+		requery_by_test_table(query_args_dict);
 	}
 
 	$("#failure-details-section").hide();

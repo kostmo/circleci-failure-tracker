@@ -79,7 +79,7 @@ updateCircleCIBuildsList
   insertion_counts <- for branch_names $ \branch_name -> do
 
     maybe_most_recent_build_time <- flip runReaderT conn $
-      SqlRead.getMostRecentProviderApiFetchedBuild SqlRead.circleCIProviderIndex $ T.pack branch_name
+      SqlRead.getMostRecentProviderApiFetchedBuild SqlReadTypes.circleCIProviderIndex $ T.pack branch_name
 
     D.debugList [
         "Fetching builds list for branch"

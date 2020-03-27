@@ -3,16 +3,64 @@
 
 module Sql.ReadTypes where
 
+import           Control.Monad.IO.Class     (liftIO)
+import           Control.Monad.Trans.Reader (ReaderT, ask)
 import           Data.Aeson
 import           Data.Text                  (Text)
 import           Data.Time                  (UTCTime)
-import           Database.PostgreSQL.Simple (FromRow)
+import           Database.PostgreSQL.Simple
 import           GHC.Generics
 import           GHC.Int                    (Int64)
 
+import qualified AuthStages
 import qualified Builds
 import qualified CommitBuilds
+import qualified DbHelpers
 import qualified JsonUtils
+
+
+maxApiPrCommentRevisionsToFetch :: Int
+maxApiPrCommentRevisionsToFetch = 1000
+
+
+hiddenContextLinecount :: Int
+hiddenContextLinecount = 1000
+
+
+circleCIProviderIndex :: Int64
+circleCIProviderIndex = 3
+
+
+type DbIO a = ReaderT Connection IO a
+
+
+type AuthDbIO a = ReaderT AuthConnection IO a
+
+
+-- | For use with ReaderT
+data AuthConnection = AuthConnection {
+    getConn :: Connection
+  , getUser :: AuthStages.Username
+  }
+
+
+runQuery sql = do
+  conn <- ask
+  liftIO $ query_ conn sql
+
+
+
+data TimeRange =
+    Bounded (DbHelpers.StartEnd UTCTime)
+  | StartOnly UTCTime
+
+
+queryParmsFromTimeRange :: TimeRange -> (UTCTime, Maybe UTCTime)
+queryParmsFromTimeRange time_bounds =
+  case time_bounds of
+    Bounded (DbHelpers.StartEnd start_time end_time) -> (start_time, Just end_time)
+    StartOnly start_time -> (start_time, Nothing)
+
 
 
 newtype RecordCount = NewRecordCount Int64

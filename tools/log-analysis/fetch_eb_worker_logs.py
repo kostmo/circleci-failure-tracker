@@ -91,8 +91,8 @@ def run():
 
     start = timer()
 
-    msg2 = get_eb_worker_logs('e-ev8fq2dhbv')
-    for timestamp, url, instance_id in msg2[:2]:
+    log_list = get_eb_worker_logs('e-ev8fq2dhbv')
+    for timestamp, url, instance_id in log_list:
         print("timestamp:", timestamp)
         print("url:", url)
 
