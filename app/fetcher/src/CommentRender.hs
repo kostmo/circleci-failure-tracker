@@ -110,8 +110,18 @@ genSpecialCasedNonupstreamSection
   (StatusUpdateTypes.NewSpecialCasedBuilds xla_build_failures) =
   if null xla_build_failures
   then mempty
-  else (M.heading 3 "XLA failure" :) $ pure $ T.unwords $ map M.sentence explanation_sentences
+  else M.heading 3 "XLA failure" : explanation_paragraph : xla_match_details_block
   where
+    -- TODO
+    xla_match_details_block = []
+{-
+    xla_match_details_block = zipWith (genMatchedBuildSection $ length xla_build_failures)
+        [1..] xla_build_failures
+-}
+
+    explanation_paragraph = T.unwords $
+      map M.sentence explanation_sentences
+
     explanation_sentences = [
         [ "Job"
         , build_name_list
@@ -180,9 +190,8 @@ genBuildFailuresSections
     upstream_matched_section = genUpstreamFailuresSection upstream_breakages
 
 
-genPatternMatchedSections pattern_matched_builds = [
-    nonupstream_nonflaky_pattern_matched_section
-  ] ++ tentative_and_confirmed_flaky_sections
+genPatternMatchedSections pattern_matched_builds =
+  nonupstream_nonflaky_pattern_matched_section : tentative_and_confirmed_flaky_sections
   where
     StatusUpdateTypes.NewFlakyBuildPartition
       tentatively_flaky_builds

@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveAnyClass    #-}
 {-# LANGUAGE DeriveGeneric     #-}
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -40,7 +41,7 @@ boundsAsTuple = min_bound &&& max_bound
 data StartEnd a = StartEnd {
     _start :: !a
   , _end   :: !a
-  } deriving (Show, Generic)
+  } deriving (Show, Generic, FromRow)
 
 instance (ToJSON a) => ToJSON (StartEnd a) where
   toJSON = genericToJSON JsonUtils.dropUnderscore
@@ -48,8 +49,8 @@ instance (ToJSON a) => ToJSON (StartEnd a) where
 instance (FromJSON a) => FromJSON (StartEnd a) where
   parseJSON = genericParseJSON JsonUtils.dropUnderscore
 
-instance (FromField a) => FromRow (StartEnd a) where
-  fromRow = StartEnd <$> field <*> field
+--instance (FromField a) => FromRow (StartEnd a) where
+--  fromRow = StartEnd <$> field <*> field
 
 
 offsetStartEnd :: (a -> a) -> DbHelpers.StartEnd a -> DbHelpers.StartEnd a

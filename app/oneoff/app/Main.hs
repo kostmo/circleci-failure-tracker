@@ -12,6 +12,7 @@ import           Data.Foldable              (for_)
 import qualified Data.Set                   as Set
 import           Data.Text                  (Text)
 import qualified Data.Text                  as T
+import qualified Data.Text.Lazy             as LT
 import           Options.Applicative
 import           System.IO
 
@@ -20,6 +21,7 @@ import qualified Builds
 import qualified CircleApi
 import qualified CircleAuth
 import qualified CommentRender
+import qualified CommitBuilds
 import qualified Constants
 import qualified DbHelpers
 import qualified DbPreparation
@@ -27,8 +29,10 @@ import qualified DebugUtils                 as D
 import qualified GadgitFetch
 import qualified GadgitTest
 import qualified GitRev
+import qualified MatchOccurrences
 import qualified Scanning
 import qualified Sql.Read.Read              as SqlRead
+import qualified Sql.Read.Types             as SqlReadTypes
 import qualified Sql.Update                 as SqlUpdate
 import qualified StatusUpdate
 import qualified StatusUpdateTypes
@@ -66,8 +70,7 @@ myCliParser = NewCommandLineArgs
 
 benchmarkScan conn args build_id =
 
-  testWithScanResources conn args $ \scan_resources -> do
-
+  testWithScanResources conn args $ \scan_resources ->
     liftIO $ Scanning.scanBuilds
       scan_resources
       Scanning.ScanAllPatterns
@@ -126,7 +129,7 @@ testBotCommentGeneration
 
 
 testGetSpanningBreakages conn args sha1 =
-  testWithScanResources conn args $ \scan_resources -> do
+  testWithScanResources conn args $ \_scan_resources -> do
 
     foo <- SqlRead.getSpanningBreakages
       conn
@@ -216,7 +219,18 @@ mainAppCode args = do
         Builds.RawCommit "b027b3b5d9e37292e26073fecf96ed33b8f1f488"
 
 
-  testTestRetrieval conn args $ Builds.UniversalBuildId 110871872
+  when True $ do
+    foo <- flip runReaderT conn $ SqlRead.logContextFunc 0
+      (MatchOccurrences.MatchId 7113010)
+      10
+
+    D.debugStr "BLARG LINES"
+    let f (x, y) = unwords [show x ++ ":", LT.unpack $ LT.strip y]
+    D.debugStr $ (unlines . map f . CommitBuilds._log_lines) $ fromRight (error "BAD") foo
+
+  when False $ do
+    testTestRetrieval conn args $ Builds.UniversalBuildId 110871872
+    return ()
 
 
   when False $
@@ -238,10 +252,11 @@ mainAppCode args = do
 
   -}
 
-  return ()
 
   where
-    circletoken = CircleApi.CircleCIApiToken $ T.pack $ circleciApiToken args
+    circletoken = CircleApi.CircleCIApiToken $
+      T.pack $ circleciApiToken args
+
     git_repo_dir = repoGitDir args
 
     connection_data = DbHelpers.NewDbConnectionData {

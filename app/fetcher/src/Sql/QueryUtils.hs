@@ -41,7 +41,7 @@ aliasedSubquery subquery alias = qjoin [
   ]
 
 
--- | Ensuress that the number of question marks
+-- | Ensures that the number of question marks
 -- is equal to the number of fields
 insertionValues :: [Query] -> Query
 insertionValues fields = qjoin [

@@ -1330,22 +1330,68 @@ apiTimeoutCommitBuilds (Builds.RawCommit sha1) = do
 -- | Obtains subset of console log from database
 readLogSubset ::
      MatchOccurrences.MatchId
-  -> Int -- ^ offset
-  -> Int -- ^ limit
-  -> DbIO [LT.Text]
-readLogSubset (MatchOccurrences.MatchId match_id) offset limit = do
+  -> Int -- ^ context count
+  -> Int -- ^ hidden leading line count
+  -> DbIO (Either Text (ScanPatterns.MatchDetails, [LT.Text], Int))
+readLogSubset
+    (MatchOccurrences.MatchId match_id)
+    context_count
+    hidden_leading_line_count = do
+
   conn <- ask
-  xs <- liftIO $ query conn sql (match_id, offset, limit)
-  return $ map (\(Only log_text) -> log_text) xs
+  xs <- liftIO $ do
+    D.debugList [
+        "SQL:"
+      , show sql
+      , "PARMS:"
+      , show query_parms
+      ]
+
+    query conn sql query_parms
+
+  let get_row (line_text, line_number, span_start, span_end, lines_array, first_line_number) = (ScanPatterns.NewMatchDetails line_text line_number $ DbHelpers.StartEnd span_start span_end, fromPGArray lines_array, first_line_number)
+  return $ maybeToEither err_msg $ Safe.headMay $ map get_row xs
+
   where
+    err_msg = T.unwords [
+        "Couldn't find log for match ID"
+      , T.pack $ show match_id
+      ]
+
+    query_parms = (context_count, hidden_leading_line_count, match_id)
+
     sql = Q.qjoin [
-        "SELECT UNNEST(COALESCE(content_lines, regexp_split_to_array(content, '\n')))"
+        "WITH myconstants"
+      , "(context_count, hidden_leading_line_count) as (values (?, ?))"
+      , "SELECT"
+      , Q.list [
+          "line_text"
+        , "line_number"
+        , "span_start"
+        , "span_end"
+        , "array_output[first_context_line + 1:last_context_line + 1]"
+        , "first_context_line"
+        ]
+      , "FROM"
+      , Q.aliasedSubquery inner_sql "foo"
+      ]
+
+    inner_sql = Q.qjoin [
+        "SELECT"
+      , Q.list [
+          "matches_augmented.line_text"
+        , "matches_augmented.line_number"
+        , "matches_augmented.span_start"
+        , "matches_augmented.span_end"
+        , "COALESCE(content_lines, regexp_split_to_array(content, '\n')) AS array_output"
+        , "GREATEST(0, matches_augmented.line_number - (matches_augmented.context_count + hidden_leading_line_count)) AS first_context_line"
+        , "matches_augmented.line_number + matches_augmented.context_count AS last_context_line"
+        ]
       , "FROM log_metadata"
-      , "JOIN matches"
-      , "ON matches.build_step = log_metadata.step"
-      , "WHERE matches.id = ?"
-      , "OFFSET ?"
-      , "LIMIT ?"
+      , "JOIN"
+      , "(SELECT * FROM matches, myconstants) matches_augmented"
+      , "ON matches_augmented.build_step = log_metadata.step"
+      , "WHERE matches_augmented.id = ?"
       ]
 
 
@@ -3808,8 +3854,6 @@ getBestBuildMatch (Builds.UniversalBuildId build_id) = do
     sql = genBestBuildMatchQuery fields_to_fetch sql_where_conditions
 
 
--- | TODO: Could shave off a bit more time
--- by doing the line count arithmetic in Postgres
 logContextFunc ::
      Int -- ^ Hidden context linecount
   -> MatchOccurrences.MatchId
@@ -3817,64 +3861,21 @@ logContextFunc ::
   -> DbIO (Either Text CommitBuilds.LogContext)
 logContextFunc
     hidden_context_linecount
-    mid@(MatchOccurrences.MatchId match_id)
+    mid
     context_linecount = do
 
   conn <- ask
-  liftIO $ do
-    xs <- query conn sql $ Only match_id
-    let maybe_first_row = Safe.headMay xs
+  liftIO $ runExceptT $ do
 
-    runExceptT $ do
+    (match_info, log_lines, first_context_line_number) <- ExceptT $ runReaderT
+      (readLogSubset mid context_linecount hidden_context_linecount)
+      conn
 
-      first_row <- except $ maybeToEither errmsg maybe_first_row
+    let tuples = zip [first_context_line_number..] log_lines
 
-      let (line_number, span_start, span_end, line_text) = first_row
-          match_info = ScanPatterns.NewMatchDetails line_text line_number $ DbHelpers.StartEnd span_start span_end
-
-          first_context_line = max 0 $ line_number - context_linecount - hidden_context_linecount
-
-          last_context_line = line_number + context_linecount + 1
-          retrieval_line_count = last_context_line - first_context_line
-
-      log_lines <- liftIO $ do
-        {-
-        D.debugList [
-            "reading console log subset starting at line"
-          , show first_context_line
-          , "spanning"
-          , show retrieval_line_count
-          , "lines."
-          ]
-        -}
-        runReaderT
-          (readLogSubset mid first_context_line retrieval_line_count)
-          conn
-
-      let tuples = zip [first_context_line..] log_lines
-
-      return $ CommitBuilds.LogContext
-        match_info
-        tuples
-
-  where
-    sql = Q.qjoin [
-        "SELECT"
-      , Q.list [
-          "line_number"
-        , "span_start"
-        , "span_end"
-        , "line_text"
-        ]
-      , "FROM matches"
-      , "WHERE id = ?"
-      ]
-
-    errmsg = T.pack $ unwords [
-        "Match ID"
-      , show match_id
-      , "not found"
-      ]
+    return $ CommitBuilds.LogContext
+      match_info
+      tuples
 
 
 getPatternMatches ::

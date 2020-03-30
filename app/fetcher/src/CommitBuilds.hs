@@ -28,7 +28,7 @@ instance ToJSON FailureModeInfo where
 data LogContext = LogContext {
     _match_info :: ScanPatterns.MatchDetails
   , _log_lines  :: [(Int, LT.Text)]
-  } deriving Generic
+  } deriving (Generic, Show)
 
 instance ToJSON LogContext where
   toJSON = genericToJSON JsonUtils.dropUnderscore

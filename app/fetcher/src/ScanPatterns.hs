@@ -1,7 +1,6 @@
-{-# LANGUAGE DeriveAnyClass    #-}
-{-# LANGUAGE DeriveGeneric     #-}
-{-# LANGUAGE LambdaCase        #-}
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric  #-}
+{-# LANGUAGE LambdaCase     #-}
 
 module ScanPatterns where
 
@@ -10,6 +9,7 @@ import           Data.Text                            (Text)
 import qualified Data.Text.Lazy                       as LT
 import           Database.PostgreSQL.Simple           (FromRow)
 import           Database.PostgreSQL.Simple.FromField (FromField, fromField)
+import           Database.PostgreSQL.Simple.FromRow   (field, fromRow)
 import           GHC.Generics
 import           GHC.Int                              (Int64)
 
@@ -86,6 +86,12 @@ data MatchDetails = NewMatchDetails {
   } deriving (Show, Generic)
 
 instance ToJSON MatchDetails
+
+instance FromRow MatchDetails where
+  fromRow = NewMatchDetails
+    <$> field
+    <*> field
+    <*> fromRow
 
 
 data ScanMatch = NewScanMatch {
