@@ -3,7 +3,7 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE OverloadedStrings     #-}
 
-module Sql.ReadFlaky where
+module Sql.Read.Flaky where
 
 import           Control.Monad              (unless)
 import           Control.Monad.IO.Class     (liftIO)
@@ -25,8 +25,8 @@ import qualified DebugUtils                 as D
 import qualified JsonUtils
 import qualified ScanPatterns
 import qualified Sql.QueryUtils             as Q
-import           Sql.ReadTypes              (DbIO)
-import qualified Sql.ReadTypes              as SqlReadTypes
+import           Sql.Read.Types             (DbIO)
+import qualified Sql.Read.Types             as SqlReadTypes
 import qualified WebApi
 
 

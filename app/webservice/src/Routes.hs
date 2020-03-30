@@ -38,9 +38,9 @@ import qualified JsonUtils
 import qualified MatchOccurrences
 import qualified Scanning
 import qualified ScanPatterns
-import qualified Sql.Read                        as SqlRead
-import qualified Sql.ReadFlaky                   as SqlReadFlaky
-import qualified Sql.ReadTypes                   as SqlReadTypes
+import qualified Sql.Read.Flaky                  as SqlReadFlaky
+import qualified Sql.Read.Read                   as SqlRead
+import qualified Sql.Read.Types                  as SqlReadTypes
 import qualified Sql.Update                      as SqlUpdate
 import qualified Sql.Write                       as SqlWrite
 import qualified StatusUpdate
@@ -436,7 +436,6 @@ scottyApp
     fmap WebApi.toJsonEither . SqlReadFlaky.apiIsolatedTestFailuresTimespan
       <$> parseTimeRangeParms
 
-
   get "/api/master-job-failures-in-timespan" $
     (fmap . fmap) WebApi.toJsonEither $ SqlReadFlaky.apiJobFailuresInTimespan
       <$> S.param "job"
@@ -446,7 +445,6 @@ scottyApp
     (fmap . fmap) WebApi.toJsonEither $ SqlReadFlaky.apiPatternFailuresInTimespan
       <$> (ScanPatterns.PatternId <$> S.param "pattern")
       <*> (DbHelpers.InclusiveNumericBounds <$> S.param "commit-id-min" <*> S.param "commit-id-max")
-
 
   get "/api/master-test-failures-in-timespan" $
     (fmap . fmap) WebApi.toJsonEither $ SqlReadFlaky.apiTestFailuresInTimespan

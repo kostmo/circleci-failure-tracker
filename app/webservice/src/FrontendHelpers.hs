@@ -37,8 +37,8 @@ import qualified GitRev
 import qualified Pagination
 import qualified Scanning
 import qualified ScanPatterns
-import qualified Sql.Read                   as SqlRead
-import qualified Sql.ReadTypes              as SqlReadTypes
+import qualified Sql.Read.Read              as SqlRead
+import qualified Sql.Read.Types             as SqlReadTypes
 import qualified StatusUpdate
 import qualified WebApi
 

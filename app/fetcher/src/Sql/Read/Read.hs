@@ -3,7 +3,7 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE OverloadedStrings     #-}
 
-module Sql.Read where
+module Sql.Read.Read where
 
 import           Control.Monad.IO.Class               (liftIO)
 import           Control.Monad.Trans.Except           (ExceptT (ExceptT),
@@ -47,8 +47,8 @@ import qualified PostedComments
 import qualified ScanPatterns
 import qualified ScanUtils
 import qualified Sql.QueryUtils                       as Q
-import           Sql.ReadTypes                        (DbIO, runQuery)
-import qualified Sql.ReadTypes                        as SqlReadTypes
+import           Sql.Read.Types                       (DbIO, runQuery)
+import qualified Sql.Read.Types                       as SqlReadTypes
 import qualified UnmatchedBuilds
 import qualified WebApi
 import qualified WeeklyStats

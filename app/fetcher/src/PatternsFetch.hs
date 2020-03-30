@@ -13,7 +13,7 @@ import qualified Network.HTTP.Client        as NC
 import           Network.Wreq               as NW
 
 import qualified FetchHelpers
-import qualified Sql.ReadTypes              as SqlReadTypes
+import qualified Sql.Read.Types             as SqlReadTypes
 import qualified Sql.Write                  as SqlWrite
 
 

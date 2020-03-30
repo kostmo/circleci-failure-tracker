@@ -25,8 +25,8 @@ import qualified GadgitFetch
 import qualified Markdown            as M
 import qualified MatchOccurrences
 import qualified MyUtils
-import qualified Sql.Read            as SqlRead
-import qualified Sql.ReadTypes       as SqlReadTypes
+import qualified Sql.Read.Read       as SqlRead
+import qualified Sql.Read.Types      as SqlReadTypes
 import qualified Sql.Update          as SqlUpdate
 import qualified StatusUpdateTypes
 import qualified UnmatchedBuilds

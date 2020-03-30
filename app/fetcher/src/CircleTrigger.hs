@@ -25,7 +25,7 @@ import qualified CircleBuild
 import qualified Constants
 import qualified FetchHelpers
 import qualified MyUtils
-import qualified Sql.ReadTypes              as SqlReadTypes
+import qualified Sql.Read.Types             as SqlReadTypes
 import qualified Sql.Write                  as SqlWrite
 
 

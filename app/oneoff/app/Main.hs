@@ -28,7 +28,7 @@ import qualified GadgitFetch
 import qualified GadgitTest
 import qualified GitRev
 import qualified Scanning
-import qualified Sql.Read                   as SqlRead
+import qualified Sql.Read.Read              as SqlRead
 import qualified Sql.Update                 as SqlUpdate
 import qualified StatusUpdate
 import qualified StatusUpdateTypes

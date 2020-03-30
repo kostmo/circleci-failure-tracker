@@ -64,8 +64,8 @@ import qualified PullRequestWebhooks
 import qualified PushWebhooks
 import qualified Scanning
 import qualified ScanRecords
-import qualified Sql.Read                      as SqlRead
-import qualified Sql.ReadTypes                 as SqlReadTypes
+import qualified Sql.Read.Read                 as SqlRead
+import qualified Sql.Read.Types                as SqlReadTypes
 import qualified Sql.Update                    as SqlUpdate
 import qualified Sql.Write                     as SqlWrite
 import qualified StatusEventQuery

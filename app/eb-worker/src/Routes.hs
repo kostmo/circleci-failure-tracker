@@ -26,8 +26,8 @@ import qualified CircleTrigger
 import qualified Constants
 import qualified DbHelpers
 import qualified DebugUtils                 as D
-import qualified Sql.Read                   as SqlRead
-import qualified Sql.ReadTypes              as SqlReadTypes
+import qualified Sql.Read.Read              as SqlRead
+import qualified Sql.Read.Types             as SqlReadTypes
 import qualified Sql.Write                  as SqlWrite
 import qualified StatusUpdate
 

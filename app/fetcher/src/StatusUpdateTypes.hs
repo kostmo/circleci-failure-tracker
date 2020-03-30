@@ -5,7 +5,7 @@ import           Data.Text       (Text)
 import qualified Data.Tree       as Tr
 
 import qualified CommitBuilds
-import qualified Sql.ReadTypes   as SqlReadTypes
+import qualified Sql.Read.Types  as SqlReadTypes
 import qualified Sql.Update      as SqlUpdate
 import qualified UnmatchedBuilds
 
