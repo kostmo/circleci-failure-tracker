@@ -324,14 +324,12 @@ findKnownBuildBreakages access_token owned_repo sha1 = do
     -- TODO Use both manually annotated and inferred methods for
     -- associating breakages!
 
-    (inferred_breakages_retrieval_timing, inferred_upstream_caused_broken_jobs) <- D.timeThisFloat $
+    (_inferred_breakages_retrieval_timing, inferred_upstream_caused_broken_jobs) <- D.timeThisFloat $
       liftIO $ flip runReaderT conn $ SqlRead.getInferredSpanningBrokenJobsBetter sha1
 
     let inferred_breakages_map = HashMap.fromList $ map
           (swap . MyUtils.derivePair SqlReadTypes.extractJobName)
           inferred_upstream_caused_broken_jobs
-
-    liftIO $ D.debugList ["inferred_breakages_retrieval_timing", show inferred_breakages_retrieval_timing]
 
     -- NOTE: This requires that the "merge base" with master of the branch
     -- commit already be cached into the database.

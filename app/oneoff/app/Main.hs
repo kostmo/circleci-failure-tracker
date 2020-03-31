@@ -215,7 +215,7 @@ mainAppCode args = do
 
   when True $
     void $ testWithAccessToken args $ testBotCommentGeneration conn $
-        Builds.RawCommit "3e0ef4d786c45c7f75fe94fdb105df5cd520c8b2"
+        Builds.RawCommit "07da7d045f8ce1e510d7bb4070c5d0ddbe94a5b2"
 
   when False $ do
     foo <- flip runReaderT conn $ SqlRead.logContextFunc 0
