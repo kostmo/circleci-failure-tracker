@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase        #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module StatusUpdate (
@@ -371,6 +372,17 @@ scanAndPost
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
 
 
+
+separateExcerpts x = case CommitBuilds._maybe_match_excerpt x of
+      Nothing -> SqlReadTypes.NonLogWrapped x
+      Just match_excerpt -> SqlReadTypes.LogWrapped (x, CommitBuilds.BuildWithLogContext (CommitBuilds._commit_build x) log_context)
+        where
+          match_details = MatchOccurrences.toMatchDetails $ CommitBuilds._match $ CommitBuilds._commit_build x
+          log_context = CommitBuilds.LogContext match_details numbered_log_lines
+          numbered_log_lines = CommitBuilds.toNumberedLineTuples match_excerpt
+
+
+
 fetchCommitPageInfo ::
      SqlUpdate.UpstreamBreakagesInfo
   -> Builds.RawCommit
@@ -416,13 +428,11 @@ fetchCommitPageInfo pre_broken_info sha1 validated_sha1 = runExceptT $ do
   let special_cased_builds_wrapper = StatusUpdateTypes.NewSpecialCasedBuilds special_cased_xla_failures
 
 
-  let ff x = sequenceA (x, CommitBuilds.BuildWithLogContext (CommitBuilds._commit_build x) <$> maybe_log_context)
-        where
-          match_details = MatchOccurrences.toMatchDetails $ CommitBuilds._match $ CommitBuilds._commit_build x
-          maybe_log_context = CommitBuilds.LogContext match_details <$> maybe_numbered_log_lines
-          maybe_numbered_log_lines = CommitBuilds.toNumberedLineTuples <$> CommitBuilds._maybe_match_excerpt x
+  let excerpt_classified = map separateExcerpts non_special_cased_failures
 
-      matched_builds_with_log_context = Maybe.mapMaybe ff non_special_cased_failures
+      matched_builds_with_log_context = flip Maybe.mapMaybe excerpt_classified $ \case
+        SqlReadTypes.LogWrapped x -> Just x
+        _                         -> Nothing
 
 
   liftIO $ D.debugStr "Fetching unmatched commit builds..."

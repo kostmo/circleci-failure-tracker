@@ -23,11 +23,6 @@ class ToTree a where
   toTree :: a -> Tr.Tree a
 
 
-type ParameterizedWrapperTuple a = (a, CommitBuilds.BuildWithLogContext)
-
-type CommitBuildWrapperTuple = ParameterizedWrapperTuple SqlReadTypes.StandardCommitBuildWrapper
-
-
 data CommitPageInfo = NewCommitPageInfo {
     toplevel_partitioning :: UpstreamnessBuildsPartition SqlReadTypes.StandardCommitBuildWrapper
   }
@@ -45,7 +40,7 @@ data SpecialCasedBuilds a = NewSpecialCasedBuilds {
 
 
 data NonUpstreamBuildPartition a = NewNonUpstreamBuildPartition {
-    pattern_matched_builds             :: FlakyBuildPartition (ParameterizedWrapperTuple a)
+    pattern_matched_builds             :: FlakyBuildPartition (SqlReadTypes.ParameterizedWrapperTuple a)
   , unmatched_builds                   :: [UnmatchedBuilds.UnmatchedBuild]
   , special_cased_nonupstream_failures :: SpecialCasedBuilds a
   , timed_out_builds :: [UnmatchedBuilds.UnmatchedBuild]
@@ -90,8 +85,8 @@ instance Partition (NonFlakyBuilds a) where
 
 
 partitionMatchedBuilds ::
-     [CommitBuildWrapperTuple]
-  -> FlakyBuildPartition CommitBuildWrapperTuple
+     [SqlReadTypes.CommitBuildWrapperTuple]
+  -> FlakyBuildPartition SqlReadTypes.CommitBuildWrapperTuple
 partitionMatchedBuilds pattern_matched_builds =
   NewFlakyBuildPartition
     tentative_flaky_builds_partition

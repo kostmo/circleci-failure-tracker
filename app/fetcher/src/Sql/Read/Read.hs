@@ -2155,6 +2155,7 @@ getRevisionBuilds git_revision = do
       query conn sql sql_parms
 
     timed_out_builds <- except either_timed_out_builds
+
     return $ DbHelpers.BenchmarkedResponse timing $
       RevisionBuildsWithTimeouts
         timed_out_builds

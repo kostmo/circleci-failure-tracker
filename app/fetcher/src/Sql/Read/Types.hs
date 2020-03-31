@@ -72,6 +72,17 @@ newtype RecordCount = NewRecordCount Int64
 newtype ElasticBeanstalkWorkerEventID = NewElasticBeanstalkWorkerEventID {getId :: Int64}
 
 
+data OptionalLogExcerptWrappedBuild =
+    LogWrapped CommitBuildWrapperTuple
+  | NonLogWrapped StandardCommitBuildWrapper
+
+
+type ParameterizedWrapperTuple a = (a, CommitBuilds.BuildWithLogContext)
+
+
+type CommitBuildWrapperTuple = ParameterizedWrapperTuple StandardCommitBuildWrapper
+
+
 type StandardCommitBuildWrapper = CommitBuilds.CommitBuildWrapper CommitBuildSupplementalPayload
 
 

@@ -251,8 +251,8 @@ genPatternMatchedSections pattern_matched_builds =
 
 
 genFlakySections ::
-     StatusUpdateTypes.TentativeFlakyBuilds StatusUpdateTypes.CommitBuildWrapperTuple
-  -> [StatusUpdateTypes.CommitBuildWrapperTuple]
+     StatusUpdateTypes.TentativeFlakyBuilds SqlReadTypes.CommitBuildWrapperTuple
+  -> [SqlReadTypes.CommitBuildWrapperTuple]
   -> Tr.Forest (Maybe FailureSection)
 genFlakySections
     tentative_flakies
@@ -429,7 +429,7 @@ genUpstreamFailuresSection upstream_breakages =
 genMatchedBuildSection ::
      Int
   -> Int
-  -> StatusUpdateTypes.CommitBuildWrapperTuple
+  -> SqlReadTypes.CommitBuildWrapperTuple
   -> [Text]
 genMatchedBuildSection total_count idx wrapped_build_with_log_context = [
     M.heading 4 $ T.unwords [
