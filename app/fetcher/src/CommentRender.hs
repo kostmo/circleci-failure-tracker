@@ -12,6 +12,7 @@ import qualified Data.Text           as T
 import qualified Data.Text.Lazy      as LT
 import           Data.Time           (UTCTime)
 import qualified Data.Time.Format    as TF
+import           Data.Time.LocalTime (utcToZonedTime)
 import qualified Data.Tree           as Tr
 
 import qualified Builds
@@ -325,11 +326,18 @@ toBreakageTimeSpan upstream_cause = BreakageTimeSpan
 
 
 formatBreakageTimeSpan :: BreakageTimeSpan -> Text
-formatBreakageTimeSpan (BreakageTimeSpan breakage_start_time maybe_breakage_end original_obj) =
+formatBreakageTimeSpan
+    (BreakageTimeSpan breakage_start_time maybe_breakage_end original_obj) =
+
   T.unwords breakage_span_words_list
   where
-    ft_date_only = T.pack . TF.formatTime TF.defaultTimeLocale "%b %d"
-    ft_time_only = T.pack . TF.formatTime TF.defaultTimeLocale "%l:%M%P"
+    inTimeZone = utcToZonedTime $ read "PDT"
+
+    ft_date_only = T.pack . TF.formatTime TF.defaultTimeLocale "%b %d" . inTimeZone
+    ft_time_only = T.pack . TF.formatTime TF.defaultTimeLocale "%l:%M%P" . inTimeZone
+
+    ft_timezone = T.pack . TF.formatTime TF.defaultTimeLocale "%Z" . inTimeZone
+
     start_time_date_only = ft_date_only breakage_start_time
 
     breakage_span_words_list = case maybe_breakage_end of
@@ -342,6 +350,7 @@ formatBreakageTimeSpan (BreakageTimeSpan breakage_start_time maybe_breakage_end 
            , ft_time_only breakage_start_time
            , "to"
            , ft_time_only end_time
+           , ft_timezone end_time
            , commit_count_blurb
            ]
          else [
