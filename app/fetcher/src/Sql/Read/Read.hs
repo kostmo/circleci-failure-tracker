@@ -1332,7 +1332,7 @@ readLogSubset ::
      MatchOccurrences.MatchId
   -> Int -- ^ context count
   -> Int -- ^ hidden leading line count
-  -> DbIO (Either Text (ScanPatterns.MatchDetails, [LT.Text], Int))
+  -> DbIO (Either Text (ScanPatterns.MatchDetails, CommitBuilds.ExcerptLinesAndStartNumber))
 readLogSubset
     (MatchOccurrences.MatchId match_id)
     context_count
@@ -1349,7 +1349,7 @@ readLogSubset
 
     query conn sql query_parms
 
-  let get_row (line_text, line_number, span_start, span_end, lines_array, first_line_number) = (ScanPatterns.NewMatchDetails line_text line_number $ DbHelpers.StartEnd span_start span_end, fromPGArray lines_array, first_line_number)
+  let get_row (line_text, line_number, span_start, span_end, lines_array, first_line_number) = (ScanPatterns.NewMatchDetails line_text line_number $ DbHelpers.StartEnd span_start span_end, CommitBuilds.ExcerptLinesAndStartNumber (fromPGArray lines_array) first_line_number)
   return $ maybeToEither err_msg $ Safe.headMay $ map get_row xs
 
   where
@@ -2185,7 +2185,7 @@ getRevisionBuilds git_revision = do
     git_revision_text = GitRev.sha1 git_revision
 
     -- Note that we're passing the git revision as two separate query parameters:
-    sql_parms = (10 :: Int, 0 :: Int, git_revision_text, git_revision_text)
+    sql_parms = (SqlReadTypes.pullRequestCommentsLogContextLineCount, 0 :: Int, git_revision_text, git_revision_text)
 
     base_sql = genBestBuildMatchQuery fields_to_fetch inner_sql_where_conditions
 
@@ -3908,15 +3908,12 @@ logContextFunc
   conn <- ask
   liftIO $ runExceptT $ do
 
-    (match_info, log_lines, first_context_line_number) <- ExceptT $ runReaderT
+    (match_info, excerpt_lines_and_start_number) <- ExceptT $ runReaderT
       (readLogSubset mid context_linecount hidden_context_linecount)
       conn
 
-    let tuples = zip [first_context_line_number..] log_lines
-
-    return $ CommitBuilds.LogContext
-      match_info
-      tuples
+    return $ CommitBuilds.LogContext match_info $
+      CommitBuilds.toNumberedLineTuples excerpt_lines_and_start_number
 
 
 getPatternMatches ::

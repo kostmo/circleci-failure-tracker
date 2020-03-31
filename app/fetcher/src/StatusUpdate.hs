@@ -416,14 +416,13 @@ fetchCommitPageInfo pre_broken_info sha1 validated_sha1 = runExceptT $ do
   let special_cased_builds_wrapper = StatusUpdateTypes.NewSpecialCasedBuilds special_cased_xla_failures
 
 
-  -- TODO: Can we combine these into a single query to save time?
-  let get_match_excerpt x = ExceptT $ (fmap . fmap) (\y -> (x, CommitBuilds.BuildWithLogContext (CommitBuilds._commit_build x) y)) $
-        SqlRead.logContextFunc 0
-          (MatchOccurrences._match_id $ CommitBuilds._match $ CommitBuilds._commit_build x)
-          CommentRender.pullRequestCommentsLogContextLineCount
+  let ff x = sequenceA (x, CommitBuilds.BuildWithLogContext (CommitBuilds._commit_build x) <$> maybe_log_context)
+        where
+          match_details = MatchOccurrences.toMatchDetails $ CommitBuilds._match $ CommitBuilds._commit_build x
+          maybe_log_context = CommitBuilds.LogContext match_details <$> maybe_numbered_log_lines
+          maybe_numbered_log_lines = CommitBuilds.toNumberedLineTuples <$> CommitBuilds._maybe_match_excerpt x
 
-
-  matched_builds_with_log_context <- for non_special_cased_failures get_match_excerpt
+      matched_builds_with_log_context = Maybe.mapMaybe ff non_special_cased_failures
 
 
   liftIO $ D.debugStr "Fetching unmatched commit builds..."

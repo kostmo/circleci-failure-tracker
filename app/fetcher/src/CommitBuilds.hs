@@ -42,9 +42,17 @@ data BuildWithLogContext = BuildWithLogContext {
 
 
 data ExcerptLinesAndStartNumber = ExcerptLinesAndStartNumber {
-    maybe_excerpt_lines             :: [LT.Text]
-  , maybe_first_context_line_number :: Int
+    excerpt_lines             :: [LT.Text]
+  , first_context_line_number :: Int
   } deriving (Generic, ToJSON)
+
+
+toNumberedLineTuples ::
+     ExcerptLinesAndStartNumber
+  -> [(Int, LT.Text)]
+toNumberedLineTuples
+    (CommitBuilds.ExcerptLinesAndStartNumber log_lines first_context_line_number) =
+   zip [first_context_line_number..] log_lines
 
 
 getMatchExcerpt = do

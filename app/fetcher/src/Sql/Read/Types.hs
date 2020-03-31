@@ -19,6 +19,10 @@ import qualified DbHelpers
 import qualified JsonUtils
 
 
+pullRequestCommentsLogContextLineCount :: Int
+pullRequestCommentsLogContextLineCount = 10
+
+
 maxApiPrCommentRevisionsToFetch :: Int
 maxApiPrCommentRevisionsToFetch = 1000
 

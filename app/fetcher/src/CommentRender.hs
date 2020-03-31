@@ -40,10 +40,6 @@ xlaContacts = [
   ]
 
 
-pullRequestCommentsLogContextLineCount :: Int
-pullRequestCommentsLogContextLineCount = 10
-
-
 drCiGitHubRepoBase :: Text
 drCiGitHubRepoBase = "https://github.com/kostmo/circleci-failure-tracker"
 

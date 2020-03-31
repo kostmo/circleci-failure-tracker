@@ -6,11 +6,13 @@ module MatchOccurrences where
 import           Data.Aeson
 import           Data.Text                            (Text)
 import qualified Data.Text                            as T
+import qualified Data.Text.Lazy                       as LT
 import           Database.PostgreSQL.Simple           (FromRow)
 import           Database.PostgreSQL.Simple.FromField (FromField, fromField)
 import           GHC.Generics
 import           GHC.Int                              (Int64)
 
+import qualified DbHelpers
 import qualified JsonUtils
 import qualified ScanPatterns
 
@@ -40,6 +42,13 @@ data MatchOccurrencesForBuild = MatchOccurrencesForBuild {
 
 instance ToJSON MatchOccurrencesForBuild where
   toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+toMatchDetails :: MatchOccurrencesForBuild -> ScanPatterns.MatchDetails
+toMatchDetails x = ScanPatterns.NewMatchDetails
+  (LT.fromStrict $ _line_text x)
+  (_line_number x)
+  (DbHelpers.StartEnd (_span_start x) (_span_end x))
 
 
 getMatchedText :: MatchOccurrencesForBuild -> Text
