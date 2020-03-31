@@ -41,7 +41,7 @@ instance FromJSON CircleCISingleTestsParent
 -- the "result" field is "failure"
 data CircleCISingleTestResult = CircleCISingleTestResult {
     message   :: Maybe Text
-  , file      :: Text
+  , file      :: Maybe Text
   , result    :: Text
   , name      :: Text
   , classname :: Text

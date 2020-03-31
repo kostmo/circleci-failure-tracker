@@ -174,12 +174,7 @@ getUnvisitedBuildIds
           , "universal_build_id IN ?"
           ]
 
-    Right limit -> do
-      D.debugList [
-          "Querying for unvisited builds using LIMIT with SQL:"
-        , show sql
-        ]
-      query conn sql
+    Right limit -> query conn sql
         (SqlReadTypes.circleCIProviderIndex, limit)
       where
         sql = Q.qjoin [
