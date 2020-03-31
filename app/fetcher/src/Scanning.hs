@@ -470,7 +470,7 @@ rescanVisitedBuilds
     should_refetch_logs
     visited_builds_list =
 
-  for (zip [1::Int ..] visited_builds_list) process
+  mapM process $ zip [1::Int ..] visited_builds_list
 
   where
   visited_count = length visited_builds_list
@@ -741,10 +741,8 @@ scanLogText lines_list patterns = do
     , "patterns"
     ]
 
-
   (literal_timing, literal_result_tuples) <- D.timeThisFloat $
     for input_pairs apply_literal_patterns
-
 
   D.debugList [
       "Scanning"
@@ -793,7 +791,6 @@ scanLogText lines_list patterns = do
     , "seconds"
     ]
 
-
   let result_tuples = literal_result_tuples ++ regex_result_tuples
       final_matches = concat $ filter (not . null) $ map snd result_tuples
       final_result_tuple = (concatMap fst result_tuples, final_matches)
@@ -815,15 +812,16 @@ scanLogText lines_list patterns = do
     automaton = Aho.build $
       map (\x -> (Aho.unpackUtf16 $ ScanPatterns.patternText $ ScanPatterns.expression $ DbHelpers.record x, x)) literal_patterns
 
-    allMatches = Aho.runText [] $ \matches match -> Aho.Step (match : matches)
-
+    allMatches = Aho.runText [] $
+      \matches match -> Aho.Step (match : matches)
 
     aho_transformer line line_number (Aho.Match (Aho.CodeUnitIndex match_pos_end) db_pattern) =
       ScanPatterns.NewScanMatch db_pattern $
         ScanPatterns.NewMatchDetails line line_number $
           DbHelpers.StartEnd (match_pos_end - pattern_length) match_pos_end
       where
-        pattern_length = T.length $ ScanPatterns.patternText $ ScanPatterns.expression $ DbHelpers.record db_pattern
+        pattern_length = T.length $ ScanPatterns.patternText $
+          ScanPatterns.expression $ DbHelpers.record db_pattern
 
     apply_literal_patterns (line_number, line) =
       return ([], wrapped_matches)

@@ -434,7 +434,6 @@ fetchCommitPageInfo pre_broken_info sha1 validated_sha1 = runExceptT $ do
         SqlReadTypes.LogWrapped x -> Just x
         _                         -> Nothing
 
-
   liftIO $ D.debugStr "Fetching unmatched commit builds..."
 
 
@@ -531,7 +530,8 @@ fetchAndCachePrAuthor ::
   -> ExceptT LT.Text IO AuthStages.Username
 fetchAndCachePrAuthor conn access_token pr_number = do
 
-  maybe_pr_author <- liftIO $ flip runReaderT conn $ SqlRead.getCachedPullRequestAuthor pr_number
+  maybe_pr_author <- liftIO $ flip runReaderT conn $
+    SqlRead.getCachedPullRequestAuthor pr_number
 
   case maybe_pr_author of
     Just author -> do
@@ -543,7 +543,9 @@ fetchAndCachePrAuthor conn access_token pr_number = do
 
       liftIO $ do
         D.debugStr "Fetched PR author from GitHub API"
-        runReaderT (SqlWrite.storePullRequestStaticMetadata pr_number pr_metadata_obj) conn
+
+        flip runReaderT conn $ SqlWrite.storePullRequestStaticMetadata pr_number pr_metadata_obj
+
         D.debugStr "Stored PR author and other metadata in database"
       return pr_author
 

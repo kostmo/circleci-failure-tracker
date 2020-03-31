@@ -39,6 +39,9 @@ instance FromJSON CircleCISingleTestsParent
 
 -- | Note: The "message" field is non-null when the value of
 -- the "result" field is "failure"
+--
+-- Anecdotally, sometimes the "file" field is also null,
+-- while the other fields are populated.
 data CircleCISingleTestResult = CircleCISingleTestResult {
     message   :: Maybe Text
   , file      :: Maybe Text
