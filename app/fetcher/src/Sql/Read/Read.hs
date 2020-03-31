@@ -1360,6 +1360,7 @@ readLogSubset
 
     query_parms = (context_count, hidden_leading_line_count, match_id)
 
+    -- XXX This query logic is duplicated in getRevisionBuilds
     sql = Q.qjoin [
         "WITH myconstants"
       , "(context_count, hidden_leading_line_count) as (values (?, ?))"
@@ -2160,9 +2161,16 @@ getRevisionBuilds git_revision = do
   conn <- ask
 
   either_timed_out_builds <- apiTimeoutCommitBuilds $
-      Builds.RawCommit $ GitRev.sha1 git_revision
+    Builds.RawCommit $ GitRev.sha1 git_revision
 
   liftIO $ runExceptT $ do
+
+    liftIO $ D.debugList [
+        "MEGA SQL:"
+      , show sql
+      , "MEGA PARMS:"
+      , show sql_parms
+      ]
 
     (timing, my_non_timed_out_builds) <- liftIO $ D.timeThisFloat $
       query conn sql sql_parms
@@ -2177,7 +2185,7 @@ getRevisionBuilds git_revision = do
     git_revision_text = GitRev.sha1 git_revision
 
     -- Note that we're passing the git revision as two separate query parameters:
-    sql_parms = (git_revision_text, git_revision_text)
+    sql_parms = (10 :: Int, 0 :: Int, git_revision_text, git_revision_text)
 
     base_sql = genBestBuildMatchQuery fields_to_fetch inner_sql_where_conditions
 
@@ -2190,7 +2198,8 @@ getRevisionBuilds git_revision = do
       ]
 
     sql = Q.qjoin [
-        base_sql
+        "WITH myconstants"
+      , "(context_count, hidden_leading_line_count) as (values (?, ?))"      , base_sql
       , "LEFT JOIN"
       , Q.aliasedSubquery status_events_inner_sql "github_status_events_state_counts"
       , "ON"
@@ -2200,7 +2209,37 @@ getRevisionBuilds git_revision = do
         ]
       , "LEFT JOIN rebuild_trigger_event_counts"
       , "ON global_builds.global_build_num = rebuild_trigger_event_counts.universal_build"
+      , "LEFT JOIN"
+      , Q.aliasedSubquery outer_match_excerpt_sql "outer_match_excerpt"
+      , "ON outer_match_excerpt.excerpt_match_id = match_id"
       ]
+
+    outer_match_excerpt_sql = Q.qjoin [
+        "SELECT"
+      , Q.list [
+          "match_excerpts.array_output[match_excerpts.first_context_line_number + 1:match_excerpts.last_context_line_number + 1] AS excerpt_lines"
+        , "match_excerpts.first_context_line_number"
+        , "match_excerpts.match_id AS excerpt_match_id"
+        ]
+      , "FROM"
+      , Q.aliasedSubquery inner_match_excerpt_sql "match_excerpts"
+      ]
+
+
+    inner_match_excerpt_sql = Q.qjoin [
+        "SELECT"
+      , Q.list [
+          "COALESCE(content_lines, regexp_split_to_array(content, '\n')) AS array_output"
+        , "GREATEST(0, matches_augmented.line_number - (matches_augmented.context_count + hidden_leading_line_count)) AS first_context_line_number"
+        , "matches_augmented.line_number + matches_augmented.context_count AS last_context_line_number"
+        , "matches_augmented.id AS match_id"
+        ]
+      , "FROM log_metadata"
+      , "JOIN"
+      , "(SELECT * FROM matches, myconstants) matches_augmented"
+      , "ON matches_augmented.build_step = log_metadata.step"
+      ]
+
 
     inner_sql_where_conditions = ["vcs_revision = ?"]
 
@@ -2238,6 +2277,8 @@ getRevisionBuilds git_revision = do
       , Q.coalesce "github_status_events_state_counts.has_completed_rerun" "FALSE" "has_completed_rerun"
       , "rebuild_trigger_event_counts.universal_build IS NOT NULL AS has_triggered_rebuild"
       , Q.coalesce "github_status_events_state_counts.failure_count" "0" "failure_count"
+      , "outer_match_excerpt.excerpt_lines"
+      , "outer_match_excerpt.first_context_line_number"
       ]
 
 

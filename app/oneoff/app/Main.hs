@@ -213,13 +213,13 @@ mainAppCode args = do
     void $ testGetSpanningBreakages conn args $
       Builds.RawCommit "c1fa71972e9cdc50562d6f807fc6ca893c585112"
 
-  when False $
+  when True $
     void $ testWithAccessToken args $ testBotCommentGeneration conn $
 --      Builds.RawCommit "ade3c1bd83041c2fb7be4ecb41803aee251ed693" -- XLA
-        Builds.RawCommit "b027b3b5d9e37292e26073fecf96ed33b8f1f488"
+        Builds.RawCommit "c2e1496377685db6cd584aec37b9f7ec48992770"
 
 
-  when True $ do
+  when False $ do
     foo <- flip runReaderT conn $ SqlRead.logContextFunc 0
       (MatchOccurrences.MatchId 7113010)
       10

@@ -49,7 +49,6 @@ runQuery sql = do
   liftIO $ query_ conn sql
 
 
-
 data TimeRange =
     Bounded (DbHelpers.StartEnd UTCTime)
   | StartOnly UTCTime
@@ -62,11 +61,12 @@ queryParmsFromTimeRange time_bounds =
     StartOnly start_time -> (start_time, Nothing)
 
 
-
 newtype RecordCount = NewRecordCount Int64
   deriving Show
 
+
 newtype ElasticBeanstalkWorkerEventID = NewElasticBeanstalkWorkerEventID {getId :: Int64}
+
 
 type StandardCommitBuildWrapper = CommitBuilds.CommitBuildWrapper CommitBuildSupplementalPayload
 
@@ -77,7 +77,6 @@ data CommitBuildSupplementalPayload = CommitBuildSupplementalPayload {
   , has_triggered_rebuild           :: Bool
   , failure_count                   :: Int
   } deriving (Generic, FromRow, ToJSON)
-
 
 
 data UpstreamBrokenJob = UpstreamBrokenJob {

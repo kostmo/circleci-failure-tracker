@@ -7,6 +7,7 @@ import           Data.Aeson
 import qualified Data.Text.Lazy                     as LT
 import           Database.PostgreSQL.Simple         (FromRow)
 import           Database.PostgreSQL.Simple.FromRow (field, fromRow)
+import           Database.PostgreSQL.Simple.Types   (fromPGArray)
 import           GHC.Generics
 
 import qualified Builds
@@ -40,16 +41,34 @@ data BuildWithLogContext = BuildWithLogContext {
   }
 
 
+data ExcerptLinesAndStartNumber = ExcerptLinesAndStartNumber {
+    maybe_excerpt_lines             :: [LT.Text]
+  , maybe_first_context_line_number :: Int
+  } deriving (Generic, ToJSON)
+
+
+getMatchExcerpt = do
+  maybe_excerpt_lines <- field
+  maybe_first_context_line_number <- field
+  return $ ExcerptLinesAndStartNumber
+    <$> (fromPGArray <$> maybe_excerpt_lines)
+    <*> maybe_first_context_line_number
+
+
 data CommitBuildWrapper a = CommitBuildWrapper {
-    _commit_build :: CommitBuild
-  , _supplemental :: a
+    _commit_build        :: CommitBuild
+  , _supplemental        :: a
+  , _maybe_match_excerpt :: Maybe ExcerptLinesAndStartNumber
   } deriving Generic
 
 instance (ToJSON a) => ToJSON (CommitBuildWrapper a) where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 instance (FromRow a) => FromRow (CommitBuildWrapper a) where
-  fromRow = CommitBuildWrapper <$> fromRow <*> fromRow
+  fromRow = CommitBuildWrapper
+    <$> fromRow
+    <*> fromRow
+    <*> getMatchExcerpt
 
 
 data CommitBuild = NewCommitBuild {
