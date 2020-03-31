@@ -472,13 +472,6 @@ getRevisitableWhitelistedBuilds ::
 getRevisitableWhitelistedBuilds universal_build_ids = do
   conn <- ask
   liftIO $ do
-    D.debugList [
-        "SQL:"
-      , show sql
-      , "PARMS:"
-      , show parms
-      ]
-
     (timing, xs) <- D.timeThisFloat $ query conn sql $ Only $ In parms
     D.debugList [
         "getRevisitableWhitelistedBuilds took"
@@ -1339,14 +1332,7 @@ readLogSubset
     hidden_leading_line_count = do
 
   conn <- ask
-  xs <- liftIO $ do
-    D.debugList [
-        "SQL:"
-      , show sql
-      , "PARMS:"
-      , show query_parms
-      ]
-
+  xs <- liftIO $
     query conn sql query_parms
 
   let get_row (line_text, line_number, span_start, span_end, lines_array, first_line_number) = (ScanPatterns.NewMatchDetails line_text line_number $ DbHelpers.StartEnd span_start span_end, CommitBuilds.ExcerptLinesAndStartNumber (fromPGArray lines_array) first_line_number)
@@ -1365,34 +1351,34 @@ readLogSubset
         "WITH myconstants"
       , "(context_count, hidden_leading_line_count) as (values (?, ?))"
       , "SELECT"
-      , Q.list [
-          "line_text"
-        , "line_number"
-        , "span_start"
-        , "span_end"
-        , "array_output[first_context_line + 1:last_context_line + 1]"
+      , Q.list $ match_details_fields ++ [
+          "array_output[first_context_line + 1:last_context_line + 1]"
         , "first_context_line"
         ]
       , "FROM"
       , Q.aliasedSubquery inner_sql "foo"
+      , "WHERE match_id = ?"
+      ]
+
+    match_details_fields = [
+        "line_text"
+      , "line_number"
+      , "span_start"
+      , "span_end"
       ]
 
     inner_sql = Q.qjoin [
         "SELECT"
-      , Q.list [
-          "matches_augmented.line_text"
-        , "matches_augmented.line_number"
-        , "matches_augmented.span_start"
-        , "matches_augmented.span_end"
-        , "COALESCE(content_lines, regexp_split_to_array(content, '\n')) AS array_output"
+      , Q.list $ [
+          "COALESCE(content_lines, regexp_split_to_array(content, '\n')) AS array_output"
         , "GREATEST(0, matches_augmented.line_number - (matches_augmented.context_count + hidden_leading_line_count)) AS first_context_line"
         , "matches_augmented.line_number + matches_augmented.context_count AS last_context_line"
-        ]
+        , "matches_augmented.id AS match_id"
+        ] ++ match_details_fields
       , "FROM log_metadata"
       , "JOIN"
       , "(SELECT * FROM matches, myconstants) matches_augmented"
       , "ON matches_augmented.build_step = log_metadata.step"
-      , "WHERE matches_augmented.id = ?"
       ]
 
 
@@ -2165,13 +2151,6 @@ getRevisionBuilds git_revision = do
 
   liftIO $ runExceptT $ do
 
-    liftIO $ D.debugList [
-        "MEGA SQL:"
-      , show sql
-      , "MEGA PARMS:"
-      , show sql_parms
-      ]
-
     (timing, my_non_timed_out_builds) <- liftIO $ D.timeThisFloat $
       query conn sql sql_parms
 
@@ -2214,6 +2193,8 @@ getRevisionBuilds git_revision = do
       , "ON outer_match_excerpt.excerpt_match_id = match_id"
       ]
 
+
+    -- XXX This query logic is duplicated in readLogSubset
     outer_match_excerpt_sql = Q.qjoin [
         "SELECT"
       , Q.list [
