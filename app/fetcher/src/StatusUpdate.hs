@@ -382,7 +382,6 @@ separateExcerpts x = case CommitBuilds._maybe_match_excerpt x of
           numbered_log_lines = CommitBuilds.toNumberedLineTuples match_excerpt
 
 
-
 fetchCommitPageInfo ::
      SqlUpdate.UpstreamBreakagesInfo
   -> Builds.RawCommit
@@ -404,13 +403,14 @@ fetchCommitPageInfo pre_broken_info sha1 validated_sha1 = runExceptT $ do
 
   let get_job_name = Builds.job_name . Builds.build_record . CommitBuilds._build . CommitBuilds._commit_build
 
-      is_xla_job jobname = not $ null $ T.breakOnAll "xla" $ T.toLower jobname
---      is_xla_job= const False
+      is_xla_job jobname = not $ null $
+        T.breakOnAll "xla" $ T.toLower jobname
 
   -- Partition builds between upstream and non-upstream breakages
   let f = MyUtils.derivePair $ (`HashMap.lookup` pre_broken_jobs_map) . get_job_name
 
       (upstream_breakages, non_upstream_breakages_raw) = partition (not . null . snd) $ map f revision_builds
+
       paired_upstream_breakages = Maybe.mapMaybe sequenceA upstream_breakages
 
       raw_non_upstream_breakages = map fst non_upstream_breakages_raw

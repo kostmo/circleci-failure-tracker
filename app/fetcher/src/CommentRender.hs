@@ -90,25 +90,26 @@ genUnmatchedBuildsTable unmatched_nonupstream_builds =
 
 genTimedOutSection ::
      [UnmatchedBuilds.UnmatchedBuild]
-  -> Maybe FailureSection
+  -> Maybe (Tr.Tree NodeType)
 genTimedOutSection
   timed_out_builds =
   if null timed_out_builds
   then Nothing
-  else Just $ NewFailureSection NonUpstream NonFlaky $ NE.toList $ M.colonize [
-          MyUtils.pluralize (length timed_out_builds) "job"
-        , M.bold "timed out"
-        ] :| map ((\x -> "* " <> M.codeInline x) . UnmatchedBuilds._job_name) timed_out_builds
+  else Just $ pure $ LeafNode $ NewFailureSection NonUpstream NonFlaky $
+    NE.toList $ M.colonize [
+        MyUtils.pluralize (length timed_out_builds) "job"
+      , M.bold "timed out"
+      ] :| map ((\x -> "* " <> M.codeInline x) . UnmatchedBuilds._job_name) timed_out_builds
 
 
 genSpecialCasedNonupstreamSection ::
      StatusUpdateTypes.SpecialCasedBuilds SqlReadTypes.StandardCommitBuildWrapper
-  -> Maybe FailureSection
+  -> Maybe (Tr.Tree NodeType)
 genSpecialCasedNonupstreamSection
   (StatusUpdateTypes.NewSpecialCasedBuilds xla_build_failures) =
   if null xla_build_failures
   then Nothing
-  else Just $ NewFailureSection NonUpstream NonFlaky $ M.heading 3 "XLA failure" : explanation_paragraph : xla_match_details_block
+  else Just $ pure $ LeafNode $ NewFailureSection NonUpstream NonFlaky $ M.heading 3 "XLA failure" : explanation_paragraph : xla_match_details_block
   where
     -- TODO
     xla_match_details_block = []
@@ -147,34 +148,32 @@ genSpecialCasedNonupstreamSection
       map (T.cons '@') xlaContacts
 
 
-
 data Upstreamness = Upstream | NonUpstream
 
 
 data Flakiness = Flaky | NonFlaky
 
 
+data NodeType = InteriorNode Text | LeafNode FailureSection
+
+
 data FailureSection = NewFailureSection {
     upstreamness  :: Upstreamness
   , flakiness     :: Flakiness
-  , section_lines :: [Text]
+  , section_lines :: [Text] -- ^ or a label
   }
 
 
-genBuildFailuresSections ::
-     StatusUpdateTypes.CommitPageInfo
-  -> Tr.Forest (Maybe FailureSection)
-genBuildFailuresSections
-    (StatusUpdateTypes.NewCommitPageInfo toplevel_partitioning) =
-  pattern_matched_sections ++ [
-      pure pattern_unmatched_section
-    , pure timed_out_section
-    , pure special_cased_nonupstream_section
-    , pure upstream_matched_section
-    ]
+genNewFailuresSections nonupstream_builds =
+  Just $ Tr.Node (InteriorNode "New failures") $
+    Maybe.catMaybes children_maybes
   where
 
-    StatusUpdateTypes.NewUpstreamnessBuildsPartition upstream_breakages nonupstream_builds = toplevel_partitioning
+    children_maybes = pattern_matched_sections ++ [
+        pattern_unmatched_section
+      , timed_out_section
+      , special_cased_nonupstream_section
+      ]
 
     StatusUpdateTypes.NewNonUpstreamBuildPartition
       pattern_matched_builds
@@ -196,14 +195,30 @@ genBuildFailuresSections
 
     pattern_unmatched_section = if null unmatched_nonupstream_builds
       then Nothing
-      else Just $ NewFailureSection NonUpstream NonFlaky $ pure pattern_unmatched_header
+      else Just $ pure $ LeafNode $ NewFailureSection NonUpstream NonFlaky $ pure pattern_unmatched_header
         <> NE.toList (genUnmatchedBuildsTable unmatched_nonupstream_builds)
+
+
+genBuildFailuresSections ::
+     StatusUpdateTypes.CommitPageInfo
+  -> Tr.Tree NodeType
+genBuildFailuresSections
+    (StatusUpdateTypes.NewCommitPageInfo toplevel_partitioning) =
+
+  Tr.Node (InteriorNode "All failures") $ Maybe.catMaybes maybe_nodes
+
+  where
+    maybe_nodes = [new_failures_node, upstream_matched_section]
+
+    StatusUpdateTypes.NewUpstreamnessBuildsPartition upstream_breakages nonupstream_builds = toplevel_partitioning
+
+    new_failures_node = genNewFailuresSections nonupstream_builds
 
     upstream_matched_section = genUpstreamFailuresSection upstream_breakages
 
 
 genPatternMatchedSections pattern_matched_builds =
-  pure nonupstream_nonflaky_pattern_matched_section : tentative_and_confirmed_flaky_sections
+  nonupstream_nonflaky_pattern_matched_section : tentative_and_confirmed_flaky_sections
   where
     StatusUpdateTypes.NewFlakyBuildPartition
       tentatively_flaky_builds
@@ -217,7 +232,7 @@ genPatternMatchedSections pattern_matched_builds =
 
     nonupstream_nonflaky_pattern_matched_section = if null all_nonflaky_builds
       then Nothing
-      else Just $ NewFailureSection NonUpstream NonFlaky $ pure nonupstream_nonflaky_pattern_matched_header
+      else Just $ pure $ LeafNode $ NewFailureSection NonUpstream NonFlaky $ pure nonupstream_nonflaky_pattern_matched_header
         <> pure non_upstream_nonflaky_intro_text
         <> nonflaky_matched_builds_details_block
 
@@ -253,13 +268,13 @@ genPatternMatchedSections pattern_matched_builds =
 genFlakySections ::
      StatusUpdateTypes.TentativeFlakyBuilds SqlReadTypes.CommitBuildWrapperTuple
   -> [SqlReadTypes.CommitBuildWrapperTuple]
-  -> Tr.Forest (Maybe FailureSection)
+  -> [Maybe (Tr.Tree NodeType)]
 genFlakySections
     tentative_flakies
     confirmed_flaky_builds =
   [
-    pure confirmed_flaky_section
-  , pure tentative_flaky_section
+    confirmed_flaky_section
+  , tentative_flaky_section
   ]
 
   where
@@ -270,7 +285,7 @@ genFlakySections
 
     confirmed_flaky_section = if null confirmed_flaky_builds
       then Nothing
-      else Just $ NewFailureSection NonUpstream Flaky $ NE.toList $ M.colonize [
+      else Just $ pure $ LeafNode $ NewFailureSection NonUpstream Flaky $ NE.toList $ M.colonize [
           MyUtils.pluralize (length confirmed_flaky_builds) "failure"
         , M.bold "confirmed as flaky"
         , "and can be ignored"
@@ -280,7 +295,7 @@ genFlakySections
 
 
     tentative_flaky_section = if total_tentative_flaky_count > 0
-      then Just $ NewFailureSection NonUpstream Flaky $ pure tentative_flakies_header
+      then Just $ pure $ LeafNode $ NewFailureSection NonUpstream Flaky $ pure tentative_flakies_header
         <> untriggered_subsection
         <> triggered_subsection
       else Nothing
@@ -393,7 +408,7 @@ formatBreakageTimeSpan
 genUpstreamFailuresSection upstream_breakages =
   if null upstream_breakages
     then Nothing
-    else Just $ NewFailureSection Upstream NonFlaky $ pure upstream_matched_header
+    else Just $ pure $ LeafNode $ NewFailureSection Upstream NonFlaky $ pure upstream_matched_header
       <> pure upstream_intro_text
       <> pure matched_upstream_builds_details_block
   where
@@ -622,7 +637,13 @@ generateMiddleSections
   where
     sections = [summary_header] ++ [summary_tree_lines] ++ build_failures_section_line_groups
 
-    build_failures_section_line_groups = Maybe.mapMaybe (fmap section_lines . Tr.rootLabel) build_failures_table_sections
+    just_get_leaf y = case y of
+      LeafNode x -> Just x
+      _          -> Nothing
+
+    build_failures_section_line_groups = map section_lines $
+      Maybe.mapMaybe just_get_leaf $
+        Tr.flatten build_failures_table_sections
 
     (summary_header, summary_forrest, is_all_no_fault_failures, is_all_successful_circleci_builds) = genMetricsTree
       commit_page_info
