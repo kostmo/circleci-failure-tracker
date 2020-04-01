@@ -88,6 +88,7 @@ function gen_builds_table_columns(include_timeout_column) {
 					const universal_build_id = row_data["build"]["universal_build"]["db_id"];
 
 					const build_id = row_data["build"]["build_id"];
+
 					get_log_text(row_data["match"]["match_id"], STANDARD_LOG_CONTEXT_LINECOUNT, universal_build_id, provider_build_number);
 				}
 			},

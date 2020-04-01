@@ -10,7 +10,7 @@ function prompt_promote_match(match_id) {
 
 
 
-function gen_builds_table2(element_id, data_url, height_string, universal_build_id) {
+function gen_builds_table2(element_id, data_url, universal_build_id) {
 
 	const column_list = [
 		{title: "Line", field: "occurrence.line_number", width: 100,
@@ -33,6 +33,7 @@ function gen_builds_table2(element_id, data_url, height_string, universal_build_
 				const provider_build_number = row_data["build_number"];
 
 				const match_id = row_data["match_id"];
+
 				get_log_text(match_id, STANDARD_LOG_CONTEXT_LINECOUNT, universal_build_id, provider_build_number);
 			},
 		},

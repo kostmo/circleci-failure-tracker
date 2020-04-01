@@ -166,14 +166,40 @@ data FailureSection = NewFailureSection {
 
 genNewFailuresSections nonupstream_builds =
   Just $ Tr.Node (InteriorNode "New failures") $
-    Maybe.catMaybes children_maybes
+    Maybe.catMaybes new_failure_internal_node_maybes
   where
 
-    children_maybes = pattern_matched_sections ++ [
-        pattern_unmatched_section
-      , timed_out_section
+    new_failure_internal_node_maybes = [
+        maybe_determinisitic_failures_node
+      , maybe_nondeterminisitic_failures_node
+      ]
+
+    maybe_determinisitic_failures_node = if null extant_deterministic_children
+      then Nothing
+      else Just $ Tr.Node (InteriorNode "Determinisitic failures") extant_deterministic_children
+
+    maybe_nondeterminisitic_failures_node = if null extant_nondeterministic_children
+      then Nothing
+      else Just $ Tr.Node (InteriorNode "Flaky failures") extant_nondeterministic_children
+
+
+    extant_deterministic_children = Maybe.catMaybes deterministic_failure_node_maybes
+
+    extant_nondeterministic_children = Maybe.catMaybes nondeterministic_failure_node_maybes
+
+
+    nondeterministic_failure_node_maybes = [
+        timed_out_section
+      , maybe_tentative_flaky_section
+      , maybe_confirmed_flaky_section
+      ]
+
+    deterministic_failure_node_maybes = [
+        nonupstream_nonflaky_pattern_matched_section
+      , pattern_unmatched_section
       , special_cased_nonupstream_section
       ]
+
 
     StatusUpdateTypes.NewNonUpstreamBuildPartition
       pattern_matched_builds
@@ -185,7 +211,7 @@ genNewFailuresSections nonupstream_builds =
 
     timed_out_section = genTimedOutSection timed_out_builds
 
-    pattern_matched_sections = genPatternMatchedSections pattern_matched_builds
+    (nonupstream_nonflaky_pattern_matched_section, maybe_tentative_flaky_section, maybe_confirmed_flaky_section) = genPatternMatchedSections pattern_matched_builds
 
     pattern_unmatched_header = M.heading 3 $ M.colonize [
         MyUtils.pluralize (length unmatched_nonupstream_builds) "failure"
@@ -218,7 +244,7 @@ genBuildFailuresSections
 
 
 genPatternMatchedSections pattern_matched_builds =
-  nonupstream_nonflaky_pattern_matched_section : tentative_and_confirmed_flaky_sections
+  (nonupstream_nonflaky_pattern_matched_section, maybe_tentative_flaky_section, maybe_confirmed_flaky_section)
   where
     StatusUpdateTypes.NewFlakyBuildPartition
       tentatively_flaky_builds
@@ -260,22 +286,21 @@ genPatternMatchedSections pattern_matched_builds =
 
     non_upstream_nonflaky_intro_text = M.colonize nonflaky_intro_text_pieces
 
-    tentative_and_confirmed_flaky_sections = genFlakySections
-      tentatively_flaky_builds
-      confirmed_flaky_builds
+    (maybe_tentative_flaky_section, maybe_confirmed_flaky_section) =
+      genFlakySections
+        tentatively_flaky_builds
+        confirmed_flaky_builds
 
 
 genFlakySections ::
      StatusUpdateTypes.TentativeFlakyBuilds SqlReadTypes.CommitBuildWrapperTuple
   -> [SqlReadTypes.CommitBuildWrapperTuple]
-  -> [Maybe (Tr.Tree NodeType)]
+  -> (Maybe (Tr.Tree NodeType), Maybe (Tr.Tree NodeType))
 genFlakySections
     tentative_flakies
     confirmed_flaky_builds =
-  [
-    confirmed_flaky_section
-  , tentative_flaky_section
-  ]
+
+  (maybe_tentative_flaky_section, maybe_confirmed_flaky_section)
 
   where
     StatusUpdateTypes.NewTentativeFlakyBuilds tentative_flaky_triggered_reruns tentative_flaky_untriggered_reruns = tentative_flakies
@@ -283,7 +308,7 @@ genFlakySections
 
     get_job_name = Builds.job_name . Builds.build_record . CommitBuilds._build . CommitBuilds._commit_build . fst
 
-    confirmed_flaky_section = if null confirmed_flaky_builds
+    maybe_confirmed_flaky_section = if null confirmed_flaky_builds
       then Nothing
       else Just $ pure $ LeafNode $ NewFailureSection NonUpstream Flaky $ NE.toList $ M.colonize [
           MyUtils.pluralize (length confirmed_flaky_builds) "failure"
@@ -294,7 +319,7 @@ genFlakySections
     total_tentative_flaky_count = StatusUpdateTypes.count tentative_flakies
 
 
-    tentative_flaky_section = if total_tentative_flaky_count > 0
+    maybe_tentative_flaky_section = if total_tentative_flaky_count > 0
       then Just $ pure $ LeafNode $ NewFailureSection NonUpstream Flaky $ pure tentative_flakies_header
         <> untriggered_subsection
         <> triggered_subsection
@@ -408,7 +433,9 @@ formatBreakageTimeSpan
 genUpstreamFailuresSection upstream_breakages =
   if null upstream_breakages
     then Nothing
-    else Just $ pure $ LeafNode $ NewFailureSection Upstream NonFlaky $ pure upstream_matched_header
+    else Just $ Tr.Node (InteriorNode "Upstream failures") $
+      pure $ pure $ LeafNode $ NewFailureSection Upstream NonFlaky $
+         pure upstream_matched_header
       <> pure upstream_intro_text
       <> pure matched_upstream_builds_details_block
   where
