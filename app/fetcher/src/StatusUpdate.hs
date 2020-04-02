@@ -407,7 +407,8 @@ fetchCommitPageInfo pre_broken_info sha1 validated_sha1 = runExceptT $ do
         T.breakOnAll "xla" $ T.toLower jobname
 
   -- Partition builds between upstream and non-upstream breakages
-  let f = MyUtils.derivePair $ (`HashMap.lookup` pre_broken_jobs_map) . get_job_name
+  let f = MyUtils.derivePair $
+        (`HashMap.lookup` pre_broken_jobs_map) . get_job_name
 
       (upstream_breakages, non_upstream_breakages_raw) = partition (not . null . snd) $ map f revision_builds
 
@@ -419,7 +420,7 @@ fetchCommitPageInfo pre_broken_info sha1 validated_sha1 = runExceptT $ do
   let (xla_nonupstream_build_failures, non_xla_nonupstream_build_failures) = partition (is_xla_job . get_job_name) raw_non_upstream_breakages
 
       -- Only special-case the XLA failure if it is the
-      -- *only kind* of failure
+      -- *only kind* of "new" (non-no-fault) failure
       (special_cased_xla_failures, non_special_cased_failures) =
         if null non_xla_nonupstream_build_failures
         then (xla_nonupstream_build_failures, non_xla_nonupstream_build_failures)

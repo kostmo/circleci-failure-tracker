@@ -13,16 +13,16 @@ import           Data.Aeson
 import           Data.Either.Utils                  (maybeToEither)
 import           Data.Text                          (Text)
 import qualified Data.Text                          as T
+import           Data.Time                          (UTCTime)
 import           Data.Time.Calendar                 (Day)
 import           Database.PostgreSQL.Simple
-import           Database.PostgreSQL.Simple.FromRow (field, fromRow)
+import           Database.PostgreSQL.Simple.FromRow (fromRow)
 import           GHC.Generics
 import           GHC.Int                            (Int64)
 import qualified Safe
 
 import qualified CommitBuilds
 import qualified DbHelpers
-import qualified DebugUtils                         as D
 import qualified JsonUtils
 import qualified ScanPatterns
 import qualified Sql.QueryUtils                     as Q
@@ -191,29 +191,49 @@ apiIsolatedUnmatchedBuildsMasterCommitRange
       ]
 
 
-data FailuresByJobReviewCounts = FailuresByJobReviewCounts {
-    _job                :: Text
-  , _timeout_count      :: Int
+data SharedCounts = SharedCounts {
+    _isolated_failure_count        :: Int
+  , _recognized_flaky_count        :: Int
+  , _total_flaky_or_isolated_count :: Int
+  , _matched_count                 :: Int
+  } deriving (Generic, FromRow)
+
+instance ToJSON SharedCounts where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+data FlakinessCountsWrapper a = FlakinessCountsWrapper {
+    _featured           :: a
   , _counts             :: SharedCounts
   , _commit_index_span  :: DbHelpers.StartEnd Int
   , _commit_number_span :: DbHelpers.StartEnd Int
+  , _commit_time_span   :: DbHelpers.StartEnd UTCTime
   } deriving (Generic)
+
+
+instance (FromRow a) => FromRow (FlakinessCountsWrapper a) where
+  fromRow = FlakinessCountsWrapper
+    <$> fromRow
+    <*> fromRow
+    <*> fromRow
+    <*> fromRow
+    <*> fromRow
+
+instance ToJSON a => ToJSON (FlakinessCountsWrapper a) where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+data FailuresByJobReviewCounts = FailuresByJobReviewCounts {
+    _job           :: Text
+  , _timeout_count :: Int
+  } deriving (Generic, FromRow)
 
 instance ToJSON FailuresByJobReviewCounts where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
-instance FromRow FailuresByJobReviewCounts where
-  fromRow = FailuresByJobReviewCounts
-    <$> field
-    <*> field
-    <*> fromRow
-    <*> fromRow
-    <*> fromRow
-
 
 apiIsolatedJobFailuresTimespan ::
      SqlReadTypes.TimeRange
-  -> DbIO (Either Text [FailuresByJobReviewCounts])
+  -> DbIO (Either Text [FlakinessCountsWrapper FailuresByJobReviewCounts])
 apiIsolatedJobFailuresTimespan time_bounds = do
   conn <- ask
   liftIO $ do
@@ -244,6 +264,8 @@ apiIsolatedJobFailuresTimespan time_bounds = do
         , "MAX(master_failures_raw_causes_mview.commit_index) AS max_commit_index"
         , "MIN(master_ordered_commits_with_metadata_mview.commit_number) AS min_commit_number"
         , "MAX(master_ordered_commits_with_metadata_mview.commit_number) AS max_commit_number"
+        , "MIN(master_ordered_commits_with_metadata_mview.committer_date)"
+        , "MAX(master_ordered_commits_with_metadata_mview.committer_date)"
         ]
       , "FROM master_failures_raw_causes_mview"
       , "JOIN master_ordered_commits_with_metadata_mview"
@@ -260,34 +282,20 @@ apiIsolatedJobFailuresTimespan time_bounds = do
 
 
 data FailuresByPatternReviewCounts = FailuresByPatternReviewCounts {
-    _pattern_id         :: Maybe ScanPatterns.PatternId
-  , _expression         :: Maybe Text
-  , _has_pattern_match  :: Bool
-  , _is_network         :: Bool
-  , _counts             :: SharedCounts
-  , _commit_index_span  :: DbHelpers.StartEnd Int
-  , _commit_number_span :: DbHelpers.StartEnd Int
-  } deriving (Generic)
+    _pattern_id        :: Maybe ScanPatterns.PatternId
+  , _expression        :: Maybe Text
+  , _has_pattern_match :: Bool
+  , _is_network        :: Bool
+  } deriving (Generic, FromRow)
 
 instance ToJSON FailuresByPatternReviewCounts where
   toJSON = genericToJSON JsonUtils.dropUnderscore
-
-instance FromRow FailuresByPatternReviewCounts where
-  fromRow = FailuresByPatternReviewCounts
-    <$> field
-    <*> field
-    <*> field
-    <*> field
-    <*> fromRow
-    <*> fromRow
-    <*> fromRow
-
 
 
 apiIsolatedPatternFailuresTimespan ::
      SqlReadTypes.TimeRange
   -> Bool -- ^ exclude named tests
-  -> DbIO (Either Text [FailuresByPatternReviewCounts])
+  -> DbIO (Either Text [FlakinessCountsWrapper FailuresByPatternReviewCounts])
 apiIsolatedPatternFailuresTimespan time_bounds exclude_named_tests = do
   conn <- ask
   liftIO $ do
@@ -313,6 +321,8 @@ apiIsolatedPatternFailuresTimespan time_bounds exclude_named_tests = do
         , "max_commit_index"
         , "min_commit_number"
         , "max_commit_number"
+        , "min_committer_date"
+        , "max_committer_date"
         ]
       , "FROM"
       , Q.parens inner_sql
@@ -348,6 +358,8 @@ apiIsolatedPatternFailuresTimespan time_bounds exclude_named_tests = do
         , "MAX(master_failures_raw_causes_mview.commit_index) AS max_commit_index"
         , "MIN(master_ordered_commits_with_metadata_mview.commit_number) AS min_commit_number"
         , "MAX(master_ordered_commits_with_metadata_mview.commit_number) AS max_commit_number"
+        , "MIN(master_ordered_commits_with_metadata_mview.committer_date) AS min_committer_date"
+        , "MAX(master_ordered_commits_with_metadata_mview.committer_date) AS max_committer_date"
         ]
       , "FROM master_failures_raw_causes_mview"
       , "JOIN master_ordered_commits_with_metadata_mview"
@@ -360,51 +372,22 @@ apiIsolatedPatternFailuresTimespan time_bounds exclude_named_tests = do
       ]
 
 
-data SharedCounts = SharedCounts {
-    _isolated_failure_count        :: Int
-  , _recognized_flaky_count        :: Int
-  , _total_flaky_or_isolated_count :: Int
-  , _matched_count                 :: Int
-  } deriving (Generic, FromRow)
-
-
-instance ToJSON SharedCounts where
-  toJSON = genericToJSON JsonUtils.dropUnderscore
-
-
 data FailuresByTestReviewCounts = FailuresByTestReviewCounts {
     _test_name          :: Text
-  , _counts             :: SharedCounts
-  , _commit_index_span  :: DbHelpers.StartEnd Int
-  , _commit_number_span :: DbHelpers.StartEnd Int
-  } deriving (Generic)
+  } deriving (Generic, FromRow)
 
 instance ToJSON FailuresByTestReviewCounts where
   toJSON = genericToJSON JsonUtils.dropUnderscore
-
-instance FromRow FailuresByTestReviewCounts where
-  fromRow = FailuresByTestReviewCounts
-    <$> field
-    <*> fromRow
-    <*> fromRow
-    <*> fromRow
 
 
 -- | TODO: Deduplicate common logic
 -- with apiIsolatedPatternFailuresTimespan
 apiIsolatedTestFailuresTimespan ::
      SqlReadTypes.TimeRange
-  -> DbIO (Either Text [FailuresByTestReviewCounts])
+  -> DbIO (Either Text [FlakinessCountsWrapper FailuresByTestReviewCounts])
 apiIsolatedTestFailuresTimespan time_bounds = do
   conn <- ask
   liftIO $ do
-    D.debugList [
-        "SQL:"
-      , show sql
-      , "PARMS:"
-      , show query_parms
-      ]
-
     rows <- query conn sql query_parms
     return $ Right rows
   where
@@ -424,6 +407,8 @@ apiIsolatedTestFailuresTimespan time_bounds = do
         , "max_commit_index"
         , "min_commit_number"
         , "max_commit_number"
+        , "min_committer_date"
+        , "max_committer_date"
         ]
       , "FROM"
       , Q.parens inner_sql
@@ -454,6 +439,8 @@ apiIsolatedTestFailuresTimespan time_bounds = do
         , "MAX(master_failures_raw_causes_mview.commit_index) AS max_commit_index"
         , "MIN(master_ordered_commits_with_metadata_mview.commit_number) AS min_commit_number"
         , "MAX(master_ordered_commits_with_metadata_mview.commit_number) AS max_commit_number"
+        , "MIN(master_ordered_commits_with_metadata_mview.committer_date) AS min_committer_date"
+        , "MAX(master_ordered_commits_with_metadata_mview.committer_date) AS max_committer_date"
         ]
       , "FROM master_failures_raw_causes_mview"
       , "JOIN master_ordered_commits_with_metadata_mview"
