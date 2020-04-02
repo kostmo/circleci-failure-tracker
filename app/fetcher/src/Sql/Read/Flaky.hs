@@ -5,28 +5,29 @@
 
 module Sql.Read.Flaky where
 
-import           Control.Monad              (unless)
-import           Control.Monad.IO.Class     (liftIO)
-import           Control.Monad.Trans.Except (except, runExceptT)
-import           Control.Monad.Trans.Reader (ask)
+import           Control.Monad                      (unless)
+import           Control.Monad.IO.Class             (liftIO)
+import           Control.Monad.Trans.Except         (except, runExceptT)
+import           Control.Monad.Trans.Reader         (ask)
 import           Data.Aeson
-import           Data.Either.Utils          (maybeToEither)
-import           Data.Text                  (Text)
-import qualified Data.Text                  as T
-import           Data.Time.Calendar         (Day)
+import           Data.Either.Utils                  (maybeToEither)
+import           Data.Text                          (Text)
+import qualified Data.Text                          as T
+import           Data.Time.Calendar                 (Day)
 import           Database.PostgreSQL.Simple
+import           Database.PostgreSQL.Simple.FromRow (field, fromRow)
 import           GHC.Generics
-import           GHC.Int                    (Int64)
+import           GHC.Int                            (Int64)
 import qualified Safe
 
 import qualified CommitBuilds
 import qualified DbHelpers
-import qualified DebugUtils                 as D
+import qualified DebugUtils                         as D
 import qualified JsonUtils
 import qualified ScanPatterns
-import qualified Sql.QueryUtils             as Q
-import           Sql.Read.Types             (DbIO)
-import qualified Sql.Read.Types             as SqlReadTypes
+import qualified Sql.QueryUtils                     as Q
+import           Sql.Read.Types                     (DbIO)
+import qualified Sql.Read.Types                     as SqlReadTypes
 import qualified WebApi
 
 
@@ -191,20 +192,23 @@ apiIsolatedUnmatchedBuildsMasterCommitRange
 
 
 data FailuresByJobReviewCounts = FailuresByJobReviewCounts {
-    _job                           :: Text
-  , _isolated_failure_count        :: Int
-  , _recognized_flaky_count        :: Int
-  , _total_flaky_or_isolated_count :: Int
-  , _matched_count                 :: Int
-  , _timeout_count                 :: Int
-  , _min_commit_index              :: Int
-  , _max_commit_index              :: Int
-  , _min_commit_number             :: Int
-  , _max_commit_number             :: Int
-  } deriving (Generic, FromRow)
+    _job                :: Text
+  , _timeout_count      :: Int
+  , _counts             :: SharedCounts
+  , _commit_index_span  :: DbHelpers.StartEnd Int
+  , _commit_number_span :: DbHelpers.StartEnd Int
+  } deriving (Generic)
 
 instance ToJSON FailuresByJobReviewCounts where
   toJSON = genericToJSON JsonUtils.dropUnderscore
+
+instance FromRow FailuresByJobReviewCounts where
+  fromRow = FailuresByJobReviewCounts
+    <$> field
+    <*> field
+    <*> fromRow
+    <*> fromRow
+    <*> fromRow
 
 
 apiIsolatedJobFailuresTimespan ::
@@ -231,11 +235,11 @@ apiIsolatedJobFailuresTimespan time_bounds = do
         "SELECT"
       , Q.list [
           "job_name"
+        , "SUM(is_timeout::int) AS timeout_count"
         , "SUM(is_serially_isolated::int) AS isolated_count"
         , "SUM(is_flaky::int) AS recognized_flaky_count"
         , "COUNT(*) AS total_flaky_or_isolated_count"
         , "SUM(is_matched::int) AS matched_count"
-        , "SUM(is_timeout::int) AS timeout_count"
         , "MIN(master_failures_raw_causes_mview.commit_index) AS min_commit_index"
         , "MAX(master_failures_raw_causes_mview.commit_index) AS max_commit_index"
         , "MIN(master_ordered_commits_with_metadata_mview.commit_number) AS min_commit_number"
@@ -256,22 +260,28 @@ apiIsolatedJobFailuresTimespan time_bounds = do
 
 
 data FailuresByPatternReviewCounts = FailuresByPatternReviewCounts {
-    _pattern_id                    :: Maybe ScanPatterns.PatternId
-  , _expression                    :: Maybe Text
-  , _isolated_failure_count        :: Int
-  , _recognized_flaky_count        :: Int
-  , _total_flaky_or_isolated_count :: Int
-  , _matched_count                 :: Int
-  , _min_commit_index              :: Int
-  , _max_commit_index              :: Int
-  , _min_commit_number             :: Int
-  , _max_commit_number             :: Int
-  , _has_pattern_match             :: Bool
-  , _is_network                    :: Bool
-  } deriving (Generic, FromRow)
+    _pattern_id         :: Maybe ScanPatterns.PatternId
+  , _expression         :: Maybe Text
+  , _has_pattern_match  :: Bool
+  , _is_network         :: Bool
+  , _counts             :: SharedCounts
+  , _commit_index_span  :: DbHelpers.StartEnd Int
+  , _commit_number_span :: DbHelpers.StartEnd Int
+  } deriving (Generic)
 
 instance ToJSON FailuresByPatternReviewCounts where
   toJSON = genericToJSON JsonUtils.dropUnderscore
+
+instance FromRow FailuresByPatternReviewCounts where
+  fromRow = FailuresByPatternReviewCounts
+    <$> field
+    <*> field
+    <*> field
+    <*> field
+    <*> fromRow
+    <*> fromRow
+    <*> fromRow
+
 
 
 apiIsolatedPatternFailuresTimespan ::
@@ -293,6 +303,8 @@ apiIsolatedPatternFailuresTimespan time_bounds exclude_named_tests = do
       , Q.list [
           "patterns_rich.id AS pattern_id"
         , "patterns_rich.expression"
+        , "patterns_rich.id IS NOT NULL AS has_pattern_match"
+        , "COALESCE(patterns_rich.is_network, FALSE)"
         , "isolated_count"
         , "recognized_flaky_count"
         , "total_flaky_or_isolated_count"
@@ -301,8 +313,6 @@ apiIsolatedPatternFailuresTimespan time_bounds exclude_named_tests = do
         , "max_commit_index"
         , "min_commit_number"
         , "max_commit_number"
-        , "patterns_rich.id IS NOT NULL AS has_pattern_match"
-        , "COALESCE(patterns_rich.is_network, FALSE)"
         ]
       , "FROM"
       , Q.parens inner_sql
@@ -350,20 +360,34 @@ apiIsolatedPatternFailuresTimespan time_bounds exclude_named_tests = do
       ]
 
 
-data FailuresByTestReviewCounts = FailuresByTestReviewCounts {
-    _test_name                     :: Text
-  , _isolated_failure_count        :: Int
+data SharedCounts = SharedCounts {
+    _isolated_failure_count        :: Int
   , _recognized_flaky_count        :: Int
   , _total_flaky_or_isolated_count :: Int
   , _matched_count                 :: Int
-  , _min_commit_index              :: Int
-  , _max_commit_index              :: Int
-  , _min_commit_number             :: Int
-  , _max_commit_number             :: Int
   } deriving (Generic, FromRow)
+
+
+instance ToJSON SharedCounts where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+data FailuresByTestReviewCounts = FailuresByTestReviewCounts {
+    _test_name          :: Text
+  , _counts             :: SharedCounts
+  , _commit_index_span  :: DbHelpers.StartEnd Int
+  , _commit_number_span :: DbHelpers.StartEnd Int
+  } deriving (Generic)
 
 instance ToJSON FailuresByTestReviewCounts where
   toJSON = genericToJSON JsonUtils.dropUnderscore
+
+instance FromRow FailuresByTestReviewCounts where
+  fromRow = FailuresByTestReviewCounts
+    <$> field
+    <*> fromRow
+    <*> fromRow
+    <*> fromRow
 
 
 -- | TODO: Deduplicate common logic

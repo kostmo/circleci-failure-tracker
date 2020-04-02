@@ -120,7 +120,11 @@ Days:
 
 <h3>Failures by pattern</h3>
 
-<label><input id="exclude-named-tests-checkbox" type="checkbox" checked="checked" onchange="go_calendar_span()"/>Exclude named tests</label>
+<label style="float: left"><input id="exclude-named-tests-checkbox" type="checkbox" checked="checked" onchange="go_calendar_span()"/>Exclude named tests</label>
+
+<div id="full-span-grid-link-placeholder-by-pattern" style="display: none; float: right"></div>
+
+<br clear="all" />
 
 <div id="throbber-by-pattern" style="display: none;"><img src="/images/duck.gif"/></div>
 <div id="isolated-failures-by-pattern-table"></div>
@@ -132,7 +136,13 @@ Days:
 
 <h3>Failures by test</h3>
 
+
 <div id="throbber-by-test" style="display: none;"><img src="/images/duck.gif"/></div>
+
+<div id="full-span-grid-link-placeholder-by-test" style="display: none; float: right"></div>
+
+<br clear="all" />
+
 <div id="isolated-failures-by-test-table"></div>
 
 </div>

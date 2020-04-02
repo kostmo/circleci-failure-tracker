@@ -282,11 +282,11 @@ function gen_pattern_matches_table(element_id, data_payload) {
 				}
 			},
 		},
-		{title: "Total", field: "total_flaky_or_isolated_count", width: 200,
+		{title: "Total", field: "counts.total_flaky_or_isolated_count", width: 200,
 		},
-		{title: "Isolated failures", field: "isolated_failure_count", width: 150,
+		{title: "Isolated failures", field: "counts.isolated_failure_count", width: 150,
 		},
-		{title: "Recognized as flaky", field: "recognized_flaky_count", width: 200,
+		{title: "Recognized as flaky", field: "counts.recognized_flaky_count", width: 200,
 		},
 		{title: "Network", field: "is_network", formatter: "tickCross", width: 100,
 			align: "center",
@@ -295,7 +295,7 @@ function gen_pattern_matches_table(element_id, data_payload) {
 				crossElement: false,
 			}
 		},
-		{title: "Timeline Span", field: "min_commit_index",
+		{title: "Timeline Span", field: "commit_index_span",
 			formatter: function(cell, formatterParams, onRendered) {
 				const row_data = cell.getRow().getData();
 
@@ -306,9 +306,9 @@ function gen_pattern_matches_table(element_id, data_payload) {
 					"highlight_job": row_data.job,
 				};
 
-				const commit_count = row_data["max_commit_number"] - row_data["min_commit_number"] + 1;
+				const commit_count = row_data["commit_number_span"]["end"] - row_data["commit_number_span"]["start"] + 1;
 
-				return link(pluralize(commit_count, "commit"), gen_master_timeline_commit_bounds_url(row_data.min_commit_index, row_data.max_commit_index, extra_args));
+				return link(pluralize(commit_count, "commit"), gen_master_timeline_commit_bounds_url(row_data.commit_index_span.start, row_data.commit_index_span.end, extra_args));
 			},
 		},
 	];
@@ -354,13 +354,13 @@ function gen_tests_table(element_id, data_payload) {
 
 	const column_list = [
 		{title: "Test name", field: "test_name"},
-		{title: "Total", field: "total_flaky_or_isolated_count", width: 200,
+		{title: "Total", field: "counts.total_flaky_or_isolated_count", width: 200,
 		},
-		{title: "Isolated failures", field: "isolated_failure_count", width: 150,
+		{title: "Isolated failures", field: "counts.isolated_failure_count", width: 150,
 		},
-		{title: "Recognized as flaky", field: "recognized_flaky_count", width: 200,
+		{title: "Recognized as flaky", field: "counts.recognized_flaky_count", width: 200,
 		},
-		{title: "Timeline Span", field: "min_commit_index",
+		{title: "Timeline Span", field: "commit_index_span",
 			formatter: function(cell, formatterParams, onRendered) {
 				const row_data = cell.getRow().getData();
 
@@ -371,9 +371,9 @@ function gen_tests_table(element_id, data_payload) {
 					"highlight_job": row_data.job,
 				};
 
-				const commit_count = row_data["max_commit_number"] - row_data["min_commit_number"] + 1;
+				const commit_count = row_data["commit_number_span"]["end"] - row_data["commit_number_span"]["start"] + 1;
 
-				return link(pluralize(commit_count, "commit"), gen_master_timeline_commit_bounds_url(row_data.min_commit_index, row_data.max_commit_index, extra_args));
+				return link(pluralize(commit_count, "commit"), gen_master_timeline_commit_bounds_url(row_data.commit_index_span.start, row_data.commit_index_span.end, extra_args));
 			},
 		},
 	];
@@ -433,17 +433,17 @@ function gen_jobs_table(element_id, data_payload, height_string) {
 	const column_list = [
 		{title: "Job", field: "job", width: 500,
 		},
-		{title: "Total", field: "total_flaky_or_isolated_count", width: 150,
+		{title: "Total", field: "counts.total_flaky_or_isolated_count", width: 150,
 		},
-		{title: "Isolated failures", field: "isolated_failure_count", width: 150,
+		{title: "Isolated failures", field: "counts.isolated_failure_count", width: 150,
 		},
-		{title: "Recognized as flaky", field: "recognized_flaky_count", width: 200,
+		{title: "Recognized as flaky", field: "counts.recognized_flaky_count", width: 200,
 		},
-		{title: "Matched by patterns", field: "matched_count", width: 200,
+		{title: "Matched by patterns", field: "counts.matched_count", width: 200,
 		},
 		{title: "Timed out", field: "timeout_count", width: 150,
 		},
-		{title: "Timeline Span", field: "min_commit_index",
+		{title: "Timeline Span", field: "commit_index_span",
 			formatter: function(cell, formatterParams, onRendered) {
 				const row_data = cell.getRow().getData();
 
@@ -454,9 +454,9 @@ function gen_jobs_table(element_id, data_payload, height_string) {
 					"highlight_job": row_data.job,
 				};
 
-				const commit_count = row_data["max_commit_number"] - row_data["min_commit_number"] + 1;
+				const commit_count = row_data["commit_number_span"]["end"] - row_data["commit_number_span"]["start"] + 1;
 
-				return link(pluralize(commit_count, "commit"), gen_master_timeline_commit_bounds_url(row_data.min_commit_index, row_data.max_commit_index, extra_args));
+				return link(pluralize(commit_count, "commit"), gen_master_timeline_commit_bounds_url(row_data.commit_index_span.start, row_data.commit_index_span.end, extra_args));
 			},
 		},
 	];
@@ -482,28 +482,15 @@ function gen_jobs_table(element_id, data_payload, height_string) {
 }
 
 
-
-
 function requery_by_test_table(query_args_dict) {
 
+	const full_span_grid_link_element = $("#full-span-grid-link-placeholder-by-test");
+
+	full_span_grid_link_element.hide();
 	getJsonWithThrobber("#throbber-by-test", "/api/isolated-failures-timespan-by-test", query_args_dict, function (data) {
 
 		if (data.success) {
-
-			if (data.payload.length) {
-				const min_commit_idx = Math.min(...data.payload.map(x => x.min_commit_index));
-				const max_commit_idx = Math.max(...data.payload.map(x => x.max_commit_index));
-
-				console.log("commit index span:", min_commit_idx, max_commit_idx);
-
-
-				const min_commit_number = Math.min(...data.payload.map(x => x.min_commit_number));
-				const max_commit_number = Math.max(...data.payload.map(x => x.max_commit_number));
-
-				console.log("commit number span:", min_commit_number, max_commit_number);
-				const commit_count = max_commit_number - min_commit_number + 1;
-			}
-
+			show_commit_span_header(full_span_grid_link_element, data);
 			gen_tests_table("isolated-failures-by-test-table", data.payload);
 
 		} else {
@@ -519,31 +506,43 @@ function requery_by_pattern_table(query_args_dict) {
 
 	modified_query_args_dict["exclude_named_tests"] = $("#exclude-named-tests-checkbox").is(":checked");
 
-//	$("#full-span-grid-link-placeholder-by-job").hide();
+
+	const full_span_grid_link_element = $("#full-span-grid-link-placeholder-by-pattern");
+
+	full_span_grid_link_element.hide();
 	getJsonWithThrobber("#throbber-by-pattern", "/api/isolated-failures-timespan-by-pattern", modified_query_args_dict, function (data) {
 
 		if (data.success) {
-
-			if (data.payload.length) {
-				const min_commit_idx = Math.min(...data.payload.map(x => x.min_commit_index));
-				const max_commit_idx = Math.max(...data.payload.map(x => x.max_commit_index));
-
-				console.log("commit index span:", min_commit_idx, max_commit_idx);
-
-
-				const min_commit_number = Math.min(...data.payload.map(x => x.min_commit_number));
-				const max_commit_number = Math.max(...data.payload.map(x => x.max_commit_number));
-
-				console.log("commit number span:", min_commit_number, max_commit_number);
-				const commit_count = max_commit_number - min_commit_number + 1;
-			}
-
+			show_commit_span_header(full_span_grid_link_element, data);
 			gen_pattern_matches_table("isolated-failures-by-pattern-table", data.payload);
 
 		} else {
 			alert("error: " + data.error);
 		}
 	});
+}
+
+function show_commit_span_header(full_span_grid_link_element, data) {
+
+	if (data.payload.length) {
+		const min_commit_idx = Math.min(...data.payload.map(x => x.commit_index_span.start));
+		const max_commit_idx = Math.max(...data.payload.map(x => x.commit_index_span.end));
+
+		console.log("commit index span:", min_commit_idx, max_commit_idx);
+
+
+		const min_commit_number = Math.min(...data.payload.map(x => x.commit_number_span.start));
+		const max_commit_number = Math.max(...data.payload.map(x => x.commit_number_span.end));
+
+		console.log("commit number span:", min_commit_number, max_commit_number);
+		const commit_count = max_commit_number - min_commit_number + 1;
+
+
+		const link_url = gen_master_timeline_commit_bounds_url(min_commit_idx, max_commit_idx);
+		full_span_grid_link_element.html(link("View " + commit_count + "-commit span on master timeline", link_url));
+
+		full_span_grid_link_element.show();
+	}
 }
 
 
@@ -556,26 +555,7 @@ function requery_by_job_table(query_args_dict) {
 
 		if (data.success) {
 
-			if (data.payload.length) {
-				const min_commit_idx = Math.min(...data.payload.map(x => x.min_commit_index));
-				const max_commit_idx = Math.max(...data.payload.map(x => x.max_commit_index));
-
-				console.log("commit index span:", min_commit_idx, max_commit_idx);
-
-
-				const min_commit_number = Math.min(...data.payload.map(x => x.min_commit_number));
-				const max_commit_number = Math.max(...data.payload.map(x => x.max_commit_number));
-
-				console.log("commit number span:", min_commit_number, max_commit_number);
-				const commit_count = max_commit_number - min_commit_number + 1;
-
-
-
-				const link_url = gen_master_timeline_commit_bounds_url(min_commit_idx, max_commit_idx);
-				full_span_grid_link_element.html(link("View " + commit_count + "-commit span on master timeline", link_url));
-
-				full_span_grid_link_element.show();
-			}
+			show_commit_span_header(full_span_grid_link_element, data);
 
 			gen_jobs_table("isolated-failures-by-job-table", data.payload, 200);
 
