@@ -118,6 +118,14 @@ function gen_affected_jobs_table(element_id, cause_id) {
 			},
 		],
 		ajaxURL: data_url,
+
+		dataLoaded: function(data){
+			//data - all data loaded into the table
+			const all_job_names = data.map(foo => foo.payload.job_name);
+			console.log("all_job_names:", all_job_names);
+
+			$("#timeline-link").html( link("Show just these jobs", "/master-timeline.html?only-jobs=" + all_job_names) );
+		},
 	});
 }
 

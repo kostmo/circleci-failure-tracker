@@ -1198,6 +1198,9 @@ function showContextMenu() {
 }
 
 
+// This generates a dict for use as API query parameters.
+// Almost all of these values are derived from form fields,
+// except for the jobs whitelist, which is pulled from the URL. 
 function get_form_values() {
 
 	const offset = $('#offset-input').val();
@@ -1223,6 +1226,9 @@ function get_form_values() {
 		use_commit_index_bounds = true;
 	}
 
+	const urlParams = new URLSearchParams(window.location.search);
+	const jobs_whitelist = urlParams.get('only-jobs');
+
 	const parms = {
 		"offset": offset,
 		"sha1": sha1,
@@ -1234,6 +1240,10 @@ function get_form_values() {
 		"should_suppress_scheduled_builds": should_suppress_scheduled_builds,
 		"should_suppress_fully_successful_columns": should_suppress_fully_successful_columns,
 		"max_columns_suppress_successful": max_columns_suppress_successful,
+	};
+
+	if (jobs_whitelist != null) {
+		parms["jobs"] = jobs_whitelist;
 	}
 
 	return parms;
@@ -1283,6 +1293,14 @@ function update_url_from_form() {
 	if (should_suppress_fully_successful_columns) {
 		url_parms["should_suppress_fully_successful_columns"] = should_suppress_fully_successful_columns;
 		url_parms["max_columns_suppress_successful"] = $('#max-columns-suppress-successful').val();
+	}
+
+
+	const old_url_params = new URLSearchParams(window.location.search);
+	const jobs_whitelist = old_url_params.get('only-jobs');
+
+	if (jobs_whitelist != null) {
+		url_parms["only-jobs"] = jobs_whitelist;
 	}
 
 	document.location.search = $.param( url_parms );

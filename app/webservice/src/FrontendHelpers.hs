@@ -12,6 +12,7 @@ import           Data.Bifunctor             (first)
 import qualified Data.ByteString.Lazy.Char8 as LBSC
 import           Data.Either.Utils          (maybeToEither)
 import           Data.Functor               (($>))
+import qualified Data.Set                   as Set
 import           Data.Text                  (Text)
 import qualified Data.Text                  as T
 import qualified Data.Text.Lazy             as LT
@@ -152,6 +153,8 @@ getOffsetMode = do
   min_commit_index <- S.param "min_commit_index"
   max_commit_index <- S.param "max_commit_index"
   commit_count <- S.param "count"
+  maybe_joblist_comma_delimited <- getParmMaybe "jobs"
+
 
   should_suppress_scheduled_builds_text <- S.param "should_suppress_scheduled_builds"
   should_suppress_fully_successful_columns_text <- S.param "should_suppress_fully_successful_columns"
@@ -175,13 +178,20 @@ getOffsetMode = do
     maybe_successful_column_suppression = if checkboxIsTrue should_suppress_fully_successful_columns_text
       then Just max_columns_suppress_successful
       else Nothing
+
     column_filtering_options = Pagination.ColumnFilteringOptions
       (checkboxIsTrue should_suppress_scheduled_builds_text)
       maybe_successful_column_suppression
+      (maybe Set.empty (Set.fromList . T.splitOn ",") maybe_joblist_comma_delimited)
 
   return $ Pagination.TimelineParms
     column_filtering_options
     offset_mode
+
+
+getParmMaybe :: S.Parsable a => LT.Text -> S.ActionM (Maybe a)
+getParmMaybe parm_name =
+  S.rescue (Just <$> S.param parm_name) (const $ return Nothing)
 
 
 facilitateJobRebuild ::

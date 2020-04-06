@@ -49,3 +49,4 @@ executables:
     - log-postgres
     - modern-uri
     - time
+    - containers

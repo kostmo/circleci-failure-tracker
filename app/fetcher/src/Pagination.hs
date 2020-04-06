@@ -1,5 +1,7 @@
 module Pagination where
 
+import           Data.Set  (Set)
+import           Data.Text (Text)
 import           GHC.Int   (Int64)
 
 import qualified Builds
@@ -9,6 +11,7 @@ import qualified DbHelpers
 data ColumnFilteringOptions = ColumnFilteringOptions {
     should_suppress_scheduled_builds         :: Bool
   , should_suppress_fully_successful_columns :: Maybe Int
+  , whitelisted_jobs                         :: Set Text
   }
 
 

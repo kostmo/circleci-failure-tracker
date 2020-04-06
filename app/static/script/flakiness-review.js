@@ -270,6 +270,41 @@ function load_job_failure_details(job_name, commit_id_min, commit_id_max) {
 }
 
 
+
+function gen_timeline_span_column() {
+
+
+	const obj = {title: "Timeline Span", field: "commit_index_span",
+			formatter: function(cell, formatterParams, onRendered) {
+				const row_data = cell.getRow().getData();
+
+				const extra_args = {
+					"max_columns_suppress_successful": 35,
+					"should_suppress_scheduled_builds": true,
+					"should_suppress_fully_successful_columns": true,
+					"highlight_job": row_data.job,
+				};
+
+				const commit_count = row_data["commit_number_span"]["end"] - row_data["commit_number_span"]["start"] + 1;
+
+				const commit_builds_url = gen_master_timeline_commit_bounds_url(row_data.commit_index_span.start, row_data.commit_index_span.end, extra_args)
+
+
+				const timespan_words = [
+					"from",
+					moment(row_data["commit_time_span"]["start"]).format("MMM D"),
+					"until",
+					moment(row_data["commit_time_span"]["end"]).fromNow(),
+				];
+
+				return link(pluralize(commit_count, "commit"), commit_builds_url) + " (" + timespan_words.join(" ") + ")";
+			},
+		};
+
+	return obj;
+}
+
+
 function gen_pattern_matches_table(element_id, data_payload) {
 
 	const column_list = [
@@ -295,26 +330,10 @@ function gen_pattern_matches_table(element_id, data_payload) {
 				crossElement: false,
 			}
 		},
-		{title: "Timeline Span", field: "commit_index_span",
-			formatter: function(cell, formatterParams, onRendered) {
-				const row_data = cell.getRow().getData();
-
-				const extra_args = {
-					"max_columns_suppress_successful": 35,
-					"should_suppress_scheduled_builds": true,
-					"should_suppress_fully_successful_columns": true,
-					"highlight_job": row_data.job,
-				};
-
-				const commit_count = row_data["commit_number_span"]["end"] - row_data["commit_number_span"]["start"] + 1;
-
-				const commit_builds_url = gen_master_timeline_commit_bounds_url(row_data.commit_index_span.start, row_data.commit_index_span.end, extra_args)
-
-
-				return link(pluralize(commit_count, "commit"), commit_builds_url) + " (until " + moment(row_data["commit_time_span"]["end"]).fromNow() + ")";
-			},
-		},
+		gen_timeline_span_column(),
 	];
+
+
 
 	const table = new Tabulator("#" + element_id, {
 		layout: "fitColumns",
@@ -362,24 +381,7 @@ function gen_tests_table(element_id, data_payload) {
 		},
 		{title: "Recognized as flaky", field: "counts.recognized_flaky_count", width: 200,
 		},
-		{title: "Timeline Span", field: "commit_index_span",
-			formatter: function(cell, formatterParams, onRendered) {
-				const row_data = cell.getRow().getData();
-
-				const extra_args = {
-					"max_columns_suppress_successful": 35,
-					"should_suppress_scheduled_builds": true,
-					"should_suppress_fully_successful_columns": true,
-					"highlight_job": row_data.job,
-				};
-
-				const commit_count = row_data["commit_number_span"]["end"] - row_data["commit_number_span"]["start"] + 1;
-
-				const foo_url = gen_master_timeline_commit_bounds_url(row_data.commit_index_span.start, row_data.commit_index_span.end, extra_args);
-
-				return link(pluralize(commit_count, "commit"), foo_url) + " (until " + moment(row_data["commit_time_span"]["end"]).fromNow() + ")";
-			},
-		},
+		gen_timeline_span_column(),
 	];
 
 	const table = new Tabulator("#" + element_id, {
@@ -446,24 +448,7 @@ function gen_jobs_table(element_id, data_payload, height_string) {
 		},
 		{title: "Timed out", field: "featured.timeout_count", width: 150,
 		},
-		{title: "Timeline Span", field: "commit_index_span",
-			formatter: function(cell, formatterParams, onRendered) {
-				const row_data = cell.getRow().getData();
-
-				const extra_args = {
-					"max_columns_suppress_successful": 35,
-					"should_suppress_scheduled_builds": true,
-					"should_suppress_fully_successful_columns": true,
-					"highlight_job": row_data.job,
-				};
-
-				const commit_count = row_data["commit_number_span"]["end"] - row_data["commit_number_span"]["start"] + 1;
-
-
-				const foo_url = gen_master_timeline_commit_bounds_url(row_data.commit_index_span.start, row_data.commit_index_span.end, extra_args);
-				return link(pluralize(commit_count, "commit"), foo_url) + " (until " + moment(row_data["commit_time_span"]["end"]).fromNow() + ")";
-			},
-		},
+		gen_timeline_span_column(),
 	];
 
 	const table = new Tabulator("#" + element_id, {

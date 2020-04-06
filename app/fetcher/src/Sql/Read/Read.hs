@@ -2953,29 +2953,27 @@ apiMasterBuilds timeline_parms = do
   conn <- ask
   liftIO $ runExceptT $ do
 
---    liftIO $ D.debugStr "Z A"
     (commits_list_time, (commit_id_bounds, master_commits)) <- D.timeThisFloat $
       ExceptT $ flip runReaderT conn $ getMasterCommits $ Pagination.offset_mode timeline_parms
 
     let commit_bounds_tuple = DbHelpers.boundsAsTuple commit_id_bounds
 
---    liftIO $ D.debugStr "Z B"
     (code_breakages_time, code_breakage_ranges) <- D.timeThisFloat $ liftIO $
       runReaderT (apiAnnotatedCodeBreakages commit_id_bounds) conn
 
---    liftIO $ D.debugStr "Z C"
     (job_failure_spans_time, job_failure_spans) <- D.timeThisFloat $
       liftIO $ runReaderT (getBreakageSpans commit_id_bounds) conn
 
---    liftIO $ D.debugStr "Z D"
     (reversion_spans_time, reversion_spans) <- D.timeThisFloat $
       liftIO $ query conn reversion_spans_sql commit_bounds_tuple
 
---    liftIO $ D.debugStr "Z E"
     (builds_list_time, completed_builds) <- D.timeThisFloat $
-      liftIO $ query conn builds_list_sql commit_bounds_tuple
+      liftIO $ genMasterBuildsListQuery
+        conn
+        commit_bounds_tuple
+        suppress_scheduled_builds
+        whitelisted_job_set
 
---    liftIO $ D.debugStr "Z F"
     (disjoint_statuses_time, disjoint_statuses) <- D.timeThisFloat $
       liftIO $ query conn disjoint_statuses_sql commit_bounds_tuple
 
@@ -2991,7 +2989,11 @@ apiMasterBuilds timeline_parms = do
 
         strictly_successful_jobs = Set.difference successful_job_names failed_job_names
 
-        filtered_job_names = case maybe_successful_column_limit of
+        filtered_job_names = if null whitelisted_job_set
+          then implicit_filtered_job_names
+          else whitelisted_job_set
+
+        implicit_filtered_job_names = case maybe_successful_column_limit of
           Nothing -> Set.union failed_job_names strictly_successful_jobs
           Just total_column_cap -> let
             successful_column_cap = max 0 $ total_column_cap - Set.size failed_job_names
@@ -3012,8 +3014,8 @@ apiMasterBuilds timeline_parms = do
           reversion_spans_time
           last_update_time
 
-
-    return $ DbHelpers.BenchmarkedResponse timing_data $ BuildResults.MasterBuildsResponse
+    return $ DbHelpers.BenchmarkedResponse timing_data $
+     BuildResults.MasterBuildsResponse
       filtered_job_names
       master_commits
       filtered_builds_list
@@ -3058,13 +3060,27 @@ apiMasterBuilds timeline_parms = do
       , "int8range(?, ?, '[]') @> ordered_master_commits.id::int8"
       ]
 
+    whitelisted_job_set = Pagination.whitelisted_jobs $ Pagination.column_filtering timeline_parms
 
-    filtered_statement_parts = MyUtils.applyIf
-      suppress_scheduled_builds
-      (++ ["AND NOT COALESCE(maybe_is_scheduled, FALSE)"])
-      statement_parts
 
-    builds_list_sql = Q.qjoin filtered_statement_parts
+genMasterBuildsListQuery ::
+     Connection
+  -> (Int64, Int64)
+  -> Bool
+  -> Set T.Text
+  -> IO [BuildResults.SimpleBuildStatus]
+genMasterBuildsListQuery
+    conn
+    commit_bounds_tuple
+    suppress_scheduled_builds
+    whitelisted_job_set =
+
+  if null whitelisted_job_set
+    then query conn builds_list_sql commit_bounds_tuple
+    else query conn builds_list_sql (x1, x2, In $ Set.toList whitelisted_job_set)
+  where
+
+    builds_list_sql = Q.qjoin statement_parts
 
     statement_parts = [
         "SELECT"
@@ -3106,8 +3122,16 @@ apiMasterBuilds timeline_parms = do
         ]
       , "FROM master_failures_raw_causes_mview"
       , "WHERE"
-      , "int8range(?, ?, '[]') @> commit_index::int8"
+      , Q.qconjunction builds_list_where_predicates
       ]
+
+
+    builds_list_where_predicates = [
+        "int8range(?, ?, '[]') @> commit_index::int8"
+      ] ++ ["NOT COALESCE(maybe_is_scheduled, FALSE)" | suppress_scheduled_builds]
+      ++ ["job_name IN ?" | not (null whitelisted_job_set)]
+
+    (x1, x2) = commit_bounds_tuple
 
 
 data BreakageDateRangeSimple = BreakageDateRangeSimple {
