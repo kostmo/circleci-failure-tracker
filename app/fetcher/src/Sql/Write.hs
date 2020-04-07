@@ -386,13 +386,14 @@ storeCircleTestResults
   catchViolation catcher $ do
     [Only echoed_provider_surrogate_id] <- query conn parent_test_insertion_sql (provider_surrogate_id, next_page_token)
 
-    let f p = (
+    let f idx p = (
             echoed_provider_surrogate_id :: Int64
           , T.strip <$> message
           , file
           , result
           , name
           , classname
+          , idx
           )
           where
             CircleTest.CircleCISingleTestResult
@@ -402,14 +403,13 @@ storeCircleTestResults
               name
               classname = p
 
-    let filtered_test_results = filter ((== "failure") . CircleTest.result) test_results
-        first_failed_test = take 1 filtered_test_results
+    let failed_test_results = filter ((== "failure") . CircleTest.result) test_results
 
-    if null first_failed_test
+    if null failed_test_results
       then return $ Right $ SqlReadTypes.NewRecordCount 0
       else do
         count <- executeMany conn single_test_insertion_sql $
-          map f first_failed_test
+          zipWith f [(0::Int)..] failed_test_results
 
         return $ Right $ SqlReadTypes.NewRecordCount count
 
@@ -432,6 +432,7 @@ storeCircleTestResults
         , "result"
         , "name"
         , "classname"
+        , "index"
         ]
       ]
 

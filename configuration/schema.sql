@@ -1138,7 +1138,8 @@ CREATE VIEW public.global_builds_unfiltered WITH (security_barrier='false') AS
     universal_builds.provider,
     universal_builds.x_ci_provider_scan AS ci_provider_scan,
     master_commit_circleci_scheduled_job_discrimination.is_scheduled AS maybe_is_scheduled,
-    master_commit_circleci_scheduled_job_discrimination.is_viability_prerequisite AS maybe_is_viability_prerequisite
+    master_commit_circleci_scheduled_job_discrimination.is_viability_prerequisite AS maybe_is_viability_prerequisite,
+    universal_builds.provider_build_surrogate
    FROM ((public.universal_builds
      JOIN public.provider_build_numbers ON ((universal_builds.provider_build_surrogate = provider_build_numbers.id)))
      LEFT JOIN public.master_commit_circleci_scheduled_job_discrimination ON (((universal_builds.x_job_name = master_commit_circleci_scheduled_job_discrimination.job_name) AND (universal_builds.commit_sha1 = master_commit_circleci_scheduled_job_discrimination.commit_sha1))));
@@ -1164,7 +1165,8 @@ CREATE VIEW public.global_builds WITH (security_barrier='false') AS
     global_builds_unfiltered.provider,
     global_builds_unfiltered.ci_provider_scan,
     global_builds_unfiltered.maybe_is_scheduled,
-    global_builds_unfiltered.maybe_is_viability_prerequisite
+    global_builds_unfiltered.maybe_is_viability_prerequisite,
+    global_builds_unfiltered.provider_build_surrogate
    FROM public.global_builds_unfiltered
   WHERE (global_builds_unfiltered.job_name IS NOT NULL);
 
@@ -2191,6 +2193,44 @@ CREATE SEQUENCE public.broken_revisions_id_seq
 ALTER TABLE public.broken_revisions_id_seq OWNER TO postgres;
 
 --
+-- Name: circleci_test_results; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.circleci_test_results (
+    provider_build_surrogate_id integer NOT NULL,
+    classname text,
+    file text,
+    result text,
+    message text,
+    name text,
+    index integer DEFAULT '-1'::integer NOT NULL
+);
+
+
+ALTER TABLE public.circleci_test_results OWNER TO postgres;
+
+--
+-- Name: first_failed_test_result; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.first_failed_test_result WITH (security_barrier='false') AS
+ SELECT circleci_test_results.provider_build_surrogate_id,
+    circleci_test_results.classname,
+    circleci_test_results.file,
+    circleci_test_results.result,
+    circleci_test_results.message,
+    circleci_test_results.name
+   FROM (( SELECT circleci_test_results_1.provider_build_surrogate_id,
+            min(circleci_test_results_1.index) AS first_index
+           FROM public.circleci_test_results circleci_test_results_1
+          WHERE (circleci_test_results_1.result = 'failure'::text)
+          GROUP BY circleci_test_results_1.provider_build_surrogate_id) foo
+     JOIN public.circleci_test_results ON (((circleci_test_results.provider_build_surrogate_id = foo.provider_build_surrogate_id) AND (circleci_test_results.index = foo.first_index))));
+
+
+ALTER TABLE public.first_failed_test_result OWNER TO postgres;
+
+--
 -- Name: build_failure_standalone_causes; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -2217,10 +2257,15 @@ CREATE VIEW public.build_failure_standalone_causes WITH (security_barrier='false
     global_builds.finished_at,
     global_builds.maybe_is_scheduled,
     COALESCE(best_pattern_match_for_builds.is_network, false) AS is_network,
-    global_builds.maybe_is_viability_prerequisite
-   FROM ((public.global_builds
+    global_builds.maybe_is_viability_prerequisite,
+    first_failed_test_result.file AS maybe_test_file,
+    first_failed_test_result.classname AS maybe_test_classname,
+    first_failed_test_result.name AS maybe_test_name,
+    first_failed_test_result.message AS maybe_test_message
+   FROM (((public.global_builds
      LEFT JOIN public.build_steps ON ((build_steps.universal_build = global_builds.global_build_num)))
-     LEFT JOIN public.best_pattern_match_for_builds ON ((best_pattern_match_for_builds.universal_build = global_builds.global_build_num)));
+     LEFT JOIN public.best_pattern_match_for_builds ON ((best_pattern_match_for_builds.universal_build = global_builds.global_build_num)))
+     LEFT JOIN public.first_failed_test_result ON ((global_builds.provider_build_surrogate = first_failed_test_result.provider_build_surrogate_id)));
 
 
 ALTER TABLE public.build_failure_standalone_causes OWNER TO postgres;
@@ -2293,7 +2338,11 @@ CREATE VIEW public.build_failure_causes WITH (security_barrier='false') AS
     known_broken_builds.cause_count,
     build_failure_standalone_causes.maybe_is_scheduled,
     build_failure_standalone_causes.is_network,
-    build_failure_standalone_causes.maybe_is_viability_prerequisite
+    build_failure_standalone_causes.maybe_is_viability_prerequisite,
+    build_failure_standalone_causes.maybe_test_file,
+    build_failure_standalone_causes.maybe_test_classname,
+    build_failure_standalone_causes.maybe_test_name,
+    build_failure_standalone_causes.maybe_test_message
    FROM (public.build_failure_standalone_causes
      LEFT JOIN public.known_broken_builds ON ((known_broken_builds.universal_build = build_failure_standalone_causes.global_build)));
 
@@ -2537,7 +2586,8 @@ COMMENT ON TABLE public.circleci_config_yaml_hashes IS 'NOTE: This is the root o
 
 CREATE TABLE public.circleci_test_reports (
     stored_at timestamp with time zone DEFAULT now() NOT NULL,
-    provider_build_surrogate_id integer NOT NULL
+    provider_build_surrogate_id integer NOT NULL,
+    next_page_token text
 );
 
 
@@ -2547,48 +2597,9 @@ ALTER TABLE public.circleci_test_reports OWNER TO postgres;
 -- Name: TABLE circleci_test_reports; Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON TABLE public.circleci_test_reports IS 'This intermediate table simply indicates whether the test report has been retrieved.  Since it is possible that a build does not have a test report, we must use this table to distinguish between an unretrieved report and a nonexistent report.';
+COMMENT ON TABLE public.circleci_test_reports IS 'This intermediate table simply indicates whether the test report has been retrieved.  Since it is possible that a build does not have a test report, we must use this table to distinguish between an unretrieved report and a nonexistent report.
 
-
---
--- Name: circleci_test_results; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.circleci_test_results (
-    provider_build_surrogate_id integer NOT NULL,
-    id integer NOT NULL,
-    classname text,
-    file text,
-    result text,
-    run_time double precision,
-    message text,
-    source text,
-    source_type text
-);
-
-
-ALTER TABLE public.circleci_test_results OWNER TO postgres;
-
---
--- Name: circleci_test_results_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
---
-
-CREATE SEQUENCE public.circleci_test_results_id_seq
-    AS integer
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
-ALTER TABLE public.circleci_test_results_id_seq OWNER TO postgres;
-
---
--- Name: circleci_test_results_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
---
-
-ALTER SEQUENCE public.circleci_test_results_id_seq OWNED BY public.circleci_test_results.id;
+Note: I''m storing the "next_page_token" as an experiment to see if it is ever used.';
 
 
 --
@@ -5565,6 +5576,36 @@ ALTER SEQUENCE public.scans_id_seq OWNED BY public.scans.id;
 
 
 --
+-- Name: test_failures_by_universal_build; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.test_failures_by_universal_build WITH (security_barrier='false') AS
+ SELECT universal_builds.id AS universal_build,
+    first_failed_test_result.file AS maybe_test_file,
+    first_failed_test_result.classname AS maybe_test_classname,
+    first_failed_test_result.name AS maybe_test_name,
+    first_failed_test_result.message AS maybe_test_message
+   FROM (public.universal_builds
+     JOIN public.first_failed_test_result ON ((universal_builds.provider_build_surrogate = first_failed_test_result.provider_build_surrogate_id)));
+
+
+ALTER TABLE public.test_failures_by_universal_build OWNER TO postgres;
+
+--
+-- Name: test_result_counts; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.test_result_counts AS
+ SELECT circleci_test_results.provider_build_surrogate_id,
+    circleci_test_results.result,
+    count(*) AS result_count
+   FROM public.circleci_test_results
+  GROUP BY circleci_test_results.provider_build_surrogate_id, circleci_test_results.result;
+
+
+ALTER TABLE public.test_result_counts OWNER TO postgres;
+
+--
 -- Name: unattributed_failed_builds; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -5890,13 +5931,6 @@ ALTER TABLE ONLY public.ci_providers ALTER COLUMN id SET DEFAULT nextval('public
 
 
 --
--- Name: circleci_test_results id; Type: DEFAULT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.circleci_test_results ALTER COLUMN id SET DEFAULT nextval('public.circleci_test_results_id_seq'::regclass);
-
-
---
 -- Name: circleci_workflows_by_yaml_file id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
@@ -6187,7 +6221,7 @@ ALTER TABLE ONLY public.circleci_test_reports
 --
 
 ALTER TABLE ONLY public.circleci_test_results
-    ADD CONSTRAINT circleci_test_results_pkey PRIMARY KEY (id);
+    ADD CONSTRAINT circleci_test_results_pkey PRIMARY KEY (provider_build_surrogate_id, index);
 
 
 --
@@ -7004,6 +7038,13 @@ CREATE INDEX idx_status_created_at ON public.github_incoming_status_events USING
 --
 
 CREATE INDEX idx_step_name ON public.build_steps USING btree (name);
+
+
+--
+-- Name: idx_test_result; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_test_result ON public.circleci_test_results USING btree (result);
 
 
 --
@@ -8141,6 +8182,22 @@ GRANT ALL ON SEQUENCE public.broken_revisions_id_seq TO logan;
 
 
 --
+-- Name: TABLE circleci_test_results; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.circleci_test_results TO logan;
+GRANT SELECT ON TABLE public.circleci_test_results TO materialized_view_updater;
+
+
+--
+-- Name: TABLE first_failed_test_result; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.first_failed_test_result TO logan;
+GRANT SELECT ON TABLE public.first_failed_test_result TO materialized_view_updater;
+
+
+--
 -- Name: TABLE build_failure_standalone_causes; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -8239,21 +8296,6 @@ GRANT ALL ON TABLE public.circleci_config_yaml_hashes TO logan;
 
 GRANT ALL ON TABLE public.circleci_test_reports TO logan;
 GRANT SELECT ON TABLE public.circleci_test_reports TO materialized_view_updater;
-
-
---
--- Name: TABLE circleci_test_results; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.circleci_test_results TO logan;
-GRANT SELECT ON TABLE public.circleci_test_results TO materialized_view_updater;
-
-
---
--- Name: SEQUENCE circleci_test_results_id_seq; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON SEQUENCE public.circleci_test_results_id_seq TO logan;
 
 
 --
@@ -9040,6 +9082,22 @@ GRANT ALL ON TABLE public.scans TO logan;
 --
 
 GRANT ALL ON SEQUENCE public.scans_id_seq TO logan;
+
+
+--
+-- Name: TABLE test_failures_by_universal_build; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.test_failures_by_universal_build TO logan;
+GRANT SELECT ON TABLE public.test_failures_by_universal_build TO materialized_view_updater;
+
+
+--
+-- Name: TABLE test_result_counts; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.test_result_counts TO logan;
+GRANT SELECT ON TABLE public.test_result_counts TO materialized_view_updater;
 
 
 --
