@@ -41,7 +41,7 @@ apiIsolatedMasterFailuresByDay day_count = do
     xs <- query conn sql $ Only day_count
     return $ Right $ reverse xs
   where
-  sql = Q.qjoin [
+  sql = Q.join [
       "SELECT"
     , Q.list [
         "date_california_time"
@@ -58,7 +58,7 @@ apiIsolatedMasterFailuresByDay day_count = do
 apiFailedCommitsByDay :: SqlReadTypes.DbIO (WebApi.ApiResponse (Day, Int))
 apiFailedCommitsByDay = WebApi.ApiResponse <$> SqlReadTypes.runQuery q
   where
-  q = Q.qjoin [
+  q = Q.join [
       "SELECT"
     , Q.list [
         "queued_at::date AS date"
@@ -70,7 +70,7 @@ apiFailedCommitsByDay = WebApi.ApiResponse <$> SqlReadTypes.runQuery q
     , "ORDER BY date ASC"
     ]
     where
-      subquery = Q.qjoin [
+      subquery = Q.join [
           "SELECT"
         , Q.list [
             "vcs_revision"
@@ -118,7 +118,7 @@ apiCoarseBinsIsolatedJobFailuresTimespan time_bounds = do
 
     -- Compare to "build_failure_causes_disjoint" view for logic
     -- of categorizing mutually-exclusive failure modes
-    sql = Q.qjoin [
+    sql = Q.join [
         "SELECT"
       , Q.list [
           "timeout_count"
@@ -133,7 +133,7 @@ apiCoarseBinsIsolatedJobFailuresTimespan time_bounds = do
       , "foo"
       ]
 
-    inner_sql = Q.qjoin [
+    inner_sql = Q.join [
         "SELECT"
       , Q.list [
           "COALESCE(SUM(is_timeout::int), 0) AS timeout_count"
@@ -167,7 +167,7 @@ apiIsolatedUnmatchedBuildsMasterCommitRange
   where
     query_parms = (lower_commit_id, upper_commit_id)
 
-    sql = Q.qjoin [
+    sql = Q.join [
         "SELECT"
       , Q.list [
           "master_failures_raw_causes_mview.global_build"
@@ -245,13 +245,13 @@ apiIsolatedJobFailuresTimespan time_bounds = do
 
     where_clauses = [
         "is_isolated_or_flaky_failure"
-      , Q.qjoin [
+      , Q.join [
           "tstzrange(?::timestamp, ?::timestamp)"
         , "@> master_ordered_commits_with_metadata_mview.committer_date"
         ]
       ]
 
-    sql = Q.qjoin [
+    sql = Q.join [
         "SELECT"
       , Q.list [
           "job_name"
@@ -306,7 +306,7 @@ apiIsolatedPatternFailuresTimespan time_bounds exclude_named_tests = do
       SqlReadTypes.Bounded (DbHelpers.StartEnd start_time end_time) -> (start_time, Just end_time)
       SqlReadTypes.StartOnly start_time -> (start_time, Nothing)
 
-    sql = Q.qjoin [
+    sql = Q.join [
         "SELECT"
       , Q.list [
           "patterns_rich.id AS pattern_id"
@@ -346,7 +346,7 @@ apiIsolatedPatternFailuresTimespan time_bounds exclude_named_tests = do
       , "tstzrange(?::timestamp, ?::timestamp) @> master_ordered_commits_with_metadata_mview.committer_date"
       ] ++ optional_named_test_exclusion_clause
 
-    inner_sql = Q.qjoin [
+    inner_sql = Q.join [
         "SELECT"
       , Q.list [
           "pattern_id AS pid"
@@ -395,7 +395,7 @@ apiIsolatedTestFailuresTimespan time_bounds = do
       SqlReadTypes.Bounded (DbHelpers.StartEnd start_time end_time) -> (start_time, Just end_time)
       SqlReadTypes.StartOnly start_time -> (start_time, Nothing)
 
-    sql = Q.qjoin [
+    sql = Q.join [
         "SELECT"
       , Q.list [
           "maybe_test_name"
@@ -427,7 +427,7 @@ apiIsolatedTestFailuresTimespan time_bounds = do
       , "test_failures_by_universal_build.universal_build IS NOT NULL"
       ]
 
-    inner_sql = Q.qjoin [
+    inner_sql = Q.join [
         "SELECT"
       , Q.list [
           "test_failures_by_universal_build.maybe_test_name"
@@ -471,7 +471,7 @@ apiJobFailuresInTimespan
 
 
 genMasterFailureDetailsQuery extra_where_condition =
-  Q.qjoin [
+  Q.join [
         "SELECT"
       , Q.list [
           "master_failures_raw_causes_mview.step_name"

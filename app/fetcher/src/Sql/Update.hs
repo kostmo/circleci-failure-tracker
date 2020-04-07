@@ -185,7 +185,7 @@ getBuildInfo
           started_at
           finished_at
 
-    sql = Q.qjoin [
+    sql = Q.join [
         "SELECT"
       , Q.list [
           "step_id"
@@ -276,7 +276,7 @@ countRevisionBuilds
     sha1 = GitRev.sha1 git_revision
     only_commit = Only sha1
 
-    aggregate_causes_sql = Q.qjoin [
+    aggregate_causes_sql = Q.join [
         "SELECT"
       , Q.list [
           "total"

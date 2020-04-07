@@ -7,8 +7,8 @@ import           Database.PostgreSQL.Simple (Query)
 
 
 -- | Concatenate SQL queries with interspersed spaces
-qjoin :: [Query] -> Query
-qjoin = mconcat . intersperse " "
+join :: [Query] -> Query
+join = mconcat . intersperse " "
 
 
 -- | Comma-separated entities
@@ -18,7 +18,12 @@ list = mconcat . intersperse ", "
 
 -- | AND-separated entities
 conjunction :: [Query] -> Query
-conjunction = qjoin . intersperse "AND"
+conjunction = join . intersperse "AND"
+
+
+-- | AND-separated entities
+disjunction :: [Query] -> Query
+disjunction = join . intersperse "OR"
 
 
 -- | Surround with parentheses
@@ -27,7 +32,7 @@ parens = mconcat . (`intersperse` ["(", ")"])
 
 
 coalesce  :: Query -> Query -> Query -> Query
-coalesce from_expr to_expr varname = qjoin [
+coalesce from_expr to_expr varname = join [
     "COALESCE" <> parens (list [from_expr, to_expr])
   , "AS"
   , varname
@@ -35,7 +40,7 @@ coalesce from_expr to_expr varname = qjoin [
 
 
 aliasedSubquery :: Query -> Query -> Query
-aliasedSubquery subquery alias = qjoin [
+aliasedSubquery subquery alias = join [
     parens subquery
   , alias
   ]
@@ -44,7 +49,7 @@ aliasedSubquery subquery alias = qjoin [
 -- | Ensures that the number of question marks
 -- is equal to the number of fields
 insertionValues :: [Query] -> Query
-insertionValues fields = qjoin [
+insertionValues fields = join [
     parens $ list fields
   , "VALUES"
   , parens $ list $ replicate (length fields) "?"
