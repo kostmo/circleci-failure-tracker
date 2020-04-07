@@ -18,7 +18,6 @@ import qualified Data.Text                  as T
 import qualified Data.Text.Lazy             as LT
 import qualified Data.Vault.Lazy            as Vault
 import           Database.PostgreSQL.Simple (Connection)
-import           GHC.Int                    (Int64)
 import           Network.Wai.Session        (Session)
 import qualified Web.Scotty                 as S
 import qualified Web.Scotty.Internal.Types  as ScottyTypes
@@ -40,6 +39,7 @@ import qualified Scanning
 import qualified ScanPatterns
 import qualified Sql.Read.Builds            as ReadBuilds
 import qualified Sql.Read.Types             as SqlReadTypes
+import qualified Sql.Write                  as SqlWrite
 import qualified StatusUpdate
 import qualified WebApi
 
@@ -195,7 +195,7 @@ getParmMaybe parm_name =
 facilitateJobRebuild ::
      CircleApi.CircleCIApiToken
   -> Builds.UniversalBuildId
-  -> SqlReadTypes.AuthDbIO (Either T.Text (SqlReadTypes.UserWrapper [(Builds.UniversalBuildId, Int64)]))
+  -> SqlReadTypes.AuthDbIO (Either T.Text (SqlReadTypes.UserWrapper [(Builds.UniversalBuildId, SqlWrite.LocalRebuildTriggerEventId)]))
 facilitateJobRebuild circleci_api_token universal_build_id = do
   dbauth@(SqlReadTypes.AuthConnection conn user) <- ask
   liftIO $ fmap (first T.pack) $ runExceptT $ do

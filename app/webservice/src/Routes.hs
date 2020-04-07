@@ -321,6 +321,9 @@ scottyApp
   get "/api/posted-comments-for-pr" $
     ReadPullRequests.apiPostedCommentsForPR <$> (Builds.PullRequestNumber <$> S.param "pr")
 
+  get "/api/historical-pr-associations" $
+    ReadPullRequests.getPullRequestsContainingCommit . Builds.RawCommit <$> S.param "sha1"
+
   get "/api/upstream-broken-jobs-for-commit" $
     ReadBreakages.getInferredSpanningBrokenJobsBetter . Builds.RawCommit <$> S.param "sha1"
 

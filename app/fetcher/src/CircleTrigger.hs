@@ -15,7 +15,6 @@ import           Data.List                  (intercalate)
 import           Data.Text                  (Text)
 import qualified Data.Text                  as T
 import           GHC.Generics
-import           GHC.Int                    (Int64)
 import qualified Network.Wreq               as NW
 import qualified Network.Wreq.Session       as Sess
 
@@ -141,7 +140,7 @@ rebuildCircleJobsInWorkflow ::
      SqlReadTypes.AuthConnection
   -> CircleApi.CircleCIApiToken
   -> [(Builds.UniversalBuildId, Builds.BuildNumber)]
-  -> ExceptT String IO [(Builds.UniversalBuildId, Int64)]
+  -> ExceptT String IO [(Builds.UniversalBuildId, SqlWrite.LocalRebuildTriggerEventId)]
 rebuildCircleJobsInWorkflow
     dbauth
     tok

@@ -264,9 +264,27 @@ function get_scrubbed_sha1() {
 }
 
 
+function list_pull_requests(commit_sha1) {
+
+	getJsonWithThrobber("pr-list-throbber", "/api/historical-pr-associations", {"sha1": commit_sha1}, function(data) {
+
+		const item_list = [];
+		item_list.push(["PR number", "Is current HEAD?"]);
+
+		for (var x of data) {
+			item_list.push([link("#" + x[0], PULL_REQUEST_URL_PREFIX + x[0]), x[1]]);
+		}
+
+		$("#pull-requests-container").html(render_table(item_list, {}, "", true));
+	}); 
+}
+
+
 function main() {
 
 	const commit_sha1 = get_scrubbed_sha1();
+
+	list_pull_requests(commit_sha1);
 
 //	fetch_commit_info(commit_sha1);
 

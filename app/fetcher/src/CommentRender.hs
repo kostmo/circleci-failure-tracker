@@ -74,18 +74,23 @@ genUnmatchedBuildsTable unmatched_nonupstream_builds =
     header_columns = [
         "Job"
       , "Step"
-      , "Status"
+--      , "Status"
+      , "Action"
       ]
 
     data_rows = map gen_unmatched_build_row unmatched_nonupstream_builds
 
-    gen_unmatched_build_row (UnmatchedBuilds.UnmatchedBuild _build step_name _ job_name _ _ _ _) = [
+    gen_unmatched_build_row (UnmatchedBuilds.UnmatchedBuild _build step_name _ job_name _ universal_build_number _ _) = [
         T.unwords [
           M.image "CircleCI" circleCISmallAvatarUrl
         , M.sup job_name
         ]
       , M.sup step_name
+--      , ""
+      , rerun_link
       ]
+      where
+        rerun_link = renderSingleJobRerunLink universal_build_number
 
 
 genTimedOutSection ::
@@ -467,6 +472,9 @@ formatBreakageTimeSpan
       Nothing -> ["since", start_time_date_only]
 
 
+genUpstreamFailuresSection ::
+     [(SqlReadTypes.StandardCommitBuildWrapper, SqlReadTypes.UpstreamBrokenJob)]
+  -> Maybe (Tr.Tree NodeType)
 genUpstreamFailuresSection upstream_breakages =
   if null upstream_breakages
     then Nothing
@@ -493,12 +501,17 @@ genUpstreamFailuresSection upstream_breakages =
       ]
 
     render_upstream_matched_failure_item (x, upstream_cause) =
-      pure $ pure $ T.unwords [
-          M.link link_label link_url
-        , breakage_span_words
-        ]
+      Tr.Node node_text node_children
 
       where
+        node_text = pure $ T.unwords [
+            M.link link_label link_url
+          , breakage_span_words
+          ]
+
+        node_children = pure $ pure $ pure $
+          renderSingleJobRerunLink $ Builds.UniversalBuildId ubuild_id
+
         CommitBuilds.NewCommitBuild y _match_obj _ _ = CommitBuilds._commit_build x
         Builds.StorableBuild (DbHelpers.WithId ubuild_id _universal_build) build_obj = y
 
@@ -508,13 +521,29 @@ genUpstreamFailuresSection upstream_breakages =
         link_url = LT.toStrict CommentRenderCommon.webserverBaseUrl <> "/build-details.html?build_id=" <> T.pack (show ubuild_id)
 
 
+renderSingleJobRerunLink :: Builds.UniversalBuildId -> Text
+renderSingleJobRerunLink (Builds.UniversalBuildId ubuild_id) =
+  M.link ":repeat: rerun" single_build_rerun_trigger_url
+  where
+    single_rebuild_request_query_parms = [
+        ("build-id", show ubuild_id)
+      ]
+
+    single_build_rerun_trigger_url = T.pack $ LT.unpack CommentRenderCommon.webserverBaseUrl <> "/rebuild-from-pr-comment.html?"
+      <> MyUtils.genUrlQueryString single_rebuild_request_query_parms
+
+
 genMatchedBuildSection ::
      Int
   -> Int
   -> SqlReadTypes.CommitBuildWrapperTuple
   -> [Text]
-genMatchedBuildSection total_count idx wrapped_build_with_log_context = [
-    M.heading 4 $ T.unwords [
+genMatchedBuildSection
+    total_count
+    idx
+    wrapped_build_with_log_context =
+
+  [ M.heading 4 $ T.unwords [
         circleci_image_link
       , M.link job_name circleci_build_url
       , M.parens $ T.pack $ MyUtils.renderFrac idx total_count
@@ -525,22 +554,23 @@ genMatchedBuildSection total_count idx wrapped_build_with_log_context = [
   where
     (wrapped_commit_build, build_with_log_context) = wrapped_build_with_log_context
 
-    (CommitBuilds.BuildWithLogContext (CommitBuilds.NewCommitBuild storable_build match_obj _ failure_mode) (CommitBuilds.LogContext _ log_lines)) = build_with_log_context
+    CommitBuilds.NewCommitBuild storable_build match_obj _ failure_mode = commit_build
+    CommitBuilds.BuildWithLogContext commit_build (CommitBuilds.LogContext _ log_lines) = build_with_log_context
 
     single_match_line = M.codeInlineHtml $ sanitizeLongLine $ MatchOccurrences._line_text match_obj
     Builds.StorableBuild (DbHelpers.WithId ubuild_id universal_build) build_obj = storable_build
 
     job_name = Builds.job_name build_obj
 
-    supplemental_commi_build_info = CommitBuilds._supplemental wrapped_commit_build
-    is_confirmed_non_flaky = SqlReadTypes.has_completed_rerun supplemental_commi_build_info
-      && not (SqlReadTypes.is_empirically_determined_flaky supplemental_commi_build_info)
+    supplemental_commit_build_info = CommitBuilds._supplemental wrapped_commit_build
+    is_confirmed_non_flaky = SqlReadTypes.has_completed_rerun supplemental_commit_build_info
+      && not (SqlReadTypes.is_empirically_determined_flaky supplemental_commit_build_info)
 
     not_flaky_confirmation_text = M.htmlAngleBrackets $ T.unwords [
         "confirmed"
       , M.bold "not flaky"
       , "by"
-      , M.bold $ MyUtils.pluralize (SqlReadTypes.failure_count supplemental_commi_build_info) "failure"
+      , M.bold $ MyUtils.pluralize (SqlReadTypes.failure_count supplemental_commit_build_info) "failure"
       ]
 
     optional_flakiness_indicator
@@ -548,24 +578,18 @@ genMatchedBuildSection total_count idx wrapped_build_with_log_context = [
        | CommitBuilds._is_flaky failure_mode = [":snowflake:"]
        | otherwise = []
 
-    console_log_link = M.link "full log" $ LT.toStrict CommentRenderCommon.webserverBaseUrl <> "/api/view-log-full?build_id=" <> T.pack (show ubuild_id)
+    console_log_link = M.link "full log" $
+      LT.toStrict CommentRenderCommon.webserverBaseUrl <> "/api/view-log-full?build_id=" <> T.pack (show ubuild_id)
 
-    pattern_match_details_link = M.link "pattern match details" $ LT.toStrict CommentRenderCommon.webserverBaseUrl <> "/build-details.html?build_id=" <> T.pack (show ubuild_id)
+    pattern_match_details_link = M.link "pattern match details" $
+      LT.toStrict CommentRenderCommon.webserverBaseUrl <> "/build-details.html?build_id=" <> T.pack (show ubuild_id)
 
-    {-
-    single_rebuild_request_query_parms = [
-        ("build-id", show ubuild_id)
-      ]
-
-    single_build_rerun_trigger_url = T.pack $ LT.unpack CommentRenderCommon.webserverBaseUrl <> "/rebuild-from-pr-comment.html?"
-      <> MyUtils.genUrlQueryString single_rebuild_request_query_parms
-    rerun_link = M.link "rerun this build" single_build_rerun_trigger_url
-    -}
+    rerun_link = renderSingleJobRerunLink $ Builds.UniversalBuildId ubuild_id
 
     single_build_quick_links = [
         console_log_link
       , pattern_match_details_link
---      , rerun_link
+      , rerun_link
       ]
 
     summary_info_pieces = [
@@ -673,6 +697,10 @@ generateCommentMarkdown
     [[intro_section]] ++ middle_sections ++ [generateCommentFooter maybe_previous_pr_comment pr_number]
 
   where
+    dr_ci_commit_details_link = M.link
+      (T.unwords ["on the", drCIApplicationTitle, "page"])
+      dr_ci_commit_details_url
+
     intro_section = T.unlines [
         M.heading 2 ":pill: CircleCI build failures summary and remediations"
       , M.colonize [
@@ -680,12 +708,12 @@ generateCommentMarkdown
         , T.take Constants.gitCommitPrefixLength sha1_text
         , M.parens $ T.unwords [
             "more details"
-          , M.link "on the Dr. CI page" dr_ci_commit_details_link
+          , dr_ci_commit_details_link
           ]
         ]
       ]
 
-    dr_ci_commit_details_link = LT.toStrict CommentRenderCommon.webserverBaseUrl <> "/commit-details.html?sha1=" <> sha1_text
+    dr_ci_commit_details_url = LT.toStrict CommentRenderCommon.webserverBaseUrl <> "/commit-details.html?sha1=" <> sha1_text
 
 
 generateMiddleSections ::

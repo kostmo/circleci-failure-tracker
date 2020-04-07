@@ -5,24 +5,24 @@
 
 module Sql.Read.PullRequests where
 
-import           Control.Monad.IO.Class             (liftIO)
-import           Control.Monad.Trans.Reader         (ask)
+import           Control.Monad.IO.Class     (liftIO)
+import           Control.Monad.Trans.Reader (ask)
 import           Data.Aeson
-import qualified Data.Text.Lazy                     as LT
-import           Data.Text                          (Text)
-import           Data.Time                          (UTCTime)
+import           Data.Text                  (Text)
+import qualified Data.Text.Lazy             as LT
+import           Data.Time                  (UTCTime)
 import           Database.PostgreSQL.Simple
 import           GHC.Generics
-import           GHC.Int                            (Int64)
+import           GHC.Int                    (Int64)
 import qualified Safe
 
-import qualified JsonUtils
-import qualified Builds
-import qualified PostedComments
-import qualified Sql.QueryUtils                     as Q
-import      qualified     Sql.Read.Types as SqlReadTypes
-import           Sql.Read.Types                       (DbIO, runQuery, AuthDbIO)
 import qualified AuthStages
+import qualified Builds
+import qualified JsonUtils
+import qualified PostedComments
+import qualified Sql.QueryUtils             as Q
+import           Sql.Read.Types             (AuthDbIO, DbIO, runQuery)
+import qualified Sql.Read.Types             as SqlReadTypes
 
 
 data OptOutResponse = OptOutResponse {
@@ -34,7 +34,6 @@ data OptOutResponse = OptOutResponse {
 
 instance ToJSON OptOutResponse where
   toJSON = genericToJSON JsonUtils.dropUnderscore
-
 
 
 getCachedPullRequestAuthor ::
@@ -54,7 +53,6 @@ getCachedPullRequestAuthor (Builds.PullRequestNumber pr_number) = do
       , "FROM pull_request_static_metadata"
       , "WHERE pr_number = ?"
       ]
-
 
 
 canPostPullRequestComments ::
@@ -226,6 +224,30 @@ getPullRequestsByCurrentHead (Builds.RawCommit commit_sha1) = do
       , "pr_number"
       , "FROM pr_current_heads"
       , "WHERE head_sha1 = ?"
+      ]
+
+-- | Retrieves all historical associations of the commit
+-- with pull requests, even if the commit isn't the current
+-- HEAD of the PR.
+getPullRequestsContainingCommit ::
+     Builds.RawCommit
+  -> DbIO [(Builds.PullRequestNumber, Bool)]
+getPullRequestsContainingCommit (Builds.RawCommit commit_sha1) = do
+  conn <- ask
+  liftIO $ do
+    xs <- query conn sql $ Only commit_sha1
+    return $ map (\(x, y) -> (Builds.PullRequestNumber x, y)) xs
+  where
+    sql = Q.join [
+        "SELECT"
+      , Q.list [
+          "pull_request_heads.pr_number"
+        , "pr_current_heads.head_sha1 IS NOT NULL AS is_current_head"
+        ]
+      , "FROM pull_request_heads"
+      , "LEFT JOIN pr_current_heads"
+      , "ON pr_current_heads.head_sha1 = pull_request_heads.head_sha1"
+      , "WHERE pull_request_heads.head_sha1 = ?"
       ]
 
 

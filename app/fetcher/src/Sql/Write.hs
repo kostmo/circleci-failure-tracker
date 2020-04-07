@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveGeneric     #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Sql.Write where
@@ -8,6 +9,7 @@ import           Control.Monad.IO.Class            (liftIO)
 import           Control.Monad.Trans.Except        (ExceptT (ExceptT), except,
                                                     runExceptT)
 import           Control.Monad.Trans.Reader        (ask, runReaderT)
+import           Data.Aeson
 import           Data.Bifunctor                    (first)
 import qualified Data.ByteString.Char8             as BS
 import           Data.Either                       (partitionEithers)
@@ -30,6 +32,7 @@ import           Data.Tuple                        (swap)
 import           Database.PostgreSQL.Simple
 import           Database.PostgreSQL.Simple.Errors
 import           Database.PostgreSQL.Simple.Types  (PGArray (PGArray))
+import           GHC.Generics
 import           GHC.Int                           (Int64)
 import qualified Network.OAuth.OAuth2              as OAuth2
 import qualified Safe
@@ -1040,10 +1043,16 @@ data BeanstalkSqsReceiveHeaders = BeanstalkSqsReceiveHeaders {
   } deriving Show
 
 
+newtype LocalRebuildTriggerEventId = LocalRebuildTriggerEventId Int64
+  deriving (Generic)
+
+instance ToJSON LocalRebuildTriggerEventId
+
+
 insertRebuildTriggerEvent ::
      Builds.UniversalBuildId
   -> Text
-  -> SqlReadTypes.AuthDbIO (Either String Int64)
+  -> SqlReadTypes.AuthDbIO (Either String LocalRebuildTriggerEventId)
 insertRebuildTriggerEvent
     (Builds.UniversalBuildId universal_build_id)
     msg = do
@@ -1051,7 +1060,7 @@ insertRebuildTriggerEvent
   SqlReadTypes.AuthConnection conn (AuthStages.Username author) <- ask
   let values_tuple = (universal_build_id, msg, author)
   [Only x] <- liftIO $ query conn sql values_tuple
-  return $ Right x
+  return $ Right $ LocalRebuildTriggerEventId x
   where
 
     sql = Q.join [

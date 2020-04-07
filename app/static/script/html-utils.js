@@ -188,13 +188,13 @@ function render_table_row(items, cell_type) {
 }
 
 
-function render_table_content(rows, first_row_header) {
+function render_table_content(rows, is_first_row_header) {
 
 	var content = "";
 
 	var row_count = 0;
 	for (var row of rows) {
-		const row_content = render_table_row(row, row_count == 0 && first_row_header ? "th" : "td");
+		const row_content = render_table_row(row, row_count == 0 && is_first_row_header ? "th" : "td");
 		content += render_tag("tr", row_content);
 
 		row_count += 1;
@@ -203,9 +203,9 @@ function render_table_content(rows, first_row_header) {
 	return content;
 }
 
-function render_table(rows, attrs, caption, first_row_header) {
+function render_table(rows, attrs, caption, is_first_row_header) {
 
-	const content = render_table_content(rows, first_row_header);
+	const content = render_table_content(rows, is_first_row_header);
 	const caption_html = caption ? render_tag("caption", caption) : "";
 
 	return render_tag("table", render_tag("tbody", content) + caption_html, attrs);

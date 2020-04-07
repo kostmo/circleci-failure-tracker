@@ -24,6 +24,8 @@ function load_single_rebuild_info(build_id) {
 		$("#throbber").hide();
 
 		$("#username-container").html(data.user);
+
+		$('#rebuilding-results-placeholder').html("Triggered rerun of " + data.content.length + " job(s).");
 	});
 }
 

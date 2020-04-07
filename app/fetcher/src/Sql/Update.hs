@@ -21,7 +21,6 @@ import qualified Data.Text                  as T
 import           Data.Tuple                 (swap)
 import           Database.PostgreSQL.Simple
 import           GHC.Generics
-import           GHC.Int                    (Int64)
 import qualified Network.OAuth.OAuth2       as OAuth2
 import qualified Safe
 
@@ -361,7 +360,7 @@ data CommitRebuildsResponse = CommitRebuildsResponse {
     _all_builds          :: SqlRead.RevisionBuildsWithTimeouts
   , _flaky_candidates    :: [SqlReadTypes.StandardCommitBuildWrapper]
   , _flaky_noncandidates :: [SqlReadTypes.StandardCommitBuildWrapper]
-  , _reran_builds        :: [(SqlReadTypes.StandardCommitBuildWrapper, Int64)]
+  , _reran_builds        :: [(SqlReadTypes.StandardCommitBuildWrapper, SqlWrite.LocalRebuildTriggerEventId)]
   } deriving Generic
 
 instance ToJSON CommitRebuildsResponse where
@@ -426,10 +425,11 @@ triggerFlakyRebuildCandidates
 
         retryable_builds_with_db_keys = Maybe.mapMaybe (\x -> sequenceA (x, (`HashMap.lookup` retry_keys_by_universal_id) $ DbHelpers.db_id $ Builds.universal_build $ CommitBuilds._build $ CommitBuilds._commit_build x)) retryable_flaky_builds
 
-    return $ SqlReadTypes.UserWrapper user $ DbHelpers.BenchmarkedResponse timing $
-      CommitRebuildsResponse
-        builds
-        retryable_flaky_builds
-        non_retryable_flaky_builds
-        retryable_builds_with_db_keys
+    return $ SqlReadTypes.UserWrapper user $
+      DbHelpers.BenchmarkedResponse timing $
+        CommitRebuildsResponse
+          builds
+          retryable_flaky_builds
+          non_retryable_flaky_builds
+          retryable_builds_with_db_keys
 
