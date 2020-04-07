@@ -17,8 +17,8 @@ list = mconcat . intersperse ", "
 
 
 -- | AND-separated entities
-qconjunction :: [Query] -> Query
-qconjunction = qjoin . intersperse "AND"
+conjunction :: [Query] -> Query
+conjunction = qjoin . intersperse "AND"
 
 
 -- | Surround with parentheses

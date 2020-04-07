@@ -1353,7 +1353,7 @@ removePatternTag (ScanPatterns.PatternId pattern_id) tag = do
     sql = Q.qjoin [
         "DELETE FROM pattern_tags"
       , "WHERE"
-      , Q.qconjunction [
+      , Q.conjunction [
           "pattern = ?"
         , "tag = ?"
         ]
@@ -1381,7 +1381,7 @@ deleteCodeBreakageJob cause_id job = do
     sql = Q.qjoin [
         "DELETE FROM code_breakage_affected_jobs"
       , "WHERE"
-      , Q.qconjunction [
+      , Q.conjunction [
           "cause = ?"
         , "job = ?"
         ]

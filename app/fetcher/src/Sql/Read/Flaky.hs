@@ -147,7 +147,7 @@ apiCoarseBinsIsolatedJobFailuresTimespan time_bounds = do
       , "JOIN master_ordered_commits_with_metadata_mview"
       , "ON master_failures_raw_causes_mview.commit_index = master_ordered_commits_with_metadata_mview.id"
       , "WHERE"
-      , Q.qconjunction [
+      , Q.conjunction [
           "is_isolated_or_flaky_failure"
         , "tstzrange(?::timestamp, ?::timestamp) @> committer_date"
         ]
@@ -180,7 +180,7 @@ apiIsolatedUnmatchedBuildsMasterCommitRange
       , "JOIN ci_providers"
       , "ON ci_providers.id = master_failures_raw_causes_mview.provider"
       , "WHERE"
-      , Q.qconjunction [
+      , Q.conjunction [
           "master_failures_raw_causes_mview.is_serially_isolated"
         , "NOT master_failures_raw_causes_mview.succeeded"
         , "NOT master_failures_raw_causes_mview.is_timeout"
@@ -271,7 +271,7 @@ apiIsolatedJobFailuresTimespan time_bounds = do
       , "JOIN master_ordered_commits_with_metadata_mview"
       , "ON master_failures_raw_causes_mview.commit_index = master_ordered_commits_with_metadata_mview.id"
       , "WHERE"
-      , Q.qconjunction where_clauses
+      , Q.conjunction where_clauses
       , "GROUP BY job_name"
       , "ORDER BY"
       , Q.list [
@@ -367,7 +367,7 @@ apiIsolatedPatternFailuresTimespan time_bounds exclude_named_tests = do
       , "LEFT JOIN test_failures_by_universal_build"
       , "ON test_failures_by_universal_build.universal_build = master_failures_raw_causes_mview.global_build"
       , "WHERE"
-      , Q.qconjunction inner_where_clauses
+      , Q.conjunction inner_where_clauses
       , "GROUP BY master_failures_raw_causes_mview.pattern_id"
       ]
 
@@ -448,7 +448,7 @@ apiIsolatedTestFailuresTimespan time_bounds = do
       , "LEFT JOIN test_failures_by_universal_build"
       , "ON test_failures_by_universal_build.universal_build = master_failures_raw_causes_mview.global_build"
       , "WHERE"
-      , Q.qconjunction inner_where_clauses
+      , Q.conjunction inner_where_clauses
       , "GROUP BY test_failures_by_universal_build.maybe_test_name"
       ]
 
@@ -505,7 +505,7 @@ genMasterFailureDetailsQuery extra_where_condition =
       , "LEFT JOIN test_failures_by_universal_build"
       , "ON test_failures_by_universal_build.universal_build = master_failures_raw_causes_mview.global_build"
       , "WHERE"
-      , Q.qconjunction [
+      , Q.conjunction [
           "master_failures_raw_causes_mview.is_isolated_or_flaky_failure"
         , "int8range(?, ?, '[]') @> master_failures_raw_causes_mview.commit_index::int8"
         , extra_where_condition

@@ -166,7 +166,7 @@ getUnvisitedBuildIds
         sql = Q.qjoin [
             sql_prefix
           , "WHERE"
-          , Q.qconjunction where_conditions
+          , Q.conjunction where_conditions
           ]
 
         where_conditions = [
@@ -180,7 +180,7 @@ getUnvisitedBuildIds
         sql = Q.qjoin [
             sql_prefix
           , "WHERE"
-          , Q.qconjunction where_conditions
+          , Q.conjunction where_conditions
           , "ORDER BY build_num DESC"
           , "LIMIT ?"
           ]
@@ -243,7 +243,7 @@ getUnvisitedBuildsForSha1 (Builds.RawCommit sha1) = do
         ]
       , "FROM unvisited_builds"
       , "WHERE"
-      , Q.qconjunction [
+      , Q.conjunction [
           "provider = ?"
         , "commit_sha1 = ?"
         , "NOT succeeded"
@@ -879,7 +879,7 @@ apiCommitJobs (Builds.RawCommit sha1) = do
         ]
       , "FROM master_failures_raw_causes_mview"
       , "WHERE"
-      , Q.qconjunction [
+      , Q.conjunction [
           "sha1 = ?"
         , "NOT succeeded"
         ]
@@ -914,7 +914,7 @@ apiCommitRangeJobs (InclusiveSpan first_index last_index) = do
         ]
       , "FROM master_failures_raw_causes_mview"
       , "WHERE"
-      , Q.qconjunction [
+      , Q.conjunction [
           "int8range(?, ?, '[]') @> commit_index::int8"
         , "NOT succeeded"
         ]
@@ -974,7 +974,7 @@ apiStep = WebApi.ApiResponse <$> runQuery q
       ]
     , "FROM master_failures_raw_causes_mview"
     , "WHERE"
-    , Q.qconjunction [
+    , Q.conjunction [
         "step_name IS NOT NULL"
       , "step_name != ''"
       ]
@@ -1308,7 +1308,7 @@ apiTimeoutCommitBuilds (Builds.RawCommit sha1) = do
       , "JOIN ci_providers"
       , "ON builds_join_steps.provider = ci_providers.id"
       , "WHERE"
-      , Q.qconjunction [
+      , Q.conjunction [
           "vcs_revision = ?"
         , "is_timeout"
         ]
@@ -1682,7 +1682,7 @@ knownBreakageAffectedJobs cause_id = do
       , "FROM code_breakage_affected_jobs"
       , "JOIN code_breakage_job_failure_counts"
       , "ON"
-      , Q.qconjunction [
+      , Q.conjunction [
           "code_breakage_job_failure_counts.cause_id = code_breakage_affected_jobs.cause"
         , "code_breakage_job_failure_counts.job = code_breakage_affected_jobs.job"
         ]
@@ -1768,7 +1768,7 @@ getSpanningBreakages conn sha1 =
       , "LEFT JOIN code_breakage_affected_jobs"
       , "ON code_breakage_affected_jobs.cause = code_breakage_spans.cause_id"
       , "WHERE"
-      , Q.qconjunction [
+      , Q.conjunction [
           "cause_commit_index <= ?"
         , Q.parens "resolved_commit_index IS NULL OR ? < resolved_commit_index"
         ]
@@ -1975,7 +1975,7 @@ getFailedCircleCIJobNames (Builds.RawCommit sha1) = do
         "SELECT job_name"
       , "FROM global_builds"
       , "WHERE"
-      , Q.qconjunction [
+      , Q.conjunction [
           "vcs_revision = ?"
         , "provider = ?"
         , "NOT succeeded"
@@ -2002,7 +2002,7 @@ countCircleCIFailures (Builds.RawCommit sha1) = do
         "SELECT COUNT(*)"
       , "FROM global_builds"
       , "WHERE"
-      , Q.qconjunction [
+      , Q.conjunction [
           "vcs_revision = ?"
         , "provider = ?"
         , "NOT succeeded"
@@ -2123,7 +2123,7 @@ genAllBuildMatchesSubquery sql_where_conditions = Q.qjoin [
     , "LEFT JOIN match_failure_elaborations"
     , "ON match_failure_elaborations.match = matches.id"
     , "WHERE"
-    , Q.qconjunction sql_where_conditions
+    , Q.conjunction sql_where_conditions
     ]
 
 
@@ -2178,7 +2178,7 @@ getRevisionBuilds git_revision = do
       , "LEFT JOIN"
       , Q.aliasedSubquery status_events_inner_sql "github_status_events_state_counts"
       , "ON"
-      , Q.qconjunction [
+      , Q.conjunction [
           "github_status_events_state_counts.sha1 = global_builds.vcs_revision"
         , "github_status_events_state_counts.job_name = global_builds.job_name"
         ]
@@ -2394,7 +2394,7 @@ getMasterCommits parent_offset_mode = do
     sql_commit_id_bounds = Q.qjoin [
         commits_query_prefix
       , "WHERE"
-      , Q.qconjunction [
+      , Q.conjunction [
           "id >= ?"
         , "id <= ?"
         ]
@@ -2682,7 +2682,7 @@ getMostRecentProviderApiFetchedBuild provider_id branch_name = do
         "SELECT latest_queued_at"
       , "FROM ci_provider_scan_ranges"
       , "WHERE"
-      , Q.qconjunction [
+      , Q.conjunction [
           "provider = ?"
         , "branch_filter = ?"
         ]
@@ -2717,7 +2717,7 @@ genPRPostedCommentQuery where_clauses = Q.qjoin [
     ]
   , "FROM latest_created_pull_request_comment_revision"
   , "WHERE"
-  , Q.qconjunction where_clauses
+  , Q.conjunction where_clauses
   , "LIMIT 1"
   ]
 
@@ -2831,7 +2831,7 @@ apiCleanestMasterCommits missing_threshold failing_threshold = do
         ]
       , "FROM master_commit_job_success_completeness_mview"
       , "WHERE"
-      , Q.qconjunction [
+      , Q.conjunction [
           "not_succeeded_required_job_count <= ?"
         , "failed_required_job_count <= ?"
         ]
@@ -2905,7 +2905,7 @@ apiLatestViableMasterCommitLagCountHistory weeks_count end_time = do
         ]
       , "FROM viable_master_commit_age_history"
       , "WHERE"
-      , Q.qconjunction [
+      , Q.conjunction [
           "inserted_at > ?::timestamp - interval '? weeks'"
         , "commit_count_behind IS NOT NULL"
         ]
@@ -2932,7 +2932,7 @@ getBreakageSpans commit_id_bounds = do
         ]
       , "FROM master_job_failure_spans_conservative_mview"
       , "WHERE"
-      , Q.qconjunction [
+      , Q.conjunction [
           "int8range(?, ?, '[]') && failure_commit_id_range"
         , "COALESCE(span_length > 1, TRUE)"
         ]
@@ -3122,14 +3122,14 @@ genMasterBuildsListQuery
         ]
       , "FROM master_failures_raw_causes_mview"
       , "WHERE"
-      , Q.qconjunction builds_list_where_predicates
+      , Q.conjunction builds_list_where_predicates
       ]
 
 
     builds_list_where_predicates = [
         "int8range(?, ?, '[]') @> commit_index::int8"
       ] ++ ["NOT COALESCE(maybe_is_scheduled, FALSE)" | suppress_scheduled_builds]
-      ++ ["job_name IN ?" | not (null whitelisted_job_set)]
+        ++ ["job_name IN ?" | not (null whitelisted_job_set)]
 
     (x1, x2) = commit_bounds_tuple
 
@@ -3247,7 +3247,7 @@ apiGitHubNotificationsForBuild job_name (Builds.RawCommit sha1_text) = do
       ]
     , "FROM github_status_events_circleci"
     , "WHERE"
-    , Q.qconjunction [
+    , Q.conjunction [
         "job_name_extracted = ?"
       , "sha1 = ?"
       ]

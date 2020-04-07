@@ -809,7 +809,7 @@ function define_pr_column() {
 function define_builds_completeness_column() {
 
 	return {
-		title: "Build completeness",
+		title: "Job completeness",
 		field: "required_commit_job_counts",
 		headerVertical: true,
 		width: 90,
@@ -822,7 +822,6 @@ function define_builds_completeness_column() {
 				cell.getElement().style.backgroundSize = "10px";
 			}
 
-
 			const mydict = cell.getValue();
 			if (mydict) {
 
@@ -834,7 +833,10 @@ function define_builds_completeness_column() {
 
 
 				const succeeded_count = mydict["total"] - mydict["not_succeeded"]
-				return succeeded_count + "/" + mydict["total"] + "; " + mydict["failed"] + "F";
+				return [
+					succeeded_count + "/" + mydict["total"],
+					mydict["failed"] + "F",
+				].join("; ");
 			}
 
 			return "";
