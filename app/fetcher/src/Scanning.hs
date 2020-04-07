@@ -2,31 +2,27 @@
 
 module Scanning where
 
-import           Control.Lens                    hiding ((<.>))
-import           Control.Monad.IO.Class          (liftIO)
-import           Control.Monad.Trans.Except      (ExceptT (ExceptT), except,
-                                                  runExceptT)
-import           Control.Monad.Trans.Reader      (ask, runReaderT)
-import           Data.Aeson                      (Value)
-import           Data.Aeson.Lens                 (key, _Array, _Bool, _String)
-import           Data.Bifunctor                  (first)
-import           Data.Either                     (partitionEithers)
-import qualified Data.Either                     as Either
-import           Data.Either.Combinators         (swapEither)
-import           Data.Either.Utils               (maybeToEither)
-import qualified Data.HashMap.Strict             as HashMap
-import           Data.List                       (partition)
-import           Data.List.Ordered               (nubSortOn)
-import qualified Data.Maybe                      as Maybe
-import           Data.Set                        (Set)
-import qualified Data.Set                        as Set
-import qualified Data.Text                       as T
-import qualified Data.Text.AhoCorasick.Automaton as Aho
-import qualified Data.Text.Lazy                  as LT
-import           Data.Traversable                (for)
-import           Database.PostgreSQL.Simple      (Connection)
-import           GHC.Int                         (Int64)
-import qualified Network.Wreq.Session            as Sess
+import           Control.Lens               hiding ((<.>))
+import           Control.Monad.IO.Class     (liftIO)
+import           Control.Monad.Trans.Except (ExceptT (ExceptT), except,
+                                             runExceptT)
+import           Control.Monad.Trans.Reader (ask, runReaderT)
+import           Data.Aeson                 (Value)
+import           Data.Aeson.Lens            (key, _Array, _Bool, _String)
+import           Data.Bifunctor             (first)
+import qualified Data.Either                as Either
+import           Data.Either.Combinators    (swapEither)
+import           Data.Either.Utils          (maybeToEither)
+import qualified Data.HashMap.Strict        as HashMap
+import qualified Data.Maybe                 as Maybe
+import           Data.Set                   (Set)
+import qualified Data.Set                   as Set
+import qualified Data.Text                  as T
+import qualified Data.Text.Lazy             as LT
+import           Data.Traversable           (for)
+import           Database.PostgreSQL.Simple (Connection)
+import           GHC.Int                    (Int64)
+import qualified Network.Wreq.Session       as Sess
 import qualified Safe
 
 import qualified AuthStages
@@ -37,16 +33,16 @@ import qualified CircleBuild
 import qualified CircleCIParse
 import qualified CircleTest
 import qualified DbHelpers
-import qualified DebugUtils                      as D
+import qualified DebugUtils                 as D
 import qualified FetchHelpers
 import qualified MyUtils
 import qualified ScanPatterns
 import qualified ScanRecords
 import qualified ScanUtils
-import           SillyMonoids                    ()
-import qualified Sql.Read.Read                   as SqlRead
-import qualified Sql.Read.Types                  as SqlReadTypes
-import qualified Sql.Write                       as SqlWrite
+import           SillyMonoids               ()
+import qualified Sql.Read.Read              as SqlRead
+import qualified Sql.Read.Types             as SqlReadTypes
+import qualified Sql.Write                  as SqlWrite
 
 
 -- | This is short so we don't
@@ -402,7 +398,7 @@ catchupScan
           , "seconds."
           ]
 
-        matches_and_timeouts <- scanLogText lines_list applicable_patterns
+        matches_and_timeouts <- ScanUtils.scanLogText lines_list applicable_patterns
 
         case ScanRecords.scan_id_tracking scan_resources of
           ScanRecords.NoPersistedScanId -> D.debugStr "NOT storing scan results to database."
@@ -717,135 +713,3 @@ getAndStoreLog
     universal_build_id = Builds.UniversalBuildId $ DbHelpers.db_id universal_build
 
 
--- | Even though scanning for patterns in text is ostensibly a "pure" operation,
--- we introduce IO so we can see incremental progress, and perhaps
--- interrupt a long-running computation.
---
--- NOTE: Skips lines that are over 5000 characters
--- to avoid bad regex behavior.
-scanLogText ::
-     [LT.Text]
-  -> [ScanPatterns.DbPattern]
-  -> IO ([ScanUtils.PatternScanTimeout], [ScanPatterns.ScanMatch])
-scanLogText lines_list patterns = do
-  D.debugList [
-      "Scanning"
-    , show $ length lines_list
-    , "lines"
-    , MyUtils.parens $ unwords [
-        show $ sum $ map LT.length lines_list
-      , "chars"
-      ]
-    , "for"
-    , show $ length patterns
-    , "patterns"
-    ]
-
-  (literal_timing, literal_result_tuples) <- D.timeThisFloat $
-    for input_pairs apply_literal_patterns
-
-  D.debugList [
-      "Scanning"
-    , show $ length lines_list
-    , "lines for"
-    , show $ length literal_patterns
-    , "literal patterns took"
-    , show literal_timing
-    , "seconds"
-    ]
-
-
-  (regex_timing, regex_result_tuples) <- D.timeThisFloat $ for input_pairs $ \num_line_pair -> do
-    {-
-    D.debugList [
-        "Scanning Line number"
-      , show num
-      , "/"
-      , show $ length lines_list
-      , "which has length"
-      , show $ LT.length line
-      ]
-
-    D.debugList [
-        "\tExcerpt:"
-      , take 500 $ LT.unpack line
-      ]
-    -}
-
-    apply_regex_patterns regex_patterns num_line_pair
-
-  D.debugList [
-      "Scanning"
-    , show $ length lines_list
-    , "lines for"
-    , show $ length regex_patterns
-    , "regex patterns took"
-    , show regex_timing
-    , "seconds"
-    ]
-
-
-  D.debugList [
-      "Total scan time:"
-    , show $ regex_timing + literal_timing
-    , "seconds"
-    ]
-
-  let result_tuples = literal_result_tuples ++ regex_result_tuples
-      final_matches = concat $ filter (not . null) $ map snd result_tuples
-      final_result_tuple = (concatMap fst result_tuples, final_matches)
-
-  D.debugList [
-      "Found"
-    , show $ length final_matches
-    , "matches."
-    ]
-
-  return final_result_tuple
-
-  where
-    is_regex_pattern = ScanPatterns.isRegex . ScanPatterns.expression . DbHelpers.record
-    (regex_patterns, literal_patterns) = partition is_regex_pattern patterns
-
-    input_pairs = zip [0 ..] $ map LT.stripEnd lines_list
-
-    automaton = Aho.build $
-      map (\x -> (Aho.unpackUtf16 $ ScanPatterns.patternText $ ScanPatterns.expression $ DbHelpers.record x, x)) literal_patterns
-
-    allMatches = Aho.runText [] $
-      \matches match -> Aho.Step (match : matches)
-
-    aho_transformer line line_number (Aho.Match (Aho.CodeUnitIndex match_pos_end) db_pattern) =
-      ScanPatterns.NewScanMatch db_pattern $
-        ScanPatterns.NewMatchDetails line line_number $
-          DbHelpers.StartEnd (match_pos_end - pattern_length) match_pos_end
-      where
-        pattern_length = T.length $ ScanPatterns.patternText $
-          ScanPatterns.expression $ DbHelpers.record db_pattern
-
-    apply_literal_patterns (line_number, line) =
-      return ([], wrapped_matches)
-      where
-        my_matches = allMatches automaton $ LT.toStrict line
-
-        -- We only want to keep one match per pattern per line.
-        deduped_matches = nubSortOn (DbHelpers.db_id . Aho.matchValue) my_matches
-
-        wrapped_matches = map (aho_transformer line line_number) deduped_matches
-
-
-    apply_regex_patterns pats line_tuple = do
-      pattern_result_eithers <- for pats $ \pat -> do
-        ans <- ScanUtils.applySinglePatternIO line_tuple pat
-        case ans of
-          Right blah -> do
---            D.debugStr "completed on time."
-            return $ Right blah
-          Left foo -> do
---            D.debugStr "NOT completed on time."
-            return $ Left foo
-
-      let (timedout, match_maybes) = partitionEithers pattern_result_eithers
-          flattened_matches = Maybe.mapMaybe ScanUtils.convertMatchAnswerToMaybe match_maybes
-
-      return (timedout, flattened_matches)

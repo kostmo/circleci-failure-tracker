@@ -102,22 +102,17 @@ getBuildInfo
     (CircleApi.ThirdPartyAuth _ jwt_signer _)
     build@(Builds.UniversalBuildId build_id) = do
 
-  liftIO $ D.debugStr "FOO A"
   -- TODO Replace this with SQL COUNT()
   DbHelpers.BenchmarkedResponse best_match_retrieval_timing matches <- SqlRead.getBuildPatternMatches build
 
-  liftIO $ D.debugStr "FOO B"
   either_storable_build <- SqlRead.getGlobalBuild build
 
-  liftIO $ D.debugStr "FOO C"
   conn <- ask
 
-  liftIO $ D.debugStr "FOO D"
   liftIO $ do
 
     xs <- query conn sql $ Only build_id
 
-    D.debugStr "FOO E"
     let err_msg = unwords [
             "Build with ID"
           , show build_id
@@ -130,21 +125,16 @@ getBuildInfo
 
     runExceptT $ do
 
-      liftIO $ D.debugStr "FOO F"
       storable_build <- except either_storable_build
 
-      liftIO $ D.debugStr "FOO G"
       (multi_match_count, step_container) <- except either_tuple
 
       let sha1 = Builds.vcs_revision $ BuildSteps.build step_container
           job_name = Builds.job_name $ BuildSteps.build step_container
 
-      liftIO $ D.debugStr "FOO H"
 
       github_token_wrapper <- ExceptT $ first T.pack <$>
         CircleAuth.getGitHubAppInstallationToken jwt_signer
-
-      liftIO $ D.debugStr "FOO I"
 
       (_nearest_ancestor, manually_annotated_breakages, breakages_retrieval_timing) <- ExceptT $
         flip runReaderT conn $
@@ -153,8 +143,6 @@ getBuildInfo
             Constants.pytorchRepoOwner
             sha1
 
-      liftIO $ D.debugStr "FOO J"
-
       let breakage_membership_predicate = Set.member job_name . SqlRead._jobs . DbHelpers.record
           applicable_breakages = filter breakage_membership_predicate manually_annotated_breakages
 
@@ -162,11 +150,12 @@ getBuildInfo
             best_match_retrieval_timing
             breakages_retrieval_timing
 
-      return $ DbHelpers.BenchmarkedResponse timing_info $ SingleBuildInfo
-        multi_match_count
-        step_container
-        applicable_breakages
-        storable_build
+      return $ DbHelpers.BenchmarkedResponse timing_info $
+        SingleBuildInfo
+          multi_match_count
+          step_container
+          applicable_breakages
+          storable_build
 
   where
     f multi_match_count (

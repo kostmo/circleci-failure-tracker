@@ -80,14 +80,12 @@ patternFromParms = do
     ]
 
   is_regex <- checkboxIsTrue <$> S.param "is_regex"
-  use_lines_from_end <- checkboxIsTrue <$> S.param "use_lines_from_end"
   applicable_steps <- S.param "applicable_steps"
 
   let match_expression = ScanPatterns.toMatchExpression is_regex expression $ pat_is_nondeterminisitc mutable_pattern_parms
 
-  lines_from_end <- if use_lines_from_end
-    then Just <$> S.param "lines_from_end"
-    else return Nothing
+  maybe_lines_from_end <- getParmMaybe "lines_from_end"
+
 
   return $ ScanPatterns.NewPattern
     match_expression
@@ -96,7 +94,7 @@ patternFromParms = do
     (DbHelpers.cleanSemicolonDelimitedList applicable_steps)
     (pat_specificity mutable_pattern_parms)
     False
-    lines_from_end
+    maybe_lines_from_end
 
 
 validateMaybeRevision ::

@@ -6,7 +6,10 @@ function add_tag_val(tag_val) {
 
 	const trimmed_val = tag_val.trim();
 	if (trimmed_val) {
-		tags_list.push(trimmed_val);
+
+		if (!tags_list.includes(trimmed_val)) {
+			tags_list.push(trimmed_val);
+		}
 
 		render_lists();
 	}
@@ -172,7 +175,7 @@ function setup_autocomplete() {
 
 function gather_pattern_data() {
 
-	return {
+	const parms_dict = {
 		is_regex: $('#is-regex-checkbox').is(":checked"),
 		is_nondeterministic: $('#is-nondeterministic-checkbox').is(":checked"),
 		pattern: $('#input-pattern-text').val(),
@@ -180,9 +183,14 @@ function gather_pattern_data() {
 		specificity: $('#specificity-input').val(),
 		tags: tags_list.join(";"),
 		applicable_steps: steps_list.join(";"),
-		use_lines_from_end: $('#is-using-lines-from-end-checkbox').is(":checked"),
-		lines_from_end: $('#input-lines-from-end').val(),
 	};
+
+	const use_lines_from_end = $('#is-using-lines-from-end-checkbox').is(":checked");
+	if (use_lines_from_end) {
+		parms_dict["lines_from_end"] = $('#input-lines-from-end').val();
+	}
+
+	return parms_dict;
 }
 
 
@@ -196,7 +204,9 @@ function view_full_log() {
 
 
 
-function test_pattern() {
+function test_pattern(test_button) {
+
+	$(test_button).prop("disabled", true);
 
 	const throbber_id = "#mini-throbber";
 
@@ -213,8 +223,10 @@ function test_pattern() {
 		data: pattern_data,
 		error: function( data ) {
 			$(throbber_id).hide();
+			$(test_button).prop("disabled", false);
 		},
 		success: function( data ) {
+			$(test_button).prop("disabled", false);
 
 			$(throbber_id).hide();
 
@@ -237,8 +249,12 @@ function test_pattern() {
 
 					inner_html += render_table(table_rows, {}, null, false);
 
-					const lines_from_end = data.payload.total_line_count - last_one_based_line_number;
-					$('#input-lines-from-end').val( lines_from_end );
+
+					if (!$('#is-using-lines-from-end-checkbox').is(":checked")) {
+
+						const lines_from_end = data.payload.total_line_count - last_one_based_line_number;
+						$('#input-lines-from-end').val( lines_from_end );
+					}
 
 				} else {
 					inner_html += "<span style='color: red;'>No matches</span>";

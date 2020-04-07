@@ -12,7 +12,6 @@ import           Control.Monad.Trans.Reader           (ask, runReaderT)
 import           Data.Aeson
 import           Data.Either.Utils                    (maybeToEither)
 import           Data.List                            (partition, sortOn)
-import qualified Data.Maybe                           as Maybe
 import           Data.Scientific                      (Scientific)
 import           Data.Set                             (Set)
 import qualified Data.Set                             as Set
@@ -3535,7 +3534,6 @@ retrieveLogFromBuildId universal_build_id = runExceptT $ do
     return $ maybeToEither ("log not in database" :: Text) maybe_log
 
 
--- TODO consolidate with Scanning.scan_log
 apiNewPatternTest ::
      Builds.UniversalBuildId
   -> ScanPatterns.Pattern
@@ -3546,14 +3544,13 @@ apiNewPatternTest universal_build_id new_pattern =
     console_log <- ExceptT $ retrieveLogFromBuildId universal_build_id
 
     let mylines = LT.lines console_log
-    return $ ScanTestResponse (length mylines) $
-      Maybe.mapMaybe apply_pattern $ zip [0::Int ..] $
-        map LT.stripEnd mylines
+
+    (_timeouts, pattern_matches) <- liftIO $ ScanUtils.scanLogText mylines [db_pattern]
+
+    return $ ScanTestResponse (length mylines) pattern_matches
 
   where
-    apply_pattern :: (Int, LT.Text) -> Maybe ScanPatterns.ScanMatch
-    apply_pattern line_tuple = ScanUtils.convertMatchAnswerToMaybe $
-      ScanUtils.applySinglePattern id line_tuple $ DbHelpers.WithId 0 new_pattern
+    db_pattern = DbHelpers.WithId 0 new_pattern
 
 
 -- | NOTE: Some of these values can be derived from the others.

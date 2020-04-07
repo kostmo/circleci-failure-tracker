@@ -64,13 +64,13 @@ ul {
 </li>
 
 <li>
-	<div class="advanced-option">
-		<label>Position from end: <input id="input-lines-from-end" type="text" value="" size="5"/> lines</label>
 
-		<div style="margin-left: 2em;">
-			<label><input id="is-using-lines-from-end-checkbox" type="checkbox"/> require position match</label>
-		</div>
+	<label>Position from end: <input id="input-lines-from-end" type="text" value="" size="5"/> lines</label>
+
+	<div style="margin-left: 2em;">
+		<label><input id="is-using-lines-from-end-checkbox" type="checkbox"/> <abbr title="This is useful for matching on a string whose appearance in the log is normally benign, but that indicates a problem as, say, the last line of the log.">require position match</abbr></label>
 	</div>
+
 </li>
 </ul>
 
@@ -110,7 +110,7 @@ For build errors that span multiple lines, try to match against the the most uni
 </ul>
 
 <h3>Testing</h3>
-<button type="button" onclick="test_pattern();">Test on build ID</button>
+<button type="button" onclick="test_pattern(this);">Test on build ID</button>
 <label>#<input id="test-build-id" type="text" value="1040566"/></label>
 <button type="button" onclick="view_full_log();">View full log</button>
 <img id="mini-throbber" src="/images/animated-spinner.svg" style="width: 16px; vertical-align: middle; display: none;"/>
