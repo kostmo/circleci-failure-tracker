@@ -31,8 +31,9 @@ import qualified GadgitTest
 import qualified GitRev
 import qualified MatchOccurrences
 import qualified Scanning
+import qualified Sql.Read.Breakages         as ReadBreakages
+import qualified Sql.Read.Builds            as ReadBuilds
 import qualified Sql.Read.Read              as SqlRead
-import qualified Sql.Read.Types             as SqlReadTypes
 import qualified Sql.Update                 as SqlUpdate
 import qualified StatusUpdate
 import qualified StatusUpdateTypes
@@ -131,7 +132,7 @@ testBotCommentGeneration
 testGetSpanningBreakages conn args sha1 =
   testWithScanResources conn args $ \_scan_resources -> do
 
-    foo <- SqlRead.getSpanningBreakages
+    foo <- ReadBreakages.getSpanningBreakages
       conn
       sha1
 
@@ -186,7 +187,8 @@ testTestRetrieval conn args universal_build_id =
 
   testWithScanResources conn args $ \scan_resources -> runExceptT $ do
 
-    ubuild_with_id <- ExceptT $ flip runReaderT conn $ SqlRead.lookupUniversalBuild universal_build_id
+    ubuild_with_id <- ExceptT $ flip runReaderT conn $
+      ReadBuilds.lookupUniversalBuild universal_build_id
 
     liftIO $ do
       test_result_count <- Scanning.storeTestResults

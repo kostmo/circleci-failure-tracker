@@ -26,6 +26,7 @@ import qualified CircleTrigger
 import qualified Constants
 import qualified DbHelpers
 import qualified DebugUtils                 as D
+import qualified Sql.Read.Builds            as ReadBuilds
 import qualified Sql.Read.Read              as SqlRead
 import qualified Sql.Read.Types             as SqlReadTypes
 import qualified Sql.Write                  as SqlWrite
@@ -164,7 +165,7 @@ scottyApp
           connection_data
           StatusUpdate.statementTimeoutSeconds
 
-        build_num_tuples <- runReaderT SqlRead.getFlakyMasterBuildsToRetry conn
+        build_num_tuples <- runReaderT ReadBuilds.getFlakyMasterBuildsToRetry conn
 
         runExceptT $ CircleTrigger.rebuildCircleJobsInWorkflow
           (SqlReadTypes.AuthConnection conn $ AuthStages.Username "")

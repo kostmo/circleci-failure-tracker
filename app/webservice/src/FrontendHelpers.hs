@@ -38,7 +38,7 @@ import qualified GitRev
 import qualified Pagination
 import qualified Scanning
 import qualified ScanPatterns
-import qualified Sql.Read.Read              as SqlRead
+import qualified Sql.Read.Builds            as ReadBuilds
 import qualified Sql.Read.Types             as SqlReadTypes
 import qualified StatusUpdate
 import qualified WebApi
@@ -195,12 +195,12 @@ getParmMaybe parm_name =
 facilitateJobRebuild ::
      CircleApi.CircleCIApiToken
   -> Builds.UniversalBuildId
-  -> SqlReadTypes.AuthDbIO (Either T.Text (SqlRead.UserWrapper [(Builds.UniversalBuildId, Int64)]))
+  -> SqlReadTypes.AuthDbIO (Either T.Text (SqlReadTypes.UserWrapper [(Builds.UniversalBuildId, Int64)]))
 facilitateJobRebuild circleci_api_token universal_build_id = do
   dbauth@(SqlReadTypes.AuthConnection conn user) <- ask
   liftIO $ fmap (first T.pack) $ runExceptT $ do
     storable_build <- ExceptT $ fmap (first T.unpack) $
-      flip runReaderT conn $ SqlRead.getGlobalBuild universal_build_id
+      flip runReaderT conn $ ReadBuilds.getGlobalBuild universal_build_id
 
     let provider_build_num = Builds.build_id $ Builds.build_record storable_build
 
@@ -210,7 +210,7 @@ facilitateJobRebuild circleci_api_token universal_build_id = do
       [(universal_build_id, provider_build_num)]
 
     liftIO $ D.debugStr "Submitted rebuild request."
-    return $ SqlRead.UserWrapper user results
+    return $ SqlReadTypes.UserWrapper user results
 
 
 getLoggedInUser :: SqlReadTypes.AuthDbIO (Either T.Text AuthStages.Username)

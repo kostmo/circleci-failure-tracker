@@ -5,10 +5,12 @@ module Sql.Read.Types where
 
 import           Control.Monad.IO.Class     (liftIO)
 import           Control.Monad.Trans.Reader (ReaderT, ask)
+import           Database.PostgreSQL.Simple.ToField   (ToField)
 import           Data.Aeson
 import           Data.Text                  (Text)
 import           Data.Time                  (UTCTime)
 import           Database.PostgreSQL.Simple
+import           Database.PostgreSQL.Simple.FromField (FromField)
 import           GHC.Generics
 import           GHC.Int                    (Int64)
 
@@ -35,6 +37,14 @@ circleCIProviderIndex :: Int64
 circleCIProviderIndex = 3
 
 
+data UserWrapper a = UserWrapper {
+    user    :: AuthStages.Username
+  , content :: a
+  } deriving (FromRow, Generic)
+
+instance (ToJSON a) => ToJSON (UserWrapper a)
+
+
 type DbIO a = ReaderT Connection IO a
 
 
@@ -51,6 +61,24 @@ data AuthConnection = AuthConnection {
 runQuery sql = do
   conn <- ask
   liftIO $ query_ conn sql
+
+
+listFlat1X :: (ToField b, FromField a) =>
+     Query
+  -> b
+  -> DbIO [a]
+listFlat1X sql t = do
+  conn <- ask
+  liftIO $ map (\(Only x) -> x) <$> query conn sql (Only t)
+
+
+listFlat :: FromField a =>
+     Query
+  -> DbIO [a]
+listFlat sql = do
+  conn <- ask
+  liftIO $ map (\(Only x) -> x) <$> query_ conn sql
+
 
 
 data TimeRange =

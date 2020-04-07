@@ -38,6 +38,9 @@ import qualified GitRev
 import qualified JsonUtils
 import qualified MyUtils
 import qualified Sql.QueryUtils             as Q
+import qualified Sql.Read.Breakages         as ReadBreakages
+import qualified Sql.Read.Builds            as ReadBuilds
+import qualified Sql.Read.Matches           as ReadMatches
 import qualified Sql.Read.Read              as SqlRead
 import qualified Sql.Read.Types             as SqlReadTypes
 import qualified Sql.Write                  as SqlWrite
@@ -59,7 +62,7 @@ instance ToJSON CommitInfoCounts where
 
 
 data CommitInfo = NewCommitInfo {
-    _breakages :: [DbHelpers.WithId SqlRead.CodeBreakage]
+    _breakages :: [DbHelpers.WithId ReadBreakages.CodeBreakage]
   , _counts    :: CommitInfoCounts
   } deriving Generic
 
@@ -70,7 +73,7 @@ instance ToJSON CommitInfo where
 data SingleBuildInfo = SingleBuildInfo {
     _multi_match_count :: Int
   , _build_info        :: BuildSteps.BuildStep
-  , _known_failures    :: [DbHelpers.WithId SqlRead.CodeBreakage]
+  , _known_failures    :: [DbHelpers.WithId ReadBreakages.CodeBreakage]
   , _umbrella_build    :: Builds.StorableBuild
   } deriving Generic
 
@@ -89,7 +92,7 @@ instance ToJSON BuildInfoRetrievalBenchmarks where
 
 data UpstreamBreakagesInfo = UpstreamBreakagesInfo {
     merge_base :: Builds.RawCommit
-  , manually_annotated_breakages :: [DbHelpers.WithId SqlRead.CodeBreakage]
+  , manually_annotated_breakages :: [DbHelpers.WithId ReadBreakages.CodeBreakage]
   , inferred_upstream_breakages_by_job :: HashMap Text SqlReadTypes.UpstreamBrokenJob
   }
 
@@ -103,9 +106,9 @@ getBuildInfo
     build@(Builds.UniversalBuildId build_id) = do
 
   -- TODO Replace this with SQL COUNT()
-  DbHelpers.BenchmarkedResponse best_match_retrieval_timing matches <- SqlRead.getBuildPatternMatches build
+  DbHelpers.BenchmarkedResponse best_match_retrieval_timing matches <- ReadMatches.getBuildPatternMatches build
 
-  either_storable_build <- SqlRead.getGlobalBuild build
+  either_storable_build <- ReadBuilds.getGlobalBuild build
 
   conn <- ask
 
@@ -143,7 +146,7 @@ getBuildInfo
             Constants.pytorchRepoOwner
             sha1
 
-      let breakage_membership_predicate = Set.member job_name . SqlRead._jobs . DbHelpers.record
+      let breakage_membership_predicate = Set.member job_name . ReadBreakages._jobs . DbHelpers.record
           applicable_breakages = filter breakage_membership_predicate manually_annotated_breakages
 
           timing_info = BuildInfoRetrievalBenchmarks
@@ -314,7 +317,7 @@ findKnownBuildBreakages access_token owned_repo sha1 = do
     -- associating breakages!
 
     (_inferred_breakages_retrieval_timing, inferred_upstream_caused_broken_jobs) <- D.timeThisFloat $
-      liftIO $ flip runReaderT conn $ SqlRead.getInferredSpanningBrokenJobsBetter sha1
+      liftIO $ flip runReaderT conn $ ReadBreakages.getInferredSpanningBrokenJobsBetter sha1
 
     let inferred_breakages_map = HashMap.fromList $ map
           (swap . MyUtils.derivePair SqlReadTypes.extractJobName)
@@ -346,7 +349,7 @@ findAnnotatedBuildBreakages access_token owned_repo sha1 = do
     -- Third, find whether that commit is within the
     -- [start, end) span of any known breakages
     (manual_breakages_retrieval_timing, manually_annotated_breakages) <- D.timeThisFloat $ ExceptT $
-      SqlRead.getSpanningBreakages conn nearest_ancestor
+      ReadBreakages.getSpanningBreakages conn nearest_ancestor
 
     let combined_time = nearest_ancestor_retrieval_timing + manual_breakages_retrieval_timing
 
@@ -396,7 +399,7 @@ getFlakyRebuildTuples builds =
 triggerFlakyRebuildCandidates ::
      CircleApi.CircleCIApiToken
   -> Builds.RawCommit
-  -> SqlReadTypes.AuthDbIO (Either Text (SqlRead.UserWrapper (DbHelpers.BenchmarkedResponse Float CommitRebuildsResponse)))
+  -> SqlReadTypes.AuthDbIO (Either Text (SqlReadTypes.UserWrapper (DbHelpers.BenchmarkedResponse Float CommitRebuildsResponse)))
 triggerFlakyRebuildCandidates
     circleci_api_token
     (Builds.RawCommit commit_sha1_text) = do
@@ -423,7 +426,7 @@ triggerFlakyRebuildCandidates
 
         retryable_builds_with_db_keys = Maybe.mapMaybe (\x -> sequenceA (x, (`HashMap.lookup` retry_keys_by_universal_id) $ DbHelpers.db_id $ Builds.universal_build $ CommitBuilds._build $ CommitBuilds._commit_build x)) retryable_flaky_builds
 
-    return $ SqlRead.UserWrapper user $ DbHelpers.BenchmarkedResponse timing $
+    return $ SqlReadTypes.UserWrapper user $ DbHelpers.BenchmarkedResponse timing $
       CommitRebuildsResponse
         builds
         retryable_flaky_builds

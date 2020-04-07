@@ -65,6 +65,9 @@ import qualified PullRequestWebhooks
 import qualified PushWebhooks
 import qualified Scanning
 import qualified ScanRecords
+import qualified Sql.Read.Builds               as ReadBuilds
+import qualified Sql.Read.Commits              as ReadCommits
+import qualified Sql.Read.PullRequests         as ReadPullRequests
 import qualified Sql.Read.Read                 as SqlRead
 import qualified Sql.Read.Types                as SqlReadTypes
 import qualified Sql.Update                    as SqlUpdate
@@ -358,7 +361,7 @@ scanAndPost
   -- be found, anyway.
 
   is_master_commit <- liftIO $ flip runReaderT conn $
-    SqlRead.isMasterCommit sha1
+    ReadCommits.isMasterCommit sha1
 
   if is_master_commit
     then return []
@@ -440,7 +443,7 @@ fetchCommitPageInfo pre_broken_info sha1 validated_sha1 = runExceptT $ do
 
   -- Note: this function does not distinguish between upstream/non-upstream
   -- builds, so we post-process to exclude upstream builds
-  unmatched_builds <- ExceptT $ SqlRead.apiUnmatchedCommitBuilds sha1
+  unmatched_builds <- ExceptT $ ReadBuilds.apiUnmatchedCommitBuilds sha1
   let g = not . (`HashMap.member` pre_broken_jobs_map) . UnmatchedBuilds._job_name
       nonupstream_unmatched_builds = filter g unmatched_builds
 
@@ -532,7 +535,7 @@ fetchAndCachePrAuthor ::
 fetchAndCachePrAuthor conn access_token pr_number = do
 
   maybe_pr_author <- liftIO $ flip runReaderT conn $
-    SqlRead.getCachedPullRequestAuthor pr_number
+    ReadPullRequests.getCachedPullRequestAuthor pr_number
 
   case maybe_pr_author of
     Just author -> do
@@ -598,7 +601,7 @@ postCommitSummaryStatusInner
   for containing_pr_list $ \pr_number ->
     handleCommentPostingOptOut pr_number $ do
       maybe_previous_pr_comment <- liftIO $ flip runReaderT conn $
-        SqlRead.getPostedCommentForPR pr_number
+        ReadPullRequests.getPostedCommentForPR pr_number
 
       maybe_comment_revision_id <- case maybe_previous_pr_comment of
         Nothing -> Just <$> postInitialComment
@@ -630,7 +633,7 @@ postCommitSummaryStatusInner
   handleCommentPostingOptOut pr_number f = do
     pr_author <- fetchAndCachePrAuthor conn access_token pr_number
 
-    can_post_comments <- ExceptT $ SqlRead.canPostPullRequestComments conn pr_author
+    can_post_comments <- ExceptT $ ReadPullRequests.canPostPullRequestComments conn pr_author
     if can_post_comments
       then f
       else ExceptT $ do
@@ -647,7 +650,7 @@ conditionallyPostIfNovelComment
     middle_sections
     pr_number
     previous_pr_comment =
-  if SqlRead._body previous_pr_comment == recreated_old_pr_comment_text
+  if ReadPullRequests._body previous_pr_comment == recreated_old_pr_comment_text
   then liftIO $ do
     D.debugList [
         "New comment would be the same as the last one! Not posting."
@@ -665,9 +668,9 @@ conditionallyPostIfNovelComment
     previous_pr_comment
 
   where
-    reduced_revision_count = SqlRead._revision_count previous_pr_comment - 1
+    reduced_revision_count = ReadPullRequests._revision_count previous_pr_comment - 1
     count_modified_previous_comment = previous_pr_comment {
-        SqlRead._revision_count = reduced_revision_count
+        ReadPullRequests._revision_count = reduced_revision_count
       }
 
     gen_comment prev_comment = CommentRender.generateCommentMarkdown
@@ -689,7 +692,7 @@ lookupPullRequestsByHeadCommit ::
   -> ExceptT LT.Text IO [Builds.PullRequestNumber]
 lookupPullRequestsByHeadCommit conn sha1 = do
 
-  found_prs <- liftIO $ flip runReaderT conn $ SqlRead.getPullRequestsByCurrentHead sha1
+  found_prs <- liftIO $ flip runReaderT conn $ ReadPullRequests.getPullRequestsByCurrentHead sha1
 
   if null found_prs
     then do
@@ -754,7 +757,7 @@ updateCommentOrFallback ::
   -> Bool -- ^ was new push
   -> CommentRenderCommon.PrCommentPayload
   -> Builds.PullRequestNumber
-  -> SqlRead.PostedPRComment
+  -> ReadPullRequests.PostedPRComment
   -> ExceptT LT.Text IO CommentRenderCommon.CommentRevisionId
 updateCommentOrFallback
     access_token
@@ -806,14 +809,14 @@ updateCommentOrFallback
       pr_number
       sha1
 
-    comment_id = ApiPost.CommentId $ SqlRead._comment_id previous_pr_comment
+    comment_id = ApiPost.CommentId $ ReadPullRequests._comment_id previous_pr_comment
 
 
 wipeCommentForUpdatedPr ::
      OAuth2.AccessToken
   -> DbHelpers.OwnerAndRepo
   -> Connection
-  -> SqlRead.PostedPRComment
+  -> ReadPullRequests.PostedPRComment
   -> Builds.PullRequestNumber
   -> Builds.RawCommit
   -> ExceptT LT.Text IO ()
@@ -930,14 +933,14 @@ handlePullRequestWebhook
       synchronous_conn <- DbHelpers.getConnection db_connection_data
 
       (maybe_old_pr_comment, pr_heads_insertion_count) <- flip runReaderT synchronous_conn $ do
-        a1 <- SqlRead.getPostedCommentForPR pr_number
+        a1 <- ReadPullRequests.getPostedCommentForPR pr_number
 
         a2 <- SqlWrite.insertPullRequestHeads True [(pr_number, new_pr_head_commit)]
         return (a1, a2)
 
       case maybe_old_pr_comment of
         Nothing -> return $ Right ()
-        Just previous_comment@(SqlRead.PostedPRComment _ _ _ comment_sha1 _ _ _ _) ->
+        Just previous_comment@(ReadPullRequests.PostedPRComment _ _ _ comment_sha1 _ _ _ _) ->
           if comment_sha1 /= new_pr_head_commit
           then runExceptT $ do
 
@@ -1086,14 +1089,14 @@ wrappedScanAndPostCommit
   -- we may store the *successful* as well as the failed second-level
   -- build records,
   -- since the volume on the *master* branch should be relatively low.
-  is_master_commit <- liftIO $ flip runReaderT conn $ SqlRead.isMasterCommit sha1
+  is_master_commit <- liftIO $ flip runReaderT conn $ ReadCommits.isMasterCommit sha1
 
   let success_storage_mode = if is_master_commit
         then StatusUpdate.ShouldStoreDetailedSuccessRecords
         else StatusUpdate.NoStoreDetailedSuccessRecords
 
   maybe_previously_posted_status <- liftIO $ flip runReaderT conn $
-    SqlRead.getPostedCommentForSha1 sha1
+    ReadPullRequests.getPostedCommentForSha1 sha1
 
   -- If we haven't posted a PR comment before for this commit, do not act unless the notification
   -- was for a failed build.

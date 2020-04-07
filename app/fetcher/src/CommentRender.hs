@@ -2,19 +2,19 @@
 
 module CommentRender where
 
-import qualified Data.HashMap.Strict as HashMap
-import           Data.List           (dropWhileEnd, intercalate, intersperse)
-import           Data.List.Extra     (maximumOn)
-import           Data.List.NonEmpty  (NonEmpty ((:|)))
-import qualified Data.List.NonEmpty  as NE
-import qualified Data.Maybe          as Maybe
-import           Data.Text           (Text)
-import qualified Data.Text           as T
-import qualified Data.Text.Lazy      as LT
-import           Data.Time           (UTCTime)
-import qualified Data.Time.Format    as TF
-import           Data.Time.LocalTime (utcToZonedTime)
-import qualified Data.Tree           as Tr
+import qualified Data.HashMap.Strict   as HashMap
+import           Data.List             (dropWhileEnd, intercalate, intersperse)
+import           Data.List.Extra       (maximumOn)
+import           Data.List.NonEmpty    (NonEmpty ((:|)))
+import qualified Data.List.NonEmpty    as NE
+import qualified Data.Maybe            as Maybe
+import           Data.Text             (Text)
+import qualified Data.Text             as T
+import qualified Data.Text.Lazy        as LT
+import           Data.Time             (UTCTime)
+import qualified Data.Time.Format      as TF
+import           Data.Time.LocalTime   (utcToZonedTime)
+import qualified Data.Tree             as Tr
 
 import qualified Builds
 import qualified CircleCIParse
@@ -24,12 +24,12 @@ import qualified CommitBuilds
 import qualified Constants
 import qualified DbHelpers
 import qualified GadgitFetch
-import qualified Markdown            as M
+import qualified Markdown              as M
 import qualified MatchOccurrences
 import qualified MyUtils
-import qualified Sql.Read.Read       as SqlRead
-import qualified Sql.Read.Types      as SqlReadTypes
-import qualified Sql.Update          as SqlUpdate
+import qualified Sql.Read.PullRequests as ReadPullRequests
+import qualified Sql.Read.Types        as SqlReadTypes
+import qualified Sql.Update            as SqlUpdate
 import qualified StatusUpdateTypes
 import qualified UnmatchedBuilds
 
@@ -606,7 +606,7 @@ sanitizeLongLine line_text =
 
 
 generateCommentFooter ::
-     Maybe SqlRead.PostedPRComment
+     Maybe ReadPullRequests.PostedPRComment
   -> Builds.PullRequestNumber
   -> [Text]
 generateCommentFooter
@@ -649,7 +649,7 @@ generateCommentFooter
     optional_suffix = flip (maybe []) maybe_previous_pr_comment $ \previous_pr_comment -> [
         M.italic $ M.sentence [
           "This comment has been revised"
-        , MyUtils.pluralize (SqlRead._revision_count previous_pr_comment) "time"
+        , MyUtils.pluralize (ReadPullRequests._revision_count previous_pr_comment) "time"
         ]
       ]
 
@@ -658,7 +658,7 @@ generateCommentFooter
 
 
 generateCommentMarkdown ::
-     Maybe SqlRead.PostedPRComment
+     Maybe ReadPullRequests.PostedPRComment
   -> CommentRenderCommon.PrCommentPayload
   -> Builds.PullRequestNumber
   -> Builds.RawCommit

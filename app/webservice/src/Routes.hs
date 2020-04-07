@@ -38,8 +38,15 @@ import qualified JsonUtils
 import qualified MatchOccurrences
 import qualified Scanning
 import qualified ScanPatterns
+import qualified Sql.Read.Breakages              as ReadBreakages
+import qualified Sql.Read.Builds                 as ReadBuilds
+import qualified Sql.Read.Commits                as ReadCommits
 import qualified Sql.Read.Flaky                  as SqlReadFlaky
+import qualified Sql.Read.Matches                as ReadMatches
+import qualified Sql.Read.Patterns               as ReadPatterns
+import qualified Sql.Read.PullRequests           as ReadPullRequests
 import qualified Sql.Read.Read                   as SqlRead
+import qualified Sql.Read.Stats                  as ReadStats
 import qualified Sql.Read.Types                  as SqlReadTypes
 import qualified Sql.Update                      as SqlUpdate
 import qualified Sql.Write                       as SqlWrite
@@ -196,49 +203,49 @@ scottyApp
         <*> parseRemediationObject
 
   get "/api/latest-master-commit-with-metadata" $
-    pure $ WebApi.toJsonEither <$> SqlRead.getLatestMasterCommitWithMetadata
+    pure $ WebApi.toJsonEither <$> ReadCommits.getLatestMasterCommitWithMetadata
 
   get "/api/viability-increase" $
-    SqlRead.apiViabilityIncreaseByWeek <$> S.param "weeks"
+    ReadStats.apiViabilityIncreaseByWeek <$> S.param "weeks"
 
   get "/api/throughput-by-hour" $
-    SqlRead.apiThroughputByHour <$> S.param "hours"
+    ReadStats.apiThroughputByHour <$> S.param "hours"
 
   get "/api/sqs-queue-depth" $
-    SqlRead.apiQueueDepthTimeplot <$> S.param "hours"
+    ReadStats.apiQueueDepthTimeplot <$> S.param "hours"
 
   get "/api/status-notifications-by-hour" $
-    SqlRead.apiStatusNotificationsByHour <$> S.param "hours"
+    ReadStats.apiStatusNotificationsByHour <$> S.param "hours"
 
   get "/api/master-downstream-commits" $
-    SqlRead.apiMasterDownstreamCommits . Builds.RawCommit <$> S.param "sha1"
+    ReadCommits.apiMasterDownstreamCommits . Builds.RawCommit <$> S.param "sha1"
 
   get "/api/comment-postings-by-week" $
-    pure SqlRead.prCommentRevisionsByWeek
+    pure ReadStats.prCommentRevisionsByWeek
 
   get "/api/failed-commits-by-day" $
     pure SqlReadFlaky.apiFailedCommitsByDay
 
   get "/api/code-breakages-leftover-by-commit" $
-    pure SqlRead.apiLeftoverCodeBreakagesByCommit
+    pure ReadBreakages.apiLeftoverCodeBreakagesByCommit
 
   get "/api/missing-required-builds" $
-    pure SqlRead.apiMissingRequiredBuilds
+    pure ReadBuilds.apiMissingRequiredBuilds
 
   get "/api/code-breakages-leftover-detected" $
-    pure SqlRead.apiLeftoverDetectedCodeBreakages
+    pure ReadBreakages.apiLeftoverDetectedCodeBreakages
 
   get "/api/code-breakages-detected" $
-    pure SqlRead.apiDetectedCodeBreakages
+    pure ReadBreakages.apiDetectedCodeBreakages
 
   get "/api/code-breakages-annotated" $
-    pure SqlRead.apiAnnotatedCodeBreakagesWithImpact
+    pure ReadBreakages.apiAnnotatedCodeBreakagesWithImpact
 
   get "/api/code-breakages-author-stats" $
-    pure SqlRead.apiBreakageAuthorStats
+    pure ReadBreakages.apiBreakageAuthorStats
 
   get "/api/broken-commits-without-metadata" $
-    pure SqlRead.apiBrokenCommitsWithoutMetadata
+    pure ReadCommits.apiBrokenCommitsWithoutMetadata
 
   get "/api/list-failure-modes" $
     pure SqlRead.apiListFailureModes
@@ -247,25 +254,25 @@ scottyApp
     pure SqlRead.apiJobs
 
   get "/api/log-storage-stats" $
-    pure SqlRead.apiStorageStats
+    pure ReadStats.apiStorageStats
 
   get "/api/log-size-histogram" $
-    pure SqlRead.apiByteCountHistogram
+    pure ReadStats.apiByteCountHistogram
 
   get "/api/log-lines-histogram" $
-    pure SqlRead.apiLineCountHistogram
+    pure ReadStats.apiLineCountHistogram
 
   get "/api/master-build-stats" $
-    pure SqlRead.masterBuildFailureStats
+    pure ReadStats.masterBuildFailureStats
 
   get "/api/patterns-dump" $
-    pure SqlRead.dumpPatterns
+    pure ReadPatterns.dumpPatterns
 
   get "/api/patterns-timeline" $
-    pure SqlRead.apiPatternOccurrenceTimeline
+    pure ReadPatterns.apiPatternOccurrenceTimeline
 
   get "/api/patterns" $
-    pure SqlRead.apiPatterns
+    pure ReadPatterns.apiPatterns
 
   -- FIXME This is legacy. Don't use this!
   get "/api/inferred-scheduled-builds" $
@@ -278,7 +285,7 @@ scottyApp
     pure SqlRead.apiStep
 
   get "/api/master-commits-granular" $
-    pure SqlRead.masterCommitsGranular
+    pure ReadBreakages.masterCommitsGranular
 
   get "/api/master-deterministic-failure-modes" $
     pure SqlRead.apiDeterministicFailureModes
@@ -287,7 +294,7 @@ scottyApp
     pure SqlRead.apiMaterializedViewRefreshes
 
   get "/api/summary" $
-    pure SqlRead.apiSummaryStats
+    pure ReadStats.apiSummaryStats
 
   get "/api/job-schedule-stats" $
     pure SqlRead.apiJobScheduleStats
@@ -296,29 +303,29 @@ scottyApp
     pure SqlRead.apiTagsHistogram
 
   get "/api/unmatched-builds" $
-    pure SqlRead.apiUnmatchedBuilds
+    pure ReadBuilds.apiUnmatchedBuilds
 
   get "/api/idiopathic-failed-builds" $
-    pure SqlRead.apiIdiopathicBuilds
+    pure ReadBuilds.apiIdiopathicBuilds
 
   get "/api/code-breakages-annotated-single" $
-    fmap WebApi.toJsonEither . SqlRead.apiAnnotatedCodeBreakagesWithoutImpactSingle
+    fmap WebApi.toJsonEither . ReadBreakages.apiAnnotatedCodeBreakagesWithoutImpactSingle
       <$> S.param "cause_id"
 
   get "/api/code-breakage-mode-single" $
-    SqlRead.apiCodeBreakagesModeSingle <$> S.param "cause_id"
+    ReadBreakages.apiCodeBreakagesModeSingle <$> S.param "cause_id"
 
   get "/api/posted-pr-comments" $
-    SqlRead.apiPostedPRComments <$> S.param "count"
+    ReadPullRequests.apiPostedPRComments <$> S.param "count"
 
   get "/api/posted-comments-for-pr" $
-    SqlRead.apiPostedCommentsForPR <$> (Builds.PullRequestNumber <$> S.param "pr")
+    ReadPullRequests.apiPostedCommentsForPR <$> (Builds.PullRequestNumber <$> S.param "pr")
 
   get "/api/upstream-broken-jobs-for-commit" $
-    SqlRead.getInferredSpanningBrokenJobsBetter . Builds.RawCommit <$> S.param "sha1"
+    ReadBreakages.getInferredSpanningBrokenJobsBetter . Builds.RawCommit <$> S.param "sha1"
 
   get "/api/known-breakage-affected-jobs" $
-    SqlRead.knownBreakageAffectedJobs <$> S.param "cause_id"
+    ReadBreakages.knownBreakageAffectedJobs <$> S.param "cause_id"
 
   get "/api/tag-suggest" $
     SqlRead.apiAutocompleteTags <$> S.param "term"
@@ -327,53 +334,53 @@ scottyApp
     SqlRead.apiAutocompleteSteps <$> S.param "term"
 
   get "/api/master-breakages-monthly-stats" $
-    pure SqlRead.masterBreakageMonthlyStats
+    pure ReadStats.masterBreakageMonthlyStats
 
   get "/api/downstream-impact-weekly" $
-    SqlRead.downstreamWeeklyFailureStats
+    ReadStats.downstreamWeeklyFailureStats
       <$> S.param "weeks"
 
   get "/api/master-weekly-failure-stats" $
-    fmap WebApi.toJsonEither . SqlRead.masterWeeklyFailureStats
+    fmap WebApi.toJsonEither . ReadStats.masterWeeklyFailureStats
       <$> S.param "weeks"
 
   get "/api/master-pr-merge-time-weekly-failure-stats" $
-    SqlRead.getMergeTimeFailingPullRequestBuildsByWeek
+    ReadStats.getMergeTimeFailingPullRequestBuildsByWeek
       <$> S.param "weeks"
 
   get "/api/page-views-by-week" $
-    SqlRead.getPageViewsByWeek
+    ReadStats.getPageViewsByWeek
       <$> S.param "weeks"
 
   get "/api/unmatched-builds-for-commit" $
-    fmap WebApi.toJsonEither . SqlRead.apiUnmatchedCommitBuilds . Builds.RawCommit <$> S.param "sha1"
+    fmap WebApi.toJsonEither . ReadBuilds.apiUnmatchedCommitBuilds . Builds.RawCommit <$> S.param "sha1"
 
   get "/api/idiopathic-failed-builds-for-commit" $
-    fmap WebApi.toJsonEither . SqlRead.apiIdiopathicCommitBuilds . Builds.RawCommit <$> S.param "sha1"
+    fmap WebApi.toJsonEither . ReadBuilds.apiIdiopathicCommitBuilds . Builds.RawCommit <$> S.param "sha1"
 
   get "/api/timed-out-builds-for-commit" $
-    fmap WebApi.toJsonEither . SqlRead.apiTimeoutCommitBuilds . Builds.RawCommit <$> S.param "sha1"
+    fmap WebApi.toJsonEither . ReadBuilds.apiTimeoutCommitBuilds . Builds.RawCommit <$> S.param "sha1"
 
   get "/api/pattern-step-occurrences" $
-    SqlRead.patternBuildStepOccurrences . ScanPatterns.PatternId <$> S.param "pattern_id"
+    ReadPatterns.patternBuildStepOccurrences . ScanPatterns.PatternId <$> S.param "pattern_id"
 
   get "/api/pattern-job-occurrences" $
-    SqlRead.patternBuildJobOccurrences . ScanPatterns.PatternId <$> S.param "pattern_id"
+    ReadPatterns.patternBuildJobOccurrences . ScanPatterns.PatternId <$> S.param "pattern_id"
 
   get "/api/best-pattern-matches" $
-    SqlRead.getBestPatternMatches . ScanPatterns.PatternId <$> S.param "pattern_id"
+    ReadMatches.getBestPatternMatches . ScanPatterns.PatternId <$> S.param "pattern_id"
 
   get "/api/pattern-matches" $
-    SqlRead.getPatternMatches . ScanPatterns.PatternId <$> S.param "pattern_id"
+    ReadMatches.getPatternMatches . ScanPatterns.PatternId <$> S.param "pattern_id"
 
   get "/api/pattern" $
-    SqlRead.apiSinglePattern . ScanPatterns.PatternId <$> S.param "pattern_id"
+    ReadPatterns.apiSinglePattern . ScanPatterns.PatternId <$> S.param "pattern_id"
 
   get "/api/build-pattern-matches" $
-    SqlRead.getBuildPatternMatches . Builds.UniversalBuildId <$> S.param "build_id"
+    ReadMatches.getBuildPatternMatches . Builds.UniversalBuildId <$> S.param "build_id"
 
   get "/api/best-build-match" $
-    SqlRead.getBestBuildMatch . Builds.UniversalBuildId <$> S.param "build_id"
+    ReadMatches.getBestBuildMatch . Builds.UniversalBuildId <$> S.param "build_id"
 
   get "/api/single-build-info" $
     fmap WebApi.toJsonEither . SqlUpdate.getBuildInfo third_party_creds . Builds.UniversalBuildId
@@ -393,7 +400,7 @@ scottyApp
       <*> S.param "last_index"
 
   get "/api/master-commits" $
-    fmap WebApi.toJsonEither . ((fmap . fmap . fmap) snd SqlRead.getMasterCommits) <$> FrontendHelpers.getSimpleOffsetMode
+    fmap WebApi.toJsonEither . ((fmap . fmap . fmap) snd ReadCommits.getMasterCommits) <$> FrontendHelpers.getSimpleOffsetMode
 
   get "/api/master-timeline" $
     fmap WebApi.toJsonEither . SqlRead.apiMasterBuilds <$> FrontendHelpers.getOffsetMode
@@ -457,7 +464,7 @@ scottyApp
       <*> S.param "failing-threshold"
 
   get "/api/pr-batch-list" $
-    SqlRead.apiPrBatchList
+    ReadPullRequests.apiPrBatchList
       <$> (map (read . LT.unpack) . LT.splitOn "," <$> S.param "pr-numbers-delimited")
 
   get "/api/viable-commit-age-history" $
@@ -471,7 +478,7 @@ scottyApp
       <*> (BuildRetrieval.decodeUtcTimeString <$> S.param "end-timestamp")
 
   get "/api/is-master-commit" $
-    SqlRead.isMasterCommit . Builds.RawCommit <$> S.param "sha1"
+    ReadCommits.isMasterCommit . Builds.RawCommit <$> S.param "sha1"
 
   S.get "/api/commit-builds" $ do
 
@@ -500,7 +507,7 @@ scottyApp
 
   S.get "/api/get-user-opt-out-settings" $
     FrontendHelpers.jsonAuthorizedDbInteractCommon SqlReadTypes.AuthConnection auth_helper_bundle $
-      pure SqlRead.userOptOutSettings
+      pure ReadPullRequests.userOptOutSettings
 
   S.post "/api/update-user-opt-out-settings" $
     withAuth $ SqlWrite.updateUserOptOutSettings <$> S.param "enabled"

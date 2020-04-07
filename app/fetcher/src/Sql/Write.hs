@@ -54,7 +54,8 @@ import qualified ScanPatterns
 import qualified ScanRecords
 import qualified ScanUtils
 import qualified Sql.QueryUtils                    as Q
-import qualified Sql.Read.Read                     as SqlRead
+import qualified Sql.Read.Commits                  as ReadCommits
+import qualified Sql.Read.PullRequests             as ReadPullRequests
 import qualified Sql.Read.Types                    as SqlReadTypes
 import qualified Webhooks
 
@@ -234,7 +235,7 @@ findMasterAncestorWithPrecomputation
         -- single ancestor retrievals may not need the master commit list
         -- if the answer is in the cache already.
         known_commit_set <- case maybe_all_master_commits of
-          Nothing -> SqlRead.getAllMasterCommits conn
+          Nothing -> ReadCommits.getAllMasterCommits conn
           Just x  -> return x
 
         runExceptT $ do
@@ -297,7 +298,7 @@ updateMergedPullRequestHeadCommits ::
      Connection
   -> IO (Either T.Text [(Builds.PullRequestNumber, Builds.RawCommit)])
 updateMergedPullRequestHeadCommits conn = do
-  unmatched_pr_numbers <- runReaderT SqlRead.getPullRequestsWithMissingHeads conn
+  unmatched_pr_numbers <- runReaderT ReadPullRequests.getPullRequestsWithMissingHeads conn
 
   runExceptT $ do
     pr_associations <- ExceptT $ first T.pack <$> GadgitFetch.getPullRequestHeadCommitsBulk unmatched_pr_numbers
@@ -489,7 +490,7 @@ populateLatestMasterCommits conn access_token owned_repo = do
 
   D.debugStr "Populating latest master commits..."
 
-  maybe_latest_known_commit <- SqlRead.getLatestKnownMasterCommit conn
+  maybe_latest_known_commit <- ReadCommits.getLatestKnownMasterCommit conn
 
   D.debugList [
       "Latest known master commit:"
@@ -1186,7 +1187,7 @@ insertEbWorkerSha1Enqueue conn github_status_event_id maybe_message_id =
 
 updateUserOptOutSettings ::
      Bool
-  -> SqlReadTypes.AuthDbIO (Either Text SqlRead.OptOutResponse)
+  -> SqlReadTypes.AuthDbIO (Either Text ReadPullRequests.OptOutResponse)
 updateUserOptOutSettings posting_is_enabled = do
   SqlReadTypes.AuthConnection conn (AuthStages.Username author) <- ask
   [x] <- liftIO $ query conn sql (author, not posting_is_enabled)
@@ -1853,7 +1854,7 @@ reportBreakage
       runExceptT $ do
 
         resolution_sha1 <- ExceptT $
-          SqlRead.getNextMasterCommit conn last_affected_sha1
+          ReadCommits.getNextMasterCommit conn last_affected_sha1
 
         ExceptT $ apiCodeBreakageResolutionInsert conn $
           Breakages.NewResolutionReport

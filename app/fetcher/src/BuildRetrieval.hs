@@ -30,7 +30,7 @@ import qualified DebugUtils                 as D
 import qualified FetchHelpers
 import qualified MyUtils
 import           SillyMonoids               ()
-import qualified Sql.Read.Read              as SqlRead
+import qualified Sql.Read.Builds            as ReadBuilds
 import qualified Sql.Read.Types             as SqlReadTypes
 import qualified Sql.Write                  as SqlWrite
 
@@ -79,7 +79,7 @@ updateCircleCIBuildsList
   insertion_counts <- for branch_names $ \branch_name -> do
 
     maybe_most_recent_build_time <- flip runReaderT conn $
-      SqlRead.getMostRecentProviderApiFetchedBuild SqlReadTypes.circleCIProviderIndex $ T.pack branch_name
+      ReadBuilds.getMostRecentProviderApiFetchedBuild SqlReadTypes.circleCIProviderIndex $ T.pack branch_name
 
     D.debugList [
         "Fetching builds list for branch"

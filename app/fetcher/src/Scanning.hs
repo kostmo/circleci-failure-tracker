@@ -40,6 +40,8 @@ import qualified ScanPatterns
 import qualified ScanRecords
 import qualified ScanUtils
 import           SillyMonoids               ()
+import qualified Sql.Read.Builds            as ReadBuilds
+import qualified Sql.Read.Patterns          as ReadPatterns
 import qualified Sql.Read.Read              as SqlRead
 import qualified Sql.Read.Types             as SqlReadTypes
 import qualified Sql.Write                  as SqlWrite
@@ -89,9 +91,9 @@ scanBuilds
     RevisitScanned -> do
       visited_builds_list <- flip runReaderT conn $
         case whitelisted_builds_or_fetch_count of
-          Left whitelisted_build_ids -> SqlRead.getRevisitableWhitelistedBuilds $
+          Left whitelisted_build_ids -> ReadBuilds.getRevisitableWhitelistedBuilds $
             Set.toAscList whitelisted_build_ids
-          Right _ -> SqlRead.getRevisitableBuilds
+          Right _ -> ReadBuilds.getRevisitableBuilds
 
       let whitelisted_visited = visited_filter visited_builds_list
 
@@ -105,7 +107,7 @@ scanBuilds
       putStrLn "NOT rescanning previously-visited builds!"
       return []
 
-  unvisited_builds_list <- SqlRead.getUnvisitedBuildIds
+  unvisited_builds_list <- ReadBuilds.getUnvisitedBuildIds
     conn
     whitelisted_builds_or_fetch_count
 
@@ -184,7 +186,7 @@ rescanSingleBuild third_party_auth conn initiator build_to_scan = do
     ]
 
   either_parent_build <- flip runReaderT conn $
-    SqlRead.lookupUniversalBuild build_to_scan
+    ReadBuilds.lookupUniversalBuild build_to_scan
 
   D.debugStr "Checkpoint A1"
 
@@ -269,7 +271,7 @@ prepareScanResources
   aws_sess <- Sess.newSession
   circle_sess <- Sess.newSession
 
-  (time1, pattern_records_descending_by_id) <- D.timeThisFloat $ SqlRead.getPatternsDescById conn
+  (time1, pattern_records_descending_by_id) <- D.timeThisFloat $ ReadPatterns.getPatternsDescById conn
   D.debugList [
       "Fetching all"
     , show $ length pattern_records_descending_by_id
@@ -602,7 +604,7 @@ storeTestResults
 
     provider_surrogate_id <- ExceptT $ fmap (first T.unpack) $
       flip runReaderT conn $
-        SqlRead.getProviderSurrogateIdFromUniversalBuild ubuild_id
+        ReadBuilds.getProviderSurrogateIdFromUniversalBuild ubuild_id
 
     has_test <- liftIO $ SqlRead.checkHasTestResults
       conn
