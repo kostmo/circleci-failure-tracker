@@ -192,6 +192,10 @@ getParmMaybe parm_name =
   S.rescue (Just <$> S.param parm_name) (const $ return Nothing)
 
 
+-- | This re-triggers a single Job, and logs that rebuild request
+-- event to the database.
+-- NOTE: More than one job may actually be re-run by CircleCI
+-- as a result of this single-job-rebuild request.
 facilitateJobRebuild ::
      CircleApi.CircleCIApiToken
   -> Builds.UniversalBuildId
@@ -202,12 +206,20 @@ facilitateJobRebuild circleci_api_token universal_build_id = do
     storable_build <- ExceptT $ fmap (first T.unpack) $
       flip runReaderT conn $ ReadBuilds.getGlobalBuild universal_build_id
 
-    let provider_build_num = Builds.build_id $ Builds.build_record storable_build
+    let provider_build_num = Builds.build_id $
+          Builds.build_record storable_build
 
-    results <- CircleTrigger.rebuildCircleJobsInWorkflow
-      dbauth
-      circleci_api_token
-      [(universal_build_id, provider_build_num)]
+    results <- if False -- TODO
+      then CircleTrigger.rebuildCircleJobsInWorkflow
+        dbauth
+        circleci_api_token
+        [(universal_build_id, provider_build_num)]
+      else CircleTrigger.rebuildSingleCircleJobAPI1
+        dbauth
+        circleci_api_token
+        universal_build_id
+        provider_build_num
+
 
     liftIO $ D.debugStr "Submitted rebuild request."
     return $ SqlReadTypes.UserWrapper user results

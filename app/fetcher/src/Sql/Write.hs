@@ -1050,15 +1050,17 @@ instance ToJSON LocalRebuildTriggerEventId
 
 
 insertRebuildTriggerEvent ::
-     Builds.UniversalBuildId
+     Bool -- ^ is_api_v2
+  -> Builds.UniversalBuildId
   -> Text
   -> SqlReadTypes.AuthDbIO (Either String LocalRebuildTriggerEventId)
 insertRebuildTriggerEvent
+    is_api_v2
     (Builds.UniversalBuildId universal_build_id)
     msg = do
 
   SqlReadTypes.AuthConnection conn (AuthStages.Username author) <- ask
-  let values_tuple = (universal_build_id, msg, author)
+  let values_tuple = (universal_build_id, msg, author, is_api_v2)
   [Only x] <- liftIO $ query conn sql values_tuple
   return $ Right $ LocalRebuildTriggerEventId x
   where
@@ -1069,6 +1071,7 @@ insertRebuildTriggerEvent
           "universal_build"
         , "message"
         , "initiator"
+        , "is_api_v2"
         ]
       , "RETURNING id"
       ]

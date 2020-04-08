@@ -74,7 +74,6 @@ genUnmatchedBuildsTable unmatched_nonupstream_builds =
     header_columns = [
         "Job"
       , "Step"
---      , "Status"
       , "Action"
       ]
 
@@ -86,7 +85,6 @@ genUnmatchedBuildsTable unmatched_nonupstream_builds =
         , M.sup job_name
         ]
       , M.sup step_name
---      , ""
       , rerun_link
       ]
       where

@@ -22,6 +22,7 @@ import qualified Builds
 import qualified CircleApi
 import qualified CircleBuild
 import qualified Constants
+import qualified DebugUtils                 as D
 import qualified FetchHelpers
 import qualified MyUtils
 import qualified Sql.Read.Types             as SqlReadTypes
@@ -117,6 +118,13 @@ rebuildJobsBatch
   workflow_id
   job_id_list = do
 
+  liftIO $ D.debugList [
+      "Posting these jobs:"
+    , show job_id_list
+    , "to URL:"
+    , rebuild_url
+    ]
+
   api_response <- ExceptT $ FetchHelpers.safeGetUrl $
     NW.postWith opts rebuild_url $ toJSON $ RebuildPayload job_id_list
 
@@ -134,6 +142,34 @@ rebuildJobsBatch
       & NW.header "Accept" .~ [Constants.jsonMimeType]
       & NW.header "'Content-Type" .~ [Constants.jsonMimeType]
       & NW.param "circle-token" .~ [circleci_api_token]
+
+
+
+rebuildSingleCircleJobAPI1 ::
+     SqlReadTypes.AuthConnection
+  -> CircleApi.CircleCIApiToken
+  -> Builds.UniversalBuildId
+  -> Builds.BuildNumber
+  -> ExceptT String IO [(Builds.UniversalBuildId, SqlWrite.LocalRebuildTriggerEventId)]
+rebuildSingleCircleJobAPI1
+    dbauth
+    tok
+    ubuild_num
+    provider_build_num = do
+
+  circleci_response <- rebuildCircleJobStandalone
+    tok
+    provider_build_num
+
+  let (Builds.NewBuildNumber new_build_num) = build_num circleci_response
+
+  z <- ExceptT $ flip runReaderT dbauth $
+    SqlWrite.insertRebuildTriggerEvent
+      False
+      ubuild_num
+      (T.unwords ["New build number:", T.pack $ show new_build_num])
+
+  return [(ubuild_num, z)]
 
 
 rebuildCircleJobsInWorkflow ::
@@ -167,6 +203,7 @@ rebuildCircleJobsInWorkflow
           let ubuild_num = fst $ fst x
           z <- ExceptT $ flip runReaderT dbauth $
             SqlWrite.insertRebuildTriggerEvent
+              True
               ubuild_num
               (CircleTrigger.message circleci_response)
           return (ubuild_num, z)
