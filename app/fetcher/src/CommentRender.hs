@@ -954,10 +954,20 @@ genMetricsTree
     upstream_breakage_bullet_tree = pure $
        upstream_brokenness_declaration :| rebase_advice_section
 
-    introduced_failures_header_text = pure $ T.unwords [
+
+    optional_qualified_possibly_asterisk = "possibly" <> M.linkWithTooltip
+      "\\*"
+      (drCiGitHubRepoBase <> "/tree/master/docs/from-pull-request-comment/LIMITATIONS.md")
+      "Currently, non-CircleCI failures are not distinguished as upstream failures"
+
+    introduced_failures_header_words = [
         bold_fraction broken_in_pr_count total_failcount
-      , "failures possibly[\\*](" <> drCiGitHubRepoBase <> "/tree/master/docs/from-pull-request-comment/LIMITATIONS.md" <> " \"" <> "Currently, non-CircleCI failures are not distinguished as upstream failures" <> "\") introduced in this PR"
+      , "failures"
+      ] ++ [optional_qualified_possibly_asterisk | non_circleci_non_facebook_failure_count > 0] ++ [
+        "introduced in this PR"
       ]
+
+    introduced_failures_header_text = pure $ T.unwords introduced_failures_header_words
     introduced_failures_section_inner = Tr.Node introduced_failures_header_text optional_non_circlecli_non_facebook_section
 
 

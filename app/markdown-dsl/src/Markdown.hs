@@ -101,6 +101,15 @@ link :: Text -> Text -> Text
 link label url = bracket label <> parens url
 
 
+linkWithTooltip :: Text -> Text -> Text -> Text
+linkWithTooltip label url tooltip = bracket label <> parens parenthesized_parts
+  where
+    parenthesized_parts = T.unwords [
+        url
+      , quote tooltip
+      ]
+
+
 htmlLink :: Text -> Text -> Text
 htmlLink label url = tagElementAttrs [("href", url)] "a" label
 
