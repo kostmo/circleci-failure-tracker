@@ -300,11 +300,13 @@ genCheckRunsSection check_run_entries =
     gen_bullet x = T.unwords [
         "*"
       , M.bold "Failed:"
-      , T.intercalate " - " [
-          GithubChecksApiData.name $ GithubChecksApiFetch.app x
-        , M.codeInline $ GithubChecksApiFetch.name x
-        ]
+      , M.link link_label $ GithubChecksApiFetch.html_url x
       ]
+      where
+        link_label = T.intercalate " - " [
+            GithubChecksApiData.name $ GithubChecksApiFetch.app x
+          , M.codeInline $ GithubChecksApiFetch.name x
+          ]
 
 
 genOtherProviderSection ::
@@ -346,7 +348,7 @@ genOtherProviderSection non_circle_items =
         mk_bullet x = T.unwords [
             "*"
           , M.bold "Failed:"
-          , M.codeInline $ LT.toStrict $ StatusEventQuery._context x
+          , M.link (M.codeInline $ LT.toStrict $ StatusEventQuery._context x) $ LT.toStrict $ StatusEventQuery._target_url x
           ]
 
         reportable_event_bullets = map mk_bullet filtered_event_list
@@ -485,7 +487,7 @@ genFlakySections
     untriggered_intro_text = M.colonize [
         MyUtils.pluralize (length tentative_flaky_untriggered_reruns) "failure"
       , M.bold "tentatively classified as flaky"
-      , "but have not triggered reruns to confirm"
+      , "but reruns have not yet been triggered to confirm"
       ]
 
     triggered_intro_text = M.colonize [

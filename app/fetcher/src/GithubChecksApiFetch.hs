@@ -42,6 +42,7 @@ data GitHubCheckRunsEntry = GitHubCheckRunsEntry {
   , started_at   :: UTCTime
   , completed_at :: UTCTime
   , name         :: Text
+  , html_url     :: Text
   , app          :: GithubChecksApiData.AppWrapper
   } deriving (Show, Generic, FromJSON)
 
