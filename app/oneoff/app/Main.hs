@@ -53,18 +53,18 @@ mainAppCode args = do
     void $ TestDefs.testGetSpanningBreakages conn args $
       Builds.RawCommit "c1fa71972e9cdc50562d6f807fc6ca893c585112"
 
-  when False $
+  when True $
     void $ TestHelpers.testWithAccessToken args $ TestDefs.testBotCommentGeneration args conn $
 --      Builds.RawCommit "c2e1496377685db6cd584aec37b9f7ec48992770"
-      Builds.RawCommit "576202d5cc64a46eccdb67aebf1d71c762918fe2"
+      Builds.RawCommit "440acd7ab3276327f23075c5ba5987b2f98ba629"
 
 
 
-  when False $ do
+  when False $
     void $ TestDefs.testGitHubStatusesRetrieval conn args $ Builds.RawCommit
       "8e80f56fc61e68d6fe3715482a961be1f545ea2b"
 
-  when True $ do
+  when False $
     void $ TestDefs.testGitHubChecksRetrieval conn args $ Builds.RawCommit
       "8e80f56fc61e68d6fe3715482a961be1f545ea2b"
 

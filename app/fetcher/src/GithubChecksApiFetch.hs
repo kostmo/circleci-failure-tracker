@@ -25,6 +25,7 @@ import qualified DbHelpers
 import qualified FetchHelpers
 import qualified GithubApiFetch
 import qualified GitHubAuth
+import qualified GithubChecksApiData
 import qualified ScanRecords
 import           SillyMonoids               ()
 
@@ -35,10 +36,6 @@ data PaginationWrapper = PaginationWrapper {
   } deriving (Show, Generic, FromJSON)
 
 
-data AppWrapper = AppWrapper {
-    slug :: Text
-  , name :: Text
-  } deriving (Show, Generic, FromJSON)
 
 
 data GitHubCheckRunsEntry = GitHubCheckRunsEntry {
@@ -47,7 +44,7 @@ data GitHubCheckRunsEntry = GitHubCheckRunsEntry {
   , started_at   :: UTCTime
   , completed_at :: UTCTime
   , name         :: Text
-  , app          :: AppWrapper
+  , app          :: GithubChecksApiData.AppWrapper
   } deriving (Show, Generic, FromJSON)
 
 

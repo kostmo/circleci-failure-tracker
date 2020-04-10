@@ -332,10 +332,9 @@ getBuildsFromGithub
     map storable_build_to_universal second_level_storable_builds
 
   return $ StatusUpdateTypes.NewGitHubJobStatuses
-    statuses_with_ci_providers
-    check_runs
     scannable_build_numbers
     circleci_failcount
+    (StatusUpdateTypes.NonCircleCIItems statuses_with_ci_providers check_runs)
 
   where
     conn = ScanRecords.db_conn fetch_resources

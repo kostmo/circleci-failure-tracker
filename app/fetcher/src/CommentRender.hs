@@ -24,6 +24,8 @@ import qualified CommitBuilds
 import qualified Constants
 import qualified DbHelpers
 import qualified GadgitFetch
+import qualified GithubChecksApiData
+import qualified GithubChecksApiFetch
 import qualified Markdown              as M
 import qualified MatchOccurrences
 import qualified MyUtils
@@ -103,11 +105,16 @@ genTimedOutSection
     NonUpstream
     NonFlaky
     (UnmatchedBuildMembers timed_out_builds)
-    (M.colonize [
-          MyUtils.pluralize (length timed_out_builds) "job"
-        , M.bold "timed out"
-        ])
-    (map ((\x -> "* " <> M.codeInline x) . UnmatchedBuilds._job_name) timed_out_builds)
+    jobs_header
+    jobs_list
+  where
+    jobs_header = M.colonize [
+        MyUtils.pluralize (length timed_out_builds) "job"
+      , M.bold "timed out"
+      ]
+
+    make_list_item = ((\x -> "* " <> M.codeInline x) . UnmatchedBuilds._job_name)
+    jobs_list = map make_list_item timed_out_builds
 
 
 genSpecialCasedNonupstreamSection ::
@@ -178,6 +185,7 @@ data BuildMembers =
   | UpstreamBreakageMembers [(SqlReadTypes.StandardCommitBuildWrapper, SqlReadTypes.UpstreamBrokenJob)]
   | FooMembers [SqlReadTypes.StandardCommitBuildWrapper]
   | RawGitHubEventMembers [StatusEventQuery.GitHubStatusEventGetter]
+  | GitHubCheckRunMembers [GithubChecksApiFetch.GitHubCheckRunsEntry]
 
 
 data FailureSection = NewFailureSection {
@@ -253,20 +261,50 @@ genNewFailuresSections nonupstream_builds =
         (NE.toList $ genUnmatchedBuildsTable unmatched_nonupstream_builds)
 
 
-genOtherProviderSection ::
-     [([StatusEventQuery.GitHubStatusEventGetter], DbHelpers.WithId SqlReadTypes.CiProviderHostname)]
+genCheckRunsSection ::
+     [GithubChecksApiFetch.GitHubCheckRunsEntry]
   -> Maybe (Tr.Tree NodeType)
-genOtherProviderSection status_provider_tuples =
+genCheckRunsSection check_run_entries =
+  if null failed_runs
+  then Nothing
+  else Just $ pure $ LeafNode $ NewFailureSection
+    NonUpstream
+    NonFlaky
+    (GitHubCheckRunMembers check_run_entries)
+    (M.heading 3 "Extra GitHub checks")
+    failed_run_bullets
+  where
+    failed_runs = filter ((== "failure") . GithubChecksApiFetch.conclusion) check_run_entries
+
+    failed_run_bullets = map gen_bullet failed_runs
+    gen_bullet x = T.unwords [
+        "*"
+      , M.bold "Failed:"
+      , T.intercalate " - " [
+          GithubChecksApiData.name $ GithubChecksApiFetch.app x
+        , M.codeInline $ GithubChecksApiFetch.name x
+        ]
+      ]
+
+
+genOtherProviderSection ::
+     StatusUpdateTypes.NonCircleCIItems
+  -> Maybe (Tr.Tree NodeType)
+genOtherProviderSection non_circle_items =
   if null provider_output_nodes
-      then Nothing
-      else Just $ Tr.Node
-        (InteriorNode "Non-CircleCI jobs")
-        provider_output_nodes
+  then Nothing
+  else Just $ Tr.Node
+    (InteriorNode "Non-CircleCI jobs")
+    provider_output_nodes
 
   where
+    StatusUpdateTypes.NonCircleCIItems status_provider_tuples check_runs = non_circle_items
+
     get_provider_string (DbHelpers.WithId _ (SqlReadTypes.CiProviderHostname hostname_string)) = hostname_string
 
-    provider_output_nodes = Maybe.catMaybes provider_maybes
+    maybe_check_runs_node = genCheckRunsSection check_runs
+
+    provider_output_nodes = Maybe.catMaybes $ maybe_check_runs_node : provider_maybes
     provider_maybes = map gen_provider_maybe non_circleci_provided_statuses
 
     non_circleci_provider_predicate (_events, provider_info) = get_provider_string provider_info /= Constants.circleciDomainString
@@ -276,10 +314,22 @@ genOtherProviderSection status_provider_tuples =
     gen_provider_maybe (event_list, provider_info) =
       if null reportable_event_bullets
         then Nothing
-        else Just $ pure $ LeafNode $ NewFailureSection NonUpstream NonFlaky (RawGitHubEventMembers filtered_event_list) (T.pack $ get_provider_string provider_info) reportable_event_bullets
+        else Just $ pure $ LeafNode $ NewFailureSection
+          NonUpstream
+          NonFlaky
+          (RawGitHubEventMembers filtered_event_list)
+          (M.heading 3 $ T.pack $ get_provider_string provider_info)
+          reportable_event_bullets
       where
         filtered_event_list = filter ((== StatusUpdateTypes.gitHubStatusFailureString) . StatusEventQuery._state) event_list
-        reportable_event_bullets = map (LT.toStrict . StatusEventQuery._context) filtered_event_list
+
+        mk_bullet x = T.unwords [
+            "*"
+          , M.bold "Failed:"
+          , M.codeInline $ LT.toStrict $ StatusEventQuery._context x
+          ]
+
+        reportable_event_bullets = map mk_bullet filtered_event_list
 
 
 genBuildFailuresSections ::
@@ -295,7 +345,7 @@ genBuildFailuresSections commit_page_info =
     maybe_nodes = [
         genNewFailuresSections nonupstream_builds
       , genUpstreamFailuresSection upstream_breakages
-      , genOtherProviderSection $ StatusUpdateTypes.all_statuses raw_github_statuses
+      , genOtherProviderSection $ StatusUpdateTypes.non_circleci_items raw_github_statuses
       ]
 
     StatusUpdateTypes.NewUpstreamnessBuildsPartition upstream_breakages nonupstream_builds = toplevel_partitioning

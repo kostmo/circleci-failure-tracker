@@ -37,11 +37,16 @@ class ToTree a where
   toTree :: a -> Tr.Tree a
 
 
-data GitHubJobStatuses = NewGitHubJobStatuses {
-    all_statuses              :: [([StatusEventQuery.GitHubStatusEventGetter], DbHelpers.WithId SqlReadTypes.CiProviderHostname)]
+data NonCircleCIItems = NonCircleCIItems {
+    all_statuses              :: [([StatusEventQuery.GitHubStatusEventGetter], DbHelpers.WithId SqlReadTypes.CiProviderHostname)] -- ^ this does actually include some CircleCI statuses, which are filtered out later
   , check_run_entries :: [GithubChecksApiFetch.GitHubCheckRunsEntry]
-  , scannable_statuses         :: [Builds.UniversalBuildId]
+  }
+
+
+data GitHubJobStatuses = NewGitHubJobStatuses {
+    scannable_statuses        :: [Builds.UniversalBuildId]
   , circleci_failed_job_count :: Int
+  , non_circleci_items        :: NonCircleCIItems
   }
 
 
