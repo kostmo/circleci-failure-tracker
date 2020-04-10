@@ -61,7 +61,7 @@ drCIApplicationTitle = "Dr. CI"
 
 
 drCIPullRequestCommentsReadmeUrl :: Text
-drCIPullRequestCommentsReadmeUrl = drCiGitHubRepoBase <> "/tree/master/docs/from-pull-request-comment"
+drCIPullRequestCommentsReadmeUrl = drCiGitHubRepoBase <> "/tree/master/docs/from-pull-request-comment/README.md"
 
 
 circleCIBuildUrlPrefix :: Text
@@ -127,7 +127,7 @@ genSpecialCasedNonupstreamSection
   else Just $ pure $ LeafNode $ NewFailureSection
     NonUpstream
     NonFlaky
-    (FooMembers xla_build_failures)
+    (SpecialCasedMembers xla_build_failures)
     (T.unlines [M.heading 3 "XLA failure", explanation_paragraph])
     xla_match_details_block
 
@@ -183,9 +183,27 @@ data BuildMembers =
   | TupleBuildMembers [SqlReadTypes.CommitBuildWrapperTuple]
   | TentativeFlakyBuildMembers (StatusUpdateTypes.TentativeFlakyBuilds SqlReadTypes.CommitBuildWrapperTuple)
   | UpstreamBreakageMembers [(SqlReadTypes.StandardCommitBuildWrapper, SqlReadTypes.UpstreamBrokenJob)]
-  | FooMembers [SqlReadTypes.StandardCommitBuildWrapper]
+  | SpecialCasedMembers [SqlReadTypes.StandardCommitBuildWrapper]
   | RawGitHubEventMembers [StatusEventQuery.GitHubStatusEventGetter]
   | GitHubCheckRunMembers [GithubChecksApiFetch.GitHubCheckRunsEntry]
+
+
+getFailureCount :: BuildMembers -> Int
+getFailureCount (UnmatchedBuildMembers x)      = length x
+getFailureCount (TupleBuildMembers x)          = length x
+getFailureCount (TentativeFlakyBuildMembers x) = StatusUpdateTypes.count x
+getFailureCount (UpstreamBreakageMembers x)    = length x
+getFailureCount (SpecialCasedMembers x)        = length x
+getFailureCount (RawGitHubEventMembers x)      = length x
+getFailureCount (GitHubCheckRunMembers x)      = length x
+
+
+countNonCircleCINonFacebookFailures :: BuildMembers -> Int
+
+countNonCircleCINonFacebookFailures (RawGitHubEventMembers x) = length x
+countNonCircleCINonFacebookFailures (GitHubCheckRunMembers x) = length x
+countNonCircleCINonFacebookFailures _                         = 0
+
 
 
 data FailureSection = NewFailureSection {
@@ -265,18 +283,20 @@ genCheckRunsSection ::
      [GithubChecksApiFetch.GitHubCheckRunsEntry]
   -> Maybe (Tr.Tree NodeType)
 genCheckRunsSection check_run_entries =
-  if null failed_runs
+  if null failed_check_run_entries_excluding_facebook
   then Nothing
   else Just $ pure $ LeafNode $ NewFailureSection
     NonUpstream
     NonFlaky
-    (GitHubCheckRunMembers check_run_entries)
+    (GitHubCheckRunMembers failed_check_run_entries_excluding_facebook)
     (M.heading 3 "Extra GitHub checks")
     failed_run_bullets
   where
-    failed_runs = filter ((== "failure") . GithubChecksApiFetch.conclusion) check_run_entries
+    x_failed_runs = filter ((== "failure") . GithubChecksApiFetch.conclusion) check_run_entries
 
-    failed_run_bullets = map gen_bullet failed_runs
+    failed_check_run_entries_excluding_facebook = filter ((/= "facebook-github-tools") . GithubChecksApiData.slug . GithubChecksApiFetch.app) x_failed_runs
+
+    failed_run_bullets = map gen_bullet failed_check_run_entries_excluding_facebook
     gen_bullet x = T.unwords [
         "*"
       , M.bold "Failed:"
@@ -782,7 +802,7 @@ generateCommentMarkdown
       dr_ci_commit_details_url
 
     intro_section = T.unlines [
-        M.heading 2 ":pill: CircleCI build failures summary and remediations"
+        M.heading 2 ":pill: Build failures summary and remediations"
       , M.colonize [
           "As of commit"
         , T.take Constants.gitCommitPrefixLength sha1_text
@@ -817,14 +837,21 @@ generateMiddleSections
       _          -> Nothing
 
     get_section_lines x = intro_blurb x : details_lines x
-    build_failures_section_line_groups = map get_section_lines $
-      Maybe.mapMaybe just_get_leaf $
-        Tr.flatten build_failures_table_sections
+
+    extant_failure_sections = Maybe.mapMaybe just_get_leaf $
+      Tr.flatten build_failures_table_sections
+
+    non_circleci_non_facebook_failure_count = sum $
+      map (countNonCircleCINonFacebookFailures . build_members) extant_failure_sections
+
+
+    build_failures_section_line_groups = map get_section_lines extant_failure_sections
 
     (summary_header, summary_forrest, is_all_no_fault_failures, is_all_successful_circleci_builds) = genMetricsTree
       commit_page_info
       ancestry_result
       build_summary_stats
+      non_circleci_non_facebook_failure_count
       commit
 
     summary_tree_lines = if null summary_forrest
@@ -838,22 +865,24 @@ genMetricsTree ::
      StatusUpdateTypes.CommitPageInfo
   -> GadgitFetch.AncestryPropositionResponse
   -> StatusUpdateTypes.BuildSummaryStats
+  -> Int -- ^ non-CircleCI failure count
   -> Builds.RawCommit
   -> ([Text], Tr.Forest (NonEmpty Text), Bool, Bool)
 genMetricsTree
     x_commit_page_info
     ancestry_response
-    (StatusUpdateTypes.NewBuildSummaryStats pre_broken_info all_failures)
+    (StatusUpdateTypes.NewBuildSummaryStats pre_broken_info all_circleci_failures)
+    non_circleci_non_facebook_failure_count
     (Builds.RawCommit commit_sha1_text) =
 
-  (summary_header, forrest_parts, not has_user_caused_failures, is_all_successful_circleci_builds)
+  (summary_header, forrest_parts, not has_user_caused_failures, is_all_successful_builds)
   where
 
     toplevel_builds = StatusUpdateTypes.toplevel_partitioning x_commit_page_info
 
-    is_all_successful_circleci_builds = null all_failures
+    is_all_successful_builds = null all_circleci_failures && non_circleci_non_facebook_failure_count == 0
 
-    has_user_caused_failures = broken_in_pr_count > 0
+    has_user_caused_failures = broken_in_pr_count > 0 || non_circleci_non_facebook_failure_count > 0
 
     forrest_parts = concat [
         introduced_failures_section
@@ -861,12 +890,22 @@ genMetricsTree
       , optional_kb_metric
       ]
 
+
+    optional_non_circlecli_non_facebook_section =
+      [non_circlecli_non_facebook_bullet_tree | non_circleci_non_facebook_failure_count > 0]
+
+    non_circlecli_non_facebook_bullet_tree = pure $ non_circlecli_non_facebook_summary_line :| []
+    non_circlecli_non_facebook_summary_line = T.unwords [
+        bold_fraction non_circleci_non_facebook_failure_count total_failcount
+      , "non-CircleCI failure(s)"
+      ]
+
     summary_header
       | has_user_caused_failures = mempty
-      | is_all_successful_circleci_builds = pure $ T.unwords [
+      | is_all_successful_builds = pure $ T.unwords [
           ":green_heart:"
         , ":green_heart:"
-        , M.bold "Looks good so far! There are no CircleCI failures yet."
+        , M.bold "Looks good so far! There are no failures yet."
         , ":green_heart:"
         , ":green_heart:"
         ]
@@ -892,7 +931,7 @@ genMetricsTree
     pre_broken_jobs_map = SqlUpdate.inferred_upstream_breakages_by_job pre_broken_info
 
     upstream_broken_count = HashMap.size pre_broken_jobs_map
-    total_failcount = length all_failures
+    total_failcount = length all_circleci_failures + non_circleci_non_facebook_failure_count
 
     broken_in_pr_count = total_failcount - upstream_broken_count - tentatively_flaky_count
 
@@ -915,10 +954,11 @@ genMetricsTree
     upstream_breakage_bullet_tree = pure $
        upstream_brokenness_declaration :| rebase_advice_section
 
-    introduced_failures_section_inner = pure $ pure $ T.unwords [
+    introduced_failures_header_text = pure $ T.unwords [
         bold_fraction broken_in_pr_count total_failcount
-      , "failures introduced in this PR"
+      , "failures possibly[\\*](" <> drCiGitHubRepoBase <> "/tree/master/docs/from-pull-request-comment/LIMITATIONS.md" <> " \"" <> "Currently, non-CircleCI failures are not distinguished as upstream failures" <> "\") introduced in this PR"
       ]
+    introduced_failures_section_inner = Tr.Node introduced_failures_header_text optional_non_circlecli_non_facebook_section
 
 
     tentatively_flaky_builds_partition = StatusUpdateTypes.tentatively_flaky_builds $

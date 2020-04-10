@@ -36,8 +36,6 @@ data PaginationWrapper = PaginationWrapper {
   } deriving (Show, Generic, FromJSON)
 
 
-
-
 data GitHubCheckRunsEntry = GitHubCheckRunsEntry {
     status       :: Text
   , conclusion   :: Text
