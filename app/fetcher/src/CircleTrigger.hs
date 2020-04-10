@@ -73,6 +73,11 @@ rebuildCircleJobStandalone
     (CircleApi.CircleCIApiToken circleci_api_token)
     (Builds.NewBuildNumber build_num) = do
 
+  liftIO $ D.debugList [
+      "Posting rerun request to CircleCI v1.1 API URL:"
+    , rebuild_url
+    ]
+
   api_response <- ExceptT $ FetchHelpers.safeGetUrl $
     NW.postWith opts rebuild_url BS.empty
 
@@ -163,11 +168,21 @@ rebuildSingleCircleJobAPI1
 
   let (Builds.NewBuildNumber new_build_num) = build_num circleci_response
 
+  liftIO $ D.debugList [
+      "Response was:"
+    , show circleci_response
+    ]
+
   z <- ExceptT $ flip runReaderT dbauth $
     SqlWrite.insertRebuildTriggerEvent
       False
       ubuild_num
       (T.unwords ["New build number:", T.pack $ show new_build_num])
+
+  liftIO $ D.debugList [
+      "DB insertion ID was:"
+    , show z
+    ]
 
   return [(ubuild_num, z)]
 

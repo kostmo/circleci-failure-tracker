@@ -990,15 +990,21 @@ storeMatches scan_id_obj step@(Builds.NewBuildStepId build_step_id) (scan_timeou
       ]
 
 
-insertSingleCIProvider :: Connection -> String -> IO (DbHelpers.WithId String)
-insertSingleCIProvider conn hostname = do
+insertSingleCIProvider ::
+     Connection
+  -> SqlReadTypes.CiProviderHostname
+  -> IO (DbHelpers.WithId SqlReadTypes.CiProviderHostname)
+insertSingleCIProvider
+    conn
+    wrapped_hostname@(SqlReadTypes.CiProviderHostname hostname) = do
+
   rows <- query conn sql_query $ Only hostname
   row_id <- case rows of
     Only old_id:_ -> return old_id
     []              -> do
       [Only new_id] <- query conn sql_insert $ Only hostname
       return new_id
-  return $ DbHelpers.WithId row_id hostname
+  return $ DbHelpers.WithId row_id wrapped_hostname
   where
     sql_query = Q.join [
         "SELECT id"
@@ -1016,8 +1022,8 @@ insertSingleCIProvider conn hostname = do
 
 getAndStoreCIProviders ::
      Connection
-  -> [(String, a)]
-  -> IO [(a, DbHelpers.WithId String)]
+  -> [(SqlReadTypes.CiProviderHostname, a)]
+  -> IO [(a, DbHelpers.WithId SqlReadTypes.CiProviderHostname)]
 getAndStoreCIProviders conn =
   mapM $ traverse (insertSingleCIProvider conn) . swap
 
@@ -1044,7 +1050,7 @@ data BeanstalkSqsReceiveHeaders = BeanstalkSqsReceiveHeaders {
 
 
 newtype LocalRebuildTriggerEventId = LocalRebuildTriggerEventId Int64
-  deriving (Generic)
+  deriving (Generic, Show)
 
 instance ToJSON LocalRebuildTriggerEventId
 

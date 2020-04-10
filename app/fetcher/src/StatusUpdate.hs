@@ -3,8 +3,8 @@
 
 module StatusUpdate (
     githubEventEndpoint
+  , getBuildsFromGithub
   , readGitHubStatusesAndScanAndPostSummaryForCommit
-  , postCommitSummaryStatus
   , fetchCommitPageInfo
   , wrappedScanAndPostCommit
   , SuccessRecordStorageMode (..)
@@ -16,7 +16,7 @@ module StatusUpdate (
 import           Control.Monad                 (guard, when)
 import           Control.Monad.IO.Class        (liftIO)
 import           Control.Monad.Trans.Except    (ExceptT (ExceptT), except,
-                                                runExceptT)
+                                                runExceptT, withExceptT)
 import           Control.Monad.Trans.Reader    (runReaderT)
 import           Data.Bifunctor                (first)
 import qualified Data.ByteString.Lazy          as LBS
@@ -48,7 +48,6 @@ import qualified AuthConfig
 import qualified AuthStages
 import qualified Builds
 import qualified CircleApi
-import qualified CircleAuth
 import qualified CommentRender
 import qualified CommentRenderCommon
 import qualified CommitBuilds
@@ -57,6 +56,8 @@ import qualified DbHelpers
 import qualified DebugUtils                    as D
 import qualified GadgitFetch
 import qualified GithubApiFetch
+import qualified GitHubAuth
+import qualified GithubChecksApiFetch
 import qualified GitRev
 import qualified Markdown                      as M
 import qualified MatchOccurrences
@@ -95,23 +96,13 @@ fullMasterRefName :: Text
 fullMasterRefName = "refs/heads/" <> Constants.masterName
 
 
-circleciDomain :: String
-circleciDomain = "circleci.com"
-
-
 circleCIContextPrefix :: Text
 circleCIContextPrefix = "ci/circleci: "
 
 
-gitHubStatusFailureString = "failure"
-
-
-gitHubStatusSuccessString = "success"
-
-
 conclusiveStatuses = [
-    gitHubStatusFailureString
-  , gitHubStatusSuccessString
+    StatusUpdateTypes.gitHubStatusFailureString
+  , StatusUpdateTypes.gitHubStatusSuccessString
   ]
 
 
@@ -128,9 +119,11 @@ data ScanLogsMode =
 
 groupStatusesByHostname ::
      [StatusEventQuery.GitHubStatusEventGetter]
-  -> [(String, [StatusEventQuery.GitHubStatusEventGetter])]
+  -> [(SqlReadTypes.CiProviderHostname, [StatusEventQuery.GitHubStatusEventGetter])]
 groupStatusesByHostname =
-  MyUtils.binTuplesByFirst . map swap . Maybe.mapMaybe (sequenceA . MyUtils.derivePair get_hostname)
+  map (first SqlReadTypes.CiProviderHostname) .
+    MyUtils.binTuplesByFirst . map swap .
+      Maybe.mapMaybe (sequenceA . MyUtils.derivePair get_hostname)
   where
     get_hostname s = do
       parsed_uri <- URI.parseURI $ LT.unpack $ StatusEventQuery._target_url s
@@ -176,11 +169,11 @@ getCircleciFailure sha1 event_setter = do
 storeUniversalBuilds ::
      Connection
   -> Builds.RawCommit
-  -> [([StatusEventQuery.GitHubStatusEventGetter], DbHelpers.WithId String)]
-  -> IO [(Builds.StorableBuild, (StatusEventQuery.GitHubStatusEventGetter, String))]
-storeUniversalBuilds conn commit statuses_by_ci_providers = do
+  -> [([StatusEventQuery.GitHubStatusEventGetter], DbHelpers.WithId SqlReadTypes.CiProviderHostname)]
+  -> IO [(Builds.StorableBuild, (StatusEventQuery.GitHubStatusEventGetter, SqlReadTypes.CiProviderHostname))]
+storeUniversalBuilds conn commit statuses_with_ci_providers = do
 
-  result_lists <- for statuses_by_ci_providers $ \(statuses, provider_with_id) -> do
+  result_lists <- for statuses_with_ci_providers $ \(statuses, provider_with_id) -> do
 
     {-
     -- XXX This does not work, because the return value of this function
@@ -229,26 +222,34 @@ storeUniversalBuilds conn commit statuses_by_ci_providers = do
 
 extractUniversalBuild ::
      Builds.RawCommit
-  -> DbHelpers.WithId String -- ^ CI provider domain and ID
+  -> DbHelpers.WithId SqlReadTypes.CiProviderHostname -- ^ CI provider domain and DB ID
   -> StatusEventQuery.GitHubStatusEventGetter
   -> Maybe (Builds.Build, Builds.UniversalBuild)
-extractUniversalBuild commit provider_with_id status_object = case DbHelpers.record provider_with_id of
-  "circleci.com"   -> do
-    circle_build <- getCircleciFailure commit status_object
-    let uni_build = Builds.UniversalBuild
-          (Builds.build_id circle_build)
-          (DbHelpers.db_id provider_with_id)
-          ""
-          did_succeed
-          commit
-    return (circle_build, uni_build)
+extractUniversalBuild
+    commit
+    provider_with_id
+    status_object =
 
-  "ci.pytorch.org" -> Nothing
-  "travis-ci.org"  -> Nothing
-  _                -> Nothing
+  case hostname_string of
+
+    "circleci.com"   -> do  -- TODO: Why can't we use the "circleciDomainString" varaible here?
+      circle_build <- getCircleciFailure commit status_object
+      let uni_build = Builds.UniversalBuild
+            (Builds.build_id circle_build)
+            (DbHelpers.db_id provider_with_id)
+            ""
+            did_succeed
+            commit
+      return (circle_build, uni_build)
+
+    "ci.pytorch.org" -> Nothing
+    "travis-ci.org"  -> Nothing
+    _                -> Nothing
 
   where
-    did_succeed = StatusEventQuery._state status_object == gitHubStatusSuccessString
+    SqlReadTypes.CiProviderHostname hostname_string = DbHelpers.record provider_with_id
+    did_succeed = StatusEventQuery._state status_object == StatusUpdateTypes.gitHubStatusSuccessString
+
 
 
 getBuildsFromGithub ::
@@ -256,7 +257,7 @@ getBuildsFromGithub ::
   -> DbHelpers.OwnerAndRepo
   -> SuccessRecordStorageMode
   -> Builds.RawCommit
-  -> ExceptT LT.Text IO ([Builds.UniversalBuildId], Int)
+  -> ExceptT LT.Text IO StatusUpdateTypes.GitHubJobStatuses
 getBuildsFromGithub
     fetch_resources
     owned_repo
@@ -264,20 +265,28 @@ getBuildsFromGithub
     sha1 = do
 
   build_statuses_list_any_source <- ExceptT $ GithubApiFetch.getBuildStatuses
-    (CircleAuth.token $ ScanRecords.github_auth_token fetch_resources)
+    (GitHubAuth.token $ ScanRecords.github_auth_token fetch_resources)
     owned_repo
     sha1
+
+  check_runs <- withExceptT LT.pack $
+    GithubChecksApiFetch.getRefCheckRuns
+      fetch_resources
+      owned_repo
+      sha1
 
   liftIO $ D.debugList [
       "Build statuses count:"
     , show $ length build_statuses_list_any_source
     ]
 
-  let succeeded_or_failed_statuses = filter ((`elem` conclusiveStatuses) . StatusEventQuery._state) build_statuses_list_any_source
+  let is_conclusive_status = (`elem` conclusiveStatuses) . StatusEventQuery._state
+      succeeded_or_failed_statuses = filter is_conclusive_status build_statuses_list_any_source
 
       statuses_by_hostname = groupStatusesByHostname succeeded_or_failed_statuses
 
-  statuses_by_ci_providers <- liftIO $ SqlWrite.getAndStoreCIProviders conn statuses_by_hostname
+  statuses_with_ci_providers <- liftIO $
+    SqlWrite.getAndStoreCIProviders conn statuses_by_hostname
 
   liftIO $ D.debugList ["HERE 1A"]
 
@@ -285,22 +294,25 @@ getBuildsFromGithub
   stored_build_tuples <- liftIO $ storeUniversalBuilds
     conn
     sha1
-    statuses_by_ci_providers
+    statuses_with_ci_providers
 
   liftIO $ D.debugList ["HERE 1B"]
 
-  let circleci_builds_and_statuses = filter ((== circleciDomain) . snd . snd) stored_build_tuples
+  let is_circleci_tuple = (== Constants.circleciDomainString) . SqlReadTypes.domain_string . snd . snd
+      circleci_builds_and_statuses = filter is_circleci_tuple stored_build_tuples
 
       filter_by_status stat = filter $ (== stat) . StatusEventQuery._state . fst . snd
 
-      circleci_failed_builds = map fst $ filter_by_status gitHubStatusFailureString circleci_builds_and_statuses
+      circleci_failed_builds = map fst $
+        filter_by_status StatusUpdateTypes.gitHubStatusFailureString circleci_builds_and_statuses
 
       -- TODO: May want to use the CircleCI API to retrieve more info
       -- on these builds.
       -- Currently, the extra fields available from CircleCI
       -- are only populated through the "BuildRetrieval.updateCircleCIBuildsList"
       -- function, which is manually invoked.
-      circleci_successful_builds = map fst $ filter_by_status gitHubStatusSuccessString circleci_builds_and_statuses
+      circleci_successful_builds = map fst $
+        filter_by_status StatusUpdateTypes.gitHubStatusSuccessString circleci_builds_and_statuses
 
       second_level_storable_builds = case store_provider_specific_success_records of
         StatusUpdate.ShouldStoreDetailedSuccessRecords -> circleci_failed_builds ++ circleci_successful_builds
@@ -316,11 +328,14 @@ getBuildsFromGithub
     , show circleci_failcount
     ]
 
-
   liftIO $ flip runReaderT conn $ SqlWrite.storeBuildsList Nothing $
     map storable_build_to_universal second_level_storable_builds
 
-  return (scannable_build_numbers, circleci_failcount)
+  return $ StatusUpdateTypes.NewGitHubJobStatuses
+    statuses_with_ci_providers
+    check_runs
+    scannable_build_numbers
+    circleci_failcount
 
   where
     conn = ScanRecords.db_conn fetch_resources
@@ -331,7 +346,7 @@ getBuildsFromGithub
 scanAndPost ::
      ScanRecords.ScanCatchupResources
   -> Scanning.RevisitationMode
-  -> [Builds.UniversalBuildId]
+  -> StatusUpdateTypes.GitHubJobStatuses
   -> DbHelpers.OwnerAndRepo
   -> AmazonQueueData.SqsMessageId
   -> Builds.RawCommit
@@ -339,13 +354,20 @@ scanAndPost ::
 scanAndPost
     scan_resources
     scan_revisitation_mode
-    scannable_build_numbers
+    github_statuses_bundle
     owned_repo
     sqs_message_id
     sha1 = do
 
   liftIO $ do
 
+    -- Note: Here we store scan results (which are perhaps
+    -- incrementally attained on top of previous scans) to
+    -- the database; we are not propagating the complete
+    -- set of scan results in-memory through the
+    -- "post PR comment" call chain at this point;
+    -- instead we later issue a DB query to obtain the complete
+    -- set of scan results.
     Scanning.scanBuilds
       scan_resources
       Scanning.OnlyUnscannedPatterns
@@ -355,25 +377,25 @@ scanAndPost
 
     D.debugList ["About to enter postCommitSummaryStatus"]
 
+  is_master_commit <- liftIO $ flip runReaderT conn $
+    ReadCommits.isMasterCommit sha1
+
   -- TODO Don't bother with posting a status if this
   -- is a master commit;
   -- a Pull Request with this HEAD commit would not
   -- be found, anyway.
-
-  is_master_commit <- liftIO $ flip runReaderT conn $
-    ReadCommits.isMasterCommit sha1
-
   if is_master_commit
     then return []
     else postCommitSummaryStatus
       (ScanRecords.fetching scan_resources)
+      github_statuses_bundle
       owned_repo
       sqs_message_id
       sha1
 
   where
+    scannable_build_numbers = StatusUpdateTypes.scannable_statuses github_statuses_bundle
     conn = ScanRecords.db_conn $ ScanRecords.fetching scan_resources
-
 
 
 separateExcerpts x = case CommitBuilds._maybe_match_excerpt x of
@@ -387,10 +409,15 @@ separateExcerpts x = case CommitBuilds._maybe_match_excerpt x of
 
 fetchCommitPageInfo ::
      SqlUpdate.UpstreamBreakagesInfo
+  -> StatusUpdateTypes.GitHubJobStatuses
   -> Builds.RawCommit
   -> GitRev.GitSha1
   -> SqlReadTypes.DbIO (Either Text StatusUpdateTypes.CommitPageInfo)
-fetchCommitPageInfo pre_broken_info sha1 validated_sha1 = runExceptT $ do
+fetchCommitPageInfo
+    pre_broken_info
+    github_statuses_bundle
+    sha1
+    validated_sha1 = runExceptT $ do
 
   liftIO $ D.debugStr "Fetching revision builds"
   DbHelpers.BenchmarkedResponse _ revision_builds_with_timeouts <- ExceptT $
@@ -451,19 +478,19 @@ fetchCommitPageInfo pre_broken_info sha1 validated_sha1 = runExceptT $ do
 
   let pattern_matched_builds_partition = StatusUpdateTypes.partitionMatchedBuilds matched_builds_with_log_context
 
-
-  let nonupstream_partition = StatusUpdateTypes.NewNonUpstreamBuildPartition
+      nonupstream_partition = StatusUpdateTypes.NewNonUpstreamBuildPartition
         pattern_matched_builds_partition
         nonupstream_unmatched_builds
         special_cased_builds_wrapper
         timed_out_builds
 
-
-  let upstreamness_partition = StatusUpdateTypes.NewUpstreamnessBuildsPartition
+      upstreamness_partition = StatusUpdateTypes.NewUpstreamnessBuildsPartition
         paired_upstream_breakages
         nonupstream_partition
 
-  return $ StatusUpdateTypes.NewCommitPageInfo upstreamness_partition
+  return $ StatusUpdateTypes.NewCommitPageInfo
+    upstreamness_partition
+    github_statuses_bundle
 
   where
     pre_broken_jobs_map = SqlUpdate.inferred_upstream_breakages_by_job pre_broken_info
@@ -471,12 +498,14 @@ fetchCommitPageInfo pre_broken_info sha1 validated_sha1 = runExceptT $ do
 
 postCommitSummaryStatus ::
      ScanRecords.FetchingResources
+  -> StatusUpdateTypes.GitHubJobStatuses
   -> DbHelpers.OwnerAndRepo
   -> AmazonQueueData.SqsMessageId
   -> Builds.RawCommit
   -> ExceptT LT.Text IO [(Builds.PullRequestNumber, Maybe CommentRenderCommon.CommentRevisionId)]
 postCommitSummaryStatus
     fetching_resources
+    github_statuses_bundle
     owned_repo
     _sqs_message_id -- TODO use this to obtain time in queue, include in posted comment
     sha1@(Builds.RawCommit commit_sha1_text) = do
@@ -493,11 +522,11 @@ postCommitSummaryStatus
 
   liftIO $ D.debugStr "Checkpoint B"
 
-  upstream_breakages_info <- ExceptT $
-    first LT.fromStrict <$> runReaderT (SqlUpdate.findKnownBuildBreakages
+  upstream_breakages_info <- ExceptT $ fmap (first LT.fromStrict) $
+    flip runReaderT conn $ SqlUpdate.findKnownBuildBreakages
       access_token
       owned_repo
-      sha1) conn
+      sha1
 
   liftIO $ D.debugStr "Checkpoint C"
 
@@ -506,7 +535,11 @@ postCommitSummaryStatus
   liftIO $ D.debugStr "Checkpoint D"
 
   commit_page_info <- ExceptT $ fmap (first LT.fromStrict) $
-    flip runReaderT conn $ fetchCommitPageInfo upstream_breakages_info sha1 validated_sha1
+    flip runReaderT conn $ fetchCommitPageInfo
+      upstream_breakages_info
+      github_statuses_bundle
+      sha1
+      validated_sha1
 
   liftIO $ D.debugStr "Checkpoint E"
 
@@ -524,7 +557,7 @@ postCommitSummaryStatus
 
   where
     conn = ScanRecords.db_conn fetching_resources
-    access_token = CircleAuth.token $ ScanRecords.github_auth_token fetching_resources
+    access_token = GitHubAuth.token $ ScanRecords.github_auth_token fetching_resources
 
 
 fetchAndCachePrAuthor ::
@@ -701,8 +734,13 @@ lookupPullRequestsByHeadCommit conn sha1 = do
         , show sha1
         , "- Falling back to Gadgit webservice"
         ]
+
       pr_numbers <- ExceptT $ first LT.pack <$> GadgitFetch.getContainingPRs sha1
-      liftIO $ flip runReaderT conn $ SqlWrite.insertPullRequestHeads False $ map (\pr_number -> (pr_number, sha1)) pr_numbers
+
+      liftIO $ flip runReaderT conn $
+        SqlWrite.insertPullRequestHeads False $
+          map (\pr_number -> (pr_number, sha1)) pr_numbers
+
       return pr_numbers
 
     else return found_prs
@@ -851,7 +889,8 @@ wipeCommentForUpdatedPr
 -- * Filter out the CircleCI builds
 -- * Check if the builds have been scanned yet.
 -- * Scan each CircleCI build that needs to be scanned.
--- * For each match, check if that match's pattern is tagged as "flaky".
+-- * For each match, check if that match's pattern is
+--   tagged as "flaky".
 readGitHubStatusesAndScanAndPostSummaryForCommit ::
      CircleApi.ThirdPartyAuth
   -> Connection
@@ -887,7 +926,7 @@ readGitHubStatusesAndScanAndPostSummaryForCommit
       Scanning.PersistScanResult
       maybe_initiator
 
-  (scannable_build_numbers, _circleci_failcount) <- getBuildsFromGithub
+  github_statuses_bundle <- getBuildsFromGithub
     (ScanRecords.fetching scan_resources)
     owned_repo
     should_store_second_level_success_records
@@ -902,7 +941,7 @@ readGitHubStatusesAndScanAndPostSummaryForCommit
       scanAndPost
         scan_resources
         should_revisit_scanned
-        scannable_build_numbers
+        github_statuses_bundle
         owned_repo
         sqs_message_id
         sha1
@@ -946,9 +985,9 @@ handlePullRequestWebhook
 
             let rsa_signer = CircleApi.jwt_signer third_party_auth
             github_auth_token <- ExceptT $ first (LT.fromStrict . T.pack) <$>
-              CircleAuth.getGitHubAppInstallationToken rsa_signer
+              GitHubAuth.getGitHubAppInstallationToken rsa_signer
 
-            let access_token = CircleAuth.token github_auth_token
+            let access_token = GitHubAuth.token github_auth_token
 
             wipeCommentForUpdatedPr
               access_token
@@ -995,9 +1034,9 @@ handlePushWebhook
       fmap (first LT.fromStrict) $ runExceptT $ do
 
         access_token_container <- ExceptT $ fmap (first T.pack) $
-          CircleAuth.getGitHubAppInstallationToken $ CircleApi.jwt_signer third_party_auth
+          GitHubAuth.getGitHubAppInstallationToken $ CircleApi.jwt_signer third_party_auth
 
-        let access_token = CircleAuth.token access_token_container
+        let access_token = GitHubAuth.token access_token_container
 
         ExceptT $ SqlWrite.populateLatestMasterCommits
           conn
@@ -1098,8 +1137,11 @@ wrappedScanAndPostCommit
   maybe_previously_posted_status <- liftIO $ flip runReaderT conn $
     ReadPullRequests.getPostedCommentForSha1 sha1
 
-  -- If we haven't posted a PR comment before for this commit, do not act unless the notification
-  -- was for a failed build.
+  -- If we haven't posted a PR comment before for this commit,
+  -- do not act unless the notification was for a failed build.
+  -- If we *have* posted before, we must proceed to check
+  -- whether the post needs to be updated, even (especially)
+  -- if the GitHub notification was for a success.
   let will_post = is_failure_notification || not (null maybe_previously_posted_status)
 
   when will_post $ do
@@ -1201,4 +1243,3 @@ githubEventEndpoint
           S.json =<< return ["hello" :: String]
 
         _ -> return ()
-

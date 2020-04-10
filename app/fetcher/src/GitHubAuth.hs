@@ -1,7 +1,7 @@
 {-# LANGUAGE DeriveGeneric     #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module CircleAuth where
+module GitHubAuth where
 
 import           Control.Applicative
 import           Control.Lens               hiding (iat, (<.>))
@@ -55,7 +55,6 @@ getGitHubAppInstallationToken signer = do
         , iat = JWT.numericDate $ get_utc_epoch_seconds now
         , exp = JWT.numericDate $ get_utc_epoch_seconds later
         }
-
 
       web_token_text = JWT.encodeSigned
         signer

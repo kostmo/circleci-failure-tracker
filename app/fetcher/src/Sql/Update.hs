@@ -27,7 +27,7 @@ import qualified Safe
 import qualified Builds
 import qualified BuildSteps
 import qualified CircleApi
-import qualified CircleAuth
+import qualified GitHubAuth
 import qualified CircleTrigger
 import qualified CommitBuilds
 import qualified Constants
@@ -136,12 +136,12 @@ getBuildInfo
 
 
       github_token_wrapper <- ExceptT $ first T.pack <$>
-        CircleAuth.getGitHubAppInstallationToken jwt_signer
+        GitHubAuth.getGitHubAppInstallationToken jwt_signer
 
       (_nearest_ancestor, manually_annotated_breakages, breakages_retrieval_timing) <- ExceptT $
         flip runReaderT conn $
           findAnnotatedBuildBreakages
-            (CircleAuth.token github_token_wrapper)
+            (GitHubAuth.token github_token_wrapper)
             Constants.pytorchRepoOwner
             sha1
 
@@ -235,7 +235,7 @@ countRevisionBuilds
   liftIO $ runExceptT $ do
 
     github_token_wrapper <- ExceptT $ first T.pack <$>
-      CircleAuth.getGitHubAppInstallationToken jwt_signer
+      GitHubAuth.getGitHubAppInstallationToken jwt_signer
 
     let err = T.pack $ unwords [
             "No entries in"
@@ -258,7 +258,7 @@ countRevisionBuilds
     (_nearest_ancestor, manually_annotated_breakages, known_broken_determination_time) <- ExceptT $
         flip runReaderT conn $
           findAnnotatedBuildBreakages
-            (CircleAuth.token github_token_wrapper)
+            (GitHubAuth.token github_token_wrapper)
             Constants.pytorchRepoOwner
             (Builds.RawCommit sha1)
 

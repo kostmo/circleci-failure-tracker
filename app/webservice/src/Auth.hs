@@ -36,7 +36,7 @@ import           Web.Scotty.Internal.Types
 import qualified AuthConfig
 import qualified AuthStages
 import qualified CircleApi
-import qualified CircleAuth
+import qualified GitHubAuth
 import qualified Constants
 import qualified Github
 import qualified GithubApiFetch
@@ -112,13 +112,13 @@ getAuthenticatedUser
     user_token <- except $ token_lookup_err maybe_token
 
     github_app_token <- ExceptT $ fmap (first install_token_err) $
-      CircleAuth.getGitHubAppInstallationToken $ CircleApi.jwt_signer third_party_auth
+      GitHubAuth.getGitHubAppInstallationToken $ CircleApi.jwt_signer third_party_auth
 
     ExceptT $ getAuthenticatedUserByToken
       redirect_path
       (OAuth2.AccessToken $ T.pack user_token)
       github_config
-      (CircleAuth.token github_app_token)
+      (GitHubAuth.token github_app_token)
       callback
 
   where

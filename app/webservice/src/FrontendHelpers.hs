@@ -209,7 +209,7 @@ facilitateJobRebuild circleci_api_token universal_build_id = do
     let provider_build_num = Builds.build_id $
           Builds.build_record storable_build
 
-    results <- if False -- TODO
+    results <- if True -- TODO
       then CircleTrigger.rebuildCircleJobsInWorkflow
         dbauth
         circleci_api_token

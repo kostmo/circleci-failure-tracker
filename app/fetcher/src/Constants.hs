@@ -100,3 +100,5 @@ circleciApiBase = intercalate "/"
   ]
 
 
+circleciDomainString :: String
+circleciDomainString = "circleci.com"

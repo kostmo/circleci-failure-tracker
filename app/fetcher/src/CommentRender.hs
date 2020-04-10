@@ -30,6 +30,7 @@ import qualified MyUtils
 import qualified Sql.Read.PullRequests as ReadPullRequests
 import qualified Sql.Read.Types        as SqlReadTypes
 import qualified Sql.Update            as SqlUpdate
+import qualified StatusEventQuery
 import qualified StatusUpdateTypes
 import qualified UnmatchedBuilds
 
@@ -176,6 +177,7 @@ data BuildMembers =
   | TentativeFlakyBuildMembers (StatusUpdateTypes.TentativeFlakyBuilds SqlReadTypes.CommitBuildWrapperTuple)
   | UpstreamBreakageMembers [(SqlReadTypes.StandardCommitBuildWrapper, SqlReadTypes.UpstreamBrokenJob)]
   | FooMembers [SqlReadTypes.StandardCommitBuildWrapper]
+  | RawGitHubEventMembers [StatusEventQuery.GitHubStatusEventGetter]
 
 
 data FailureSection = NewFailureSection {
@@ -251,22 +253,52 @@ genNewFailuresSections nonupstream_builds =
         (NE.toList $ genUnmatchedBuildsTable unmatched_nonupstream_builds)
 
 
+genOtherProviderSection ::
+     [([StatusEventQuery.GitHubStatusEventGetter], DbHelpers.WithId SqlReadTypes.CiProviderHostname)]
+  -> Maybe (Tr.Tree NodeType)
+genOtherProviderSection status_provider_tuples =
+  if null provider_output_nodes
+      then Nothing
+      else Just $ Tr.Node
+        (InteriorNode "Non-CircleCI jobs")
+        provider_output_nodes
+
+  where
+    get_provider_string (DbHelpers.WithId _ (SqlReadTypes.CiProviderHostname hostname_string)) = hostname_string
+
+    provider_output_nodes = Maybe.catMaybes provider_maybes
+    provider_maybes = map gen_provider_maybe non_circleci_provided_statuses
+
+    non_circleci_provider_predicate (_events, provider_info) = get_provider_string provider_info /= Constants.circleciDomainString
+
+    non_circleci_provided_statuses = filter non_circleci_provider_predicate status_provider_tuples
+
+    gen_provider_maybe (event_list, provider_info) =
+      if null reportable_event_bullets
+        then Nothing
+        else Just $ pure $ LeafNode $ NewFailureSection NonUpstream NonFlaky (RawGitHubEventMembers filtered_event_list) (T.pack $ get_provider_string provider_info) reportable_event_bullets
+      where
+        filtered_event_list = filter ((== StatusUpdateTypes.gitHubStatusFailureString) . StatusEventQuery._state) event_list
+        reportable_event_bullets = map (LT.toStrict . StatusEventQuery._context) filtered_event_list
+
+
 genBuildFailuresSections ::
      StatusUpdateTypes.CommitPageInfo
   -> Tr.Tree NodeType
-genBuildFailuresSections
-    (StatusUpdateTypes.NewCommitPageInfo toplevel_partitioning) =
+genBuildFailuresSections commit_page_info =
 
   Tr.Node (InteriorNode "All failures") $ Maybe.catMaybes maybe_nodes
 
   where
-    maybe_nodes = [new_failures_node, upstream_matched_section]
+    StatusUpdateTypes.NewCommitPageInfo toplevel_partitioning raw_github_statuses = commit_page_info
+
+    maybe_nodes = [
+        genNewFailuresSections nonupstream_builds
+      , genUpstreamFailuresSection upstream_breakages
+      , genOtherProviderSection $ StatusUpdateTypes.all_statuses raw_github_statuses
+      ]
 
     StatusUpdateTypes.NewUpstreamnessBuildsPartition upstream_breakages nonupstream_builds = toplevel_partitioning
-
-    new_failures_node = genNewFailuresSections nonupstream_builds
-
-    upstream_matched_section = genUpstreamFailuresSection upstream_breakages
 
 
 genPatternMatchedSections pattern_matched_builds =
@@ -278,8 +310,8 @@ genPatternMatchedSections pattern_matched_builds =
       confirmed_flaky_builds
         = pattern_matched_builds
 
-
     StatusUpdateTypes.NewNonFlakyBuilds nonflaky_by_pattern nonflaky_by_empirical_confirmation = classified_nonflaky_builds
+
     all_nonflaky_builds = nonflaky_by_pattern ++ nonflaky_by_empirical_confirmation
 
     nonupstream_nonflaky_pattern_matched_section = if null all_nonflaky_builds

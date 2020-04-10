@@ -16,6 +16,7 @@ module GithubApiFetch (
   , getPullRequestAuthor
   , PullRequestResponseSubset
   , toDbFields
+  , githubCommitsApiPrefix
   ) where
 
 import           Control.Lens               hiding ((<.>))
@@ -97,7 +98,7 @@ recursePaginated
     old_retrieved_items = do
 
   D.debugList [
-      "Querying URL for build statuses:"
+      "Querying GitHub API URL:"
     , uri_string
     ]
 

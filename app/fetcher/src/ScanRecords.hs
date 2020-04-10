@@ -8,7 +8,7 @@ import           GHC.Int                    (Int64)
 import qualified Network.Wreq.Session       as Sess
 
 import qualified CircleApi
-import qualified CircleAuth
+import qualified GitHubAuth
 import qualified DbHelpers
 import qualified ScanPatterns
 
@@ -31,7 +31,7 @@ data FetchingResources = FetchingResources {
   , db_conn           :: Connection
   , aws_sess          :: Sess.Session
   , circle_sess       :: Sess.Session
-  , github_auth_token :: CircleAuth.AppInstallationTokenResponse
+  , github_auth_token :: GitHubAuth.AppInstallationTokenResponse
   }
 
 

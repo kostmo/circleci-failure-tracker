@@ -3,16 +3,16 @@
 
 module Sql.Read.Types where
 
-import           Control.Monad.IO.Class     (liftIO)
-import           Control.Monad.Trans.Reader (ReaderT, ask)
-import           Database.PostgreSQL.Simple.ToField   (ToField)
+import           Control.Monad.IO.Class               (liftIO)
+import           Control.Monad.Trans.Reader           (ReaderT, ask)
 import           Data.Aeson
-import           Data.Text                  (Text)
-import           Data.Time                  (UTCTime)
+import           Data.Text                            (Text)
+import           Data.Time                            (UTCTime)
 import           Database.PostgreSQL.Simple
 import           Database.PostgreSQL.Simple.FromField (FromField)
+import           Database.PostgreSQL.Simple.ToField   (ToField)
 import           GHC.Generics
-import           GHC.Int                    (Int64)
+import           GHC.Int                              (Int64)
 
 import qualified AuthStages
 import qualified Builds
@@ -35,6 +35,11 @@ hiddenContextLinecount = 1000
 
 circleCIProviderIndex :: Int64
 circleCIProviderIndex = 3
+
+
+newtype CiProviderHostname = CiProviderHostname {
+    domain_string :: String
+  }
 
 
 data UserWrapper a = UserWrapper {

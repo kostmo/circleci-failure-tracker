@@ -25,7 +25,7 @@ import qualified Web.Scotty                                      as S
 import qualified AmazonQueueData
 import qualified AuthConfig
 import qualified CircleApi
-import qualified CircleAuth
+import qualified GitHubAuth
 import qualified DbHelpers
 import qualified Routes
 import qualified Session
@@ -95,7 +95,7 @@ mainAppCode args = do
 
 
 
-  let github_rsa_signer = fromRight (error "Failed to load RSA key for GitHub app") $ CircleAuth.loadRsaKey $ gitHubAppPemContent args
+  let github_rsa_signer = fromRight (error "Failed to load RSA key for GitHub app") $ GitHubAuth.loadRsaKey $ gitHubAppPemContent args
 
       third_party_auth = CircleApi.ThirdPartyAuth
         (CircleApi.CircleCIApiToken $ T.pack $ circleciApiToken args)

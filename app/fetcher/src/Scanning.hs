@@ -28,7 +28,7 @@ import qualified Safe
 import qualified AuthStages
 import qualified Builds
 import qualified CircleApi
-import qualified CircleAuth
+import qualified GitHubAuth
 import qualified CircleBuild
 import qualified CircleCIParse
 import qualified CircleTest
@@ -288,7 +288,7 @@ prepareScanResources
 
     let latest_pattern_id = ScanPatterns.PatternId $ DbHelpers.db_id latest_pattern
 
-    github_auth_token <- ExceptT $ first T.pack <$> CircleAuth.getGitHubAppInstallationToken jwt_signer
+    github_auth_token <- ExceptT $ first T.pack <$> GitHubAuth.getGitHubAppInstallationToken jwt_signer
 
     liftIO $ do
       D.debugList [

@@ -10,7 +10,7 @@ import           System.IO
 import qualified AmazonQueueData
 import qualified BuildRetrieval
 import qualified CircleApi
-import qualified CircleAuth
+import qualified GitHubAuth
 import qualified Constants
 import qualified DbHelpers
 import qualified DbPreparation
@@ -79,7 +79,7 @@ mainAppCode args = do
     fetch_count
 
   runExceptT $ do
-    rsa_signer <- except $ CircleAuth.loadRsaKey $ gitHubAppPemContent args
+    rsa_signer <- except $ GitHubAuth.loadRsaKey $ gitHubAppPemContent args
     let third_party_auth = CircleApi.ThirdPartyAuth
           (CircleApi.CircleCIApiToken $ T.pack $ circleciApiToken args)
           rsa_signer

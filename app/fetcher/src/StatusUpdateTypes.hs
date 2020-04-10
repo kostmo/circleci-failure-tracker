@@ -1,13 +1,27 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module StatusUpdateTypes where
 
-import           Data.List       (partition)
-import           Data.Text       (Text)
-import qualified Data.Tree       as Tr
+import           Data.List            (partition)
+import           Data.Text            (Text)
+import qualified Data.Text.Lazy       as LT
+import qualified Data.Tree            as Tr
 
+import qualified Builds
 import qualified CommitBuilds
-import qualified Sql.Read.Types  as SqlReadTypes
-import qualified Sql.Update      as SqlUpdate
+import qualified DbHelpers
+import qualified GithubChecksApiFetch
+import qualified Sql.Read.Types       as SqlReadTypes
+import qualified Sql.Update           as SqlUpdate
+import qualified StatusEventQuery
 import qualified UnmatchedBuilds
+
+
+gitHubStatusFailureString :: LT.Text
+gitHubStatusFailureString = "failure"
+
+gitHubStatusSuccessString :: LT.Text
+gitHubStatusSuccessString = "success"
 
 
 class Partition a where
@@ -23,8 +37,17 @@ class ToTree a where
   toTree :: a -> Tr.Tree a
 
 
+data GitHubJobStatuses = NewGitHubJobStatuses {
+    all_statuses              :: [([StatusEventQuery.GitHubStatusEventGetter], DbHelpers.WithId SqlReadTypes.CiProviderHostname)]
+  , check_run_entries :: [GithubChecksApiFetch.GitHubCheckRunsEntry]
+  , scannable_statuses         :: [Builds.UniversalBuildId]
+  , circleci_failed_job_count :: Int
+  }
+
+
 data CommitPageInfo = NewCommitPageInfo {
     toplevel_partitioning :: UpstreamnessBuildsPartition SqlReadTypes.StandardCommitBuildWrapper
+  , raw_github_statuses :: GitHubJobStatuses
   }
 
 
@@ -99,10 +122,8 @@ partitionMatchedBuilds pattern_matched_builds =
     nonflaky_builds_partition = NewNonFlakyBuilds nonupstream_nonflaky_breakages negatively_confirmed_flaky_breakages
 
 
-
     -- Best pattern match is clasified as flaky
     tentative_flakiness_predicate = CommitBuilds._is_flaky . CommitBuilds._failure_mode . CommitBuilds._commit_build . fst
-
 
 
     (nonupstream_tentatively_flaky_breakages, nonupstream_nonflaky_breakages) =
@@ -115,19 +136,16 @@ partitionMatchedBuilds pattern_matched_builds =
       partition has_completed_rerun_predicate nonupstream_tentatively_flaky_breakages
 
 
-
     has_triggered_rerun_predicate = SqlReadTypes.has_triggered_rebuild . CommitBuilds._supplemental . fst
 
     (rerun_was_triggered_breakages, rerun_not_triggered_breakages) =
       partition has_triggered_rerun_predicate not_completed_rerun_flaky_breakages
 
 
-
     flakiness_confirmed_predicate = SqlReadTypes.is_empirically_determined_flaky . CommitBuilds._supplemental . fst
 
     (confirmed_flaky_breakages, negatively_confirmed_flaky_breakages) =
       partition flakiness_confirmed_predicate completed_rerun_flaky_breakages
-
 
 
 data BuildSummaryStats = NewBuildSummaryStats {
