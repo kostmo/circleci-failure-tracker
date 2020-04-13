@@ -219,7 +219,7 @@ scottyApp
 
     wrapWithDbDurationRecords connection_data $ \eb_worker_event_id maybe_message_id ->
 
-      liftIO $ doStuff
+      liftIO $ handleSqsSha1Scan
         connection_data
         third_party_auth
         owner_and_repo
@@ -233,7 +233,7 @@ scottyApp
     owner_and_repo = DbHelpers.OwnerAndRepo Constants.projectName Constants.repoName
 
 
-doStuff ::
+handleSqsSha1Scan ::
      DbHelpers.DbConnectionData
   -> CircleApi.ThirdPartyAuth
   -> DbHelpers.OwnerAndRepo
@@ -241,7 +241,7 @@ doStuff ::
   -> AmazonQueueData.SqsMessageId
   -> AmazonQueueData.SqsBuildScanMessage
   -> IO ()
-doStuff
+handleSqsSha1Scan
     connection_data
     third_party_auth
     owned_repo
