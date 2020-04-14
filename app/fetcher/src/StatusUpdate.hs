@@ -20,6 +20,7 @@ import           Control.Monad.Trans.Except    (ExceptT (ExceptT), except,
 import           Control.Monad.Trans.Reader    (runReaderT)
 import           Data.Bifunctor                (first)
 import qualified Data.ByteString.Lazy          as LBS
+import           Data.Either                   (isRight)
 import qualified Data.HashMap.Strict           as HashMap
 import           Data.List                     (filter, partition)
 import           Data.List.Split               (splitOn)
@@ -57,6 +58,7 @@ import qualified DebugUtils                    as D
 import qualified GadgitFetch
 import qualified GithubApiFetch
 import qualified GitHubAuth
+import qualified GithubChecksApiData
 import qualified GithubChecksApiFetch
 import qualified GitRev
 import qualified Markdown                      as M
@@ -334,12 +336,20 @@ getBuildsFromGithub
   return $ StatusUpdateTypes.NewGitHubJobStatuses
     scannable_build_numbers
     circleci_failcount
-    (StatusUpdateTypes.NonCircleCIItems statuses_with_ci_providers check_runs)
+    (StatusUpdateTypes.NewNonCircleCIItems statuses_with_ci_providers $ filterCheckRuns check_runs)
 
   where
     conn = ScanRecords.db_conn fetch_resources
     storable_build_to_universal (Builds.StorableBuild (DbHelpers.WithId ubuild_id _ubuild) rbuild) =
       DbHelpers.WithTypedId (Builds.UniversalBuildId ubuild_id) rbuild
+
+
+filterCheckRuns check_run_entries =
+  failed_check_run_entries_excluding_facebook
+  where
+    x_failed_runs = filter ((== "failure") . GithubChecksApiFetch.conclusion) check_run_entries
+
+    failed_check_run_entries_excluding_facebook = filter ((/= "facebook-github-tools") . GithubChecksApiData.slug . GithubChecksApiFetch.app) x_failed_runs
 
 
 scanAndPost ::
@@ -933,7 +943,18 @@ readGitHubStatusesAndScanAndPostSummaryForCommit
 
   liftIO $ D.debugList ["Finished getBuildsFromGithub"]
 
-  case should_scan of
+  maybe_previously_posted_status <- liftIO $ flip runReaderT conn $
+    ReadPullRequests.getPostedCommentForSha1 sha1
+
+  -- If we haven't posted a PR comment before for this commit,
+  -- do not act unless there exists a failed build.
+  -- If we *have* posted before, we must proceed to check
+  -- whether the post needs to be updated, even (especially)
+  -- if the GitHub notification was for a success.
+  let should_proceed = StatusUpdateTypes.hasAnyFailures github_statuses_bundle || not (null maybe_previously_posted_status)
+
+  if should_proceed
+  then case should_scan of
     ShouldScanLogs -> do
       liftIO $ D.debugList ["About to enter scanAndPost"]
 
@@ -944,9 +965,14 @@ readGitHubStatusesAndScanAndPostSummaryForCommit
         owned_repo
         sqs_message_id
         sha1
+
     NoScanLogs -> return []
 
+  else return []
 
+
+-- | Blanks the Dr. CI comment if one exists on a PR that
+-- a new commit was just pushed to
 handlePullRequestWebhook ::
      DbHelpers.DbConnectionData
   -> CircleApi.ThirdPartyAuth
@@ -1008,6 +1034,9 @@ handlePullRequestWebhook
     new_pr_head_commit = PullRequestWebhooks.sha $ PullRequestWebhooks.head pr_obj
     PullRequestWebhooks.GitHubPullRequestEvent actn pr_number@(Builds.PullRequestNumber pr_num) pr_obj = pr_event
 
+
+-- | Updates DB knowledge of the master branch
+-- (e.g. existence of new commits)
 handlePushWebhook ::
      DbHelpers.DbConnectionData
   -> CircleApi.ThirdPartyAuth
@@ -1054,6 +1083,8 @@ handlePushWebhook
       (LT.unpack $ PushWebhooks.name repo_object)
 
 
+-- | Enqueues the commit SHA1 to AWS SQS
+-- de-duplicating FIFO queue
 handleStatusWebhook ::
      DbHelpers.DbConnectionData
   -> CircleApi.ThirdPartyAuth
@@ -1081,7 +1112,6 @@ handleStatusWebhook
   status_event_id <- SqlWrite.insertReceivedGithubStatus synchronous_conn status_event
 
   when (status_type `elem` conclusiveStatuses) $ do
---  when (status_type == gitHubStatusFailureString) $ do
 
     sqs_message_id <- AmazonQueue.sendSqsMessage
       (CircleApi.sqs_queue_url third_party_auth)
@@ -1109,7 +1139,6 @@ wrappedScanAndPostCommit ::
      Connection
   -> CircleApi.ThirdPartyAuth
   -> DbHelpers.OwnerAndRepo
-  -> Bool
   -> AmazonQueueData.SqsMessageId
   -> SqlReadTypes.ElasticBeanstalkWorkerEventID
   -> Builds.RawCommit
@@ -1118,7 +1147,6 @@ wrappedScanAndPostCommit
     conn
     third_party_auth
     owned_repo
-    is_failure_notification
     sqs_message_id
     eb_worker_event_id
     sha1 = do
@@ -1133,38 +1161,26 @@ wrappedScanAndPostCommit
         then StatusUpdate.ShouldStoreDetailedSuccessRecords
         else StatusUpdate.NoStoreDetailedSuccessRecords
 
-  maybe_previously_posted_status <- liftIO $ flip runReaderT conn $
-    ReadPullRequests.getPostedCommentForSha1 sha1
+  either_did_post_comment <- runExceptT $ do
+    pr_comment_revisions <- readGitHubStatusesAndScanAndPostSummaryForCommit
+      third_party_auth
+      conn
+      Nothing
+      owned_repo
+      success_storage_mode
+      sqs_message_id
+      sha1
+      ShouldScanLogs
+      Scanning.NoRevisit
 
-  -- If we haven't posted a PR comment before for this commit,
-  -- do not act unless the notification was for a failed build.
-  -- If we *have* posted before, we must proceed to check
-  -- whether the post needs to be updated, even (especially)
-  -- if the GitHub notification was for a success.
-  let will_post = is_failure_notification || not (null maybe_previously_posted_status)
+    liftIO $ SqlWrite.associateCommentRevisionsWithWorkerEvent
+      conn
+      eb_worker_event_id
+      pr_comment_revisions
 
-  when will_post $ do
+    return $ not $ null pr_comment_revisions
 
-    runExceptT $ do
-      pr_comment_revisions <- readGitHubStatusesAndScanAndPostSummaryForCommit
-        third_party_auth
-        conn
-        Nothing
-        owned_repo
-        success_storage_mode
-        sqs_message_id
-        sha1
-        ShouldScanLogs
-        Scanning.NoRevisit
-
-      liftIO $ SqlWrite.associateCommentRevisionsWithWorkerEvent
-        conn
-        eb_worker_event_id
-        pr_comment_revisions
-
-    return ()
-
-  return will_post
+  return $ isRight either_did_post_comment
 
 
 githubEventEndpoint ::
@@ -1189,6 +1205,9 @@ githubEventEndpoint
     Nothing -> return ()
     Just event_type -> when is_signature_valid $
       case event_type of
+
+        -- Enqueues the commit SHA1 to AWS SQS
+        -- de-duplicating FIFO queue
         "status" -> do
           body_json <- S.jsonData
 
@@ -1207,6 +1226,7 @@ githubEventEndpoint
           S.json =<< return ["Will post?" :: String, show will_post]
 
 
+        -- Blanks the Dr. CI PR comment upon new pushes
         "pull_request" -> do
           body_json <- S.jsonData
 
@@ -1224,6 +1244,8 @@ githubEventEndpoint
             D.debugStr "Handled pull_request event."
           S.json =<< return ["hello" :: String]
 
+
+        -- Populates the DB with new "master" commits:
         "push" -> do
           body_json <- S.jsonData
 

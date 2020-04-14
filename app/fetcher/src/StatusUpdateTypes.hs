@@ -37,10 +37,16 @@ class ToTree a where
   toTree :: a -> Tr.Tree a
 
 
-data NonCircleCIItems = NonCircleCIItems {
+data NonCircleCIItems = NewNonCircleCIItems {
     all_statuses              :: [([StatusEventQuery.GitHubStatusEventGetter], DbHelpers.WithId SqlReadTypes.CiProviderHostname)] -- ^ this does actually include some CircleCI statuses, which are filtered out later
-  , check_run_entries :: [GithubChecksApiFetch.GitHubCheckRunsEntry]
+  , failed_check_run_entries_excluding_facebook :: [GithubChecksApiFetch.GitHubCheckRunsEntry]
   }
+
+
+hasAnyNonCircleCIFailures :: NonCircleCIItems -> Bool
+hasAnyNonCircleCIFailures (NewNonCircleCIItems _statuses_with_ci_providers _failed_check_run_entries_excluding_facebook) =
+
+  True -- FIXME TODO!!!
 
 
 data GitHubJobStatuses = NewGitHubJobStatuses {
@@ -48,6 +54,11 @@ data GitHubJobStatuses = NewGitHubJobStatuses {
   , circleci_failed_job_count :: Int
   , non_circleci_items        :: NonCircleCIItems
   }
+
+
+hasAnyFailures :: GitHubJobStatuses -> Bool
+hasAnyFailures (NewGitHubJobStatuses _ circleci_failed_count non_circleci_items) =
+  circleci_failed_count > 0 || hasAnyNonCircleCIFailures non_circleci_items
 
 
 data CommitPageInfo = NewCommitPageInfo {

@@ -282,7 +282,7 @@ genNewFailuresSections nonupstream_builds =
 genCheckRunsSection ::
      [GithubChecksApiFetch.GitHubCheckRunsEntry]
   -> Maybe (Tr.Tree NodeType)
-genCheckRunsSection check_run_entries =
+genCheckRunsSection failed_check_run_entries_excluding_facebook =
   if null failed_check_run_entries_excluding_facebook
   then Nothing
   else Just $ pure $ LeafNode $ NewFailureSection
@@ -292,10 +292,6 @@ genCheckRunsSection check_run_entries =
     (M.heading 3 "Extra GitHub checks")
     failed_run_bullets
   where
-    x_failed_runs = filter ((== "failure") . GithubChecksApiFetch.conclusion) check_run_entries
-
-    failed_check_run_entries_excluding_facebook = filter ((/= "facebook-github-tools") . GithubChecksApiData.slug . GithubChecksApiFetch.app) x_failed_runs
-
     failed_run_bullets = map gen_bullet failed_check_run_entries_excluding_facebook
     gen_bullet x = T.unwords [
         "*"
@@ -320,7 +316,7 @@ genOtherProviderSection non_circle_items =
     provider_output_nodes
 
   where
-    StatusUpdateTypes.NonCircleCIItems status_provider_tuples check_runs = non_circle_items
+    StatusUpdateTypes.NewNonCircleCIItems status_provider_tuples check_runs = non_circle_items
 
     get_provider_string (DbHelpers.WithId _ (SqlReadTypes.CiProviderHostname hostname_string)) = hostname_string
 

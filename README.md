@@ -2,23 +2,21 @@
 
 # A log analyzer for CircleCI
 
-One would like to determine what the most common causes of intermittent build
+An organization would like to determine what the most common causes of intermittent build
 failures/flaky tests are in the a repository so that effort can be prioritized
 to fix them.
 
 This tool obtains a list of CircleCI builds run against a GitHub repository for
-a given branch, downloads their logs (stripped of ANSI escape codes) from AWS, and scans the logs for a
+a master branch, downloads their logs (stripped of ANSI escape codes) from AWS, and scans the logs for a
 predefined list of labeled patterns (regular expressions).
 
-These patterns are curated by the user.  The frequency of occurrence of each
+These patterns are curated by an operator.  The frequency of occurrence of each
 pattern are tracked and presented in a web UI.
 
 The database tracks which builds have been already scanned for a given pattern,
-so that scanning may be performed incrementally, or resumed after abort.
+so that scanning may be performed incrementally or resumed after abort.
 
 ## Tool workflow
-
-The tool supports a "tactical" usage model with fast iterations.
 
 * A webhook listens for build status changes on a GitHub PR
 * For each failed build, that build's log will be scanned for any of the patterns in the database tagged as "flaky"
@@ -28,7 +26,7 @@ The tool supports a "tactical" usage model with fast iterations.
 
 # Known Problem reporting
 
-Requiring that failures in the master branch be annotated will facilitate tracking of the frequency of "brokenness" of master over time, and allow us to measure whether this metric is improving.
+Requiring that failures in the master branch be annotated will facilitate tracking of the frequency of "brokenness" of master over time, and allow measurement of whether this metric is improving.
 
 It is possible for only specific jobs of a commit to be marked as "known broken", e.g. the Travis CI Lint job.
 
@@ -42,36 +40,7 @@ Deployment
 
 ### AWS dependencies
 
-* Uses Amazon Elastic Beanstalk with Docker for hosting the webapp
-* Uses a Postgres Amazon RDS database.
-* Uses AWS Lambda with fixed-rate scheduled CloudWatch Events for refreshing materialized views
-
-### AWS Elastic Beanstalk servers
-
-* `pytorch-circle-log-scanner-dev` is a **Web Server** that hosts the Haskell backend (which makes database queries) and serves frontend HTML and Javascript
-    * The code is defined in `app/webservice/src`, and the deployed binary is named `/opt/app/my-webapp` in the Docker image.
-    * Its domain name is `dr.pytorch.org`
-* `gh-notification-ingest-env` is a **Web Server** that services GitHub webhook notifications, storing their payloads synchronously to the database
-    * The code is **also** defined in `app/webservice/src`, and the deployed binary is named `/opt/app/my-webapp` in the Docker image.
-    * Its domain name is `github-notifications-ingest.pytorch.org`
-* `github-notification-processor` is a **Worker** that consumes SQS messages produced by its own `cron.yaml` (this server is not well-named).
-    * The code is defined in `app/eb-worker/src`, and the deployed binary is named `beanstalk-worker`.
-    * It has 2 endpoints:
-        * It posts to its own endpoint `/worker/scheduled-work` every 5 minutes to fetch CircleCI builds directly from the CircleCI API, both to provide information that does not exist in GitHub status notifications, and to backfill any builds of the `master` branch for which a GitHub notification was not received.
-        * It posts to its own endpoint `/worker/update-pr-associations` every 2 hours. It is **intended** to update the cache of PR merge bases, but currently IS NOT IMPLEMENTED (as of 10/14/2019).
-* `log-scanning-worker` is a **Worker** that consumes SQS messages produced by a Lambda function `aws-sam-getting-started-EnqueSQSBuildScansFunction-1FJXU6ZY400XC`.  It both scans build logs for the commit specified in the SQS message and posts a GitHub status, summarizing the build statuses, to that commit on GitHub.
-    * The code is **also** defined in `app/eb-worker/src`, and the deployed binary is named `beanstalk-worker`.
-
-### AWS Lambda functions
-
-All of the Lambda functions in use are written in Python 3.7.  An experimental Lambda function namded `haskell-log-scanner` using Haskell on Docker was deployed but is not used.
-
-* `aws-sam-getting-started-EnqueSQSBuildScansFunction-1FJXU6ZY400XC`
-    * A periodic (every 3 min.) Lambda function that queries the database for builds whose logs have not yet been scanned. It creates an SQS message for each corresponding Git commit (consolidating multiple builds for the same commit into one SQS message), which will be consumed by the `log-scanning-worker` Elastic Beanstalk Worker.
-* `aws-sam-getting-started-PopulateCircleCIConfigYaml-1TFF47MFKQF7U`
-    * Populates CircleCI `config.yml` content to the dtabase for each `master` commit.  Checks for work every 5 min.
-* `aws-sam-getting-started-HelloWorldFunction-M06818KTBNE0`
-    * Refreshes a number of materialized views in the database.  It has multiple CloudWatch events scheduled at different rates for different views.
+See: [docs/aws](docs/aws)
 
 
 ### Ingestion overview
@@ -80,14 +49,9 @@ All of the Lambda functions in use are written in Python 3.7.  An experimental L
 2. A periodic (3-minute interval) AWS Lambda task `EnqueSQSBuildScansFunction` queries for unprocessed notifications in the database, and enqueues an SQS message for each of them.
 3. Finally, an Elastic Beanstalk Worker-tier server named `log-scanning-worker` process the SQS messages as capacity allows.
 
-**Q. Why doesn't the webservice in the first stage (`gh-notification-ingest-env`) enqueue SQS messages directly?**
 
-A. We want a cool-off period during which multiple builds for a given commit can be aggregated into one task for that commit.
-This extra layer could be obviated if duplicate SQS messages (i.e. multiple instances of the same commit) could be consolidated while in the queue.
-
-TODO: Enable "Content-Based Deduplication":
-* https://stackoverflow.com/q/23260024/105137
-* https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/using-messagededuplicationid-property.html
+We want a cool-off period during which multiple builds for a given commit can be aggregated into one task for that commit.
+This is accomplished via an SQS deduplicating queue, where multiple instances of the same commit are consolidated while in the queue.
 
 
 Optimizations
@@ -105,19 +69,3 @@ Optimizations
 ## Source attribution
 
 Aho-Corasick implementation is from here: https://github.com/channable/alfred-margaret
-
-
-AWS Troubleshooting
--------------------
-
-Sometimes the "log-scanning-worker" Elastic Beanstalk Worker environment can get into a broken state in which logs cannot be downloaded,
-edeploying the application does not succeed (times out after 10 minutes), and restarting the application does not fix it.
-
-In this case, the remedy is to select the "Rebuild Environment" option from the "Actions" dropdown on this screen:
-https://us-east-2.console.aws.amazon.com/elasticbeanstalk/home?region=us-east-2#/environment/dashboard?applicationName=pytorch-circle-log-scanner&environmentId=e-ev8fq2dhbv
-
-However, note that if the environment of the Elastic Beanstalk app is "rebuilt", then a new autogenerated
-SQS queue with a new URL may be generated.  When this happens, the SQS queu URL in the
-`lambda/refresh-grid-view/dr_ci_view_refresh/build_scan_enqueing.py` file must be updated and redeployed
-(run [`lambda/redeploy.sh`](https://github.com/kostmo/circleci-failure-tracker/blob/master/lambda/redeploy.sh))
-and that queue must grant "SendMessage" permission.

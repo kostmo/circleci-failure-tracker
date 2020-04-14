@@ -268,7 +268,6 @@ handleSqsSha1Scan
     conn
     third_party_auth
     owned_repo
-    True
     sqs_message_id
     eb_worker_event_id
     commit_sha1
