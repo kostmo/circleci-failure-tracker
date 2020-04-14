@@ -359,7 +359,7 @@ getBuildsFromGithub
 filterCheckRuns check_run_entries =
   failed_check_run_entries_excluding_facebook
   where
-    x_failed_runs = filter ((== "failure") . GithubChecksApiFetch.conclusion) check_run_entries
+    x_failed_runs = filter ((== StatusUpdateTypes.gitHubStatusFailureString) . LT.fromStrict . GithubChecksApiFetch.conclusion) check_run_entries
 
     failed_check_run_entries_excluding_facebook = filter ((/= "facebook-github-tools") . GithubChecksApiData.slug . GithubChecksApiFetch.app) x_failed_runs
 
