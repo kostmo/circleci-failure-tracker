@@ -316,30 +316,25 @@ genOtherProviderSection non_circle_items =
     provider_output_nodes
 
   where
-    StatusUpdateTypes.NewNonCircleCIItems status_provider_tuples check_runs = non_circle_items
-
-    get_provider_string (DbHelpers.WithId _ (SqlReadTypes.CiProviderHostname hostname_string)) = hostname_string
+    StatusUpdateTypes.NewNonCircleCIItems non_circleci_provided_statuses check_runs = non_circle_items
 
     maybe_check_runs_node = genCheckRunsSection check_runs
 
     provider_output_nodes = Maybe.catMaybes $ maybe_check_runs_node : provider_maybes
     provider_maybes = map gen_provider_maybe non_circleci_provided_statuses
 
-    non_circleci_provider_predicate (_events, provider_info) = get_provider_string provider_info /= Constants.circleciDomainString
+    -- TODO these lists are guaranteed nonempty!
+    gen_provider_maybe (nonempty_failed_event_list, provider_info) =
 
-    non_circleci_provided_statuses = filter non_circleci_provider_predicate status_provider_tuples
-
-    gen_provider_maybe (event_list, provider_info) =
-      if null reportable_event_bullets
-        then Nothing
-        else Just $ pure $ LeafNode $ NewFailureSection
+      Just $ pure $ LeafNode $ NewFailureSection
           NonUpstream
           NonFlaky
-          (RawGitHubEventMembers filtered_event_list)
+          (RawGitHubEventMembers failed_event_list)
           (M.heading 3 $ T.pack $ get_provider_string provider_info)
           reportable_event_bullets
       where
-        filtered_event_list = filter ((== StatusUpdateTypes.gitHubStatusFailureString) . StatusEventQuery._state) event_list
+        failed_event_list = NE.toList nonempty_failed_event_list
+        get_provider_string (DbHelpers.WithId _ (SqlReadTypes.CiProviderHostname hostname_string)) = hostname_string
 
         mk_bullet x = T.unwords [
             "*"
@@ -347,7 +342,7 @@ genOtherProviderSection non_circle_items =
           , M.link (M.codeInline $ LT.toStrict $ StatusEventQuery._context x) $ LT.toStrict $ StatusEventQuery._target_url x
           ]
 
-        reportable_event_bullets = map mk_bullet filtered_event_list
+        reportable_event_bullets = map mk_bullet failed_event_list
 
 
 genBuildFailuresSections ::

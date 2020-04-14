@@ -3,6 +3,7 @@
 module StatusUpdateTypes where
 
 import           Data.List            (partition)
+import           Data.List.NonEmpty   (NonEmpty)
 import           Data.Text            (Text)
 import qualified Data.Text.Lazy       as LT
 import qualified Data.Tree            as Tr
@@ -38,15 +39,14 @@ class ToTree a where
 
 
 data NonCircleCIItems = NewNonCircleCIItems {
-    all_statuses              :: [([StatusEventQuery.GitHubStatusEventGetter], DbHelpers.WithId SqlReadTypes.CiProviderHostname)] -- ^ this does actually include some CircleCI statuses, which are filtered out later
+    failed_statuses_with_providers              :: [(NonEmpty StatusEventQuery.GitHubStatusEventGetter, DbHelpers.WithId SqlReadTypes.CiProviderHostname)] -- ^ this does actually include some CircleCI statuses, which are filtered out later
   , failed_check_run_entries_excluding_facebook :: [GithubChecksApiFetch.GitHubCheckRunsEntry]
   }
 
 
 hasAnyNonCircleCIFailures :: NonCircleCIItems -> Bool
-hasAnyNonCircleCIFailures (NewNonCircleCIItems _statuses_with_ci_providers _failed_check_run_entries_excluding_facebook) =
-
-  True -- FIXME TODO!!!
+hasAnyNonCircleCIFailures (NewNonCircleCIItems failed_statuses_with_ci_providers failed_check_run_entries_excluding_facebook) =
+  not (null failed_statuses_with_ci_providers) || not (null failed_check_run_entries_excluding_facebook)
 
 
 data GitHubJobStatuses = NewGitHubJobStatuses {

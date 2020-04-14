@@ -21,11 +21,9 @@ Elastic beanstalk environments can be two types: WebServer or Worker.
     * The code is defined in `app/eb-worker/src`, and the deployed binary is named `beanstalk-worker`.
     * It has 2 endpoints:
         * It posts to its own endpoint `/worker/scheduled-work` every 5 minutes to fetch CircleCI builds directly from the CircleCI API, both to provide information that does not exist in GitHub status notifications, and to backfill any builds of the `master` branch for which a GitHub notification was not received.
-        * It posts to its own endpoint `/worker/update-pr-associations` every 2 hours. It is **intended** to update the cache of PR merge bases, but currently IS NOT IMPLEMENTED (as of 10/14/2019).
+        * It posts to its own endpoint `/worker/update-pr-associations` every 2 hours. It updates the cache of PR merge bases by fetching from the [Gadgit](https://github.com/kostmo/gadgit) webservice.
 * `log-scanning-worker` is a **Worker** that consumes SQS messages produced by a Lambda function `aws-sam-getting-started-EnqueSQSBuildScansFunction-1FJXU6ZY400XC`.  It both scans build logs for the commit specified in the SQS message and posts a GitHub status, summarizing the build statuses, to that commit on GitHub.
     * The code is **also** defined in `app/eb-worker/src`, and the deployed binary is named `beanstalk-worker`.
-
-
 
 
 Troubleshooting

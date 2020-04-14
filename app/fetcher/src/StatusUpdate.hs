@@ -23,6 +23,7 @@ import qualified Data.ByteString.Lazy          as LBS
 import           Data.Either                   (isRight)
 import qualified Data.HashMap.Strict           as HashMap
 import           Data.List                     (filter, partition)
+import           Data.List.NonEmpty            (NonEmpty ((:|)))
 import           Data.List.Split               (splitOn)
 import qualified Data.Maybe                    as Maybe
 import qualified Data.Set                      as Set
@@ -333,12 +334,28 @@ getBuildsFromGithub
   liftIO $ flip runReaderT conn $ SqlWrite.storeBuildsList Nothing $
     map storable_build_to_universal second_level_storable_builds
 
+  let non_circleci_provider_predicate (_events, provider_info) = get_provider_string provider_info /= Constants.circleciDomainString
+
+      non_circleci_provided_statuses_x = filter non_circleci_provider_predicate statuses_with_ci_providers
+
+      non_circleci_provided_failed_statuses = filter (not . null . fst) $ map (first $ filter ((== StatusUpdateTypes.gitHubStatusFailureString) . StatusEventQuery._state)) non_circleci_provided_statuses_x
+
+      -- ensure event lists are nonempty
+
+      empties_to_maybe (event_list, provider_thing) = case event_list of
+        x:xs -> Just (x :| xs, provider_thing)
+        _    -> Nothing
+
+      nonempty_non_circleci_provided_failed_statuses = Maybe.mapMaybe empties_to_maybe non_circleci_provided_failed_statuses
+
   return $ StatusUpdateTypes.NewGitHubJobStatuses
     scannable_build_numbers
     circleci_failcount
-    (StatusUpdateTypes.NewNonCircleCIItems statuses_with_ci_providers $ filterCheckRuns check_runs)
+    (StatusUpdateTypes.NewNonCircleCIItems nonempty_non_circleci_provided_failed_statuses $ filterCheckRuns check_runs)
 
   where
+    get_provider_string (DbHelpers.WithId _ (SqlReadTypes.CiProviderHostname my_hostname_string)) = my_hostname_string
+
     conn = ScanRecords.db_conn fetch_resources
     storable_build_to_universal (Builds.StorableBuild (DbHelpers.WithId ubuild_id _ubuild) rbuild) =
       DbHelpers.WithTypedId (Builds.UniversalBuildId ubuild_id) rbuild
