@@ -179,6 +179,6 @@ pgLogger table_name cs = mkBulkLogger loggerName
       ]
 
     ts :: TransactionSettings
-    ts = def {
+    ts = defaultTransactionSettings {
       tsAutoTransaction = False
     }

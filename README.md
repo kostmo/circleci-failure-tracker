@@ -38,6 +38,10 @@ It is possible for only specific jobs of a commit to be marked as "known broken"
 Deployment
 -------------
 
+### Development Environment Setup
+
+See: [docs/development-environment](docs/development-environment)
+
 ### AWS dependencies
 
 See: [docs/aws](docs/aws)
@@ -48,7 +52,6 @@ See: [docs/aws](docs/aws)
 1. A small webservice (named `gh-notification-ingest-env` in Elastic Beanstalk, and hosted at domain `github-notifications-ingest.pytorch.org`) receives GitHub webhook notifications and stores them (synchronously) in a database.
 2. A periodic (3-minute interval) AWS Lambda task `EnqueSQSBuildScansFunction` queries for unprocessed notifications in the database, and enqueues an SQS message for each of them.
 3. Finally, an Elastic Beanstalk Worker-tier server named `log-scanning-worker` process the SQS messages as capacity allows.
-
 
 We want a cool-off period during which multiple builds for a given commit can be aggregated into one task for that commit.
 This is accomplished via an SQS deduplicating queue, where multiple instances of the same commit are consolidated while in the queue.
@@ -61,7 +64,7 @@ Optimizations
     * Better yet, use a single DB query to get the list of out-of-date "already-visited" builds, instead of a separate query per build to obtain the unscanned pattern list.
 
 
-## Features
+## Other Features
 
 * Periodically fetches builds directly from CircleCI API to catch up on GitHub notifications that may have been dropped
 
