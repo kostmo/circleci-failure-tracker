@@ -39,7 +39,7 @@ class ToTree a where
 
 
 data NonCircleCIItems = NewNonCircleCIItems {
-    failed_statuses_with_providers              :: [(NonEmpty StatusEventQuery.GitHubStatusEventGetter, DbHelpers.WithId SqlReadTypes.CiProviderHostname)] -- ^ this does actually include some CircleCI statuses, which are filtered out later
+    failed_statuses_with_providers              :: [(DbHelpers.WithId SqlReadTypes.CiProviderHostname, NonEmpty StatusEventQuery.GitHubStatusEventGetter)]
   , failed_check_run_entries_excluding_facebook :: [GithubChecksApiFetch.GitHubCheckRunsEntry]
   }
 

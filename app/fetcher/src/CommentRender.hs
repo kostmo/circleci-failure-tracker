@@ -323,8 +323,7 @@ genOtherProviderSection non_circle_items =
     provider_output_nodes = Maybe.catMaybes $ maybe_check_runs_node : provider_maybes
     provider_maybes = map gen_provider_maybe non_circleci_provided_statuses
 
-    -- TODO these lists are guaranteed nonempty!
-    gen_provider_maybe (nonempty_failed_event_list, provider_info) =
+    gen_provider_maybe (provider_info, nonempty_failed_event_list) =
 
       Just $ pure $ LeafNode $ NewFailureSection
           NonUpstream
