@@ -42,11 +42,6 @@ Deployment
 See: [docs/development-environment](docs/development-environment)
 
 
-### Main application deployment procedure
-
-./redeploy.sh
-
-
 ### AWS dependencies and deployment
 
 See: [docs/aws](docs/aws)

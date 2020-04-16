@@ -34,6 +34,8 @@ Access the server by visiting http://localhost:3001 in your browser.
 
 ## Deploying the application
 
+### Docker base preparation
+
 First, a Docker image containing all of the library dependencies must be prepared.
 
 Execute:
@@ -44,12 +46,21 @@ Execute:
 This takes a while, but only needs to be run anytime a new third-party
 dependency (i.e. a new Haskell package or package version) is introduced.
 
+### Elastic Beanstalk deploment
+
+#### Prereqs
+Make sure the `awscli` utility is installed.
+
+#### Deployment
 To redeploy the frontend only:
 
     ./redeploy-frontend.sh
 
-To redeploy the frontend as well as all Beanstalk workers
+To redeploy *all* Elastic Beanstalk environments, including the frontend as well as other backend servers and Beanstalk workers, execute:
 
+    ./redeploy-all-apps.sh
+
+The whole process will take 5-10 minutes with a high-speed internet connection.
 
 
 ## Testing
