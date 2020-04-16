@@ -704,11 +704,10 @@ conditionallyPostIfNovelComment
     middle_sections
     pr_number
     previous_pr_comment =
+
   if ReadPullRequests._body previous_pr_comment == recreated_old_pr_comment_text
   then liftIO $ do
-    D.debugList [
-        "New comment would be the same as the last one! Not posting."
-      ]
+    D.debugStr "New comment would be the same as the last one! Not posting."
     return Nothing
 
   else Just <$> updateCommentOrFallback
@@ -734,8 +733,6 @@ conditionallyPostIfNovelComment
       sha1
 
     recreated_old_pr_comment_text = gen_comment count_modified_previous_comment
-
---    proposed_new_pr_comment_text = gen_comment previous_pr_comment
 
 
 -- | Falls back to Gadgit webservice if database
@@ -922,6 +919,7 @@ readGitHubStatusesAndScanAndPostSummaryForCommit ::
   -> Builds.RawCommit
   -> ScanLogsMode
   -> Scanning.RevisitationMode
+  -> Bool -- ^ force scanning to proceed (for master branch)
   -> ExceptT LT.Text IO [(Builds.PullRequestNumber, Maybe CommentRenderCommon.CommentRevisionId)]
 readGitHubStatusesAndScanAndPostSummaryForCommit
     third_party_auth
@@ -932,7 +930,8 @@ readGitHubStatusesAndScanAndPostSummaryForCommit
     sqs_message_id
     sha1
     should_scan
-    should_revisit_scanned = do
+    should_revisit_scanned
+    force_scanning_for_master = do
 
   liftIO $ do
     current_time <- Clock.getCurrentTime
@@ -953,7 +952,7 @@ readGitHubStatusesAndScanAndPostSummaryForCommit
     should_store_second_level_success_records
     sha1
 
-  liftIO $ D.debugList ["Finished getBuildsFromGithub"]
+  liftIO $ D.debugStr "Finished getBuildsFromGithub"
 
   maybe_previously_posted_status <- liftIO $ flip runReaderT conn $
     ReadPullRequests.getPostedCommentForSha1 sha1
@@ -965,7 +964,12 @@ readGitHubStatusesAndScanAndPostSummaryForCommit
   -- if the GitHub notification was for a success.
   let should_proceed = StatusUpdateTypes.hasAnyFailures github_statuses_bundle || not (null maybe_previously_posted_status)
 
-  if should_proceed
+  -- TODO: Wihtout this "force_scanning" override, which is
+  -- conditioned on being a master commit at the call site,
+  -- failed builds
+  -- not appear to be populated in the master timeline
+  -- (I have not investigated why yet)
+  if force_scanning_for_master || should_proceed
   then case should_scan of
     ShouldScanLogs -> do
       liftIO $ D.debugList ["About to enter scanAndPost"]
@@ -1184,6 +1188,7 @@ wrappedScanAndPostCommit
       sha1
       ShouldScanLogs
       Scanning.NoRevisit
+      is_master_commit
 
     liftIO $ SqlWrite.associateCommentRevisionsWithWorkerEvent
       conn

@@ -347,8 +347,10 @@ rescanCommitCallback third_party_auth commit = do
         commit
         StatusUpdate.ShouldScanLogs
         Scanning.RevisitScanned
+        False
 
-    return $ first LT.toStrict $ run_result $> "Commit rescan complete."
+    return $ first LT.toStrict $
+      run_result $> "Commit rescan complete."
 
   where
     owned_repo = DbHelpers.OwnerAndRepo Constants.projectName Constants.repoName

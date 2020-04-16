@@ -20,7 +20,6 @@ so that scanning may be performed incrementally or resumed after abort.
 
 * A webhook listens for build status changes on a GitHub PR
 * For each failed build, that build's log will be scanned for any of the patterns in the database tagged as "flaky"
-* The tool will automatically post one more status (atop the 75 or so current statuses) that says how many of the failures were flaky.
 * If all of the failures were flaky, the indicator will be green.  There will be a link in the status box to dive into the details.
 * likewise for failures marked with my tool as "known problems"
 
@@ -42,7 +41,13 @@ Deployment
 
 See: [docs/development-environment](docs/development-environment)
 
-### AWS dependencies
+
+### Main application deployment procedure
+
+./redeploy.sh
+
+
+### AWS dependencies and deployment
 
 See: [docs/aws](docs/aws)
 

@@ -1022,6 +1022,32 @@ CREATE TABLE public.commit_metadata (
 ALTER TABLE public.commit_metadata OWNER TO postgres;
 
 --
+-- Name: master_commit_circleci_job_definitions_intermediate; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_commit_circleci_job_definitions_intermediate AS
+ SELECT circleci_workflow_jobs.job_name,
+    circleci_expanded_config_yaml_hashes_by_commit.commit_sha1,
+    circleci_workflows_by_yaml_file.name AS workflow_name,
+    ((circleci_workflow_schedules.cron_schedule IS NOT NULL) OR COALESCE(bar.not_run_on_master, false)) AS is_scheduled
+   FROM ((((public.circleci_workflow_jobs
+     JOIN public.circleci_workflows_by_yaml_file ON ((circleci_workflows_by_yaml_file.id = circleci_workflow_jobs.workflow)))
+     JOIN public.circleci_expanded_config_yaml_hashes_by_commit ON ((circleci_expanded_config_yaml_hashes_by_commit.repo_yaml_sha1 = circleci_workflows_by_yaml_file.yaml_content_sha1)))
+     LEFT JOIN public.circleci_workflow_schedules ON ((circleci_workflows_by_yaml_file.id = circleci_workflow_schedules.workflow)))
+     LEFT JOIN ( SELECT foo_1.workflow,
+            foo_1.job_name,
+            (NOT bool_or(foo_1.include_master_branch)) AS not_run_on_master
+           FROM ( SELECT circleci_job_branch_filters.workflow,
+                    circleci_job_branch_filters.job_name,
+                    circleci_job_branch_filters.branch,
+                    ((circleci_job_branch_filters.branch = 'master'::text) AND circleci_job_branch_filters.filter_include) AS include_master_branch
+                   FROM public.circleci_job_branch_filters) foo_1
+          GROUP BY foo_1.workflow, foo_1.job_name) bar ON (((circleci_workflows_by_yaml_file.id = bar.workflow) AND (circleci_workflow_jobs.job_name = bar.job_name))));
+
+
+ALTER TABLE public.master_commit_circleci_job_definitions_intermediate OWNER TO postgres;
+
+--
 -- Name: master_commit_circleci_scheduled_job_discrimination; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -1037,23 +1063,7 @@ CREATE VIEW public.master_commit_circleci_scheduled_job_discrimination WITH (sec
             bool_and(foo.is_scheduled) AS is_scheduled,
             count(*) AS count,
             bool_or((foo.workflow_name = 'build'::text)) AS is_build_workflow
-           FROM ( SELECT circleci_workflow_jobs.job_name,
-                    circleci_expanded_config_yaml_hashes_by_commit.commit_sha1,
-                    circleci_workflows_by_yaml_file.name AS workflow_name,
-                    ((circleci_workflow_schedules.cron_schedule IS NOT NULL) OR COALESCE(bar.not_run_on_master, false)) AS is_scheduled
-                   FROM ((((public.circleci_workflow_jobs
-                     JOIN public.circleci_workflows_by_yaml_file ON ((circleci_workflows_by_yaml_file.id = circleci_workflow_jobs.workflow)))
-                     JOIN public.circleci_expanded_config_yaml_hashes_by_commit ON ((circleci_expanded_config_yaml_hashes_by_commit.repo_yaml_sha1 = circleci_workflows_by_yaml_file.yaml_content_sha1)))
-                     LEFT JOIN public.circleci_workflow_schedules ON ((circleci_workflows_by_yaml_file.id = circleci_workflow_schedules.workflow)))
-                     LEFT JOIN ( SELECT foo_1.workflow,
-                            foo_1.job_name,
-                            (NOT bool_or(foo_1.include_master_branch)) AS not_run_on_master
-                           FROM ( SELECT circleci_job_branch_filters.workflow,
-                                    circleci_job_branch_filters.job_name,
-                                    circleci_job_branch_filters.branch,
-                                    ((circleci_job_branch_filters.branch = 'master'::text) AND circleci_job_branch_filters.filter_include) AS include_master_branch
-                                   FROM public.circleci_job_branch_filters) foo_1
-                          GROUP BY foo_1.workflow, foo_1.job_name) bar ON (((circleci_workflows_by_yaml_file.id = bar.workflow) AND (circleci_workflow_jobs.job_name = bar.job_name))))) foo
+           FROM public.master_commit_circleci_job_definitions_intermediate foo
           GROUP BY foo.job_name, foo.commit_sha1) zzz;
 
 
@@ -2219,9 +2229,12 @@ CREATE VIEW public.first_failed_test_result WITH (security_barrier='false') AS
     circleci_test_results.file,
     circleci_test_results.result,
     circleci_test_results.message,
-    circleci_test_results.name
+    circleci_test_results.name,
+    foo.failure_count AS failue_count,
+    foo.failure_count
    FROM (( SELECT circleci_test_results_1.provider_build_surrogate_id,
-            min(circleci_test_results_1.index) AS first_index
+            min(circleci_test_results_1.index) AS first_index,
+            count(*) AS failure_count
            FROM public.circleci_test_results circleci_test_results_1
           WHERE (circleci_test_results_1.result = 'failure'::text)
           GROUP BY circleci_test_results_1.provider_build_surrogate_id) foo
@@ -2577,7 +2590,9 @@ ALTER TABLE public.circleci_config_yaml_hashes OWNER TO postgres;
 -- Name: TABLE circleci_config_yaml_hashes; Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON TABLE public.circleci_config_yaml_hashes IS 'NOTE: This is the root of the tree of foreign key relations among circleci config values.';
+COMMENT ON TABLE public.circleci_config_yaml_hashes IS 'NOTE: This is the root of the tree of foreign key relations among circleci config values.
+
+The "circleci_expanded_config_yaml_hashes_by_commit" table associates master commit SHA1s with records in this table.';
 
 
 --
@@ -4000,7 +4015,8 @@ CREATE TABLE public.rebuild_trigger_events (
     universal_build integer NOT NULL,
     initiator text,
     inserted_at timestamp with time zone DEFAULT now() NOT NULL,
-    message text
+    message text,
+    is_api_v2 boolean DEFAULT true NOT NULL
 );
 
 
@@ -4107,15 +4123,22 @@ COMMENT ON MATERIALIZED VIEW public.master_commits_contiguously_indexed_mview IS
 --
 
 CREATE VIEW public.master_commits_unpopulated_circleci_configs WITH (security_barrier='false') AS
- SELECT DISTINCT ON (ordered_master_commits.id) ordered_master_commits.sha1,
-    global_builds.build_number AS build_num,
-    commit_metadata.committer_date
-   FROM (((public.global_builds
-     JOIN public.ordered_master_commits ON ((ordered_master_commits.sha1 = global_builds.vcs_revision)))
+ SELECT buids_for_rev.sha1,
+    buids_for_rev.build_num,
+    commit_metadata.committer_date,
+    buids_for_rev.extant_build_count
+   FROM (((( SELECT ordered_master_commits_1.sha1,
+            min(global_builds.build_number) AS build_num,
+            count(*) AS extant_build_count
+           FROM (public.global_builds
+             JOIN public.ordered_master_commits ordered_master_commits_1 ON ((ordered_master_commits_1.sha1 = global_builds.vcs_revision)))
+          WHERE (global_builds.provider = 3)
+          GROUP BY ordered_master_commits_1.sha1) buids_for_rev
+     JOIN public.ordered_master_commits ON ((ordered_master_commits.sha1 = buids_for_rev.sha1)))
      LEFT JOIN public.circleci_expanded_config_yaml_hashes_by_commit ON ((circleci_expanded_config_yaml_hashes_by_commit.commit_sha1 = ordered_master_commits.sha1)))
      LEFT JOIN public.commit_metadata ON ((ordered_master_commits.sha1 = commit_metadata.sha1)))
-  WHERE ((global_builds.provider = 3) AND (circleci_expanded_config_yaml_hashes_by_commit.commit_sha1 IS NULL))
-  ORDER BY ordered_master_commits.id DESC, global_builds.build_number;
+  WHERE (circleci_expanded_config_yaml_hashes_by_commit.commit_sha1 IS NULL)
+  ORDER BY ordered_master_commits.id DESC;
 
 
 ALTER TABLE public.master_commits_unpopulated_circleci_configs OWNER TO postgres;
@@ -6859,6 +6882,13 @@ CREATE INDEX id_github_pr_number_master_commits2 ON public.master_ordered_commit
 
 
 --
+-- Name: idx_build_queued_at; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_build_queued_at ON public.universal_builds USING btree (x_queued_at);
+
+
+--
 -- Name: idx_circleci_derived_build_number; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -7171,6 +7201,14 @@ ALTER TABLE ONLY public.circleci_test_results
 
 
 --
+-- Name: circleci_workflow_jobs circleci_workflow_jobs_workflow_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.circleci_workflow_jobs
+    ADD CONSTRAINT circleci_workflow_jobs_workflow_fkey FOREIGN KEY (workflow) REFERENCES public.circleci_workflows_by_yaml_file(id) ON DELETE CASCADE NOT VALID;
+
+
+--
 -- Name: code_breakage_affected_jobs code_breakage_affected_jobs_cause_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -7336,14 +7374,6 @@ ALTER TABLE ONLY public.build_steps
 
 ALTER TABLE ONLY public.circleci_job_branch_filters
     ADD CONSTRAINT fk_workflow_id_job_filters FOREIGN KEY (workflow) REFERENCES public.circleci_workflows_by_yaml_file(id);
-
-
---
--- Name: circleci_workflow_jobs fk_workflow_job; Type: FK CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.circleci_workflow_jobs
-    ADD CONSTRAINT fk_workflow_job FOREIGN KEY (workflow) REFERENCES public.circleci_workflows_by_yaml_file(id);
 
 
 --
@@ -7841,6 +7871,14 @@ GRANT ALL ON TABLE public.code_breakage_resolution TO logan;
 --
 
 GRANT ALL ON TABLE public.commit_metadata TO logan;
+
+
+--
+-- Name: TABLE master_commit_circleci_job_definitions_intermediate; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_commit_circleci_job_definitions_intermediate TO logan;
+GRANT SELECT ON TABLE public.master_commit_circleci_job_definitions_intermediate TO materialized_view_updater;
 
 
 --
