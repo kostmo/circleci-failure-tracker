@@ -334,7 +334,7 @@ rescanCommitCallback third_party_auth commit = do
 
   liftIO $ do
 
-    D.debugList ["Starting rescanCommitCallback"]
+    D.debugStr "Starting rescanCommitCallback"
 
     run_result <- runExceptT $
       StatusUpdate.readGitHubStatusesAndScanAndPostSummaryForCommit

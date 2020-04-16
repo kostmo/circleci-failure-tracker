@@ -113,7 +113,7 @@ genTimedOutSection
       , M.bold "timed out"
       ]
 
-    make_list_item = ((\x -> "* " <> M.codeInline x) . UnmatchedBuilds._job_name)
+    make_list_item = ("* " <>) . M.codeInline . UnmatchedBuilds._job_name
     jobs_list = map make_list_item timed_out_builds
 
 
@@ -289,9 +289,15 @@ genCheckRunsSection failed_check_run_entries_excluding_facebook =
     NonUpstream
     NonFlaky
     (GitHubCheckRunMembers failed_check_run_entries_excluding_facebook)
-    (M.heading 3 "Extra GitHub checks")
+    heading_text
     failed_run_bullets
   where
+    heading_text = M.heading 3 $ T.pack $ unwords [
+        "Extra GitHub checks:"
+      , show $ length failed_check_run_entries_excluding_facebook
+      , "failed"
+      ]
+
     failed_run_bullets = map gen_bullet failed_check_run_entries_excluding_facebook
     gen_bullet x = T.unwords [
         "*"
@@ -329,9 +335,15 @@ genOtherProviderSection non_circle_items =
           NonUpstream
           NonFlaky
           (RawGitHubEventMembers failed_event_list)
-          (M.heading 3 $ T.pack $ get_provider_string provider_info)
+          heading_text
           reportable_event_bullets
       where
+        heading_text = M.heading 3 $ T.pack $ unwords [
+            get_provider_string provider_info <> ":"
+          , show $ length failed_event_list
+          , "failed"
+          ]
+
         failed_event_list = NE.toList nonempty_failed_event_list
         get_provider_string (DbHelpers.WithId _ (SqlReadTypes.CiProviderHostname hostname_string)) = hostname_string
 
