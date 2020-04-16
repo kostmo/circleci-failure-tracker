@@ -1,8 +1,8 @@
 # AWS Elastic Beanstalk environments
 
 Two different Applications are hosted on Elastic Beanstalk in support of Dr. CI:
-* `pytorch-circle-log-scanner`
-* `gadgit-web`
+* `pytorch-circle-log-scanner` - the main application, comprised of 4 environments, described below
+* `gadgit-web` - a small helper application. Accessible at http://gadgit.pytorch.org (not `https`)
 
 Elastic beanstalk environments can be two types: WebServer or Worker.
 

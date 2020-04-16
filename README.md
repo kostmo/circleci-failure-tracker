@@ -2,10 +2,21 @@
 
 # A log analyzer for CircleCI
 
+
+## Intro
+
 An organization would like to determine what the most common causes of intermittent build
 failures/flaky tests are in the a repository so that effort can be prioritized
 to fix them.
 
+## Outputs
+
+Dr. CI involves two user-facing outputs:
+
+* Automatically-posted GitHub PR comments
+* The Dr. CI website
+
+## Functionality
 This tool obtains a list of CircleCI builds run against a GitHub repository for
 a master branch, downloads their logs (stripped of ANSI escape codes) from AWS, and scans the logs for a
 predefined list of labeled patterns (regular expressions).
@@ -16,14 +27,14 @@ pattern are tracked and presented in a web UI.
 The database tracks which builds have been already scanned for a given pattern,
 so that scanning may be performed incrementally or resumed after abort.
 
-## Tool workflow
+### Tool workflow
 
 * A webhook listens for build status changes on a GitHub PR
 * For each failed build, that build's log will be scanned for any of the patterns in the database tagged as "flaky"
 * If all of the failures were flaky, the indicator will be green.  There will be a link in the status box to dive into the details.
 * likewise for failures marked with my tool as "known problems"
 
-# Known Problem reporting
+### Known Problem reporting
 
 Requiring that failures in the master branch be annotated will facilitate tracking of the frequency of "brokenness" of master over time, and allow measurement of whether this metric is improving.
 

@@ -20,7 +20,7 @@ The local Haskell installation and dependencies may occupy around 4GB on disk.
 ## Credentials
 
 The application makes authenticated connections with Postgres, GitHub, CircleCI, etc.
-Place the credentials directory as a sibling to the cloned Dr. CI repo directory.
+Place the credentials directory as a sibling to this repo clone.
 
 
 ## Running the server locally
@@ -29,7 +29,8 @@ To run the Dr. CI frontend server locally using production data, execute the fol
 
     ./run.py --prod-db
 
-Access the server by visiting http://localhost:3001 in your browser.
+Access the server by visiting http://localhost:3001 in your browser.  Note that the scheme is **not** `https` for this local connection.
+The production deployment, in contrast, requires SSL: https://dr.pytorch.org
 
 
 ## Deploying the application
