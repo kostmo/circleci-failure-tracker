@@ -85,14 +85,14 @@ def populate_db_yaml_records(cur, build_number, repo_yaml_content_sha1):
 
     expanded_yaml_md5 = hashlib.md5(yaml_text.encode('utf-8')).hexdigest()
 
+    yaml_obj = yaml.safe_load(yaml_text)
+    workflows_dict = yaml_obj.get("workflows")
+
     cur.execute(
         'INSERT INTO circleci_config_yaml_hashes (expanded_yaml_content, expanded_yaml_md5, repo_yaml_sha1) VALUES (%s, %s, %s);',
         (yaml_text, expanded_yaml_md5, repo_yaml_content_sha1)
     )
 
-    yaml_obj = yaml.safe_load(yaml_text)
-
-    workflows_dict = yaml_obj.get("workflows")
 
     branch_filters_by_job_by_workflow = {}
 
@@ -104,18 +104,25 @@ def populate_db_yaml_records(cur, build_number, repo_yaml_content_sha1):
     for workflow_name, workflow_obj in filter(lambda x: x[0] != "version", workflows_dict.items()):
 
         if type(workflow_obj) is dict:
+
+
             cur.execute(
                 'INSERT INTO circleci_workflows_by_yaml_file (yaml_content_sha1, name) VALUES (%s, %s) RETURNING id;',
                 (repo_yaml_content_sha1, workflow_name)
             )
             workflow_id = cur.fetchone()[0]
 
+            cron_values = []
             for trigger in workflow_obj.get("triggers", []):
                 schedule_obj = trigger.get("schedule", {})
 
                 for k, v in schedule_obj.items():
                     if k == "cron":
-                        schedule_insertion_values.append((workflow_id, v))
+                        cron_values.append(v)
+
+            for v in cron_values:
+                schedule_insertion_values.append((workflow_id, v))
+
 
             branch_filters_by_job = branch_filters_by_job_by_workflow.setdefault(workflow_id, {})
 
@@ -224,7 +231,7 @@ def run(commit_count, local_repo_path=None):
 
         def single_commit_populator(args_tuple):
             (i, (commit_sha1, build_number)) = args_tuple
-            print("%d/%d: Populating CircleCI config for commit %s..." % (i + 1, len(enumerated_rows), commit_sha1))
+            print("%d/%d: Populating CircleCI config for commit %s using build #%d..." % (i + 1, len(enumerated_rows), commit_sha1, build_number))
 
             populate_config_info(local_repo_path, cur, commit_sha1, build_number)
 
@@ -259,8 +266,7 @@ def parse_args():
 if __name__ == "__main__":
 
     options = parse_args()
-#    payload = run(options.commit_count, options.local_repo_path)
-    payload = run(options.commit_count)
 
+    payload = run(options.commit_count)
     print(payload)
 
