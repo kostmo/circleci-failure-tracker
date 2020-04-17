@@ -53,7 +53,7 @@ mainAppCode args = do
     void $ TestDefs.testGetSpanningBreakages conn args $
       Builds.RawCommit "c1fa71972e9cdc50562d6f807fc6ca893c585112"
 
-  when True $
+  when False $
     void $ TestHelpers.testWithAccessToken args $ TestDefs.testBotCommentGeneration args conn $
 --      Builds.RawCommit "c2e1496377685db6cd584aec37b9f7ec48992770"
       Builds.RawCommit "94524ddb4824d951a3f6cd4e11721e396afd219d"
@@ -80,9 +80,8 @@ mainAppCode args = do
     let f (x, y) = unwords [show x ++ ":", LT.unpack $ LT.strip y]
     D.debugStr $ (unlines . map f . CommitBuilds._log_lines) $ fromRight (error "BAD") foo
 
-  when False $ do
-    TestDefs.testTestRetrieval conn args $ Builds.UniversalBuildId 110871872
-    return ()
+  when True $
+    void $ TestDefs.testTestRetrieval conn args $ Builds.UniversalBuildId 112650014
 
 
   when False $

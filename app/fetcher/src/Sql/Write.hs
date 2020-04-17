@@ -387,7 +387,7 @@ storeCircleTestResults
     conn
     (Builds.ProviderSurrogateId provider_surrogate_id)
     (CircleTest.CircleCISingleTestsParent test_results next_page_token) =
-  catchViolation catcher $ do
+  catchViolation catcher $ withTransaction conn $ do
     [Only echoed_provider_surrogate_id] <- query conn parent_test_insertion_sql (provider_surrogate_id, next_page_token)
 
     let f idx p = (
@@ -407,7 +407,7 @@ storeCircleTestResults
               name
               classname = p
 
-    let failed_test_results = filter ((== "failure") . CircleTest.result) test_results
+    let failed_test_results = filter ((`elem` ["failure", "error"]) . CircleTest.result) test_results
 
     if null failed_test_results
       then return $ Right $ SqlReadTypes.NewRecordCount 0

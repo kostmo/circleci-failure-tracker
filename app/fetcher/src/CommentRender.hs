@@ -3,7 +3,8 @@
 module CommentRender where
 
 import qualified Data.HashMap.Strict   as HashMap
-import           Data.List             (dropWhileEnd, intercalate, intersperse)
+import           Data.List             (dropWhileEnd, intercalate, intersperse,
+                                        partition)
 import           Data.List.Extra       (maximumOn)
 import           Data.List.NonEmpty    (NonEmpty ((:|)))
 import qualified Data.List.NonEmpty    as NE
@@ -375,6 +376,9 @@ genBuildFailuresSections commit_page_info =
     StatusUpdateTypes.NewUpstreamnessBuildsPartition upstream_breakages nonupstream_builds = toplevel_partitioning
 
 
+genPatternMatchedSections ::
+     StatusUpdateTypes.FlakyBuildPartition SqlReadTypes.CommitBuildWrapperTuple
+  -> (Maybe (Tr.Tree NodeType), Maybe (Tr.Tree NodeType), Maybe (Tr.Tree NodeType))
 genPatternMatchedSections pattern_matched_builds =
   (nonupstream_nonflaky_pattern_matched_section, maybe_tentative_flaky_section, maybe_confirmed_flaky_section)
   where
@@ -516,6 +520,9 @@ data BreakageTimeSpan = BreakageTimeSpan {
   }
 
 
+toBreakageTimeSpan ::
+     SqlReadTypes.UpstreamBrokenJob
+  -> BreakageTimeSpan
 toBreakageTimeSpan upstream_cause = BreakageTimeSpan
   (SqlReadTypes._breakage_start_time upstream_cause)
   end_info
@@ -579,29 +586,71 @@ formatBreakageTimeSpan
 genUpstreamFailuresSection ::
      [(SqlReadTypes.StandardCommitBuildWrapper, SqlReadTypes.UpstreamBrokenJob)]
   -> Maybe (Tr.Tree NodeType)
-genUpstreamFailuresSection upstream_breakages =
-  if null upstream_breakages
+genUpstreamFailuresSection upstream_breakages_x =
+  if null extant_children
     then Nothing
-    else Just $ Tr.Node (InteriorNode "Upstream failures") $
+    else Just $ Tr.Node (InteriorNode "Upstream failures") extant_children
+
+  where
+    extant_children = Maybe.catMaybes [maybe_ongoing_child, maybe_fixed_child]
+
+    maybe_ongoing_child = if null ongoing_upstream_breakages
+      then Nothing
+      else Just $ Tr.Node (InteriorNode "Ongoing") $
       pure $ pure $ LeafNode $ NewFailureSection
         Upstream
         NonFlaky
-        (UpstreamBreakageMembers upstream_breakages)
-        upstream_matched_header
-          (pure upstream_intro_text
-          <> pure matched_upstream_builds_details_block)
-  where
-    upstream_matched_header = M.heading 3 $ M.colonize [
+        (UpstreamBreakageMembers ongoing_upstream_breakages)
+        ongoing_upstream_header
+        ongoing_body_text
+
+    maybe_fixed_child = if null fixed_upstream_breakages
+      then Nothing
+      else Just $ Tr.Node (InteriorNode "Already fixed") $
+      pure $ pure $ LeafNode $ NewFailureSection
+        Upstream
+        NonFlaky
+        (UpstreamBreakageMembers fixed_upstream_breakages)
+        fixed_upstream_header
+        fixed_body_text
+
+
+    (ongoing_upstream_breakages, fixed_upstream_breakages) = partition (null . SqlReadTypes._breakage_end_sha1 . snd) upstream_breakages_x
+
+    fixed_upstream_header = M.heading 3 $ M.colonize [
         ":construction:"
-      , MyUtils.pluralize (length upstream_breakages) "upstream failure"
+      , MyUtils.pluralize (length fixed_upstream_breakages) "fixed upstream failure"
       ]
 
-    matched_upstream_builds_details_block = M.bulletTree $
-      map render_upstream_matched_failure_item upstream_breakages
+    ongoing_upstream_header = M.heading 3 $ M.colonize [
+        ":construction:"
+      , MyUtils.pluralize (length ongoing_upstream_breakages) "ongoing upstream failure"
+      ]
 
-    upstream_intro_text = M.colonize [
+    fixed_body_text = pure upstream_fixed_intro_text
+      <> pure fixed_upstream_details_block
+
+    fixed_upstream_details_block = M.bulletTree $
+      map render_upstream_matched_failure_item fixed_upstream_breakages
+
+    upstream_fixed_intro_text = M.colonize [
         "These were probably"
       , M.bold "caused by upstream breakages"
+      , "that were"
+      , M.bold "already fixed"
+      ]
+
+    ongoing_body_text = pure upstream_ongoing_intro_text
+      <> pure ongoing_upstream_details_block
+
+    ongoing_upstream_details_block = M.bulletTree $
+      map render_upstream_matched_failure_item ongoing_upstream_breakages
+
+    upstream_ongoing_intro_text = M.colonize [
+        "These were probably"
+      , M.bold "caused by upstream breakages"
+      , "that are"
+      , M.bold "not fixed yet"
       ]
 
     render_upstream_matched_failure_item (x, upstream_cause) =
@@ -616,8 +665,8 @@ genUpstreamFailuresSection upstream_breakages =
         node_children = pure $ pure $ pure $
           renderSingleJobRerunLink $ Builds.UniversalBuildId ubuild_id
 
-        CommitBuilds.NewCommitBuild y _match_obj _ _ = CommitBuilds._commit_build x
-        Builds.StorableBuild (DbHelpers.WithId ubuild_id _universal_build) build_obj = y
+        CommitBuilds.NewCommitBuild storable_build _match_obj _ _ = CommitBuilds._commit_build x
+        Builds.StorableBuild (DbHelpers.WithId ubuild_id _universal_build) build_obj = storable_build
 
         breakage_span_words = formatBreakageTimeSpan $ toBreakageTimeSpan upstream_cause
 
@@ -629,9 +678,7 @@ renderSingleJobRerunLink :: Builds.UniversalBuildId -> Text
 renderSingleJobRerunLink (Builds.UniversalBuildId ubuild_id) =
   M.link ":repeat: rerun" single_build_rerun_trigger_url
   where
-    single_rebuild_request_query_parms = [
-        ("build-id", show ubuild_id)
-      ]
+    single_rebuild_request_query_parms = [("build-id", show ubuild_id)]
 
     single_build_rerun_trigger_url = T.pack $ LT.unpack CommentRenderCommon.webserverBaseUrl <> "/rebuild-from-pr-comment.html?"
       <> MyUtils.genUrlQueryString single_rebuild_request_query_parms
@@ -900,7 +947,7 @@ genMetricsTree
 
     non_circlecli_non_facebook_bullet_tree = pure $ non_circlecli_non_facebook_summary_line :| []
     non_circlecli_non_facebook_summary_line = T.unwords [
-        bold_fraction non_circleci_non_facebook_failure_count total_failcount
+        bold_fraction non_circleci_non_facebook_failure_count broken_in_pr_count
       , "non-CircleCI failure(s)"
       ]
 

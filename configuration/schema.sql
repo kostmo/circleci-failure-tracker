@@ -2236,7 +2236,7 @@ CREATE VIEW public.first_failed_test_result WITH (security_barrier='false') AS
             min(circleci_test_results_1.index) AS first_index,
             count(*) AS failure_count
            FROM public.circleci_test_results circleci_test_results_1
-          WHERE (circleci_test_results_1.result = 'failure'::text)
+          WHERE (circleci_test_results_1.result = ANY (ARRAY['failure'::text, 'error'::text]))
           GROUP BY circleci_test_results_1.provider_build_surrogate_id) foo
      JOIN public.circleci_test_results ON (((circleci_test_results.provider_build_surrogate_id = foo.provider_build_surrogate_id) AND (circleci_test_results.index = foo.first_index))));
 
