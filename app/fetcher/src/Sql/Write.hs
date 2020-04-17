@@ -1365,10 +1365,10 @@ addPatternTag (ScanPatterns.PatternId pattern_id) tag = do
 removePatternTag ::
      ScanPatterns.PatternId
   -> Text
-  -> SqlReadTypes.DbIO (Either Text Int64)
+  -> SqlReadTypes.DbIO (Either Text SqlReadTypes.RecordCount)
 removePatternTag (ScanPatterns.PatternId pattern_id) tag = do
   conn <- ask
-  liftIO $ Right <$> execute conn sql (pattern_id, tag)
+  liftIO $ Right . SqlReadTypes.NewRecordCount <$> execute conn sql (pattern_id, tag)
   where
     sql = Q.join [
         "DELETE FROM pattern_tags"
@@ -1382,10 +1382,10 @@ removePatternTag (ScanPatterns.PatternId pattern_id) tag = do
 
 deleteCodeBreakage ::
      Int64
-  -> SqlReadTypes.DbIO (Either Text Int64)
+  -> SqlReadTypes.DbIO (Either Text SqlReadTypes.RecordCount)
 deleteCodeBreakage cause_id = do
   conn <- ask
-  liftIO $ Right <$> execute conn sql (Only cause_id)
+  liftIO $ Right . SqlReadTypes.NewRecordCount <$> execute conn sql (Only cause_id)
   where
     sql = "DELETE FROM code_breakage_cause WHERE id = ?"
 
@@ -1393,10 +1393,10 @@ deleteCodeBreakage cause_id = do
 deleteCodeBreakageJob ::
      Int64
   -> Text
-  -> SqlReadTypes.DbIO (Either Text Int64)
+  -> SqlReadTypes.DbIO (Either Text SqlReadTypes.RecordCount)
 deleteCodeBreakageJob cause_id job = do
   conn <- ask
-  liftIO $ Right <$> execute conn sql (cause_id, job)
+  liftIO $ Right . SqlReadTypes.NewRecordCount <$> execute conn sql (cause_id, job)
   where
     sql = Q.join [
         "DELETE FROM code_breakage_affected_jobs"
@@ -1455,10 +1455,10 @@ updateCodeBreakageCauseSha1 cause_id (Builds.RawCommit sha1) = do
 
 deleteCodeBreakageResolution ::
      Int64
-  -> SqlReadTypes.DbIO (Either Text Int64)
+  -> SqlReadTypes.DbIO (Either Text SqlReadTypes.RecordCount)
 deleteCodeBreakageResolution cause_id = do
   conn <- ask
-  liftIO $ Right <$> execute conn sql (Only cause_id)
+  liftIO $ Right . SqlReadTypes.NewRecordCount <$> execute conn sql (Only cause_id)
   where
     sql = Q.join [
         "DELETE FROM code_breakage_resolution"

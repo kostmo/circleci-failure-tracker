@@ -20,7 +20,7 @@ import qualified Data.Set                   as Set
 import qualified Data.Text                  as T
 import qualified Data.Text.Lazy             as LT
 import           Data.Traversable           (for)
-import           Database.PostgreSQL.Simple (Connection)
+import           Database.PostgreSQL.Simple
 import           GHC.Int                    (Int64)
 import qualified Network.Wreq.Session       as Sess
 import qualified Safe
@@ -40,6 +40,7 @@ import qualified ScanPatterns
 import qualified ScanRecords
 import qualified ScanUtils
 import           SillyMonoids               ()
+import qualified Sql.QueryUtils             as Q
 import qualified Sql.Read.Builds            as ReadBuilds
 import qualified Sql.Read.Patterns          as ReadPatterns
 import qualified Sql.Read.Read              as SqlRead
@@ -255,6 +256,53 @@ getStepFailure (step_index, step_val) =
           Builds.ScannableFailure $ Builds.NewBuildFailureOutput $ x ^. key "output_url" . _String
       | x ^. key "timedout" . _Bool = step_fail Builds.BuildTimeoutFailure
       | otherwise = pure ()
+
+
+repopulateTestResults ::
+     CircleApi.ThirdPartyAuth
+  -> Builds.UniversalBuildId
+  -> SqlReadTypes.AuthDbIO (Either T.Text SqlReadTypes.RecordCount)
+repopulateTestResults
+    third_party_auth
+    ubuild_id = do
+  SqlReadTypes.AuthConnection conn author <- ask
+
+  liftIO $ runExceptT $ do
+
+    Builds.ProviderSurrogateId provider_surrogate_id_num <- ExceptT $
+      flip runReaderT conn $
+        ReadBuilds.getProviderSurrogateIdFromUniversalBuild ubuild_id
+
+    deletion_count <- liftIO $ execute conn deletion_sql $
+      Only provider_surrogate_id_num
+
+    ubuild_with_id <- ExceptT $ flip runReaderT conn $
+      ReadBuilds.lookupUniversalBuild ubuild_id
+
+    scan_resources <- ExceptT $ prepareScanResources
+      third_party_auth
+      conn
+      NoPersist
+      (Just author)
+
+    liftIO $ do
+      test_result_count <- storeTestResults
+        scan_resources
+        (DbHelpers.WithTypedId ubuild_id $ DbHelpers.record ubuild_with_id)
+
+      D.debugList [
+          "Stored test count:"
+        , show test_result_count
+        ]
+
+    return $ SqlReadTypes.NewRecordCount deletion_count
+
+  where
+    deletion_sql = Q.join [
+        "DELETE"
+      , "FROM circleci_test_reports"
+      , "WHERE provider_build_surrogate_id = ?"
+      ]
 
 
 prepareScanResources ::

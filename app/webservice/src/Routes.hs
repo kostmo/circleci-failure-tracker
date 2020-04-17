@@ -519,6 +519,11 @@ scottyApp
   S.post "/api/update-user-opt-out-settings" $
     withAuth $ SqlWrite.updateUserOptOutSettings <$> S.param "enabled"
 
+
+  S.post "/api/repopulate-test-results" $
+    withAuth $ Scanning.repopulateTestResults third_party_creds . Builds.UniversalBuildId <$> S.param "build_id"
+
+
   get "/api/view-log-context" $ (fmap . fmap) WebApi.toJsonEither $
     SqlRead.logContextFunc SqlReadTypes.hiddenContextLinecount
       <$> (MatchOccurrences.MatchId <$> S.param "match_id")

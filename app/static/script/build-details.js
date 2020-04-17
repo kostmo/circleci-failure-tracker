@@ -8,6 +8,16 @@ function prompt_promote_match(match_id) {
 }
 
 
+function repopulate_tests(button) {
+
+	const universal_build_id = get_build_number();
+	const data_dict = {
+		"build_id": universal_build_id,
+	};
+
+	post_modification("/api/repopulate-test-results", data_dict);
+}
+
 
 
 function gen_builds_table2(element_id, data_url, universal_build_id) {

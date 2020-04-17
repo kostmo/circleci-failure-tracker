@@ -99,7 +99,7 @@ queryParmsFromTimeRange time_bounds =
 
 
 newtype RecordCount = NewRecordCount Int64
-  deriving Show
+  deriving (Generic, Show, ToJSON)
 
 
 newtype ElasticBeanstalkWorkerEventID = NewElasticBeanstalkWorkerEventID {getId :: Int64}
