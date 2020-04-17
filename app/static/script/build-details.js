@@ -69,6 +69,8 @@ function gen_builds_table2(element_id, data_url, universal_build_id) {
 
 
 
+
+
 function gen_builds_table(element_id, data_url, height_string, universal_build_id, maybe_circleci_build_id) {
 
 	const column_list = [
@@ -125,6 +127,35 @@ function gen_builds_table(element_id, data_url, height_string, universal_build_i
 		ajaxResponse: function(url, params, response) {
 			console.log("Loaded DB content for URL '" + data_url + "' in " + response.timing.toFixed(1) + " seconds.");
 			return response.content;
+		},
+	});
+}
+
+
+
+
+
+function gen_tests_table(element_id, data_url, universal_build_id) {
+
+	const column_list = [
+		{title: "File", field: "file", width: 300,
+		},
+		{title: "Name", field: "name", width: 180,
+		},
+		{title: "Result", field: "result", width: 90,
+		},
+		{title: "Message", field: "message",
+		},
+	];
+
+	const table = new Tabulator("#" + element_id, {
+		layout: "fitColumns",
+		placeholder: "No Data Set",
+		columns: column_list,
+		ajaxURL: data_url,
+		ajaxResponse: function(url, params, response) {
+			console.log("Loaded DB content for URL '" + data_url);
+			return response.payload.test_results;
 		},
 	});
 }
@@ -326,6 +357,12 @@ function main() {
 	$("#full-log-link-container").html(local_logview_item_full);
 
 	get_build_info(universal_build_id);
+
+	gen_tests_table(
+		"failed-tests-table",
+		"/api/test-results?build_id=" + universal_build_id,
+		universal_build_id);
+
 	gen_builds_table2(
 		"best-build-matches-table",
 		"/api/best-build-match?build_id=" + universal_build_id,

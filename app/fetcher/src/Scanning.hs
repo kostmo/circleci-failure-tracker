@@ -28,13 +28,13 @@ import qualified Safe
 import qualified AuthStages
 import qualified Builds
 import qualified CircleApi
-import qualified GitHubAuth
 import qualified CircleBuild
 import qualified CircleCIParse
 import qualified CircleTest
 import qualified DbHelpers
 import qualified DebugUtils                 as D
 import qualified FetchHelpers
+import qualified GitHubAuth
 import qualified MyUtils
 import qualified ScanPatterns
 import qualified ScanRecords
@@ -43,6 +43,7 @@ import           SillyMonoids               ()
 import qualified Sql.Read.Builds            as ReadBuilds
 import qualified Sql.Read.Patterns          as ReadPatterns
 import qualified Sql.Read.Read              as SqlRead
+import qualified Sql.Read.TestResults       as SqlTestResults
 import qualified Sql.Read.Types             as SqlReadTypes
 import qualified Sql.Write                  as SqlWrite
 
@@ -606,7 +607,7 @@ storeTestResults
       flip runReaderT conn $
         ReadBuilds.getProviderSurrogateIdFromUniversalBuild ubuild_id
 
-    has_test <- liftIO $ SqlRead.checkHasTestResults
+    has_test <- liftIO $ SqlTestResults.checkHasTestResults
       conn
       provider_surrogate_id
 

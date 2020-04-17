@@ -39,8 +39,8 @@ import qualified Pagination
 import qualified ScanPatterns
 import qualified ScanUtils
 import qualified Sql.QueryUtils                     as Q
+import qualified Sql.Read.Breakages                 as ReadBreakages
 import qualified Sql.Read.Builds                    as ReadBuilds
-import qualified Sql.Read.Breakages                    as ReadBreakages
 import qualified Sql.Read.Commits                   as ReadCommits
 import qualified Sql.Read.Matches                   as ReadMatches
 import           Sql.Read.Types                     (DbIO, listFlat, listFlat1X,
@@ -48,16 +48,6 @@ import           Sql.Read.Types                     (DbIO, listFlat, listFlat1X,
 import qualified Sql.Read.Types                     as SqlReadTypes
 import qualified UnmatchedBuilds
 import qualified WebApi
-
-
-data TestFailure = TestFailure {
-    _sha1       :: Builds.RawCommit
-  , _test_name  :: Text
-  , _build_date :: UTCTime
-  } deriving Generic
-
-instance ToJSON TestFailure where
-  toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
 data JobBuild = JobBuild {
@@ -1161,27 +1151,6 @@ apiListFailureModes = runQuery $ Q.join [
   ]
 
 
-
-checkHasTestResults ::
-     Connection
-  -> Builds.ProviderSurrogateId
-  -> IO Bool
-checkHasTestResults
-  conn
-  (Builds.ProviderSurrogateId provider_surrogate_id) = do
-
-  [Only result] <- query conn sql $ Only provider_surrogate_id
-  return result
-  where
-    sql = Q.join [
-        "SELECT EXISTS"
-      , Q.parens $ Q.join [
-          "SELECT *"
-        , "FROM circleci_test_reports"
-        , "WHERE provider_build_surrogate_id = ?"
-        , "LIMIT 1"
-        ]
-      ]
 
 
 data ScanTestResponse = ScanTestResponse {

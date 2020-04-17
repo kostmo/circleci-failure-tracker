@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveAnyClass    #-}
 {-# LANGUAGE DeriveGeneric     #-}
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -9,6 +10,7 @@ import           Control.Monad.Trans.Except (ExceptT (ExceptT))
 import           Data.Aeson
 import           Data.List                  (intercalate)
 import           Data.Text                  (Text)
+import           Database.PostgreSQL.Simple (FromRow)
 import           GHC.Generics
 import qualified Network.Wreq               as NW
 import qualified Network.Wreq.Session       as Sess
@@ -48,9 +50,10 @@ data CircleCISingleTestResult = CircleCISingleTestResult {
   , result    :: Text
   , name      :: Text
   , classname :: Text
-  } deriving (Show, Generic)
+  } deriving (Show, Generic, FromRow)
 
 instance FromJSON CircleCISingleTestResult
+instance ToJSON CircleCISingleTestResult
 
 
 -- | TODO: Implement pagination

@@ -47,6 +47,7 @@ import qualified Sql.Read.Patterns               as ReadPatterns
 import qualified Sql.Read.PullRequests           as ReadPullRequests
 import qualified Sql.Read.Read                   as SqlRead
 import qualified Sql.Read.Stats                  as ReadStats
+import qualified Sql.Read.TestResults            as ReadTestResults
 import qualified Sql.Read.Types                  as SqlReadTypes
 import qualified Sql.Update                      as SqlUpdate
 import qualified Sql.Write                       as SqlWrite
@@ -219,6 +220,9 @@ scottyApp
 
   get "/api/master-downstream-commits" $
     ReadCommits.apiMasterDownstreamCommits . Builds.RawCommit <$> S.param "sha1"
+
+  get "/api/test-results" $
+    fmap WebApi.toJsonEither . ReadTestResults.getRecordedTestResults . Builds.UniversalBuildId <$> S.param "build_id"
 
   get "/api/comment-postings-by-week" $
     pure ReadStats.prCommentRevisionsByWeek
