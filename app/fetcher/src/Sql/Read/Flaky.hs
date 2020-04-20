@@ -23,6 +23,7 @@ import qualified Safe
 
 import qualified CommitBuilds
 import qualified DbHelpers
+import qualified DebugUtils                         as D
 import qualified JsonUtils
 import qualified ScanPatterns
 import qualified Sql.QueryUtils                     as Q
@@ -56,7 +57,12 @@ apiIsolatedMasterFailuresByDay day_count = do
 
 -- | Note that Highcharts expects the dates to be in ascending order
 apiFailedCommitsByDay :: SqlReadTypes.DbIO (WebApi.ApiResponse (Day, Int))
-apiFailedCommitsByDay = WebApi.ApiResponse <$> SqlReadTypes.runQuery q
+apiFailedCommitsByDay = do
+  liftIO $ D.debugList [
+      "SQL:"
+    , show q
+    ]
+  WebApi.ApiResponse <$> SqlReadTypes.runQuery q
   where
   q = Q.join [
       "SELECT"
@@ -76,7 +82,9 @@ apiFailedCommitsByDay = WebApi.ApiResponse <$> SqlReadTypes.runQuery q
             "vcs_revision"
           , "MAX(queued_at) queued_at"
           ]
-        , "FROM global_builds GROUP BY vcs_revision"
+        , "FROM global_builds"
+        , "WHERE queued_at IS NOT NULL"
+        , "GROUP BY vcs_revision"
         ]
 
 

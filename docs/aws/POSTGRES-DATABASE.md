@@ -43,11 +43,15 @@ The primary entities in the database schema include:
 
 * "Universal build": represents a conclusive build outcome.  Abstracts over various CI providers
 * Provider-specific build
-- Console logs
+* Console logs
 * Patterns
 * Scans
 * Pattern matches
 * commits
 * pull requests
 * PR comments
+
+# Performance optimizations
+
+The data is fairly well normalized. Historically, composing several views upon views in pursuit of preserving normalization has led to slow queries. To mitigate this, a number of materialized views ("mviews") were created.  These mviews are updated periodically by AWS Lambda functions
 
