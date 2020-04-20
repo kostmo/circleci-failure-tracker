@@ -66,7 +66,9 @@ The whole process will take 5-10 minutes with a high-speed internet connection.
 
 ## Testing
 
-Certain functions can be tested in isolation via the `./test-oneoff.sh` script inside the `app` directory.
+TravisCI is set up to automatically veryify that each push to GitHub can successfully compile.  Note that if one force-pushes to the repo shortly after a previous push, TravisCI may report failure on the overwritten commit.
+
+Certain individual functions can be tested in isolation via the `./test-oneoff.sh` script inside the `app` directory.
 
 
 

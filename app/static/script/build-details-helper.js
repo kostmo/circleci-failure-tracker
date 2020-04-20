@@ -21,7 +21,7 @@ function gen_builds_table_columns(include_timeout_column) {
 				}
 			},
 		},
-		{title: "Job", width: 300, field: "build.build_record.job_name",
+		{title: "Job", width: 350, field: "build.build_record.job_name",
 			tooltip: "Click to copy",
 			cellClick: function(e, cell) {
 
@@ -34,7 +34,7 @@ function gen_builds_table_columns(include_timeout_column) {
 				  });
 			},
 		},
-		{title: "Step", width: 250, field: "match.build_step"},
+		{title: "Step", width: 200, field: "match.build_step"},
 		{title: "Build", field: "build.build_record.build_id",
 			formatter: function(cell, formatterParams, onRendered) {
 

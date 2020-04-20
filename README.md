@@ -11,10 +11,26 @@ to fix them.
 
 ## Outputs
 
-Dr. CI involves two user-facing outputs:
+The Dr. CI project entails two distinct user-facing outputs:
 
 * Automatically-posted GitHub PR comments
 * The Dr. CI website
+
+The latter has several distinct utilities:
+* Annotation interface for determinisitic `master` failures
+* Flakiness review tool
+* Stats dashboards
+
+# Codebase
+
+See [docs/CODEBASE-OVERVIEW.md](docs/CODEBASE-OVERVIEW.md).
+
+# Repository assumptions
+
+Dr. CI assumes a linear history of the `master` branch.
+This can be enforced on GitHub via the following setting under the "Branches" -> "Branch protection rule" section for `master`:
+
+![GitHub setting](docs/images/github-linear-history-option.png)
 
 ## Functionality
 This tool obtains a list of CircleCI builds run against a GitHub repository for

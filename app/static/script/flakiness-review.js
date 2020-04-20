@@ -273,8 +273,7 @@ function load_job_failure_details(job_name, commit_id_min, commit_id_max) {
 
 function gen_timeline_span_column() {
 
-
-	const obj = {title: "Timeline Span", field: "commit_index_span",
+	const obj = {title: "Timeline Span", field: "commit_index_span.end",
 			formatter: function(cell, formatterParams, onRendered) {
 				const row_data = cell.getRow().getData();
 
