@@ -6,11 +6,12 @@
     * the GitHub Statuses API
     * the Checks API
 4. Keep all of these freshly-obtained statuses in an intermediate data structure
-5. If at least one job failed, OR if there already exists a Dr. CI comment, then continue (see **Note A** below).  Otherwise abort.
-5. Perform an [incremental scan](INCREMENTAL-SCANNING.md) of all of the CircleCI job console logs for this commit
-6. Render the comment markdown
-8. Determine which Pull Request(s) have this as a HEAD commit
-9. For each PR:
+5. Get a list of all Pull Requests with this commit as their HEAD, along with any Dr. CI comments posted
+6. If at least one job failed, OR if there already exists a Dr. CI comment, then continue (see **Note A** below).  Otherwise abort.
+7. Perform an [incremental scan](INCREMENTAL-SCANNING.md) of all of the CircleCI job console logs for this commit
+8. Render the comment markdown
+9. Determine which Pull Request(s) have this as a HEAD commit
+10. For each PR:
     a. Does a Dr. CI comment already exist for this PR?
         * If not, create a new comment
         * If so, re-use the existing comment (see **Note B** below)

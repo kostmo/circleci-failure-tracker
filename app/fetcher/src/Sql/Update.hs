@@ -27,12 +27,12 @@ import qualified Safe
 import qualified Builds
 import qualified BuildSteps
 import qualified CircleApi
-import qualified GitHubAuth
 import qualified CircleTrigger
 import qualified CommitBuilds
 import qualified Constants
 import qualified DbHelpers
 import qualified DebugUtils                 as D
+import qualified GitHubAuth
 import qualified GitRev
 import qualified JsonUtils
 import qualified MyUtils
@@ -230,7 +230,8 @@ countRevisionBuilds
     , "PARMS:"
     , show only_commit
     ]
-  (row_retrieval_time, rows) <- D.timeThisFloat $ liftIO $ query conn aggregate_causes_sql only_commit
+  (row_retrieval_time, rows) <- D.timeThisFloat $ liftIO $
+    query conn aggregate_causes_sql only_commit
 
   liftIO $ runExceptT $ do
 

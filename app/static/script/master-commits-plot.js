@@ -1,5 +1,9 @@
 
-function breakages_gantt_highchart(api_data) {
+function breakages_gantt_highchart(raw_data) {
+
+	console.log("Breakage spans query performance:", raw_data.timing);
+
+	const api_data = raw_data.content
 
 	const series_data = [];
 
@@ -256,11 +260,11 @@ function pr_merges_timeline_highchart(chart_id, data, stacking_type, y_label_pre
 }
 
 
-function render_master_commits_plots() {
+function render_master_commits_plots(weeks_count) {
 
-	getJsonWithThrobber("#scan-throbber", "/api/master-commits-granular", {}, breakages_gantt_highchart)
+	getJsonWithThrobber("#scan-throbber", "/api/master-commits-granular", {"weeks": weeks_count}, breakages_gantt_highchart)
 
-	getJsonWithThrobber("#scan-throbber2", "/api/master-pr-merge-time-weekly-failure-stats", {"weeks": 26}, function (data) {
+	getJsonWithThrobber("#scan-throbber2", "/api/master-pr-merge-time-weekly-failure-stats", {"weeks": weeks_count}, function (data) {
 		pr_merges_timeline_highchart("pr-merges-by-week-stacked", data, "normal", "count");
 		pr_merges_timeline_highchart("pr-merges-by-week-percent", data, "percent", "percent");
 	});
@@ -271,7 +275,9 @@ function render_master_commits_plots() {
 }
 
 
-function main() {
-	render_master_commits_plots();
+function render_charts() {
+
+	const weeks_count = $('#weeks-count-input').val();
+	render_master_commits_plots(weeks_count);
 }
 

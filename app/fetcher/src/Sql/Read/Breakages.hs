@@ -6,31 +6,31 @@
 module Sql.Read.Breakages where
 
 import           Control.Monad.IO.Class             (liftIO)
-import           Control.Monad.Trans.Reader         (ask)
-import           Data.Either.Utils                  (maybeToEither)
-import           Data.Aeson
 import           Control.Monad.Trans.Except         (ExceptT (ExceptT),
                                                      runExceptT)
+import           Control.Monad.Trans.Reader         (ask)
+import           Data.Aeson
+import           Data.Either.Utils                  (maybeToEither)
 import           Data.Set                           (Set)
 import qualified Data.Set                           as Set
 import           Data.Text                          (Text)
-import           Database.PostgreSQL.Simple.Types     (fromPGArray)
-import           Database.PostgreSQL.Simple.FromRow (field, fromRow)
 import           Data.Time                          (UTCTime)
 import           Database.PostgreSQL.Simple
+import           Database.PostgreSQL.Simple.FromRow (field, fromRow)
+import           Database.PostgreSQL.Simple.Types   (fromPGArray)
 import           GHC.Generics
 import           GHC.Int                            (Int64)
 import qualified Safe
 
-import qualified DbHelpers
-import qualified JsonUtils
 import qualified BuildResults
-import qualified Sql.Read.Types                     as SqlReadTypes
-import qualified DebugUtils                         as D
 import qualified Builds
+import qualified DbHelpers
+import qualified DebugUtils                         as D
+import qualified JsonUtils
 import qualified Sql.QueryUtils                     as Q
-import           Sql.Read.Types                       (DbIO, runQuery)
 import qualified Sql.Read.Commits                   as ReadCommits
+import           Sql.Read.Types                     (DbIO, runQuery)
+import qualified Sql.Read.Types                     as SqlReadTypes
 
 
 
@@ -302,33 +302,57 @@ instance ToJSON ExplorableBreakageSpans where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 
-masterCommitsGranular :: DbIO ExplorableBreakageSpans
-masterCommitsGranular = do
-  annotated_master_spans <- runQuery $ Q.join [
-      "SELECT"
-    , Q.list [
-        "github_pr_number"
-      , "foreshadowed_by_pr_failures"
-      , "start_date"
-      , "end_date"
-      ]
-    , "FROM code_breakage_nonoverlapping_spans_dated"
-    ]
+data BreakageSpansBenchmark = BreakageSpansBenchmark {
+    _time_annotated_master :: Float
+  , _time_dirty_master     :: Float
+  } deriving Generic
 
-  dirty_master_spans <- runQuery $ Q.join [
-      "SELECT"
-    , Q.list [
-        "group_index"
-      , "breakage_start"
-      , "breakage_end"
-      ]
-    , "FROM master_indiscriminate_failure_spans"
-    , "ORDER BY breakage_start"
-    ]
 
-  return $ ExplorableBreakageSpans
-    annotated_master_spans
-    dirty_master_spans
+instance ToJSON BreakageSpansBenchmark where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+masterCommitsGranular ::
+     Int
+  -> DbIO (DbHelpers.BenchmarkedResponse BreakageSpansBenchmark ExplorableBreakageSpans)
+masterCommitsGranular weeks_count = do
+  conn <- ask
+  liftIO $ do
+    (annotated_retrieval_time, annotated_master_spans) <- D.timeThisFloat $ query conn annotated_spans_sql $ Only weeks_count
+
+    (dirty_retrieval_time, dirty_master_spans) <- D.timeThisFloat $ query conn dirty_spans_sql $ Only weeks_count
+
+    return $ DbHelpers.BenchmarkedResponse
+      (BreakageSpansBenchmark annotated_retrieval_time dirty_retrieval_time) $
+      ExplorableBreakageSpans
+        annotated_master_spans
+        dirty_master_spans
+
+  where
+    annotated_spans_sql = Q.join [
+        "SELECT"
+      , Q.list [
+          "github_pr_number"
+        , "foreshadowed_by_pr_failures"
+        , "start_date"
+        , "end_date"
+        ]
+      , "FROM code_breakage_nonoverlapping_spans_dated"
+      , "WHERE date_span && tstzrange(now() - interval '? weeks', NULL)"
+      , "ORDER BY start_date"
+      ]
+
+    dirty_spans_sql = Q.join [
+        "SELECT"
+      , Q.list [
+          "group_index"
+        , "breakage_start"
+        , "breakage_end"
+        ]
+      , "FROM master_indiscriminate_failure_spans"
+      , "WHERE date_span && tstzrange(now() - interval '? weeks', NULL)"
+      , "ORDER BY breakage_start"
+      ]
+
 
 apiDetectedCodeBreakages :: DbIO [BuildResults.DetectedBreakageSpan]
 apiDetectedCodeBreakages = runQuery $ Q.join [

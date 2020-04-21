@@ -289,7 +289,8 @@ scottyApp
     pure SqlRead.apiStep
 
   get "/api/master-commits-granular" $
-    pure ReadBreakages.masterCommitsGranular
+    ReadBreakages.masterCommitsGranular
+      <$> S.param "weeks"
 
   get "/api/master-deterministic-failure-modes" $
     pure SqlRead.apiDeterministicFailureModes

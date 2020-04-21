@@ -168,54 +168,53 @@ function gen_time_plot(container_id, hours_count, title, time_unit) {
 
 	getJsonWithThrobber("#throbber-notifications", '/api/status-notifications-by-hour', {"hours": hours_count}, function (data) {
 
+		const rows = [];
+		for (var value of data.rows) {
+			rows.push([Date.parse(value[0]), value[1]]);
+		}
 
-	const rows = [];
-	for (var value of data.rows) {
-		rows.push([Date.parse(value[0]), value[1]]);
-	}
+		Highcharts.chart(container_id, {
 
-	Highcharts.chart(container_id, {
-
-		chart: {
-			type: 'line'
-		},
-		time: {
-			useUTC: false
-		},
-		title: {
-			text: title + ' by ' + time_unit
-		},
-		xAxis: {
-			type: 'datetime',
-			dateTimeLabelFormats: { // don't display the dummy year
-				month: '%e. %b',
-				year: '%b'
+			chart: {
+				type: 'line'
+			},
+			time: {
+				useUTC: false
 			},
 			title: {
-				text: 'Date'
-			}
-		},
-		yAxis: {
-			title: {
-				text: title
+				text: title + ' by ' + time_unit
 			},
-			min: 0
-		},
-		tooltip: {
-			headerFormat: '<b>{series.name}</b><br>',
-			pointFormat: '{point.x:%I:%M%p %b %e}: {point.y}'
-		},
-		plotOptions: {
-			line: {
-				marker: {
-					enabled: true
+			xAxis: {
+				type: 'datetime',
+				dateTimeLabelFormats: { // don't display the dummy year
+					month: '%e. %b',
+					year: '%b'
+				},
+				title: {
+					text: 'Date'
 				}
-			}
-		},
-		credits: {
-			enabled: false
-		},
-		series: [
+			},
+			yAxis: {
+				title: {
+					text: title
+				},
+				min: 0
+			},
+			tooltip: {
+				headerFormat: '<b>{series.name}</b><br>',
+				pointFormat: '{point.x:%I:%M%p %b %e}: {point.y}'
+			},
+			plotOptions: {
+				line: {
+					marker: {
+						enabled: true
+					}
+				}
+			},
+			credits: {
+				enabled: false
+			},
+			series: [
 				{
 					name: title,
 					data: rows,
