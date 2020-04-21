@@ -5,6 +5,8 @@
 
 module Sql.Read.PullRequests where
 
+import qualified AuthStages
+import qualified Builds
 import           Control.Monad.IO.Class     (liftIO)
 import           Control.Monad.Trans.Reader (ask)
 import           Data.Aeson
@@ -14,12 +16,9 @@ import           Data.Time                  (UTCTime)
 import           Database.PostgreSQL.Simple
 import           GHC.Generics
 import           GHC.Int                    (Int64)
-import qualified Safe
-
-import qualified AuthStages
-import qualified Builds
 import qualified JsonUtils
 import qualified PostedComments
+import qualified Safe
 import qualified Sql.QueryUtils             as Q
 import           Sql.Read.Types             (AuthDbIO, DbIO, runQuery)
 import qualified Sql.Read.Types             as SqlReadTypes
@@ -225,6 +224,7 @@ getPullRequestsByCurrentHead (Builds.RawCommit commit_sha1) = do
       , "FROM pr_current_heads"
       , "WHERE head_sha1 = ?"
       ]
+
 
 -- | Retrieves all historical associations of the commit
 -- with pull requests, even if the commit isn't the current

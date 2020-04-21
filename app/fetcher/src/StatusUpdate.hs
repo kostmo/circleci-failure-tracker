@@ -65,6 +65,7 @@ import qualified GitRev
 import qualified Markdown                      as M
 import qualified MatchOccurrences
 import qualified MyUtils
+import qualified PullRequestUtils
 import qualified PullRequestWebhooks
 import qualified PushWebhooks
 import qualified Scanning
@@ -370,6 +371,7 @@ scanAndPost ::
   -> StatusUpdateTypes.GitHubJobStatuses
   -> DbHelpers.OwnerAndRepo
   -> AmazonQueueData.SqsMessageId
+  -> [(Builds.PullRequestNumber, Maybe ReadPullRequests.PostedPRComment)]
   -> Builds.RawCommit
   -> ExceptT LT.Text IO [(Builds.PullRequestNumber, Maybe CommentRenderCommon.CommentRevisionId)]
 scanAndPost
@@ -378,6 +380,7 @@ scanAndPost
     github_statuses_bundle
     owned_repo
     sqs_message_id
+    pr_comment_pairs
     sha1 = do
 
   liftIO $ do
@@ -412,6 +415,7 @@ scanAndPost
       github_statuses_bundle
       owned_repo
       sqs_message_id
+      pr_comment_pairs
       sha1
 
   where
@@ -522,6 +526,7 @@ postCommitSummaryStatus ::
   -> StatusUpdateTypes.GitHubJobStatuses
   -> DbHelpers.OwnerAndRepo
   -> AmazonQueueData.SqsMessageId
+  -> [(Builds.PullRequestNumber, Maybe ReadPullRequests.PostedPRComment)]
   -> Builds.RawCommit
   -> ExceptT LT.Text IO [(Builds.PullRequestNumber, Maybe CommentRenderCommon.CommentRevisionId)]
 postCommitSummaryStatus
@@ -529,6 +534,7 @@ postCommitSummaryStatus
     github_statuses_bundle
     owned_repo
     _sqs_message_id -- TODO use this to obtain time in queue, include in posted comment
+    pr_comment_pairs
     sha1@(Builds.RawCommit commit_sha1_text) = do
 
   liftIO $ D.debugStr "Checkpoint A"
@@ -571,6 +577,7 @@ postCommitSummaryStatus
     conn
     access_token
     owned_repo
+    pr_comment_pairs
     sha1
 
   liftIO $ D.debugStr "Checkpoint Z"
@@ -581,32 +588,6 @@ postCommitSummaryStatus
     access_token = GitHubAuth.token $ ScanRecords.github_auth_token fetching_resources
 
 
-fetchAndCachePrAuthor ::
-     Connection
-  -> OAuth2.AccessToken
-  -> Builds.PullRequestNumber
-  -> ExceptT LT.Text IO AuthStages.Username
-fetchAndCachePrAuthor conn access_token pr_number = do
-
-  maybe_pr_author <- liftIO $ flip runReaderT conn $
-    ReadPullRequests.getCachedPullRequestAuthor pr_number
-
-  case maybe_pr_author of
-    Just author -> do
-      liftIO $ D.debugStr "Fetched PR author from database cache"
-      return author
-    Nothing -> do
-      (pr_author, pr_metadata_obj) <- ExceptT $ first snd <$>
-        GithubApiFetch.getPullRequestAuthor access_token pr_number
-
-      liftIO $ do
-        D.debugStr "Fetched PR author from GitHub API"
-
-        flip runReaderT conn $ SqlWrite.storePullRequestStaticMetadata pr_number pr_metadata_obj
-
-        D.debugStr "Stored PR author and other metadata in database"
-      return pr_author
-
 
 postCommitSummaryStatusInner ::
      [Text] -- ^ circleci failed job list
@@ -615,6 +596,7 @@ postCommitSummaryStatusInner ::
   -> Connection
   -> OAuth2.AccessToken
   -> DbHelpers.OwnerAndRepo
+  -> [(Builds.PullRequestNumber, Maybe ReadPullRequests.PostedPRComment)]
   -> Builds.RawCommit
   -> ExceptT LT.Text IO [(Builds.PullRequestNumber, Maybe CommentRenderCommon.CommentRevisionId)]
 postCommitSummaryStatusInner
@@ -624,18 +606,12 @@ postCommitSummaryStatusInner
     conn
     access_token
     owned_repo
+    pr_comment_pairs
     sha1 = do
 
   liftIO $ D.debugStr "Checkpoint F"
 
-  -- XXX Is the following advice still applicable??
-  --
-  --   We're examining statuses on both failed and successful
-  --   build notifications, which can add up to a lot of activity.
-  --   We only should re-post our summary status if it will change what
-  --   was already posted, since we don't want GitHub to throttle our requests.
-
-  containing_pr_list <- lookupPullRequestsByHeadCommit conn sha1
+  containing_pr_list <- PullRequestUtils.lookupPullRequestsByHeadCommit conn sha1
 
   when (null containing_pr_list) $
     liftIO $ D.debugList [
@@ -643,8 +619,9 @@ postCommitSummaryStatusInner
       , show sha1
       ]
 
-  ancestry_result <- ExceptT $ fmap (first LT.pack) $ GadgitFetch.getIsAncestor $
-    GadgitFetch.RefAncestryProposition merge_base_commit_text viableBranchName
+  ancestry_result <- ExceptT $
+    fmap (first LT.pack) $ GadgitFetch.getIsAncestor $
+      GadgitFetch.RefAncestryProposition merge_base_commit_text viableBranchName
 
   let middle_sections = CommentRender.generateMiddleSections
         ancestry_result
@@ -652,10 +629,8 @@ postCommitSummaryStatusInner
         commit_page_info
         sha1
 
-  for containing_pr_list $ \pr_number ->
-    handleCommentPostingOptOut pr_number $ do
-      maybe_previous_pr_comment <- liftIO $ flip runReaderT conn $
-        ReadPullRequests.getPostedCommentForPR pr_number
+  for pr_comment_pairs $ \(pr_number, maybe_previous_pr_comment) ->
+    PullRequestUtils.handleCommentPostingOptOut conn access_token pr_number $ do
 
       maybe_comment_revision_id <- case maybe_previous_pr_comment of
         Nothing -> Just <$> postInitialComment
@@ -683,17 +658,6 @@ postCommitSummaryStatusInner
     circleci_fail_joblist
 
   Builds.RawCommit merge_base_commit_text = SqlUpdate.merge_base upstream_breakages_info
-
-  handleCommentPostingOptOut pr_number f = do
-    pr_author <- fetchAndCachePrAuthor conn access_token pr_number
-
-    can_post_comments <- ExceptT $ ReadPullRequests.canPostPullRequestComments conn pr_author
-    if can_post_comments
-      then f
-      else ExceptT $ do
-        runReaderT (SqlWrite.recordBlockedPRCommentPosting pr_number) $
-          SqlReadTypes.AuthConnection conn pr_author
-        return $ Right (pr_number, Nothing)
 
 
 conditionallyPostIfNovelComment
@@ -735,33 +699,6 @@ conditionallyPostIfNovelComment
     recreated_old_pr_comment_text = gen_comment count_modified_previous_comment
 
 
--- | Falls back to Gadgit webservice if database
--- lookup did not find anything
-lookupPullRequestsByHeadCommit ::
-     Connection
-  -> Builds.RawCommit
-  -> ExceptT LT.Text IO [Builds.PullRequestNumber]
-lookupPullRequestsByHeadCommit conn sha1 = do
-
-  found_prs <- liftIO $ flip runReaderT conn $ ReadPullRequests.getPullRequestsByCurrentHead sha1
-
-  if null found_prs
-    then do
-      liftIO $ D.debugList [
-          "No PR in DB with HEAD commit"
-        , show sha1
-        , "- Falling back to Gadgit webservice"
-        ]
-
-      pr_numbers <- ExceptT $ first LT.pack <$> GadgitFetch.getContainingPRs sha1
-
-      liftIO $ flip runReaderT conn $
-        SqlWrite.insertPullRequestHeads False $
-          map (\pr_number -> (pr_number, sha1)) pr_numbers
-
-      return pr_numbers
-
-    else return found_prs
 
 
 postInitialComment ::
@@ -954,15 +891,17 @@ readGitHubStatusesAndScanAndPostSummaryForCommit
 
   liftIO $ D.debugStr "Finished getBuildsFromGithub"
 
-  maybe_previously_posted_status <- liftIO $ flip runReaderT conn $
-    ReadPullRequests.getPostedCommentForSha1 sha1
+  pr_comment_pairs <- ExceptT $ flip runReaderT conn $
+    PullRequestUtils.getPRCommentPairsForHeadCommit sha1
+
+  let has_any_comments = not $ null $ Maybe.mapMaybe sequenceA pr_comment_pairs
 
   -- If we haven't posted a PR comment before for this commit,
   -- do not act unless there exists a failed build.
   -- If we *have* posted before, we must proceed to check
   -- whether the post needs to be updated, even (especially)
   -- if the GitHub notification was for a success.
-  let should_proceed = StatusUpdateTypes.hasAnyFailures github_statuses_bundle || not (null maybe_previously_posted_status)
+  let should_proceed = StatusUpdateTypes.hasAnyFailures github_statuses_bundle || has_any_comments
 
   -- TODO: Wihtout this "force_scanning" override, which is
   -- conditioned on being a master commit at the call site,
@@ -980,6 +919,7 @@ readGitHubStatusesAndScanAndPostSummaryForCommit
         github_statuses_bundle
         owned_repo
         sqs_message_id
+        pr_comment_pairs
         sha1
 
     NoScanLogs -> return []

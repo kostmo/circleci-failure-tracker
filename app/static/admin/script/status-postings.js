@@ -145,7 +145,7 @@ function gen_health_plot(series_list, container_id, title, time_unit) {
 		},
 		tooltip: {
 			headerFormat: '<b>{series.name}</b><br>',
-			pointFormat: '{point.x:%e. %b}: {point.y}'
+			pointFormat: '{point.x:%I:%M%p %b %e}: {point.y}'
 		},
 		plotOptions: {
 			area: {
@@ -203,7 +203,7 @@ function gen_time_plot(container_id, hours_count, title, time_unit) {
 		},
 		tooltip: {
 			headerFormat: '<b>{series.name}</b><br>',
-			pointFormat: '{point.x:%e. %b}: {point.y}'
+			pointFormat: '{point.x:%I:%M%p %b %e}: {point.y}'
 		},
 		plotOptions: {
 			line: {
@@ -266,7 +266,7 @@ function gen_queue_depth_plot(container_id, hours_count, title) {
 			},
 			tooltip: {
 				headerFormat: '<b>{series.name}</b><br>',
-				pointFormat: '{point.x:%e. %b}: {point.y}'
+				pointFormat: '{point.x:%I:%M%p %b %e}: {point.y}'
 			},
 			plotOptions: {
 				line: {
