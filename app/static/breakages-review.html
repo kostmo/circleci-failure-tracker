@@ -1,6 +1,6 @@
 <html>
 <head>
-<title>Flakiness review</title>
+<title>Breakages review</title>
 
 <link href="/style.css" rel="stylesheet" type="text/css"></link>
 
@@ -27,6 +27,8 @@
 <script src="/script/build-details-helper.js"></script>
 <script src="/script/unattributed-failures-helper.js"></script>
 <script src="/script/review-tools-common.js"></script>
+<script src="/script/breakage-definition.js"></script>
+<script src="/script/breakages-table.js"></script>
 <script src="/script/breakages-review.js"></script>
 
 <style>
@@ -54,24 +56,9 @@ See this post: https://github.com/olifolkerd/tabulator/issues/1972#issuecomment-
 <body onload="main();">
 
 <span style="float: right">[<a href="/">home</a>]</span>
-<h2>Flakiness review: Isolated/flaky failures in <code>master</code> branch</h2>
-
-<p>
-An <em>isolated failure</em> is a build failure that is neither a member of a contiguous run (multiple consecutive commits failing with the same job) nor a multi job failure (same failure pattern across multiple jobs in a single commit).
-</p>
-
-<p>
-Such a failure is additionally <em>recognized as flaky</em> if a predefined log-scanning pattern tagged as "flaky" has matched the build console output. Failures on the master branch are a "training" dataset that should be used to refine the set of flaky patterns to be used on PR builds.
-</p>
+<h2>Breakages review: <code>master</code> branch</h2>
 
 <div style="float: left; margin-right: 6em;">
-<ul>
-<li>
-Group by:
-<label><input type="radio" name="grouping-mode" value="by-job"/>job</label>
-<label><input type="radio" name="grouping-mode" value="by-pattern" checked="true"/>pattern</label>
-<label><input type="radio" name="grouping-mode" value="by-test"/>test</label>
-</li>
 
 <li>
 <span style="margin-right: 1em;">
@@ -106,77 +93,12 @@ Days:
 </div>
 
 
-<div>
-<div id="throbber-coarse-cause-bins" style="display: none;"><img src="/images/duck.gif"/></div>
-
-<div id="container-coarse-cause-piechart" style="height: 150px"></div>
-</div>
-
-
-
 <br clear="all" />
 
+<div id="scan-throbber" style="display: none; float:right; clear: all;"><img src="/images/duck.gif"/></div>
 
-<div id="by-pattern-container">
-
-<h3>Failures by pattern</h3>
-
-<label style="float: left"><input id="exclude-named-tests-checkbox" type="checkbox" checked="checked" onchange="go_calendar_span()"/>Exclude named tests</label>
-
-<div id="full-span-grid-link-placeholder-by-pattern" style="display: none; float: right"></div>
-
-<br clear="all" />
-
-<div id="throbber-by-pattern" style="display: none;"><img src="/images/duck.gif"/></div>
-<div id="isolated-failures-by-pattern-table"></div>
-
-</div>
-
-
-<div id="by-test-container">
-
-<h3>Failures by test</h3>
-
-
-<div id="throbber-by-test" style="display: none;"><img src="/images/duck.gif"/></div>
-
-<div id="full-span-grid-link-placeholder-by-test" style="display: none; float: right"></div>
-
-<br clear="all" />
-
-<div id="isolated-failures-by-test-table"></div>
-
-</div>
-
-<div id="by-job-container">
-<h3>Failures by job</h3>
-<div id="throbber-by-job" style="display: none;"><img src="/images/duck.gif"/></div>
-
-
-<div style="float: left">Click on a row to load failure causes.</div>
-<div id="full-span-grid-link-placeholder-by-job" style="display: none; float: right"></div>
-
-<br clear="all" />
-<div id="isolated-failures-by-job-table"></div>
-
-</div>
-
-
-<div id="failure-details-section" style="display: none;">
-	<h3>Failure details for <span id="selected-details-row-title-container">...</span></h3>
-
-	<div id="throbber-details-table" style="display: none;"><img src="/images/duck.gif"/></div>
-
-	<button type="button" id="rescan-failures-button" style="display: none;" onclick="rescan_selected_builds(this);">Rescan selected</button> <img id="mini-throbber" src="/images/animated-spinner.svg" style="width: 16px; vertical-align: middle; display: none;"/>
-
-	<div id="failure-details-table"></div>
-</div>
-
-<h3>Stats</h3>
-<div id="throbber-isolated-failures-timeline-by-day" style="display: none;"><img src="/images/duck.gif"/></div>
-
-<div id="container-isolated-failures-timeline-by-day" style="width: 600px; float: left; margin-right: 8em;"></div>
-
+<h3>Manually annotated</h3>
+<div id="annotated-breakages-table"></div>
 
 <br clear="all" />
 

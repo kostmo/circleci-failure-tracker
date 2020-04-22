@@ -2996,7 +2996,8 @@ CREATE VIEW public.code_breakage_nonoverlapping_spans_dated WITH (security_barri
  SELECT m1.github_pr_number,
     m1.committer_date AS start_date,
     m2.committer_date AS end_date,
-    (COALESCE(code_breakage_failing_pr_jobs.foreshadowed_broken_job_count, (0)::bigint) > 0) AS foreshadowed_by_pr_failures
+    (COALESCE(code_breakage_failing_pr_jobs.foreshadowed_broken_job_count, (0)::bigint) > 0) AS foreshadowed_by_pr_failures,
+    tstzrange(m1.committer_date, m2.committer_date) AS date_span
    FROM ((((public.code_breakage_nonoverlapping_spans
      JOIN public.master_ordered_commits_with_metadata m1 ON ((m1.id = code_breakage_nonoverlapping_spans.start_commit_id_inclusive)))
      JOIN public.master_ordered_commits_with_metadata m2 ON ((m2.id = code_breakage_nonoverlapping_spans.end_commit_id_exclusive)))
@@ -4550,13 +4551,14 @@ NOTE: Shares technique with "master_contiguous_failures"';
 -- Name: master_indiscriminate_failure_spans; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.master_indiscriminate_failure_spans AS
+CREATE VIEW public.master_indiscriminate_failure_spans WITH (security_barrier='false') AS
  SELECT foo.next_good_commit_id,
     foo.first_broken_commit_id,
     foo.breakage_span,
     foo.group_index,
     m1.committer_date AS breakage_start,
-    m2.committer_date AS breakage_end
+    m2.committer_date AS breakage_end,
+    tstzrange(m1.committer_date, m2.committer_date) AS date_span
    FROM ((( SELECT max(master_indiscriminate_failure_spans_intermediate.prev_commit_id) AS next_good_commit_id,
             min(master_indiscriminate_failure_spans_intermediate.id) AS first_broken_commit_id,
             count(*) AS breakage_span,
@@ -5607,7 +5609,8 @@ CREATE VIEW public.test_failures_by_universal_build WITH (security_barrier='fals
     first_failed_test_result.file AS maybe_test_file,
     first_failed_test_result.classname AS maybe_test_classname,
     first_failed_test_result.name AS maybe_test_name,
-    first_failed_test_result.message AS maybe_test_message
+    first_failed_test_result.message AS maybe_test_message,
+    first_failed_test_result.result AS maybe_test_result
    FROM (public.universal_builds
      JOIN public.first_failed_test_result ON ((universal_builds.provider_build_surrogate = first_failed_test_result.provider_build_surrogate_id)));
 

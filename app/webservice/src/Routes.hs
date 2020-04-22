@@ -236,15 +236,6 @@ scottyApp
   get "/api/missing-required-builds" $
     pure ReadBuilds.apiMissingRequiredBuilds
 
-  get "/api/code-breakages-leftover-detected" $
-    pure ReadBreakages.apiLeftoverDetectedCodeBreakages
-
-  get "/api/code-breakages-detected" $
-    pure ReadBreakages.apiDetectedCodeBreakages
-
-  get "/api/code-breakages-annotated" $
-    pure ReadBreakages.apiAnnotatedCodeBreakagesWithImpact
-
   get "/api/code-breakages-author-stats" $
     pure ReadBreakages.apiBreakageAuthorStats
 
@@ -312,6 +303,16 @@ scottyApp
 
   get "/api/idiopathic-failed-builds" $
     pure ReadBuilds.apiIdiopathicBuilds
+
+  get "/api/code-breakages-leftover-detected" $
+    pure ReadBreakages.apiLeftoverDetectedCodeBreakages
+
+  get "/api/code-breakages-detected" $
+    pure ReadBreakages.apiDetectedCodeBreakages
+
+  get "/api/code-breakages-annotated" $
+    ReadBreakages.apiAnnotatedCodeBreakagesWithImpact
+      <$> parseTimeRangeParms
 
   get "/api/code-breakages-annotated-single" $
     fmap WebApi.toJsonEither . ReadBreakages.apiAnnotatedCodeBreakagesWithoutImpactSingle

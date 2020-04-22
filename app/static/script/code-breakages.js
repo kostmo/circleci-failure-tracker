@@ -274,27 +274,7 @@ function gen_failure_modes_chart(container_id) {
 }
 
 
-function load_failure_spans_table() {
-
-	// TODO Apply throbber to more fetches
-	$("#scan-throbber").show();
-	$.getJSON('/api/list-failure-modes', function (mydata) {
-
-		$("#scan-throbber").hide();
-
-		const failure_modes_dict = {};
-		for (var item of mydata) {
-			failure_modes_dict[item["db_id"]] = item["record"];
-		}
-
-		gen_annotated_breakages_table("annotated-breakages-table", "/api/code-breakages-annotated", failure_modes_dict);
-	});
-}
-
-
 function main() {
-
-	load_failure_spans_table();
 
 	gen_failure_modes_chart("container-failure-modes");
 

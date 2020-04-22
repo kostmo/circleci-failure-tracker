@@ -30,6 +30,7 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 		layout:"fitColumns",
 		placeholder:"No Data Set",
 		columns:[
+
 			{title: "Action", columns: [
 				{title:"X",
 					headerSort: false,
@@ -76,6 +77,9 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 					align:"center",
 				},
 			]},
+
+
+/*
 			{title: "Mode", width: 150, field: "start.record.payload.breakage_mode.payload",
 				formatter: function(cell, formatterParams, onRendered) {
 					const value = cell.getValue();
@@ -167,6 +171,7 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 					},
 				},
 			]},
+
 			{title: "Start", columns: [
 				{title: "commit", width: 300, field: "start.record.payload.breakage_commit.record",
 					formatter: function(cell, formatterParams, onRendered) {
@@ -189,12 +194,17 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 					},
 				},
 			]},
+
+*/
+
 			{title: "End", columns: [
+/*
 				{title: "commit", width: 300, field: "end.record.payload.resolution_commit.record",
 					formatter: function(cell, formatterParams, onRendered) {
 						return render_commit_cell(cell, "end");
 					},
 				},
+*/
 				{title: "reported", width: 250,
 					formatter: function(cell, formatterParams, onRendered) {
 						const val = cell.getValue();
@@ -211,6 +221,7 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 					},
 				},
 			]},
+
 			{title: "Affected jobs", columns: [
 				{title: "Count",
 					width: 75,

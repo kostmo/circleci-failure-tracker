@@ -2,8 +2,9 @@ function setup_breakage_mode_selector() {
 
 	const selector_element = $('#breakage-mode-selector');
 
-	$("#mini-throbber-failure-modes").show();
-	$.getJSON('/api/list-failure-modes', function (mydata) {
+
+	getJsonWithThrobber("mini-throbber-failure-modes", "/api/list-failure-modes", {}, function(mydata) {
+
 		$("#mini-throbber-failure-modes").hide();
 
 		selector_element.empty();

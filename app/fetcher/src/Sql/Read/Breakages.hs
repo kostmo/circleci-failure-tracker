@@ -377,7 +377,6 @@ apiDetectedCodeBreakages = runQuery $ Q.join [
   ]
 
 
-
 annotatedCodeBreakagesFields = [
     "cause_id"
   , "cause_commit_index"
@@ -437,11 +436,24 @@ sqlPrefixAnnotatedCodeBreakagesWithImpact = Q.join [
 
 
 apiAnnotatedCodeBreakagesWithImpact ::
-  DbIO [BuildResults.BreakageSpan Text BuildResults.BreakageImpactStats]
-apiAnnotatedCodeBreakagesWithImpact = runQuery $ Q.join [
-    sqlPrefixAnnotatedCodeBreakagesWithImpact
-  , "ORDER BY cause_commit_index DESC"
-  ]
+     SqlReadTypes.TimeRange
+  -> DbIO [BuildResults.BreakageSpan Text BuildResults.BreakageImpactStats]
+apiAnnotatedCodeBreakagesWithImpact time_bounds = do
+  conn <- ask
+  liftIO $ do
+    xs <- query conn sql query_parms
+    return xs
+  where
+    query_parms = SqlReadTypes.queryParmsFromTimeRange time_bounds
+
+    sql = Q.join [
+        sqlPrefixAnnotatedCodeBreakagesWithImpact
+      , "WHERE"
+      , Q.join [
+          "tstzrange(?::timestamp, ?::timestamp) && breakage_date_span"
+        ]
+      , "ORDER BY cause_commit_index DESC"
+      ]
 
 
 -- | TODO "head" is partial
