@@ -31,22 +31,15 @@ instance FromField PullRequestNumber where
 
 
 newtype RawCommit = RawCommit Text
- deriving (Generic, Eq, Ord, Show, FromRow)
+ deriving (Generic, Eq, Ord, Show, FromRow, FromJSON, ToJSON)
 
 -- TODO do error handling:
 -- http://hackage.haskell.org/package/postgresql-simple-0.6.2/docs/Database-PostgreSQL-Simple-FromField.html
 instance FromField RawCommit where
   fromField f mdata = RawCommit <$> fromField f mdata
 
-instance ToJSON RawCommit
-instance FromJSON RawCommit
-
-
 newtype BuildNumber = NewBuildNumber Int64
-  deriving (Show, Generic, Eq, Ord, FromRow)
-
-instance ToJSON BuildNumber
-instance FromJSON BuildNumber
+  deriving (Show, Generic, Eq, Ord, FromRow, FromJSON, ToJSON)
 
 -- TODO do error handling:
 -- http://hackage.haskell.org/package/postgresql-simple-0.6.2/docs/Database-PostgreSQL-Simple-FromField.html
@@ -55,13 +48,10 @@ instance FromField BuildNumber where
 
 
 newtype UniversalBuildId = UniversalBuildId Int64
-  deriving (Show, Generic, Eq, Ord)
+  deriving (Show, Generic, Eq, Ord, FromJSON, ToJSON)
 
 extractUniversalId :: UniversalBuildId -> Int64
 extractUniversalId (UniversalBuildId x) = x
-
-instance ToJSON UniversalBuildId
-instance FromJSON UniversalBuildId
 
 -- TODO do error handling: http://hackage.haskell.org/package/postgresql-simple-0.6.2/docs/Database-PostgreSQL-Simple-FromField.html
 instance FromField UniversalBuildId where
@@ -69,18 +59,13 @@ instance FromField UniversalBuildId where
 
 
 newtype BuildStepId = NewBuildStepId Int64
-  deriving (Show, Generic)
-
-instance ToJSON BuildStepId
-instance FromJSON BuildStepId
+  deriving (Show, Generic, FromJSON, ToJSON)
 
 
 data CiProvider = CiProvider {
     icon_url :: Text
   , label    :: Text
-  } deriving Generic
-
-instance ToJSON CiProvider
+  } deriving (Show, Generic, ToJSON)
 
 
 data UniBuildWithJob = UniBuildWithJob {
@@ -95,9 +80,7 @@ data UniversalBuild = UniversalBuild {
   , build_namespace   :: Text
   , succeeded         :: Bool
   , sha1              :: RawCommit
-  } deriving (Eq, Ord, Show, Generic)
-
-instance ToJSON UniversalBuild
+  } deriving (Eq, Ord, Show, Generic, ToJSON)
 
 instance FromRow UniversalBuild where
   fromRow = do
@@ -121,7 +104,7 @@ instance FromRow UniversalBuild where
 data StorableBuild = StorableBuild {
     universal_build :: DbHelpers.WithId UniversalBuild -- ^ this already came from database
   , build_record    :: Build
-  } deriving Generic
+  } deriving (Show, Generic, ToJSON)
 
 
 -- | Constraint in database is named "universal_builds_provider_build_namespace_x_job_name_commit_key"
@@ -132,8 +115,6 @@ getUniquenessConstraint (UniBuildWithJob u_build_obj job) = (
   , sha1 u_build_obj
   , job
   )
-
-instance ToJSON StorableBuild
 
 instance FromRow StorableBuild where
   fromRow = do
@@ -172,10 +153,7 @@ data Build = NewBuild {
   , branch       :: Maybe Text
   , start_time   :: Maybe UTCTime
   , stop_time    :: Maybe UTCTime
-  } deriving (Eq, Ord, Show, Generic)
-
-instance ToJSON Build
-instance FromJSON Build
+  } deriving (Eq, Ord, Show, Generic, FromJSON, ToJSON)
 
 
 data BuildWithStepFailure = BuildWithStepFailure {

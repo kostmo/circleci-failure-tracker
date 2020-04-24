@@ -124,7 +124,7 @@ data CommitBuildSupplementalPayload = CommitBuildSupplementalPayload {
   , has_completed_rerun             :: Bool
   , has_triggered_rebuild           :: Bool
   , failure_count                   :: Int
-  } deriving (Generic, FromRow, ToJSON)
+  } deriving (Show, Generic, FromRow, ToJSON)
 
 
 data UpstreamBrokenJob = UpstreamBrokenJob {

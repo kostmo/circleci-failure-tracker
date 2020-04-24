@@ -1,16 +1,19 @@
-{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveGeneric              #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module AmazonQueueData where
 
-import           Data.Aeson     (FromJSON, ToJSON)
-import           Data.Text      (Text)
-import qualified Data.Text.Lazy as TL
-import           GHC.Generics   (Generic)
+import           Data.Aeson                           (FromJSON, ToJSON)
+import           Data.Text                            (Text)
+import qualified Data.Text.Lazy                       as TL
+import           Database.PostgreSQL.Simple.FromField (FromField)
+import           GHC.Generics                         (Generic)
 
 import qualified Builds
 
 
 newtype SqsMessageId = NewSqsMessageId (Maybe TL.Text)
+  deriving (ToJSON, FromField)
 
 newtype MessageGroupId = MessageGroupId Text
 

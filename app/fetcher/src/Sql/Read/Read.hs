@@ -371,6 +371,8 @@ data BasicRevisionBuildStats = BasicRevisionBuildStats {
   } deriving (Show, Generic, FromRow)
 
 
+-- | Excludes the jobs that have also succeeded
+-- at least once at this commit.
 getFailedCircleCIJobNames ::
      Builds.RawCommit
   -> DbIO (Either LT.Text [Text])
@@ -383,12 +385,13 @@ getFailedCircleCIJobNames (Builds.RawCommit sha1) = do
 
     sql = Q.join [
         "SELECT job_name"
-      , "FROM global_builds"
+      , "FROM global_builds_empirical_flakiness"
       , "WHERE"
       , Q.conjunction [
-          "vcs_revision = ?"
+          "sha1 = ?"
         , "provider = ?"
         , "NOT succeeded"
+        , "NOT is_empirically_determined_flaky"
         ]
       ]
 

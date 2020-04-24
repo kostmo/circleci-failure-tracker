@@ -45,6 +45,7 @@ import qualified Sql.Read.Flaky                  as SqlReadFlaky
 import qualified Sql.Read.Matches                as ReadMatches
 import qualified Sql.Read.Patterns               as ReadPatterns
 import qualified Sql.Read.PullRequests           as ReadPullRequests
+import qualified Sql.Read.Queue                  as ReadQueue
 import qualified Sql.Read.Read                   as SqlRead
 import qualified Sql.Read.Stats                  as ReadStats
 import qualified Sql.Read.TestResults            as ReadTestResults
@@ -326,6 +327,16 @@ scottyApp
 
   get "/api/posted-comments-for-pr" $
     ReadPullRequests.apiPostedCommentsForPR <$> (Builds.PullRequestNumber <$> S.param "pr")
+
+  -- TODO This endpoint not used yet
+  get "/api/queue-insertions-for-commit" $
+    ReadQueue.getQueueInsertionsForSha1 <$> (Builds.RawCommit <$> S.param "sha1")
+
+  -- TODO This endpoint not used yet
+  get "/api/queue-insertions-for-commit-and-job" $
+    ReadQueue.getQueueInsertionsForSha1AndJob
+      <$> S.param "job"
+      <*> (Builds.RawCommit <$> S.param "sha1")
 
   get "/api/historical-pr-associations" $
     ReadPullRequests.getPullRequestsContainingCommit . Builds.RawCommit <$> S.param "sha1"

@@ -79,7 +79,6 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 			]},
 
 
-/*
 			{title: "Mode", width: 150, field: "start.record.payload.breakage_mode.payload",
 				formatter: function(cell, formatterParams, onRendered) {
 					const value = cell.getValue();
@@ -96,6 +95,7 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 					update_breakage_mode(cause_id, new_failure_mode);
 				},
 			},
+
 
 			{title: "Pull Request", columns: [
 				{title: "#", width: 75, field: "impact_stats.pr_foreshadowing.github_pr_number",
@@ -140,6 +140,7 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 					},
 				},
 			]},
+
 			{title: "Notes", width: 150, field: "start.record.payload.description",
 				editor: "input",
 				cellEdited: function(cell) {
@@ -150,6 +151,7 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 					post_modification("/api/code-breakage-description-update", data_dict);
 				},
 			},
+
 			{title: "Downstream Impact", columns: [
 				{title: "Commits",
 					field: "impact_stats.downstream_impact_counts.downstream_broken_commit_count",
@@ -160,6 +162,7 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 					width: 75,
 				},
 			]},
+
 			{title: "Span", columns: [
 				{title: "Commit count", width: 100, field: "spanned_commit_count",
 					headerSort: true,
@@ -173,11 +176,13 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 			]},
 
 			{title: "Start", columns: [
+/*
 				{title: "commit", width: 300, field: "start.record.payload.breakage_commit.record",
 					formatter: function(cell, formatterParams, onRendered) {
 						return render_commit_cell(cell, "start");
 					},
 				},
+*/
 				{title: "when", width: 100, field: "start.record.payload.metadata.created",
 					formatter: function(cell, formatterParams, onRendered) {
 						const committed_time = cell.getValue();
@@ -193,9 +198,8 @@ function gen_annotated_breakages_table(element_id, data_url, failure_modes_dict)
 						return moment(val).fromNow() + " by " + start_obj["record"]["author"];
 					},
 				},
-			]},
 
-*/
+			]},
 
 			{title: "End", columns: [
 /*

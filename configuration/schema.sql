@@ -598,16 +598,55 @@ CREATE VIEW lambda_logging.materialized_view_refresh_event_stats WITH (security_
 ALTER TABLE lambda_logging.materialized_view_refresh_event_stats OWNER TO postgres;
 
 --
+-- Name: github_incoming_status_events_derived_circleci_columns; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.github_incoming_status_events_derived_circleci_columns (
+    event_id integer NOT NULL,
+    job_name_extracted text NOT NULL,
+    build_number_extracted integer
+);
+
+
+ALTER TABLE public.github_incoming_status_events_derived_circleci_columns OWNER TO postgres;
+
+--
+-- Name: TABLE github_incoming_status_events_derived_circleci_columns; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.github_incoming_status_events_derived_circleci_columns IS 'TODO: Convert build_number_extracted and job_name_extracted to "derived columns" in Postgres 12';
+
+
+--
+-- Name: github_status_events_circleci; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.github_status_events_circleci WITH (security_barrier='false') AS
+ SELECT github_incoming_status_events.sha1,
+    github_incoming_status_events.created_at,
+    github_incoming_status_events_derived_circleci_columns.job_name_extracted,
+    github_incoming_status_events_derived_circleci_columns.build_number_extracted,
+    github_incoming_status_events.state,
+    github_incoming_status_events.id
+   FROM (public.github_incoming_status_events
+     JOIN public.github_incoming_status_events_derived_circleci_columns ON ((github_incoming_status_events_derived_circleci_columns.event_id = github_incoming_status_events.id)));
+
+
+ALTER TABLE public.github_status_events_circleci OWNER TO postgres;
+
+--
 -- Name: sha1_queue_insertions; Type: VIEW; Schema: lambda_logging; Owner: postgres
 --
 
 CREATE VIEW lambda_logging.sha1_queue_insertions WITH (security_barrier='false') AS
- SELECT github_incoming_status_events.sha1,
+ SELECT github_status_events_circleci.sha1,
     eb_worker_sha1_enqueing.inserted_at,
     eb_worker_sha1_enqueing.sqs_message_id,
-    github_incoming_status_events.state
+    github_status_events_circleci.state,
+    github_status_events_circleci.job_name_extracted,
+    github_status_events_circleci.build_number_extracted
    FROM (lambda_logging.eb_worker_sha1_enqueing
-     JOIN public.github_incoming_status_events ON ((eb_worker_sha1_enqueing.github_status_event_id = github_incoming_status_events.id)));
+     JOIN public.github_status_events_circleci ON ((eb_worker_sha1_enqueing.github_status_event_id = github_status_events_circleci.id)));
 
 
 ALTER TABLE lambda_logging.sha1_queue_insertions OWNER TO postgres;
@@ -772,42 +811,6 @@ In general, it would be possible for the merge base to change over time if the m
 
 Therefore, this cache of merge bases never needs to be invalidated.';
 
-
---
--- Name: github_incoming_status_events_derived_circleci_columns; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.github_incoming_status_events_derived_circleci_columns (
-    event_id integer NOT NULL,
-    job_name_extracted text NOT NULL,
-    build_number_extracted integer
-);
-
-
-ALTER TABLE public.github_incoming_status_events_derived_circleci_columns OWNER TO postgres;
-
---
--- Name: TABLE github_incoming_status_events_derived_circleci_columns; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON TABLE public.github_incoming_status_events_derived_circleci_columns IS 'TODO: Convert build_number_extracted and job_name_extracted to "derived columns" in Postgres 12';
-
-
---
--- Name: github_status_events_circleci; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.github_status_events_circleci WITH (security_barrier='false') AS
- SELECT github_incoming_status_events.sha1,
-    github_incoming_status_events.created_at,
-    github_incoming_status_events_derived_circleci_columns.job_name_extracted,
-    github_incoming_status_events_derived_circleci_columns.build_number_extracted,
-    github_incoming_status_events.state
-   FROM (public.github_incoming_status_events
-     JOIN public.github_incoming_status_events_derived_circleci_columns ON ((github_incoming_status_events_derived_circleci_columns.event_id = github_incoming_status_events.id)));
-
-
-ALTER TABLE public.github_status_events_circleci OWNER TO postgres;
 
 --
 -- Name: github_status_events_circleci_failures; Type: VIEW; Schema: public; Owner: postgres
@@ -1199,19 +1202,13 @@ CREATE VIEW public.global_builds_empirical_flakiness WITH (security_barrier='fal
     global_builds.vcs_revision AS sha1,
     global_builds.succeeded,
     (circleci_empirically_flaky_builds.sha1 IS NOT NULL) AS is_empirically_determined_flaky,
-    global_builds.global_build_num
+    global_builds.global_build_num,
+    global_builds.provider
    FROM (public.global_builds
      LEFT JOIN public.circleci_empirically_flaky_builds ON (((circleci_empirically_flaky_builds.sha1 = global_builds.vcs_revision) AND (circleci_empirically_flaky_builds.job_name = global_builds.job_name))));
 
 
 ALTER TABLE public.global_builds_empirical_flakiness OWNER TO postgres;
-
---
--- Name: VIEW global_builds_empirical_flakiness; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON VIEW public.global_builds_empirical_flakiness IS 'TODO not used?';
-
 
 --
 -- Name: master_failure_mode_attributions; Type: TABLE; Schema: public; Owner: postgres
@@ -2757,7 +2754,8 @@ CREATE VIEW public.known_breakage_summaries_sans_impact WITH (security_barrier='
     date_part('epoch'::text, COALESCE((meta2.committer_date - meta1.committer_date), '00:00:00'::interval)) AS commit_timespan_seconds,
     meta1.github_pr_number,
     int8range((code_breakage_spans.cause_commit_index)::bigint, (code_breakage_spans.resolved_commit_index)::bigint) AS commit_index_span,
-    COALESCE(foo.jobs, '{}'::text[]) AS cause_jobs_array
+    COALESCE(foo.jobs, '{}'::text[]) AS cause_jobs_array,
+    tstzrange(meta1.committer_date, meta2.committer_date) AS breakage_date_span
    FROM (((public.code_breakage_spans
      LEFT JOIN ( SELECT code_breakage_affected_jobs.cause,
             array_agg(code_breakage_affected_jobs.job) AS jobs
@@ -2916,7 +2914,8 @@ CREATE VIEW public.known_breakage_summaries WITH (security_barrier='false') AS
             ELSE COALESCE(pr_impact_cause_summary.downstream_broken_commit_count_for_cause, (0)::bigint)
         END AS unavoidable_downstream_broken_commit_count,
     COALESCE(code_breakage_failing_pr_jobs.foreshadowed_broken_jobs_array, '{}'::text[]) AS foreshadowed_broken_jobs_array,
-    known_breakage_summaries_sans_impact.cause_jobs_array
+    known_breakage_summaries_sans_impact.cause_jobs_array,
+    known_breakage_summaries_sans_impact.breakage_date_span
    FROM (((public.known_breakage_summaries_sans_impact
      LEFT JOIN public.pr_impact_cause_summary ON ((pr_impact_cause_summary.first_cause = known_breakage_summaries_sans_impact.cause_id)))
      LEFT JOIN public.pr_current_heads ON ((known_breakage_summaries_sans_impact.github_pr_number = pr_current_heads.pr_number)))
@@ -7726,6 +7725,22 @@ GRANT ALL ON TABLE lambda_logging.materialized_view_refresh_event_stats TO logan
 
 
 --
+-- Name: TABLE github_incoming_status_events_derived_circleci_columns; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.github_incoming_status_events_derived_circleci_columns TO logan;
+GRANT SELECT ON TABLE public.github_incoming_status_events_derived_circleci_columns TO materialized_view_updater;
+
+
+--
+-- Name: TABLE github_status_events_circleci; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.github_status_events_circleci TO logan;
+GRANT SELECT ON TABLE public.github_status_events_circleci TO materialized_view_updater;
+
+
+--
 -- Name: TABLE sha1_queue_insertions; Type: ACL; Schema: lambda_logging; Owner: postgres
 --
 
@@ -7779,22 +7794,6 @@ GRANT ALL ON TABLE lambda_logging.unprocessed_queued_sha1s_from_today TO logan;
 --
 
 GRANT ALL ON TABLE public.cached_master_merge_base TO logan;
-
-
---
--- Name: TABLE github_incoming_status_events_derived_circleci_columns; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.github_incoming_status_events_derived_circleci_columns TO logan;
-GRANT SELECT ON TABLE public.github_incoming_status_events_derived_circleci_columns TO materialized_view_updater;
-
-
---
--- Name: TABLE github_status_events_circleci; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.github_status_events_circleci TO logan;
-GRANT SELECT ON TABLE public.github_status_events_circleci TO materialized_view_updater;
 
 
 --

@@ -185,11 +185,13 @@ data BuildMembers =
   | TentativeFlakyBuildMembers (StatusUpdateTypes.TentativeFlakyBuilds SqlReadTypes.CommitBuildWrapperTuple)
   | UpstreamBreakageMembers [(SqlReadTypes.StandardCommitBuildWrapper, SqlReadTypes.UpstreamBrokenJob)]
   | SpecialCasedMembers [SqlReadTypes.StandardCommitBuildWrapper]
+  | ProvenNonFlakyMembers [SqlReadTypes.StandardCommitBuildWrapper]
   | RawGitHubEventMembers [StatusEventQuery.GitHubStatusEventGetter]
   | GitHubCheckRunMembers [GithubChecksApiFetch.GitHubCheckRunsEntry]
 
 
 getFailureCount :: BuildMembers -> Int
+getFailureCount (ProvenNonFlakyMembers _)      = 0
 getFailureCount (UnmatchedBuildMembers x)      = length x
 getFailureCount (TupleBuildMembers x)          = length x
 getFailureCount (TentativeFlakyBuildMembers x) = StatusUpdateTypes.count x
@@ -434,7 +436,7 @@ genPatternMatchedSections pattern_matched_builds =
 
 genFlakySections ::
      StatusUpdateTypes.TentativeFlakyBuilds SqlReadTypes.CommitBuildWrapperTuple
-  -> [SqlReadTypes.CommitBuildWrapperTuple]
+  -> [SqlReadTypes.StandardCommitBuildWrapper]
   -> (Maybe (Tr.Tree NodeType), Maybe (Tr.Tree NodeType))
 genFlakySections
     tentative_flakies
@@ -446,14 +448,14 @@ genFlakySections
     StatusUpdateTypes.NewTentativeFlakyBuilds tentative_flaky_triggered_reruns tentative_flaky_untriggered_reruns = tentative_flakies
 
 
-    get_job_name = Builds.job_name . Builds.build_record . CommitBuilds._build . CommitBuilds._commit_build . fst
+    get_job_name = Builds.job_name . Builds.build_record . CommitBuilds._build . CommitBuilds._commit_build
 
     maybe_confirmed_flaky_section = if null confirmed_flaky_builds
       then Nothing
       else Just $ pure $ LeafNode $ NewFailureSection
         NonUpstream
         Flaky
-        (TupleBuildMembers confirmed_flaky_builds)
+        (ProvenNonFlakyMembers confirmed_flaky_builds)
         (M.colonize [
             MyUtils.pluralize (length confirmed_flaky_builds) "failure"
           , M.bold "confirmed as flaky"
@@ -714,6 +716,7 @@ genMatchedBuildSection
     job_name = Builds.job_name build_obj
 
     supplemental_commit_build_info = CommitBuilds._supplemental wrapped_commit_build
+
     is_confirmed_non_flaky = SqlReadTypes.has_completed_rerun supplemental_commit_build_info
       && not (SqlReadTypes.is_empirically_determined_flaky supplemental_commit_build_info)
 

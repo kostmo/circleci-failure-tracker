@@ -89,20 +89,20 @@ data NonUpstreamBuildPartition a = NewNonUpstreamBuildPartition {
 data FlakyBuildPartition a = NewFlakyBuildPartition {
     tentatively_flaky_builds :: TentativeFlakyBuilds a
   , nonflaky_builds          :: NonFlakyBuilds a
-  , confirmed_flaky_builds   :: [a]
-  }
+  , confirmed_flaky_builds   :: [SqlReadTypes.StandardCommitBuildWrapper]
+  } deriving Show
 
 
 data TentativeFlakyBuilds a = NewTentativeFlakyBuilds {
     tentative_flaky_triggered_reruns   :: [a]
   , tentative_flaky_untriggered_reruns :: [a]
-  }
+  } deriving Show
 
 
 data NonFlakyBuilds a = NewNonFlakyBuilds {
     nonflaky_by_pattern                :: [a]
   , nonflaky_by_empirical_confirmation :: [a]
-  }
+  } deriving Show
 
 
 instance Partition (TentativeFlakyBuilds a) where
@@ -124,9 +124,13 @@ instance Partition (NonFlakyBuilds a) where
 
 
 partitionMatchedBuilds ::
-     [SqlReadTypes.CommitBuildWrapperTuple]
+     [SqlReadTypes.StandardCommitBuildWrapper]
+  -> [SqlReadTypes.CommitBuildWrapperTuple]
   -> FlakyBuildPartition SqlReadTypes.CommitBuildWrapperTuple
-partitionMatchedBuilds pattern_matched_builds =
+partitionMatchedBuilds
+    confirmed_flaky_breakages
+    pattern_matched_builds =
+
   NewFlakyBuildPartition
     tentative_flaky_builds_partition
     nonflaky_builds_partition
@@ -157,11 +161,7 @@ partitionMatchedBuilds pattern_matched_builds =
     (rerun_was_triggered_breakages, rerun_not_triggered_breakages) =
       partition has_triggered_rerun_predicate not_completed_rerun_flaky_breakages
 
-
-    flakiness_confirmed_predicate = SqlReadTypes.is_empirically_determined_flaky . CommitBuilds._supplemental . fst
-
-    (confirmed_flaky_breakages, negatively_confirmed_flaky_breakages) =
-      partition flakiness_confirmed_predicate completed_rerun_flaky_breakages
+    negatively_confirmed_flaky_breakages = completed_rerun_flaky_breakages
 
 
 data BuildSummaryStats = NewBuildSummaryStats {

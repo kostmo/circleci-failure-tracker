@@ -38,7 +38,7 @@ data MatchOccurrencesForBuild = MatchOccurrencesForBuild {
   , _span_start  :: Int
   , _span_end    :: Int
   , _specificity :: Int
-  } deriving (Generic, FromRow)
+  } deriving (Show, Generic, FromRow)
 
 instance ToJSON MatchOccurrencesForBuild where
   toJSON = genericToJSON JsonUtils.dropUnderscore

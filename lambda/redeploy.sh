@@ -1,7 +1,8 @@
 #!/bin/bash -xe
 
 # Prerequsistes:
-# Install the "sam" tool from AWS
+# Install the "sam" tool from AWS:
+# https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-sam-cli-install.html
 
 cd refresh-grid-view
 

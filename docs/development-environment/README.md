@@ -70,6 +70,15 @@ TravisCI is set up to automatically veryify that each push to GitHub can success
 
 Certain individual functions can be tested in isolation via the `./test-oneoff.sh` script inside the `app` directory.
 
+## Debugging production services
+
+### Downloading logs
+
+Multiple Elastic Beanstalk workers (currently 4) service the SHA1 scanning queue.
+To download all of the latest console logs for each of these workers, execute the script:
+
+    ./tools/log-analysis/fetch_eb_worker_logs.py
+
 
 
 

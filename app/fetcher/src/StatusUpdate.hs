@@ -33,6 +33,7 @@ import qualified Data.Text.Lazy                as LT
 import qualified Data.Time.Clock               as Clock
 import           Data.Traversable              (for)
 import           Data.Tuple                    (swap)
+--import           Database.PostgreSQL.Simple    (Connection, withTransaction)
 import           Database.PostgreSQL.Simple    (Connection)
 import           GHC.Int                       (Int64)
 import qualified GitHub.Data.Webhooks.Validate as GHValidate
@@ -170,12 +171,18 @@ getCircleciFailure sha1 event_setter = do
 -- violated its uniqueness constraint
 --
 -- TODO Replace the inside logic with SqlWite.storeHelper
+--
+-- TODO: This is starting to be a bottleneck with
+-- the loop over single insertions.
+-- Wrapping in a transaction doesn't seem to help much.
 storeUniversalBuilds ::
      Connection
   -> Builds.RawCommit
   -> [([StatusEventQuery.GitHubStatusEventGetter], DbHelpers.WithId SqlReadTypes.CiProviderHostname)]
   -> IO [(Builds.StorableBuild, (StatusEventQuery.GitHubStatusEventGetter, SqlReadTypes.CiProviderHostname))]
-storeUniversalBuilds conn commit statuses_with_ci_providers = do
+storeUniversalBuilds conn commit statuses_with_ci_providers =
+ --withTransaction conn $ do
+ do
 
   result_lists <- for statuses_with_ci_providers $ \(statuses, provider_with_id) -> do
 
@@ -295,10 +302,18 @@ getBuildsFromGithub
   liftIO $ D.debugList ["HERE 1A"]
 
   -- Only store succeeded or failed builds; ignore pending or aborted
-  stored_build_tuples <- liftIO $ storeUniversalBuilds
+  (built_storage_timing, stored_build_tuples) <- liftIO $ D.timeThisFloat $ storeUniversalBuilds
     conn
     sha1
     statuses_with_ci_providers
+
+  liftIO $ D.debugList [
+      "Storing"
+    , show $ length stored_build_tuples
+    , "builds took"
+    , show built_storage_timing
+    , "seconds"
+    ]
 
   liftIO $ D.debugList ["HERE 1B"]
 
@@ -453,7 +468,8 @@ fetchCommitPageInfo
   liftIO $ D.debugList [
       "Fetched"
     , show $ length revision_builds
-    , "revision builds."
+    , "revision builds:"
+    , show revision_builds
     ]
 
   let get_job_name = Builds.job_name . Builds.build_record . CommitBuilds._build . CommitBuilds._commit_build
@@ -465,7 +481,13 @@ fetchCommitPageInfo
   let f = MyUtils.derivePair $
         (`HashMap.lookup` pre_broken_jobs_map) . get_job_name
 
-      (upstream_breakages, non_upstream_breakages_raw) = partition (not . null . snd) $ map f revision_builds
+
+      flakiness_confirmed_predicate = SqlReadTypes.is_empirically_determined_flaky . CommitBuilds._supplemental
+
+
+      (confirmed_flaky_builds, unsuccessful_builds) = partition flakiness_confirmed_predicate revision_builds
+
+      (upstream_breakages, non_upstream_breakages_raw) = partition (not . null . snd) $ map f unsuccessful_builds
 
       paired_upstream_breakages = Maybe.mapMaybe sequenceA upstream_breakages
 
@@ -501,7 +523,9 @@ fetchCommitPageInfo
 
   liftIO $ D.debugStr "Finishing fetchCommitPageInfo."
 
-  let pattern_matched_builds_partition = StatusUpdateTypes.partitionMatchedBuilds matched_builds_with_log_context
+  let pattern_matched_builds_partition = StatusUpdateTypes.partitionMatchedBuilds
+        confirmed_flaky_builds
+        matched_builds_with_log_context
 
       nonupstream_partition = StatusUpdateTypes.NewNonUpstreamBuildPartition
         pattern_matched_builds_partition
@@ -911,7 +935,7 @@ readGitHubStatusesAndScanAndPostSummaryForCommit
   if force_scanning_for_master || should_proceed
   then case should_scan of
     ShouldScanLogs -> do
-      liftIO $ D.debugList ["About to enter scanAndPost"]
+      liftIO $ D.debugStr "About to enter scanAndPost"
 
       scanAndPost
         scan_resources

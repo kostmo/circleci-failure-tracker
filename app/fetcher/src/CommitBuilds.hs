@@ -20,7 +20,7 @@ import qualified ScanPatterns
 data FailureModeInfo = FailureModeInfo {
     _is_timeout :: Bool
   , _is_flaky   :: Bool
-  } deriving (Generic, FromRow)
+  } deriving (Show, Generic, FromRow)
 
 instance ToJSON FailureModeInfo where
   toJSON = genericToJSON JsonUtils.dropUnderscore
@@ -38,13 +38,13 @@ instance ToJSON LogContext where
 data BuildWithLogContext = BuildWithLogContext {
     commit_build :: CommitBuild
   , log_context  :: LogContext
-  }
+  } deriving Show
 
 
 data ExcerptLinesAndStartNumber = ExcerptLinesAndStartNumber {
     excerpt_lines             :: [LT.Text]
   , first_context_line_number :: Int
-  } deriving (Generic, ToJSON)
+  } deriving (Show, Generic, ToJSON)
 
 
 toNumberedLineTuples ::
@@ -67,7 +67,7 @@ data CommitBuildWrapper a = CommitBuildWrapper {
     _commit_build        :: CommitBuild
   , _supplemental        :: a
   , _maybe_match_excerpt :: Maybe ExcerptLinesAndStartNumber
-  } deriving Generic
+  } deriving (Show, Generic)
 
 instance (ToJSON a) => ToJSON (CommitBuildWrapper a) where
   toJSON = genericToJSON JsonUtils.dropUnderscore
@@ -84,7 +84,7 @@ data CommitBuild = NewCommitBuild {
   , _match        :: MatchOccurrences.MatchOccurrencesForBuild
   , _provider     :: DbHelpers.WithId Builds.CiProvider
   , _failure_mode :: FailureModeInfo
-  } deriving Generic
+  } deriving (Show, Generic)
 
 instance ToJSON CommitBuild where
   toJSON = genericToJSON JsonUtils.dropUnderscore
