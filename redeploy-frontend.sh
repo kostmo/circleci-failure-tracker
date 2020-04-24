@@ -15,7 +15,7 @@ AWS_DOCKERRUN_CONFIG_FILENAME=Dockerrun.aws.json
 
 # Disk space can fill up quickly from dangling images, so
 # we clean them up every time.
-docker image prune
+docker image prune --force
 
 
 # Allows this script to be invoked from any directory:
