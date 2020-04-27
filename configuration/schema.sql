@@ -3358,7 +3358,7 @@ CREATE VIEW public.github_status_events_state_counts WITH (security_barrier='fal
             sum(((g1.state = 'pending'::text))::integer) AS pending_count,
             sum(((g1.state = 'success'::text))::integer) AS success_count,
             sum(((g1.state = 'error'::text))::integer) AS error_count
-           FROM public.github_status_events_circleci g1
+           FROM public.github_status_events_circleci_deduped_states g1
           GROUP BY g1.sha1, g1.job_name_extracted) foo;
 
 
