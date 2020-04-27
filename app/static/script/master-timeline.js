@@ -468,7 +468,10 @@ function define_job_column(col) {
 
 				const row_data = cell.getRow().getData();
 				const commit_id = row_data["commit_index"];
-				const state = disjoint_statuses_by_commit_id[commit_id] && disjoint_statuses_by_commit_id[commit_id][job_name];
+
+				const disjoint_status_for_commit = disjoint_statuses_by_commit_id[commit_id];
+				const disjoint_status_obj = disjoint_status_for_commit && disjoint_status_for_commit[job_name];
+				const state = disjoint_status_obj && disjoint_status_obj["state"];
 
 				if (state) {
 					return "State: " + state;
@@ -560,16 +563,22 @@ function define_job_column(col) {
 							: cell_value.failure_mode["tag"] == "NoLog" ? "gray-diamond.svg"
 								: is_success ? "green-dot.svg" : "red-x.svg";
 
-				const build_id = cell_value["universal_build"]["db_id"];
 				const indicator = '<img src="/images/build-status-indicators/' + img_path + '" style="width: 100%; top: 50%;"/>';
 
+				const build_id = cell_value["universal_build"]["db_id"];
+				const failed_build_link = link(indicator, "/build-details.html?build_id=" + build_id);
 
-				return is_success ? indicator : link(indicator, "/build-details.html?build_id=" + build_id);
+				const provider_build_number = cell_value["universal_build"]["record"]["provider_buildnum"];
+				const successful_build_link = link(indicator, "https://circleci.com/gh/pytorch/pytorch/" + provider_build_number);
+
+				return is_success ? successful_build_link : failed_build_link;
 
 			} else {
 
 
-				const state = disjoint_statuses_by_commit_id[commit_id] && disjoint_statuses_by_commit_id[commit_id][job_name];
+				const disjoint_status_for_commit = disjoint_statuses_by_commit_id[commit_id];
+				const disjoint_status_obj = disjoint_status_for_commit && disjoint_status_for_commit[job_name];
+				const state = disjoint_status_obj && disjoint_status_obj["state"];
 
 				if (state) {
 
@@ -592,7 +601,9 @@ function define_job_column(col) {
 						cell.getElement().style.backgroundImage = "url('/images/corner-triangle-green.svg')";
 						*/
 
-						return '<img src="/images/build-status-indicators/green-dot-concentric.svg" style="width: 100%; top: 50%;"/>';
+						const green_dot_img = '<img src="/images/build-status-indicators/green-dot-concentric.svg" style="width: 100%; top: 50%;"/>';
+						const success_link = link(green_dot_img, "https://circleci.com/gh/pytorch/pytorch/" + disjoint_status_obj["build_number_extracted"]);
+						return success_link;
 					} else {
 						return "";
 					}
@@ -1099,7 +1110,7 @@ function gen_timeline_table(element_id, fetched_data) {
 	// global
 	disjoint_statuses_by_commit_id = {};
 	for (var disjoint_status_obj of fetched_data.disjoint_statuses) {
-		setDefault(disjoint_statuses_by_commit_id, disjoint_status_obj["commit_id"], {})[disjoint_status_obj["job_name_extracted"]] = disjoint_status_obj["state"];
+		setDefault(disjoint_statuses_by_commit_id, disjoint_status_obj["commit_id"], {})[disjoint_status_obj["job_name_extracted"]] = disjoint_status_obj;
 	}
 
 
