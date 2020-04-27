@@ -97,14 +97,10 @@ genUnmatchedBuildsTable unmatched_nonupstream_builds =
 
 genTimedOutSection ::
      [UnmatchedBuilds.UnmatchedBuild]
-  -> Maybe (Tr.Tree NodeType)
+  -> Tr.Tree NodeType
 genTimedOutSection
   timed_out_builds =
-  if null timed_out_builds
-  then Nothing
-  else Just $ pure $ LeafNode $ NewFailureSection
-    NonUpstream
-    NonFlaky
+  pure $ LeafNode $ NewFailureSection
     (UnmatchedBuildMembers timed_out_builds)
     jobs_header
     jobs_list
@@ -120,14 +116,10 @@ genTimedOutSection
 
 genSpecialCasedNonupstreamSection ::
      StatusUpdateTypes.SpecialCasedBuilds SqlReadTypes.StandardCommitBuildWrapper
-  -> Maybe (Tr.Tree NodeType)
+  -> Tr.Tree NodeType
 genSpecialCasedNonupstreamSection
   (StatusUpdateTypes.NewSpecialCasedBuilds xla_build_failures) =
-  if null xla_build_failures
-  then Nothing
-  else Just $ pure $ LeafNode $ NewFailureSection
-    NonUpstream
-    NonFlaky
+  pure $ LeafNode $ NewFailureSection
     (SpecialCasedMembers xla_build_failures)
     (T.unlines [M.heading 3 "XLA failure", explanation_paragraph])
     xla_match_details_block
@@ -170,12 +162,6 @@ genSpecialCasedNonupstreamSection
       map (T.cons '@') xlaContacts
 
 
-data Upstreamness = Upstream | NonUpstream
-
-
-data Flakiness = Flaky | NonFlaky
-
-
 data NodeType = InteriorNode Text | LeafNode FailureSection
 
 
@@ -190,8 +176,9 @@ data BuildMembers =
   | GitHubCheckRunMembers [GithubChecksApiFetch.GitHubCheckRunsEntry]
 
 
+-- | Not all of the "members" represent failures.
 getFailureCount :: BuildMembers -> Int
-getFailureCount (ProvenNonFlakyMembers _)      = 0
+getFailureCount (ProvenNonFlakyMembers _)      = 0 -- not failures
 getFailureCount (UnmatchedBuildMembers x)      = length x
 getFailureCount (TupleBuildMembers x)          = length x
 getFailureCount (TentativeFlakyBuildMembers x) = StatusUpdateTypes.count x
@@ -201,8 +188,13 @@ getFailureCount (RawGitHubEventMembers x)      = length x
 getFailureCount (GitHubCheckRunMembers x)      = length x
 
 
-countNonCircleCINonFacebookFailures :: BuildMembers -> Int
+-- | Used for culling the tree
+hasMembers :: BuildMembers -> Bool
+hasMembers (ProvenNonFlakyMembers xs) = not $ null xs
+hasMembers x                          = getFailureCount x > 0
 
+
+countNonCircleCINonFacebookFailures :: BuildMembers -> Int
 countNonCircleCINonFacebookFailures (RawGitHubEventMembers x) = length x
 countNonCircleCINonFacebookFailures (GitHubCheckRunMembers x) = length x
 countNonCircleCINonFacebookFailures _                         = 0
@@ -210,44 +202,32 @@ countNonCircleCINonFacebookFailures _                         = 0
 
 
 data FailureSection = NewFailureSection {
-    upstreamness  :: Upstreamness
-  , flakiness     :: Flakiness
-  , build_members :: BuildMembers
+    build_members :: BuildMembers
   , intro_blurb   :: Text
   , details_lines :: [Text]
   }
 
 
 genNewFailuresSections nonupstream_builds =
-  Just $ Tr.Node (InteriorNode "New failures") $
-    Maybe.catMaybes new_failure_internal_node_maybes
+  Tr.Node (InteriorNode "New failures") $ new_failure_internal_node_maybes
   where
 
     new_failure_internal_node_maybes = [
-        maybe_determinisitic_failures_node
-      , maybe_nondeterminisitic_failures_node
+        my_determinisitic_failures_node
+      , my_nondeterminisitic_failures_node
       ]
 
-    maybe_determinisitic_failures_node = if null extant_deterministic_children
-      then Nothing
-      else Just $ Tr.Node (InteriorNode "Determinisitic failures") extant_deterministic_children
+    my_determinisitic_failures_node = Tr.Node (InteriorNode "Determinisitic failures") extant_deterministic_children
 
-    maybe_nondeterminisitic_failures_node = if null extant_nondeterministic_children
-      then Nothing
-      else Just $ Tr.Node (InteriorNode "Flaky failures") extant_nondeterministic_children
+    my_nondeterminisitic_failures_node = Tr.Node (InteriorNode "Flaky failures") extant_nondeterministic_children
 
-    extant_deterministic_children = Maybe.catMaybes deterministic_failure_node_maybes
-
-    extant_nondeterministic_children = Maybe.catMaybes nondeterministic_failure_node_maybes
-
-
-    nondeterministic_failure_node_maybes = [
+    extant_nondeterministic_children = [
         timed_out_section
-      , maybe_tentative_flaky_section
-      , maybe_confirmed_flaky_section
+      , my_tentative_flaky_section
+      , my_confirmed_flaky_section
       ]
 
-    deterministic_failure_node_maybes = [
+    extant_deterministic_children = [
         nonupstream_nonflaky_pattern_matched_section
       , pattern_unmatched_section
       , special_cased_nonupstream_section
@@ -264,7 +244,7 @@ genNewFailuresSections nonupstream_builds =
 
     timed_out_section = genTimedOutSection timed_out_builds
 
-    (nonupstream_nonflaky_pattern_matched_section, maybe_tentative_flaky_section, maybe_confirmed_flaky_section) = genPatternMatchedSections pattern_matched_builds
+    (nonupstream_nonflaky_pattern_matched_section, my_tentative_flaky_section, my_confirmed_flaky_section) = genPatternMatchedSections pattern_matched_builds
 
     pattern_unmatched_header = M.heading 3 $ M.colonize [
         MyUtils.pluralize (length unmatched_nonupstream_builds) "failure"
@@ -272,11 +252,7 @@ genNewFailuresSections nonupstream_builds =
       , "recognized by patterns"
       ]
 
-    pattern_unmatched_section = if null unmatched_nonupstream_builds
-      then Nothing
-      else Just $ pure $ LeafNode $ NewFailureSection
-        NonUpstream
-        NonFlaky
+    pattern_unmatched_section = pure $ LeafNode $ NewFailureSection
         (UnmatchedBuildMembers unmatched_nonupstream_builds)
         pattern_unmatched_header
         (NE.toList $ genUnmatchedBuildsTable unmatched_nonupstream_builds)
@@ -284,13 +260,9 @@ genNewFailuresSections nonupstream_builds =
 
 genCheckRunsSection ::
      [GithubChecksApiFetch.GitHubCheckRunsEntry]
-  -> Maybe (Tr.Tree NodeType)
+  -> Tr.Tree NodeType
 genCheckRunsSection failed_check_run_entries_excluding_facebook =
-  if null failed_check_run_entries_excluding_facebook
-  then Nothing
-  else Just $ pure $ LeafNode $ NewFailureSection
-    NonUpstream
-    NonFlaky
+  pure $ LeafNode $ NewFailureSection
     (GitHubCheckRunMembers failed_check_run_entries_excluding_facebook)
     heading_text
     failed_run_bullets
@@ -316,27 +288,22 @@ genCheckRunsSection failed_check_run_entries_excluding_facebook =
 
 genOtherProviderSection ::
      StatusUpdateTypes.NonCircleCIItems
-  -> Maybe (Tr.Tree NodeType)
-genOtherProviderSection non_circle_items =
-  if null provider_output_nodes
-  then Nothing
-  else Just $ Tr.Node
+  -> Tr.Tree NodeType
+genOtherProviderSection non_circle_items = Tr.Node
     (InteriorNode "Non-CircleCI jobs")
     provider_output_nodes
 
   where
     StatusUpdateTypes.NewNonCircleCIItems non_circleci_provided_statuses check_runs = non_circle_items
 
-    maybe_check_runs_node = genCheckRunsSection check_runs
+    my_check_runs_node = genCheckRunsSection check_runs
 
-    provider_output_nodes = Maybe.catMaybes $ maybe_check_runs_node : provider_maybes
+    provider_output_nodes = my_check_runs_node : provider_maybes
     provider_maybes = map gen_provider_maybe non_circleci_provided_statuses
 
     gen_provider_maybe (provider_info, nonempty_failed_event_list) =
 
-      Just $ pure $ LeafNode $ NewFailureSection
-          NonUpstream
-          NonFlaky
+      pure $ LeafNode $ NewFailureSection
           (RawGitHubEventMembers failed_event_list)
           heading_text
           reportable_event_bullets
@@ -359,17 +326,32 @@ genOtherProviderSection non_circle_items =
         reportable_event_bullets = map mk_bullet failed_event_list
 
 
+shouldCull :: Tr.Tree NodeType -> Bool
+shouldCull (Tr.Node (InteriorNode _) xs) = null xs
+shouldCull (Tr.Node (LeafNode failure_section) _xs) = not $ hasMembers $ build_members failure_section
+
+
+-- | Recursively culls the tree
+cullEmptySections ::
+     Tr.Tree NodeType
+  -> Tr.Tree NodeType
+cullEmptySections x = x {
+    Tr.subForest = filter (not . shouldCull) $ map cullEmptySections $ Tr.subForest x
+  }
+
+
 genBuildFailuresSections ::
      StatusUpdateTypes.CommitPageInfo
   -> Tr.Tree NodeType
 genBuildFailuresSections commit_page_info =
 
-  Tr.Node (InteriorNode "All failures") $ Maybe.catMaybes maybe_nodes
+  cullEmptySections $
+    Tr.Node (InteriorNode "All failures") my_nodes
 
   where
     StatusUpdateTypes.NewCommitPageInfo toplevel_partitioning raw_github_statuses = commit_page_info
 
-    maybe_nodes = [
+    my_nodes = [
         genNewFailuresSections nonupstream_builds
       , genUpstreamFailuresSection upstream_breakages
       , genOtherProviderSection $ StatusUpdateTypes.non_circleci_items raw_github_statuses
@@ -380,9 +362,9 @@ genBuildFailuresSections commit_page_info =
 
 genPatternMatchedSections ::
      StatusUpdateTypes.FlakyBuildPartition SqlReadTypes.CommitBuildWrapperTuple
-  -> (Maybe (Tr.Tree NodeType), Maybe (Tr.Tree NodeType), Maybe (Tr.Tree NodeType))
+  -> (Tr.Tree NodeType, Tr.Tree NodeType, Tr.Tree NodeType)
 genPatternMatchedSections pattern_matched_builds =
-  (nonupstream_nonflaky_pattern_matched_section, maybe_tentative_flaky_section, maybe_confirmed_flaky_section)
+  (nonupstream_nonflaky_pattern_matched_section, my_tentative_flaky_section, my_confirmed_flaky_section)
   where
     StatusUpdateTypes.NewFlakyBuildPartition
       tentatively_flaky_builds
@@ -394,11 +376,7 @@ genPatternMatchedSections pattern_matched_builds =
 
     all_nonflaky_builds = nonflaky_by_pattern ++ nonflaky_by_empirical_confirmation
 
-    nonupstream_nonflaky_pattern_matched_section = if null all_nonflaky_builds
-      then Nothing
-      else Just $ pure $ LeafNode $ NewFailureSection
-        NonUpstream
-        NonFlaky
+    nonupstream_nonflaky_pattern_matched_section = pure $ LeafNode $ NewFailureSection
         (TupleBuildMembers all_nonflaky_builds)
         nonupstream_nonflaky_pattern_matched_header
         (pure non_upstream_nonflaky_intro_text
@@ -428,7 +406,7 @@ genPatternMatchedSections pattern_matched_builds =
 
     non_upstream_nonflaky_intro_text = M.colonize nonflaky_intro_text_pieces
 
-    (maybe_tentative_flaky_section, maybe_confirmed_flaky_section) =
+    (my_tentative_flaky_section, my_confirmed_flaky_section) =
       genFlakySections
         tentatively_flaky_builds
         confirmed_flaky_builds
@@ -437,12 +415,12 @@ genPatternMatchedSections pattern_matched_builds =
 genFlakySections ::
      StatusUpdateTypes.TentativeFlakyBuilds SqlReadTypes.CommitBuildWrapperTuple
   -> [SqlReadTypes.StandardCommitBuildWrapper]
-  -> (Maybe (Tr.Tree NodeType), Maybe (Tr.Tree NodeType))
+  -> (Tr.Tree NodeType, Tr.Tree NodeType)
 genFlakySections
     tentative_flakies
     confirmed_flaky_builds =
 
-  (maybe_tentative_flaky_section, maybe_confirmed_flaky_section)
+  (my_tentative_flaky_section, my_confirmed_flaky_section)
 
   where
     StatusUpdateTypes.NewTentativeFlakyBuilds tentative_flaky_triggered_reruns tentative_flaky_untriggered_reruns = tentative_flakies
@@ -450,11 +428,7 @@ genFlakySections
 
     get_job_name = Builds.job_name . Builds.build_record . CommitBuilds._build . CommitBuilds._commit_build
 
-    maybe_confirmed_flaky_section = if null confirmed_flaky_builds
-      then Nothing
-      else Just $ pure $ LeafNode $ NewFailureSection
-        NonUpstream
-        Flaky
+    my_confirmed_flaky_section = pure $ LeafNode $ NewFailureSection
         (ProvenNonFlakyMembers confirmed_flaky_builds)
         (M.colonize [
             MyUtils.pluralize (length confirmed_flaky_builds) "failure"
@@ -466,16 +440,10 @@ genFlakySections
     total_tentative_flaky_count = StatusUpdateTypes.count tentative_flakies
 
 
-    maybe_tentative_flaky_section = if total_tentative_flaky_count > 0
-      then Just $ pure $ LeafNode $ NewFailureSection
-        NonUpstream
-        Flaky
+    my_tentative_flaky_section = pure $ LeafNode $ NewFailureSection
         (TentativeFlakyBuildMembers tentative_flakies)
         tentative_flakies_header
-        (untriggered_subsection
-            <> triggered_subsection)
-
-      else Nothing
+        (untriggered_subsection <> triggered_subsection)
 
     tentative_flakies_header = M.heading 3 $ T.unwords [
         ":snowflake:"
@@ -587,31 +555,20 @@ formatBreakageTimeSpan
 
 genUpstreamFailuresSection ::
      [(SqlReadTypes.StandardCommitBuildWrapper, SqlReadTypes.UpstreamBrokenJob)]
-  -> Maybe (Tr.Tree NodeType)
+  -> Tr.Tree NodeType
 genUpstreamFailuresSection upstream_breakages_x =
-  if null extant_children
-    then Nothing
-    else Just $ Tr.Node (InteriorNode "Upstream failures") extant_children
-
+  Tr.Node (InteriorNode "Upstream failures") extant_children
   where
-    extant_children = Maybe.catMaybes [maybe_ongoing_child, maybe_fixed_child]
+    extant_children = [my_ongoing_child, my_fixed_child]
 
-    maybe_ongoing_child = if null ongoing_upstream_breakages
-      then Nothing
-      else Just $ Tr.Node (InteriorNode "Ongoing") $
+    my_ongoing_child = Tr.Node (InteriorNode "Ongoing") $
       pure $ pure $ LeafNode $ NewFailureSection
-        Upstream
-        NonFlaky
         (UpstreamBreakageMembers ongoing_upstream_breakages)
         ongoing_upstream_header
         ongoing_body_text
 
-    maybe_fixed_child = if null fixed_upstream_breakages
-      then Nothing
-      else Just $ Tr.Node (InteriorNode "Already fixed") $
+    my_fixed_child = Tr.Node (InteriorNode "Already fixed") $
       pure $ pure $ LeafNode $ NewFailureSection
-        Upstream
-        NonFlaky
         (UpstreamBreakageMembers fixed_upstream_breakages)
         fixed_upstream_header
         fixed_body_text

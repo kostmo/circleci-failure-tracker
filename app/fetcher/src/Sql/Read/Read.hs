@@ -455,7 +455,8 @@ getRevisionBuilds git_revision = do
   where
     git_revision_text = GitRev.sha1 git_revision
 
-    -- Note that we're passing the git revision as two separate query parameters:
+    -- Note that we're passing the same git revision as
+    -- two separate query parameters:
     sql_parms = (SqlReadTypes.pullRequestCommentsLogContextLineCount, 0 :: Int, git_revision_text, git_revision_text)
 
     base_sql = ReadMatches.genBestBuildMatchQuery fields_to_fetch inner_sql_where_conditions
