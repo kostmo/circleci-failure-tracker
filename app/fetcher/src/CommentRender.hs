@@ -162,7 +162,11 @@ genSpecialCasedNonupstreamSection
       map (T.cons '@') xlaContacts
 
 
-data NodeType = InteriorNode Text | LeafNode FailureSection
+-- | Interior nodes are distinguished from leaf nodes so that
+-- they can be suppressed in the rendering of the comment.
+data NodeType =
+    InteriorNode Text
+  | LeafNode FailureSection
 
 
 data BuildMembers =
