@@ -101,6 +101,26 @@ function get_timeline_data(parms) {
 }
 
 
+function post_single_failure_start(cause_sha1, single_job_name) {
+
+	$.post({
+		url: "/api/code-breakage-cause-report",
+		data: {
+			"cause_sha1": cause_sha1,
+			"notes": "",
+			"jobs": single_job_name,
+			"failure_mode_id": 1,
+			"is_ongoing": true,
+			"last_affected_sha1": "",
+			"login_redirect_path": get_url_path_for_redirect(),
+		},
+		success: function( data ) {
+			handle_report_submission_response(data);
+		}
+	});
+}
+
+
 function get_context_menu_items_for_cell(cell) {
 
 	const job_name = cell.getColumn().getField();
@@ -127,15 +147,29 @@ function get_context_menu_items_for_cell(cell) {
 
 		} else if (cell_value.failure_mode["tag"] != "Success") {
 
-			const node = document.createElement("span");
-			const textnode = document.createTextNode("Mark failure start");
-			node.appendChild(textnode);
+			{
+				const node = document.createElement("span");
+				const textnode = document.createTextNode("Mark failure(s) start");
+				node.appendChild(textnode);
 
-			node.addEventListener("click", function () {
-				mark_failure_cause(commit_sha1);
-			});
+				node.addEventListener("click", function () {
+					mark_failure_cause(commit_sha1);
+				});
 
-			context_menu_items.push(node);
+				context_menu_items.push(node);
+			}
+
+			{
+				const node = document.createElement("span");
+				const textnode = document.createTextNode("Mark single job failure start");
+				node.appendChild(textnode);
+
+				node.addEventListener("click", function () {
+					post_single_failure_start(commit_sha1, job_name);
+				});
+
+				context_menu_items.push(node);
+			}
 		}
 	}
 
