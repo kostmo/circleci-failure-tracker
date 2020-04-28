@@ -1028,18 +1028,20 @@ ALTER TABLE public.commit_metadata OWNER TO postgres;
 -- Name: master_commit_circleci_job_definitions_intermediate; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.master_commit_circleci_job_definitions_intermediate AS
+CREATE VIEW public.master_commit_circleci_job_definitions_intermediate WITH (security_barrier='false') AS
  SELECT circleci_workflow_jobs.job_name,
     circleci_expanded_config_yaml_hashes_by_commit.commit_sha1,
     circleci_workflows_by_yaml_file.name AS workflow_name,
-    ((circleci_workflow_schedules.cron_schedule IS NOT NULL) OR COALESCE(bar.not_run_on_master, false)) AS is_scheduled
+    ((circleci_workflow_schedules.cron_schedule IS NOT NULL) OR COALESCE(bar.not_run_on_master, false)) AS is_scheduled,
+    COALESCE(bar.has_branch_restriction, false) AS has_branch_restriction
    FROM ((((public.circleci_workflow_jobs
      JOIN public.circleci_workflows_by_yaml_file ON ((circleci_workflows_by_yaml_file.id = circleci_workflow_jobs.workflow)))
      JOIN public.circleci_expanded_config_yaml_hashes_by_commit ON ((circleci_expanded_config_yaml_hashes_by_commit.repo_yaml_sha1 = circleci_workflows_by_yaml_file.yaml_content_sha1)))
      LEFT JOIN public.circleci_workflow_schedules ON ((circleci_workflows_by_yaml_file.id = circleci_workflow_schedules.workflow)))
      LEFT JOIN ( SELECT foo_1.workflow,
             foo_1.job_name,
-            (NOT bool_or(foo_1.include_master_branch)) AS not_run_on_master
+            (NOT bool_or(foo_1.include_master_branch)) AS not_run_on_master,
+            bool_or((foo_1.branch IS NOT NULL)) AS has_branch_restriction
            FROM ( SELECT circleci_job_branch_filters.workflow,
                     circleci_job_branch_filters.job_name,
                     circleci_job_branch_filters.branch,
@@ -1060,12 +1062,14 @@ CREATE VIEW public.master_commit_circleci_scheduled_job_discrimination WITH (sec
     zzz.is_scheduled,
     zzz.count,
     zzz.is_build_workflow,
-    (zzz.is_build_workflow AND (NOT zzz.is_scheduled)) AS is_viability_prerequisite
+    (zzz.is_build_workflow AND (NOT zzz.is_scheduled) AND (NOT zzz.has_branch_restriction)) AS is_viability_prerequisite,
+    zzz.has_branch_restriction
    FROM ( SELECT foo.job_name,
             foo.commit_sha1,
             bool_and(foo.is_scheduled) AS is_scheduled,
             count(*) AS count,
-            bool_or((foo.workflow_name = 'build'::text)) AS is_build_workflow
+            bool_or((foo.workflow_name = 'build'::text)) AS is_build_workflow,
+            bool_or(foo.has_branch_restriction) AS has_branch_restriction
            FROM public.master_commit_circleci_job_definitions_intermediate foo
           GROUP BY foo.job_name, foo.commit_sha1) zzz;
 
