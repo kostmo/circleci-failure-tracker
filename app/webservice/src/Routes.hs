@@ -442,6 +442,10 @@ scottyApp
     fmap WebApi.toJsonEither . SqlReadFlaky.apiIsolatedMasterFailuresByDay
       <$> S.param "age-days"
 
+  get "/api/isolated-master-failures-by-week" $
+    fmap WebApi.toJsonEither . SqlReadFlaky.apiIsolatedMasterFailuresByWeek
+      <$> S.param "age-weeks"
+
   get "/api/isolated-failures-timespan-coarse-bins" $
     fmap WebApi.toJsonEither . SqlReadFlaky.apiCoarseBinsIsolatedJobFailuresTimespan
       <$> parseTimeRangeParms

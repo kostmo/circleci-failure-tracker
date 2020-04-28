@@ -112,16 +112,16 @@ function rescan_selected_builds(button) {
 }
 
 
-function make_timeline_chart(element_id, rows) {
+function make_timeline_chart(element_id, rows, time_unit) {
 
 
       Highcharts.chart(element_id, {
 
            chart: {
-                type: 'line'
+                type: 'line',
             },
             title: {
-                text: 'Isolated/flaky failures by day'
+                text: 'Isolated/flaky failures by ' + time_unit,
             },
             xAxis: {
                 type: 'datetime',
@@ -130,7 +130,7 @@ function make_timeline_chart(element_id, rows) {
                     year: '%b'
                 },
                 title: {
-                    text: 'Date'
+                    text: 'Date',
                 }
             },
             yAxis: {
@@ -226,17 +226,42 @@ function load_coarse_cause_bins(query_args) {
 
 function load_day_highchart() {
 
-	getJsonWithThrobber("#throbber-isolated-failures-timeline-by-day", "/api/isolated-master-failures-by-day", {"age-days": 60}, function (data) {
+	getJsonWithThrobber(
+		"#throbber-isolated-failures-timeline-by-day",
+		"/api/isolated-master-failures-by-day",
+		{"age-days": 60},
+		function (data) {
 
-		if (data.success) {
+			if (data.success) {
 
-			const rows = data.payload.map(v => [Date.parse(v[0]), v[1]]);
-			make_timeline_chart("container-isolated-failures-timeline-by-day", rows);
+				const rows = data.payload.map(v => [Date.parse(v[0]), v[1]]);
+				make_timeline_chart("container-isolated-failures-timeline-by-day", rows, "day");
 
-		} else {
-			alert("error: " + data.error);
+			} else {
+				alert("error: " + data.error);
+			}
 		}
-	});
+	);
+}
+
+
+function load_week_highchart() {
+
+	getJsonWithThrobber(
+		"#throbber-isolated-failures-timeline-by-week",
+		"/api/isolated-master-failures-by-week", {"age-weeks": 16},
+		function (data) {
+
+			if (data.success) {
+
+				const rows = data.payload.map(v => [Date.parse(v[0]), v[1]]);
+				make_timeline_chart("container-isolated-failures-timeline-by-week", rows, "week");
+
+			} else {
+				alert("error: " + data.error);
+			}
+		}
+	);
 }
 
 
@@ -586,8 +611,6 @@ function requery_tables(query_args_dict) {
 
 	load_coarse_cause_bins(query_args_dict);
 
-	load_day_highchart();
-
 	return false;
 }
 
@@ -625,5 +648,9 @@ function main() {
 	});
 
 	bounds_this_week();
+
+
+	load_day_highchart();
+	load_week_highchart();
 }
 

@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
--- Dumped from database version 11.5
+-- Dumped from database version 12.2
 -- Dumped by pg_dump version 12.2 (Ubuntu 12.2-2.pgdg18.04+1)
 
 SET statement_timeout = 0;
@@ -95,6 +95,8 @@ JOIN master_commits_contiguously_indexed ON master_commits_contiguously_indexed.
 ALTER FUNCTION public.snapshot_master_viable_commit_age() OWNER TO postgres;
 
 SET default_tablespace = '';
+
+SET default_table_access_method = heap;
 
 --
 -- Name: logs; Type: TABLE; Schema: frontend_logging; Owner: postgres
@@ -4231,13 +4233,16 @@ CREATE VIEW public.master_daily_isolated_failures_cached WITH (security_barrier=
             WHEN 0 THEN (0)::double precision
             ELSE ((foo.isolated_failure_count)::double precision / (foo.total_build_count)::double precision)
         END AS isolated_failure_fraction
-   FROM ( SELECT (timezone('America/Los_Angeles'::text, m2.committer_date))::date AS date_california_time,
-            sum((mv.is_isolated_or_flaky_failure)::integer) AS isolated_failure_count,
+   FROM ( SELECT blarg.date_california_time,
+            sum((blarg.is_isolated_or_flaky_failure)::integer) AS isolated_failure_count,
             count(*) AS total_build_count
-           FROM (public.master_failures_raw_causes_mview mv
-             JOIN public.master_ordered_commits_with_metadata_mview m2 ON ((mv.commit_index = m2.id)))
-          WHERE (m2.committer_date IS NOT NULL)
-          GROUP BY ((timezone('America/Los_Angeles'::text, m2.committer_date))::date)) foo
+           FROM ( SELECT mv.is_isolated_or_flaky_failure,
+                    m2.committer_date,
+                    (timezone('America/Los_Angeles'::text, m2.committer_date))::date AS date_california_time
+                   FROM (public.master_failures_raw_causes_mview mv
+                     JOIN public.master_ordered_commits_with_metadata_mview m2 ON ((mv.commit_index = m2.id)))
+                  WHERE (m2.committer_date IS NOT NULL)) blarg
+          GROUP BY blarg.date_california_time) foo
   ORDER BY foo.date_california_time DESC
  OFFSET 1;
 
@@ -4580,6 +4585,41 @@ ALTER TABLE public.master_indiscriminate_failure_spans OWNER TO postgres;
 --
 
 COMMENT ON VIEW public.master_indiscriminate_failure_spans IS 'For rendering date ranges of broken commit sequences';
+
+
+--
+-- Name: master_isolated_failures_weekly_cached; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_isolated_failures_weekly_cached AS
+ SELECT foo.date_california_time,
+    foo.isolated_failure_count,
+    foo.total_build_count,
+        CASE foo.total_build_count
+            WHEN 0 THEN (0)::double precision
+            ELSE ((foo.isolated_failure_count)::double precision / (foo.total_build_count)::double precision)
+        END AS isolated_failure_fraction
+   FROM ( SELECT blarg.date_california_time,
+            sum((blarg.is_isolated_or_flaky_failure)::integer) AS isolated_failure_count,
+            count(*) AS total_build_count
+           FROM ( SELECT mv.is_isolated_or_flaky_failure,
+                    m2.committer_date,
+                    date_trunc('week'::text, timezone('America/Los_Angeles'::text, m2.committer_date)) AS date_california_time
+                   FROM (public.master_failures_raw_causes_mview mv
+                     JOIN public.master_ordered_commits_with_metadata_mview m2 ON ((mv.commit_index = m2.id)))
+                  WHERE (m2.committer_date IS NOT NULL)) blarg
+          GROUP BY blarg.date_california_time) foo
+  ORDER BY foo.date_california_time DESC
+ OFFSET 1;
+
+
+ALTER TABLE public.master_isolated_failures_weekly_cached OWNER TO postgres;
+
+--
+-- Name: VIEW master_isolated_failures_weekly_cached; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON VIEW public.master_isolated_failures_weekly_cached IS 'Compare to: "master_daily_isolated_failures_cached"';
 
 
 --
@@ -7115,7 +7155,7 @@ CREATE INDEX mview_commit_index5 ON public.master_failures_raw_causes_mview USIN
 -- Name: github_incoming_status_events triggered_insert_derived_github_status_event_columns; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
-CREATE TRIGGER triggered_insert_derived_github_status_event_columns AFTER INSERT ON public.github_incoming_status_events FOR EACH ROW WHEN (((new.context <> '_dr.ci'::text) AND (new.context ~~ 'ci/circleci: %'::text) AND (new.name = 'pytorch/pytorch'::text) AND (new.target_url ~~ 'https://circleci.com/gh/pytorch/pytorch/%'::text))) EXECUTE PROCEDURE public.insert_derived_github_status_event_columns();
+CREATE TRIGGER triggered_insert_derived_github_status_event_columns AFTER INSERT ON public.github_incoming_status_events FOR EACH ROW WHEN (((new.context <> '_dr.ci'::text) AND (new.context ~~ 'ci/circleci: %'::text) AND (new.name = 'pytorch/pytorch'::text) AND (new.target_url ~~ 'https://circleci.com/gh/pytorch/pytorch/%'::text))) EXECUTE FUNCTION public.insert_derived_github_status_event_columns();
 
 
 --
@@ -8831,6 +8871,14 @@ GRANT ALL ON TABLE public.master_indiscriminate_failure_spans_intermediate TO lo
 --
 
 GRANT ALL ON TABLE public.master_indiscriminate_failure_spans TO logan;
+
+
+--
+-- Name: TABLE master_isolated_failures_weekly_cached; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_isolated_failures_weekly_cached TO logan;
+GRANT SELECT ON TABLE public.master_isolated_failures_weekly_cached TO materialized_view_updater;
 
 
 --

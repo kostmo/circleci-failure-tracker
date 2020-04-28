@@ -56,6 +56,29 @@ apiIsolatedMasterFailuresByDay day_count = do
 
 
 -- | Note that Highcharts expects the dates to be in ascending order
+apiIsolatedMasterFailuresByWeek ::
+     Int
+  -> SqlReadTypes.DbIO (Either Text [(Day, Double)])
+apiIsolatedMasterFailuresByWeek day_count = do
+  conn <- ask
+  liftIO $ do
+    xs <- query conn sql $ Only day_count
+    return $ Right $ reverse xs
+  where
+  sql = Q.join [
+      "SELECT"
+    , Q.list [
+        "date_california_time"
+      , "isolated_failure_fraction"
+      ]
+      -- This view already exludes the current (incomplete) week
+    , "FROM master_isolated_failures_weekly_cached"
+    , "WHERE date_california_time > (now() - interval '? weeks')"
+    , "ORDER BY date_california_time DESC"
+    ]
+
+
+-- | Note that Highcharts expects the dates to be in ascending order
 apiFailedCommitsByDay :: SqlReadTypes.DbIO (WebApi.ApiResponse (Day, Int))
 apiFailedCommitsByDay = do
   liftIO $ D.debugList [

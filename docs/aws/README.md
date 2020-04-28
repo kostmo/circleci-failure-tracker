@@ -7,3 +7,4 @@ Dr. CI utilizes the following Amazon Web Services:
 * **RDS** to host a Postgres database.  See [POSTGRES-DATABASE.md](POSTGRES-DATABASE.md)
 * **SQS** as a work queue for scanning Git commits for CI statuses
 
+The AWS Region for all of these services is Ohio (`us-east-2`).
