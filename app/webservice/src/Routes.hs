@@ -478,6 +478,10 @@ scottyApp
       <$> S.param "test"
       <*> (DbHelpers.InclusiveNumericBounds <$> S.param "commit-id-min" <*> S.param "commit-id-max")
 
+  get "/api/viable-commit-prerequisite-jobs" $
+    SqlRead.apiViableCommitPrerequisiteJobs <$>
+      (Builds.RawCommit <$> S.param "sha1")
+
   get "/api/latest-viable-master-commits" $
     SqlRead.apiCleanestMasterCommits
       <$> S.param "missing-threshold"

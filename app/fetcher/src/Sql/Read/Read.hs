@@ -299,6 +299,50 @@ apiTagsHistogram = runQuery $ Q.join [
   ]
 
 
+
+data ViabilityPrerequisite = ViabilityPrerequisite {
+    _job_name                  :: Text
+  , _commit_sha1               :: Builds.RawCommit
+  , _count                     :: Integer
+  , _is_scheduled              :: Bool
+  , _is_build_workflow         :: Bool
+  , _is_viability_prerequisite :: Bool
+  } deriving (Generic, FromRow)
+
+instance ToJSON ViabilityPrerequisite where
+  toJSON = genericToJSON JsonUtils.dropUnderscore
+
+
+apiViableCommitPrerequisiteJobs ::
+     Builds.RawCommit
+  -> DbIO [ViabilityPrerequisite]
+apiViableCommitPrerequisiteJobs (Builds.RawCommit sha1) = do
+  conn <- ask
+  liftIO $ query conn sql $ Only sha1
+  where
+    sql = Q.join [
+        "SELECT"
+      , Q.list [
+          "job_name"
+        , "commit_sha1"
+        , "count"
+        , "is_scheduled"
+        , "is_build_workflow"
+        , "is_viability_prerequisite"
+        ]
+      , "FROM master_commit_circleci_scheduled_job_discrimination"
+      , "WHERE"
+      , Q.conjunction [
+          "commit_sha1 = ?"
+        , "is_viability_prerequisite"
+        ]
+      , "ORDER BY"
+      , Q.list [
+          "job_name"
+        ]
+      ]
+
+
 apiAutocompleteTags :: Text -> DbIO [Text]
 apiAutocompleteTags = listFlat1X $ Q.join [
     "SELECT tag FROM"
