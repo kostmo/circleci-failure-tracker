@@ -360,6 +360,10 @@ scottyApp
     ReadStats.downstreamWeeklyFailureStats
       <$> S.param "weeks"
 
+  get "/api/master-weekly-nondeterministic-unmitigated-failures" $
+    ReadStats.masterWeeklyUnattributedFailureStats
+      <$> S.param "weeks"
+
   get "/api/master-weekly-failure-stats" $
     fmap WebApi.toJsonEither . ReadStats.masterWeeklyFailureStats
       <$> S.param "weeks"

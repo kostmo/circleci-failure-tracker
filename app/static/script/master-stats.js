@@ -236,7 +236,9 @@ function separated_causes_timeline_highchart(container_element, series_list, sta
 			pointFormatter: function() {
 				const commit_id_bounds = ranges_by_week[this.x]["commit_id_bound"];
 
-				const unnormalized_val = ranges_by_week[this.x][this.series.name];
+				const original_series_name = this.series.name.replace(new RegExp(" ", 'g'), "_");
+				const unnormalized_val = ranges_by_week[this.x]["aggregate_build_counts"][original_series_name];
+
 
 				const link_url = gen_master_timeline_commit_bounds_url(commit_id_bounds["min_bound"], commit_id_bounds["max_bound"], {});
 				const content = this.y.toFixed(2) + " (" + unnormalized_val + ")<br/>" + link("(details)", link_url);

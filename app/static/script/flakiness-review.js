@@ -112,6 +112,73 @@ function rescan_selected_builds(button) {
 }
 
 
+
+function make_nondeterministic_unmitigated_timeline_chart(element_id, rows) {
+
+      Highcharts.chart(element_id, {
+
+           chart: {
+                type: 'line',
+            },
+            title: {
+                text: 'Commits with unmitigated nondeterministic failures by week',
+            },
+            xAxis: {
+                type: 'datetime',
+                dateTimeLabelFormats: { // don't display the dummy year
+                    month: '%e. %b',
+                    year: '%b'
+                },
+                title: {
+                    text: 'Date',
+                }
+            },
+            yAxis: {
+                title: {
+                    text: 'Percentage of commits'
+                },
+                min: 0,
+		labels: {
+			format: "{value}%",
+		},
+            },
+
+		tooltip: {
+			useHTML: true,
+			style: {
+				pointerEvents: 'auto'
+			},
+			pointFormatter: function() {
+
+				const lines = [
+					render_tag("b", this.y.toFixed(2) + "%"),
+					"Commits with unattributed failures: " + this.mydata.had_unattributed_unmitigated_failure_commit_count,
+					"Built commits: " + this.mydata.built_commit_count,
+				];
+
+				return lines.join("<br/>");
+			},
+		},
+            plotOptions: {
+                line: {
+                    marker: {
+                        enabled: true
+                    }
+                }
+            },
+
+        credits: {
+            enabled: false
+        },
+        series: [{
+            name: "Flaky failures fraction",
+            data: rows,
+            }],
+      });
+}
+
+
+
 function make_timeline_chart(element_id, rows, time_unit) {
 
 
@@ -245,11 +312,36 @@ function load_day_highchart() {
 }
 
 
+function load_weekly_nondeterministic_unmitigated_failures() {
+
+	getJsonWithThrobber(
+		"#throbber-nondeterministic-unmitigated-failures-timeline-by-week",
+		"/api/master-weekly-nondeterministic-unmitigated-failures",
+		{"weeks": 16},
+		function (data) {
+
+			const rows = [];
+			for (var v of data) {
+				const mydict = {
+					x: Date.parse(v.week),
+					y: 100*v.had_unattributed_unmitigated_failure_commit_count/v.built_commit_count,
+					mydata: v,
+				};
+				rows.push(mydict);
+			}
+
+			make_nondeterministic_unmitigated_timeline_chart("container-nondeterministic-unmitigated-failures-timeline-by-week", rows);
+		}
+	);
+}
+
+
 function load_week_highchart() {
 
 	getJsonWithThrobber(
 		"#throbber-isolated-failures-timeline-by-week",
-		"/api/isolated-master-failures-by-week", {"age-weeks": 16},
+		"/api/isolated-master-failures-by-week",
+		{"age-weeks": 16},
 		function (data) {
 
 			if (data.success) {
@@ -278,49 +370,55 @@ function load_job_failure_details(job_name, commit_id_min, commit_id_max) {
 	$("#failure-details-section").show();
 
 	$("#failure-details-table").hide();
-	getJsonWithThrobber("#throbber-details-table", "/api/master-job-failures-in-timespan", query_args_dict, function (data) {
+	getJsonWithThrobber(
+		"#throbber-details-table",
+		"/api/master-job-failures-in-timespan",
+		query_args_dict,
+		function (data) {
 
-		if (data.success) {
+			if (data.success) {
 
-			$("#failure-details-table").show();
-			gen_failure_details_table("failure-details-table", data.payload, 300, false)
+				$("#failure-details-table").show();
+				gen_failure_details_table("failure-details-table", data.payload, 300, false)
 
-		} else {
-			alert("error: " + data.error);
+			} else {
+				alert("error: " + data.error);
+			}
 		}
-	});
+	);
 }
-
 
 
 function gen_timeline_span_column() {
 
-	const obj = {title: "Timeline Span", field: "commit_index_span.end",
-			formatter: function(cell, formatterParams, onRendered) {
-				const row_data = cell.getRow().getData();
+	const obj = {
+		title: "Timeline Span",
+		field: "commit_index_span.end",
+		formatter: function(cell, formatterParams, onRendered) {
+			const row_data = cell.getRow().getData();
 
-				const extra_args = {
-					"max_columns_suppress_successful": 35,
-					"should_suppress_scheduled_builds": true,
-					"should_suppress_fully_successful_columns": true,
-					"highlight_job": row_data.job,
-				};
+			const extra_args = {
+				"max_columns_suppress_successful": 35,
+				"should_suppress_scheduled_builds": true,
+				"should_suppress_fully_successful_columns": true,
+				"highlight_job": row_data.job,
+			};
 
-				const commit_count = row_data["commit_number_span"]["end"] - row_data["commit_number_span"]["start"] + 1;
+			const commit_count = row_data["commit_number_span"]["end"] - row_data["commit_number_span"]["start"] + 1;
 
-				const commit_builds_url = gen_master_timeline_commit_bounds_url(row_data.commit_index_span.start, row_data.commit_index_span.end, extra_args)
+			const commit_builds_url = gen_master_timeline_commit_bounds_url(row_data.commit_index_span.start, row_data.commit_index_span.end, extra_args)
 
 
-				const timespan_words = [
-					"from",
-					moment(row_data["commit_time_span"]["start"]).format("MMM D"),
-					"until",
-					moment(row_data["commit_time_span"]["end"]).fromNow(),
-				];
+			const timespan_words = [
+				"from",
+				moment(row_data["commit_time_span"]["start"]).format("MMM D"),
+				"until",
+				moment(row_data["commit_time_span"]["end"]).fromNow(),
+			];
 
-				return link(pluralize(commit_count, "commit"), commit_builds_url) + " (" + timespan_words.join(" ") + ")";
-			},
-		};
+			return link(pluralize(commit_count, "commit"), commit_builds_url) + " (" + timespan_words.join(" ") + ")";
+		},
+	};
 
 	return obj;
 }
@@ -338,11 +436,11 @@ function gen_pattern_matches_table(element_id, data_payload) {
 				}
 			},
 		},
-		{title: "Total", field: "counts.total_flaky_or_isolated_count", width: 200,
-		},
 		{title: "Isolated failures", field: "counts.isolated_failure_count", width: 150,
 		},
 		{title: "Recognized as flaky", field: "counts.recognized_flaky_count", width: 200,
+		},
+		{title: "Total", field: "counts.total_flaky_or_isolated_count", width: 200,
 		},
 		{title: "Network", field: "featured.is_network", formatter: "tickCross", width: 100,
 			align: "center",
@@ -361,7 +459,7 @@ function gen_pattern_matches_table(element_id, data_payload) {
 		placeholder: "No Data Set",
 		columns: column_list,
 		initialSort: [
-			{column: "counts.total_flaky_or_isolated_count", dir: "desc"},
+			{column: "counts.isolated_failure_count", dir: "desc"},
 		],
 		data: data_payload,
 		rowClick:function(e, row) {
@@ -396,11 +494,11 @@ function gen_tests_table(element_id, data_payload) {
 
 	const column_list = [
 		{title: "Test name", field: "featured.test_name"},
-		{title: "Total", field: "counts.total_flaky_or_isolated_count", width: 200,
-		},
 		{title: "Isolated failures", field: "counts.isolated_failure_count", width: 150,
 		},
 		{title: "Recognized as flaky", field: "counts.recognized_flaky_count", width: 200,
+		},
+		{title: "Total", field: "counts.total_flaky_or_isolated_count", width: 200,
 		},
 		gen_timeline_span_column(),
 	];
@@ -410,8 +508,7 @@ function gen_tests_table(element_id, data_payload) {
 		placeholder: "No Data Set",
 		columns: column_list,
 		initialSort: [
-			{column: "counts.total_flaky_or_isolated_count", dir: "desc"}, //sort by this first
-//			{column:" height", dir: "asc"}, //then sort by this second
+			{column: "counts.isolated_failure_count", dir: "desc"},
 		],
 		data: data_payload,
 		rowClick:function(e, row) {
@@ -432,25 +529,30 @@ function gen_tests_table(element_id, data_payload) {
 
 function gen_unmatched_failures_table(query_args_dict) {
 
-	getJsonWithThrobber("#throbber-details-table", "/api/isolated-unmatched-failed-builds-master-commit-range", query_args_dict, function (data) {
+	getJsonWithThrobber(
+		"#throbber-details-table",
+		"/api/isolated-unmatched-failed-builds-master-commit-range",
+		query_args_dict,
+		function (data) {
 
-		if (data.success) {
+			if (data.success) {
 
-			$("#selected-details-row-title-container").html("unmatched logs");
+				$("#selected-details-row-title-container").html("unmatched logs");
 
-			global_failure_details_table = new Tabulator("#failure-details-table", {
-				height:"200px",
-				layout:"fitColumns",
-				placeholder:"No Data Set",
-				selectable: true,
-				columns: get_unmatched_build_columns(),
-				data: data.payload,
-			});
+				global_failure_details_table = new Tabulator("#failure-details-table", {
+					height:"200px",
+					layout:"fitColumns",
+					placeholder:"No Data Set",
+					selectable: true,
+					columns: get_unmatched_build_columns(),
+					data: data.payload,
+				});
 
-			$("#rescan-failures-button").show();
-			$("#failure-details-section").show();
+				$("#rescan-failures-button").show();
+				$("#failure-details-section").show();
+			}
 		}
-	});
+	);
 }
 
 
@@ -459,11 +561,11 @@ function gen_jobs_table(element_id, data_payload, height_string) {
 	const column_list = [
 		{title: "Job", field: "featured.job",
 		},
-		{title: "Total", field: "counts.total_flaky_or_isolated_count", width: 90,
-		},
 		{title: "Isolated failures", field: "counts.isolated_failure_count", width: 90,
 		},
 		{title: "Recognized as flaky", field: "counts.recognized_flaky_count", width: 90,
+		},
+		{title: "Total", field: "counts.total_flaky_or_isolated_count", width: 90,
 		},
 		{title: "Matched by patterns", field: "counts.matched_count", width: 90,
 		},
@@ -498,16 +600,21 @@ function requery_by_test_table(query_args_dict) {
 	const full_span_grid_link_element = $("#full-span-grid-link-placeholder-by-test");
 
 	full_span_grid_link_element.hide();
-	getJsonWithThrobber("#throbber-by-test", "/api/isolated-failures-timespan-by-test", query_args_dict, function (data) {
+	getJsonWithThrobber(
+		"#throbber-by-test",
+		"/api/isolated-failures-timespan-by-test",
+		query_args_dict,
+		function (data) {
 
-		if (data.success) {
-			show_commit_span_header(full_span_grid_link_element, data);
-			gen_tests_table("isolated-failures-by-test-table", data.payload);
+			if (data.success) {
+				show_commit_span_header(full_span_grid_link_element, data);
+				gen_tests_table("isolated-failures-by-test-table", data.payload);
 
-		} else {
-			alert("error: " + data.error);
+			} else {
+				alert("error: " + data.error);
+			}
 		}
-	});
+	);
 }
 
 
@@ -521,16 +628,21 @@ function requery_by_pattern_table(query_args_dict) {
 	const full_span_grid_link_element = $("#full-span-grid-link-placeholder-by-pattern");
 
 	full_span_grid_link_element.hide();
-	getJsonWithThrobber("#throbber-by-pattern", "/api/isolated-failures-timespan-by-pattern", modified_query_args_dict, function (data) {
+	getJsonWithThrobber(
+		"#throbber-by-pattern",
+		"/api/isolated-failures-timespan-by-pattern",
+		modified_query_args_dict,
+		function (data) {
 
-		if (data.success) {
-			show_commit_span_header(full_span_grid_link_element, data);
-			gen_pattern_matches_table("isolated-failures-by-pattern-table", data.payload);
+			if (data.success) {
+				show_commit_span_header(full_span_grid_link_element, data);
+				gen_pattern_matches_table("isolated-failures-by-pattern-table", data.payload);
 
-		} else {
-			alert("error: " + data.error);
+			} else {
+				alert("error: " + data.error);
+			}
 		}
-	});
+	);
 }
 
 function show_commit_span_header(full_span_grid_link_element, data) {
@@ -562,18 +674,23 @@ function requery_by_job_table(query_args_dict) {
 	const full_span_grid_link_element = $("#full-span-grid-link-placeholder-by-job");
 
 	full_span_grid_link_element.hide();
-	getJsonWithThrobber("#throbber-by-job", "/api/isolated-failures-timespan-by-job", query_args_dict, function (data) {
+	getJsonWithThrobber(
+		"#throbber-by-job",
+		"/api/isolated-failures-timespan-by-job",
+		query_args_dict,
+		function (data) {
 
-		if (data.success) {
+			if (data.success) {
 
-			show_commit_span_header(full_span_grid_link_element, data);
+				show_commit_span_header(full_span_grid_link_element, data);
 
-			gen_jobs_table("isolated-failures-by-job-table", data.payload, 200);
+				gen_jobs_table("isolated-failures-by-job-table", data.payload, 200);
 
-		} else {
-			alert("error: " + data.error);
+			} else {
+				alert("error: " + data.error);
+			}
 		}
-	});
+	);
 }
 
 
@@ -652,5 +769,7 @@ function main() {
 
 	load_day_highchart();
 	load_week_highchart();
+
+	load_weekly_nondeterministic_unmitigated_failures();
 }
 

@@ -5,26 +5,26 @@
 
 module Sql.Read.Stats where
 
-import           Control.Monad.IO.Class             (liftIO)
-import           Control.Monad.Trans.Reader         (ask)
+import           Control.Monad.IO.Class           (liftIO)
+import           Control.Monad.Trans.Reader       (ask)
 import           Data.Aeson
-import           Data.Text                          (Text)
-import           Data.Tuple                           (swap)
-import qualified Data.Text                          as T
-import           Data.Time                          (UTCTime)
+import           Data.Text                        (Text)
+import qualified Data.Text                        as T
+import           Data.Time                        (UTCTime)
+import           Data.Tuple                       (swap)
 import           Database.PostgreSQL.Simple
-import           Database.PostgreSQL.Simple.Types     (PGArray)
+import           Database.PostgreSQL.Simple.Types (PGArray)
 import           GHC.Generics
 
 import qualified BuildResults
 import qualified Builds
 import qualified DbHelpers
-import qualified MyUtils
 import qualified JsonUtils
-import qualified WeeklyStats
-import qualified Sql.QueryUtils                     as Q
+import qualified MyUtils
+import qualified Sql.QueryUtils                   as Q
+import           Sql.Read.Types                   (DbIO, runQuery)
 import qualified WebApi
-import           Sql.Read.Types                       (DbIO, runQuery)
+import qualified WeeklyStats
 
 
 data WeeklyFailingMergedPullRequests = WeeklyFailingMergedPullRequests {
@@ -328,6 +328,43 @@ masterBuildFailureStats = fmap head $ runQuery $ Q.join [
   , "JOIN ordered_master_commits"
   , "ON build_failure_causes.vcs_revision = ordered_master_commits.sha1"
   ]
+
+
+
+
+data WeeklyUnattributedFailureStats = WeeklyUnattributedFailureStats {
+    week                                              :: UTCTime
+  , built_commit_count                                :: Int
+  , had_unattributed_unmitigated_failure_commit_count :: Int
+  , first_commit                                      :: Builds.RawCommit
+  , last_commit                                       :: Builds.RawCommit
+  } deriving (Generic, FromRow, ToJSON)
+
+
+-- | Tallies commits that suffered non-successfuly-rebuilt,
+-- non-manually-annotated-breakage failures.
+--
+-- NOTE: OFFSET 1 is already part of the view definition.
+masterWeeklyUnattributedFailureStats ::
+     Int
+  -> DbIO [WeeklyUnattributedFailureStats]
+masterWeeklyUnattributedFailureStats week_count = do
+  conn <- ask
+  xs <- liftIO $ query conn sql $ Only week_count
+  return $ reverse xs
+  where
+    sql = Q.join [
+        "SELECT"
+      , Q.list [
+          "week"
+        , "built_commit_count"
+        , "had_unattributed_unmitigated_failure_commit_count"
+        , "first_commit"
+        , "last_commit"
+        ]
+      , "FROM master_unmitigated_unattributed_failed_commits_by_week"
+      , "LIMIT ?"
+      ]
 
 
 -- | Uses OFFSET 1 so we only ever show full weeks
