@@ -364,6 +364,10 @@ scottyApp
     ReadStats.masterWeeklyUnattributedFailureStats
       <$> S.param "weeks"
 
+  get "/api/master-monthly-nondeterministic-unmitigated-failures" $
+    ReadStats.masterMonthlyUnattributedFailureStats
+      <$> S.param "months"
+
   get "/api/master-weekly-failure-stats" $
     fmap WebApi.toJsonEither . ReadStats.masterWeeklyFailureStats
       <$> S.param "weeks"

@@ -343,6 +343,7 @@ function rebuild_job(button) {
 
 			handle_submission_response_generic(data, function() {
 				console.log("submitted...");
+				alert("Successfully submitted rerun request by user " + data.payload.user + ": " + JSON.stringify(data.payload.content));
 			});
 		},
 		error: function( data ) {

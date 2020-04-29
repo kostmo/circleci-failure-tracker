@@ -113,7 +113,7 @@ function rescan_selected_builds(button) {
 
 
 
-function make_nondeterministic_unmitigated_timeline_chart(element_id, rows) {
+function make_nondeterministic_unmitigated_timeline_chart(element_id, rows, time_unit) {
 
       Highcharts.chart(element_id, {
 
@@ -121,7 +121,7 @@ function make_nondeterministic_unmitigated_timeline_chart(element_id, rows) {
                 type: 'line',
             },
             title: {
-                text: 'Commits with unmitigated nondeterministic failures by week',
+                text: 'Commits with unmitigated nondeterministic failures by ' + time_unit,
             },
             xAxis: {
                 type: 'datetime',
@@ -323,14 +323,38 @@ function load_weekly_nondeterministic_unmitigated_failures() {
 			const rows = [];
 			for (var v of data) {
 				const mydict = {
-					x: Date.parse(v.week),
+					x: Date.parse(v.timeframe_start),
 					y: 100*v.had_unattributed_unmitigated_failure_commit_count/v.built_commit_count,
 					mydata: v,
 				};
 				rows.push(mydict);
 			}
 
-			make_nondeterministic_unmitigated_timeline_chart("container-nondeterministic-unmitigated-failures-timeline-by-week", rows);
+			make_nondeterministic_unmitigated_timeline_chart("container-nondeterministic-unmitigated-failures-timeline-by-week", rows, "week");
+		}
+	);
+}
+
+
+function load_monthly_nondeterministic_unmitigated_failures() {
+
+	getJsonWithThrobber(
+		"#throbber-nondeterministic-unmitigated-failures-timeline-by-month",
+		"/api/master-monthly-nondeterministic-unmitigated-failures",
+		{"months": 5},
+		function (data) {
+
+			const rows = [];
+			for (var v of data) {
+				const mydict = {
+					x: Date.parse(v.timeframe_start),
+					y: 100*v.had_unattributed_unmitigated_failure_commit_count/v.built_commit_count,
+					mydata: v,
+				};
+				rows.push(mydict);
+			}
+
+			make_nondeterministic_unmitigated_timeline_chart("container-nondeterministic-unmitigated-failures-timeline-by-month", rows, "month");
 		}
 	);
 }
@@ -771,5 +795,6 @@ function main() {
 	load_week_highchart();
 
 	load_weekly_nondeterministic_unmitigated_failures();
+	load_monthly_nondeterministic_unmitigated_failures();
 }
 

@@ -332,8 +332,8 @@ masterBuildFailureStats = fmap head $ runQuery $ Q.join [
 
 
 
-data WeeklyUnattributedFailureStats = WeeklyUnattributedFailureStats {
-    week                                              :: UTCTime
+data PeriodicUnattributedFailureStats = PeriodicUnattributedFailureStats {
+    timeframe_start                                   :: UTCTime
   , built_commit_count                                :: Int
   , had_unattributed_unmitigated_failure_commit_count :: Int
   , first_commit                                      :: Builds.RawCommit
@@ -343,11 +343,9 @@ data WeeklyUnattributedFailureStats = WeeklyUnattributedFailureStats {
 
 -- | Tallies commits that suffered non-successfuly-rebuilt,
 -- non-manually-annotated-breakage failures.
---
--- NOTE: OFFSET 1 is already part of the view definition.
 masterWeeklyUnattributedFailureStats ::
      Int
-  -> DbIO [WeeklyUnattributedFailureStats]
+  -> DbIO [PeriodicUnattributedFailureStats]
 masterWeeklyUnattributedFailureStats week_count = do
   conn <- ask
   xs <- liftIO $ query conn sql $ Only week_count
@@ -356,13 +354,39 @@ masterWeeklyUnattributedFailureStats week_count = do
     sql = Q.join [
         "SELECT"
       , Q.list [
-          "week"
+          "timeframe_start"
         , "built_commit_count"
         , "had_unattributed_unmitigated_failure_commit_count"
         , "first_commit"
         , "last_commit"
         ]
       , "FROM master_unmitigated_unattributed_failed_commits_by_week"
+      , "OFFSET 1"
+      , "LIMIT ?"
+      ]
+
+
+-- | Tallies commits that suffered non-successfuly-rebuilt,
+-- non-manually-annotated-breakage failures.
+masterMonthlyUnattributedFailureStats ::
+     Int
+  -> DbIO [PeriodicUnattributedFailureStats]
+masterMonthlyUnattributedFailureStats week_count = do
+  conn <- ask
+  xs <- liftIO $ query conn sql $ Only week_count
+  return $ reverse xs
+  where
+    sql = Q.join [
+        "SELECT"
+      , Q.list [
+          "timeframe_start"
+        , "built_commit_count"
+        , "had_unattributed_unmitigated_failure_commit_count"
+        , "first_commit"
+        , "last_commit"
+        ]
+      , "FROM master_unmitigated_unattributed_failed_commits_by_month"
+--      , "OFFSET 1"
       , "LIMIT ?"
       ]
 
