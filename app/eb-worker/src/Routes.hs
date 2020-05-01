@@ -166,10 +166,18 @@ scottyApp
 
         build_num_tuples <- runReaderT ReadBuilds.getFlakyMasterBuildsToRetry conn
 
-        runExceptT $ CircleTrigger.rebuildCircleJobsInWorkflow
+        -- TODO FIXME This was disabled on May 1, 2020.
+        -- Re-enable at or around May 8, 2020.
+        if False
+        then
+         runExceptT $ CircleTrigger.rebuildCircleJobsInWorkflow
           (SqlReadTypes.AuthConnection conn $ AuthStages.Username "")
           (CircleApi.circle_api_token third_party_auth)
           build_num_tuples
+        else do
+          D.debugStr "AUTOMATIC RETRIES IS TEMPORARILY DISABLED!"
+          return $ pure []
+
 
       S.json output
 
