@@ -600,7 +600,6 @@ getRevisionBuilds git_revision = do
       ]
 
 
-
 data ScanQueueEntry = ScanQueueEntry {
     _sha1        :: Builds.RawCommit
   , _inserted_at :: UTCTime
@@ -643,7 +642,7 @@ instance FromRow BuildResults.SimpleBuildStatus where
     build_namespace <- field
 
     detected_directional_breakages <- fromRow
-
+    retrigger_obj <- fromRow
 
     let
       failure_mode
@@ -685,6 +684,7 @@ instance FromRow BuildResults.SimpleBuildStatus where
           succeeded
           wrapped_commit
 
+
     return $ BuildResults.SimpleBuildStatus
       build_obj
       failure_mode
@@ -694,6 +694,7 @@ instance FromRow BuildResults.SimpleBuildStatus where
       detected_directional_breakages
       is_serially_isolated
       ubuild_obj
+      retrigger_obj
 
 
 refreshCachedMasterGrid ::
@@ -942,10 +943,10 @@ apiMasterBuilds timeline_parms = do
     let commit_bounds_tuple = DbHelpers.boundsAsTuple commit_id_bounds
 
     (code_breakages_time, code_breakage_ranges) <- D.timeThisFloat $ liftIO $
-      runReaderT (ReadBreakages.apiAnnotatedCodeBreakages commit_id_bounds) conn
+      flip runReaderT conn $ ReadBreakages.apiAnnotatedCodeBreakages commit_id_bounds
 
     (job_failure_spans_time, job_failure_spans) <- D.timeThisFloat $
-      liftIO $ runReaderT (ReadBreakages.getBreakageSpans commit_id_bounds) conn
+      liftIO $ flip runReaderT conn $ ReadBreakages.getBreakageSpans commit_id_bounds
 
     (reversion_spans_time, reversion_spans) <- D.timeThisFloat $
       liftIO $ query conn reversion_spans_sql commit_bounds_tuple
@@ -1102,8 +1103,12 @@ genMasterBuildsListQuery
         , "contiguous_length"
         , "cluster_id"
         , "cluster_member_count"
+        , "COALESCE(rebuild_trigger_event_counts.rebuild_count, 0)"
+        , "rebuild_trigger_event_counts.last_initiator"
         ]
       , "FROM master_failures_raw_causes_mview"
+      , "LEFT JOIN rebuild_trigger_event_counts"
+      , "ON rebuild_trigger_event_counts.universal_build = master_failures_raw_causes_mview.global_build"
       , "WHERE"
       , Q.conjunction builds_list_where_predicates
       ]

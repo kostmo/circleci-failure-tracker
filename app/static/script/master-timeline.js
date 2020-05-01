@@ -458,6 +458,98 @@ function get_cell_value_indirect(cell) {
 }
 
 
+// TODO This is not yet free of side effects;
+// we should get rid of references to the "cell" variable
+// so that we cannot mutate properties of it.
+function getCellForeground(cell, row_data, cell_value, commit_id, job_name) {
+
+	if (cell_value != null) {
+
+		const is_success = cell_value.failure_mode["tag"] == "Success";
+
+		// NOTE: it would make the most sense to check for success first;
+		// in case the fields are inconsistent (flaky + succeeded)
+		const img_path = cell_value.is_empirically_determined_flaky ? "yellow-triangle.svg" : cell_value.is_flaky ? "orange-delta.svg"
+			: cell_value.failure_mode["tag"] == "FailedStep" && cell_value.failure_mode["step_failure"]["tag"] == "Timeout" ? "purple-circle.svg"
+				: cell_value.failure_mode["tag"] == "FailedStep" && cell_value.failure_mode["step_failure"]["tag"] == "NoMatch" ? "blue-square.svg"
+					: cell_value.failure_mode["tag"] == "NoLog" ? "gray-diamond.svg"
+						: is_success ? "green-dot.svg" : "red-x.svg";
+
+		const indicator = '<img src="/images/build-status-indicators/' + img_path + '" style="width: 100%; top: 50%;"/>';
+
+		const build_id = cell_value["universal_build"]["db_id"];
+		const failed_build_link = link(indicator, "/build-details.html?build_id=" + build_id);
+
+		const provider_build_number = cell_value["universal_build"]["record"]["provider_buildnum"];
+		const successful_build_link = link(indicator, "https://circleci.com/gh/pytorch/pytorch/" + provider_build_number);
+
+		return is_success ? successful_build_link : failed_build_link;
+
+	} else {
+
+
+		const disjoint_status_for_commit = disjoint_statuses_by_commit_id[commit_id];
+		const disjoint_status_obj = disjoint_status_for_commit && disjoint_status_for_commit[job_name];
+		const state = disjoint_status_obj && disjoint_status_obj["state"];
+
+		if (state) {
+
+			if (state == "pending") {
+//						cell.getElement().style.backgroundRepeat = "no-repeat";
+//						cell.getElement().style.backgroundSize = "20px";
+//						cell.getElement().style.backgroundImage = "url('/images/corner-triangle-yellow.svg')";
+
+				return "<span class='flashit'>&#8987;</span>";
+			} else if (state == "error") {
+				cell.getElement().style.backgroundRepeat = "no-repeat";
+				cell.getElement().style.backgroundSize = "20px";
+				cell.getElement().style.backgroundImage = "url('/images/corner-triangle-red.svg')";
+				return "";
+			} else if (state == "success") {
+
+				/*
+				cell.getElement().style.backgroundRepeat = "no-repeat";
+				cell.getElement().style.backgroundSize = "20px";
+				cell.getElement().style.backgroundImage = "url('/images/corner-triangle-green.svg')";
+				*/
+
+				const green_dot_img = '<img src="/images/build-status-indicators/green-dot-concentric.svg" style="width: 100%; top: 50%;"/>';
+				const success_link = link(green_dot_img, "https://circleci.com/gh/pytorch/pytorch/" + disjoint_status_obj["build_number_extracted"]);
+				return success_link;
+			} else {
+				return "";
+			}
+		} else {
+
+			if (row_data["was_built"]) {
+				cell.getElement().style.backgroundColor = "#0002";
+			}
+			return "";
+		}
+	}
+}
+
+
+function getCellExtraOverlay(row_data, cell_value) {
+
+
+	if (cell_value) {
+		if (cell_value["retrigger_action"]["rerun_count"] > 0) {
+
+//			console.log("Rerun count:", cell_value["retrigger_action"]["rerun_count"], "last initiator:", cell_value["retrigger_action"]["last_initiator"]);
+
+			// TODO This doesn't work yet...
+			return "<span style='position:abosolute; left: 0; top: 0;'>Q</span>";
+		}
+	} else {
+		
+	}
+
+	return "";
+}
+
+
+
 function define_job_column(col) {
 
 	const col_dict = {
@@ -585,70 +677,9 @@ function define_job_column(col) {
 				cell.getElement().style.cursor = "context-menu";
 			}
 
-			if (cell_value != null) {
-
-				const is_success = cell_value.failure_mode["tag"] == "Success";
-
-				// NOTE: it would make the most sense to check for success first;
-				// in case the fields are inconsistent (flaky + succeeded)
-				const img_path = cell_value.is_empirically_determined_flaky ? "yellow-triangle.svg" : cell_value.is_flaky ? "orange-delta.svg"
-					: cell_value.failure_mode["tag"] == "FailedStep" && cell_value.failure_mode["step_failure"]["tag"] == "Timeout" ? "purple-circle.svg"
-						: cell_value.failure_mode["tag"] == "FailedStep" && cell_value.failure_mode["step_failure"]["tag"] == "NoMatch" ? "blue-square.svg"
-							: cell_value.failure_mode["tag"] == "NoLog" ? "gray-diamond.svg"
-								: is_success ? "green-dot.svg" : "red-x.svg";
-
-				const indicator = '<img src="/images/build-status-indicators/' + img_path + '" style="width: 100%; top: 50%;"/>';
-
-				const build_id = cell_value["universal_build"]["db_id"];
-				const failed_build_link = link(indicator, "/build-details.html?build_id=" + build_id);
-
-				const provider_build_number = cell_value["universal_build"]["record"]["provider_buildnum"];
-				const successful_build_link = link(indicator, "https://circleci.com/gh/pytorch/pytorch/" + provider_build_number);
-
-				return is_success ? successful_build_link : failed_build_link;
-
-			} else {
-
-
-				const disjoint_status_for_commit = disjoint_statuses_by_commit_id[commit_id];
-				const disjoint_status_obj = disjoint_status_for_commit && disjoint_status_for_commit[job_name];
-				const state = disjoint_status_obj && disjoint_status_obj["state"];
-
-				if (state) {
-
-					if (state == "pending") {
-//						cell.getElement().style.backgroundRepeat = "no-repeat";
-//						cell.getElement().style.backgroundSize = "20px";
-//						cell.getElement().style.backgroundImage = "url('/images/corner-triangle-yellow.svg')";
-
-						return "<span class='flashit'>&#8987;</span>";
-					} else if (state == "error") {
-						cell.getElement().style.backgroundRepeat = "no-repeat";
-						cell.getElement().style.backgroundSize = "20px";
-						cell.getElement().style.backgroundImage = "url('/images/corner-triangle-red.svg')";
-						return "";
-					} else if (state == "success") {
-
-						/*
-						cell.getElement().style.backgroundRepeat = "no-repeat";
-						cell.getElement().style.backgroundSize = "20px";
-						cell.getElement().style.backgroundImage = "url('/images/corner-triangle-green.svg')";
-						*/
-
-						const green_dot_img = '<img src="/images/build-status-indicators/green-dot-concentric.svg" style="width: 100%; top: 50%;"/>';
-						const success_link = link(green_dot_img, "https://circleci.com/gh/pytorch/pytorch/" + disjoint_status_obj["build_number_extracted"]);
-						return success_link;
-					} else {
-						return "";
-					}
-				} else {
-
-					if (row_data["was_built"]) {
-						cell.getElement().style.backgroundColor = "#0002";
-					}
-					return "";
-				}
-			}
+			const foreground_elements = getCellForeground(cell, row_data, cell_value, commit_id, job_name);
+			const overlay_elements = getCellExtraOverlay(row_data, cell_value);
+			return foreground_elements + overlay_elements;
 		},
 		headerClick: function(e, column) {
 
@@ -1171,7 +1202,6 @@ function gen_timeline_table(element_id, fetched_data) {
 		row_dict["downstream_commit_count"] = commit_obj.record.downstream_commit_count;
 		row_dict["reverted_sha1"] = commit_obj.record.reverted_sha1;
 		row_dict["required_commit_job_counts"] = commit_obj.record.required_commit_job_counts;
-
 
 		for (var job_name in builds_by_job_name) {
 			row_dict[job_name] = builds_by_job_name[job_name];

@@ -5,29 +5,29 @@
 
 module Sql.Read.Builds where
 
-import           Control.Monad.IO.Class             (liftIO)
-import           Control.Monad.Trans.Reader         (ask)
+import           Control.Monad.IO.Class           (liftIO)
+import           Control.Monad.Trans.Reader       (ask)
 import           Data.Aeson
-import           Data.Either.Utils                  (maybeToEither)
-import qualified Data.Set                             as Set
-import           Data.Text                          (Text)
-import           Database.PostgreSQL.Simple.Types     (fromPGArray)
-import qualified Data.Text                          as T
-import           Data.Time                          (UTCTime)
+import           Data.Either.Utils                (maybeToEither)
+import           Data.Set                         (Set)
+import qualified Data.Set                         as Set
+import           Data.Text                        (Text)
+import qualified Data.Text                        as T
+import           Data.Time                        (UTCTime)
 import           Database.PostgreSQL.Simple
+import           Database.PostgreSQL.Simple.Types (fromPGArray)
 import           GHC.Generics
-import           Data.Set                             (Set)
-import           GHC.Int                            (Int64)
+import           GHC.Int                          (Int64)
 import qualified Safe
 
-import qualified DbHelpers
-import qualified JsonUtils
-import qualified UnmatchedBuilds
 import qualified Builds
-import qualified DebugUtils                           as D
-import qualified Sql.QueryUtils                     as Q
-import           Sql.Read.Types                       (DbIO, runQuery)
-import qualified Sql.Read.Types                     as SqlReadTypes
+import qualified DbHelpers
+import qualified DebugUtils                       as D
+import qualified JsonUtils
+import qualified Sql.QueryUtils                   as Q
+import           Sql.Read.Types                   (DbIO, runQuery)
+import qualified Sql.Read.Types                   as SqlReadTypes
+import qualified UnmatchedBuilds
 import qualified WebApi
 
 
@@ -266,8 +266,6 @@ getFlakyMasterBuildsToRetry = do
       ]
 
 
-
-
 transformPatternRows row =
   (tup1, fromPGArray pattern_ids_array)
   where
@@ -481,7 +479,6 @@ apiTimeoutCommitBuilds (Builds.RawCommit sha1) = do
         , "is_timeout"
         ]
       ]
-
 
 
 data MissingJobStats = MissingJobStats {

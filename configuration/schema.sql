@@ -3785,6 +3785,20 @@ CREATE VIEW public.latest_pattern_scanned_for_build_step WITH (security_barrier=
 ALTER TABLE public.latest_pattern_scanned_for_build_step OWNER TO postgres;
 
 --
+-- Name: latest_pr_comment_revision_for_sha1; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.latest_pr_comment_revision_for_sha1 AS
+ SELECT created_pull_request_comment_revisions.sha1,
+    max(created_pull_request_comment_revisions.id) AS latest_comment_revision_id,
+    count(*) AS count
+   FROM public.created_pull_request_comment_revisions
+  GROUP BY created_pull_request_comment_revisions.sha1;
+
+
+ALTER TABLE public.latest_pr_comment_revision_for_sha1 OWNER TO postgres;
+
+--
 -- Name: master_contiguous_failures; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -4351,7 +4365,8 @@ CREATE VIEW public.master_failures_by_commit WITH (security_barrier='false') AS
     COALESCE(build_failure_disjoint_causes_by_commit.pattern_unmatched, (0)::bigint) AS pattern_unmatched,
     COALESCE(build_failure_disjoint_causes_by_commit.succeeded, (0)::bigint) AS succeeded,
     COALESCE(build_failure_disjoint_causes_by_commit.pattern_matched_other, (0)::bigint) AS pattern_matched_other,
-    COALESCE(build_failure_disjoint_causes_by_commit.failed, (0)::bigint) AS failed
+    COALESCE(build_failure_disjoint_causes_by_commit.failed, (0)::bigint) AS failed,
+    ordered_master_commits.id AS commit_id
    FROM (public.ordered_master_commits
      LEFT JOIN public.build_failure_disjoint_causes_by_commit ON ((build_failure_disjoint_causes_by_commit.sha1 = ordered_master_commits.sha1)))
   ORDER BY ordered_master_commits.id DESC;
@@ -4421,10 +4436,11 @@ CREATE VIEW public.master_failures_weekly_aggregation WITH (security_barrier='fa
                     master_failures_by_commit.pattern_matched_other AS pattern_matched_count,
                     master_failures_by_commit.pattern_unmatched AS pattern_unmatched_count,
                     master_failures_by_commit.flaky AS flaky_count,
-                    commit_metadata.committer_date,
-                    master_failures_by_commit.commit_index
+                    master_ordered_commits_with_metadata_mview.committer_date,
+                    master_failures_by_commit.commit_index,
+                    master_ordered_commits_with_metadata_mview.was_built
                    FROM (public.master_failures_by_commit
-                     JOIN public.commit_metadata ON ((master_failures_by_commit.sha1 = commit_metadata.sha1)))
+                     JOIN public.master_ordered_commits_with_metadata_mview ON ((master_failures_by_commit.commit_id = master_ordered_commits_with_metadata_mview.id)))
                   ORDER BY master_failures_by_commit.commit_index DESC) foo
           GROUP BY (date_trunc('week'::text, foo.committer_date))
           ORDER BY (date_trunc('week'::text, foo.committer_date)) DESC) blarg;
@@ -4604,7 +4620,7 @@ CREATE VIEW public.master_isolated_failures_weekly_cached AS
             count(*) AS total_build_count
            FROM ( SELECT mv.is_isolated_or_flaky_failure,
                     m2.committer_date,
-                    date_trunc('week'::text, timezone('America/Los_Angeles'::text, m2.committer_date)) AS date_california_time
+                    (date_trunc('week'::text, timezone('America/Los_Angeles'::text, m2.committer_date)))::date AS date_california_time
                    FROM (public.master_failures_raw_causes_mview mv
                      JOIN public.master_ordered_commits_with_metadata_mview m2 ON ((mv.commit_index = m2.id)))
                   WHERE (m2.committer_date IS NOT NULL)) blarg
@@ -4769,6 +4785,80 @@ CREATE VIEW public.master_unmarked_breakage_regions_by_commit AS
 
 
 ALTER TABLE public.master_unmarked_breakage_regions_by_commit OWNER TO postgres;
+
+--
+-- Name: master_unmitigated_unattributed_failed_commits_by_month; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_unmitigated_unattributed_failed_commits_by_month AS
+ SELECT x1.sha1 AS first_commit,
+    x2.sha1 AS last_commit,
+    blarg.timeframe_start,
+    blarg.built_commit_count,
+    blarg.had_unattributed_unmitigated_failure_commit_count
+   FROM ((( SELECT bar.timeframe_start,
+            count(*) AS built_commit_count,
+            sum((bar.had_a_nondeterministic_unrectified_failure)::integer) AS had_unattributed_unmitigated_failure_commit_count,
+            min(bar.id) AS first_commit_id,
+            max(bar.id) AS last_commit_id
+           FROM ( SELECT master_ordered_commits_with_metadata_mview.id,
+                    date_trunc('month'::text, master_ordered_commits_with_metadata_mview.committer_date) AS timeframe_start,
+                    foo.sha1,
+                    foo.had_a_nondeterministic_unrectified_failure,
+                    foo.had_a_deterministic_breakage
+                   FROM (( SELECT master_failures_raw_causes_mview.sha1,
+                            bool_or(((NOT master_failures_raw_causes_mview.succeeded) AND (NOT master_failures_raw_causes_mview.is_empirically_determined_flaky) AND (NOT master_failures_raw_causes_mview.is_known_broken))) AS had_a_nondeterministic_unrectified_failure,
+                            bool_or(master_failures_raw_causes_mview.is_known_broken) AS had_a_deterministic_breakage
+                           FROM public.master_failures_raw_causes_mview
+                          GROUP BY master_failures_raw_causes_mview.sha1) foo
+                     JOIN public.master_ordered_commits_with_metadata_mview ON ((foo.sha1 = master_ordered_commits_with_metadata_mview.sha1)))
+                  WHERE master_ordered_commits_with_metadata_mview.was_built
+                  ORDER BY master_ordered_commits_with_metadata_mview.id DESC) bar
+          WHERE (bar.timeframe_start IS NOT NULL)
+          GROUP BY bar.timeframe_start) blarg
+     JOIN public.ordered_master_commits x1 ON ((x1.id = blarg.first_commit_id)))
+     JOIN public.ordered_master_commits x2 ON ((x2.id = blarg.last_commit_id)))
+  ORDER BY blarg.timeframe_start DESC;
+
+
+ALTER TABLE public.master_unmitigated_unattributed_failed_commits_by_month OWNER TO postgres;
+
+--
+-- Name: master_unmitigated_unattributed_failed_commits_by_week; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.master_unmitigated_unattributed_failed_commits_by_week AS
+ SELECT x1.sha1 AS first_commit,
+    x2.sha1 AS last_commit,
+    blarg.timeframe_start,
+    blarg.built_commit_count,
+    blarg.had_unattributed_unmitigated_failure_commit_count
+   FROM ((( SELECT bar.timeframe_start,
+            count(*) AS built_commit_count,
+            sum((bar.had_a_nondeterministic_unrectified_failure)::integer) AS had_unattributed_unmitigated_failure_commit_count,
+            min(bar.id) AS first_commit_id,
+            max(bar.id) AS last_commit_id
+           FROM ( SELECT master_ordered_commits_with_metadata_mview.id,
+                    date_trunc('week'::text, master_ordered_commits_with_metadata_mview.committer_date) AS timeframe_start,
+                    foo.sha1,
+                    foo.had_a_nondeterministic_unrectified_failure,
+                    foo.had_a_deterministic_breakage
+                   FROM (( SELECT master_failures_raw_causes_mview.sha1,
+                            bool_or(((NOT master_failures_raw_causes_mview.succeeded) AND (NOT master_failures_raw_causes_mview.is_empirically_determined_flaky) AND (NOT master_failures_raw_causes_mview.is_known_broken))) AS had_a_nondeterministic_unrectified_failure,
+                            bool_or(master_failures_raw_causes_mview.is_known_broken) AS had_a_deterministic_breakage
+                           FROM public.master_failures_raw_causes_mview
+                          GROUP BY master_failures_raw_causes_mview.sha1) foo
+                     JOIN public.master_ordered_commits_with_metadata_mview ON ((foo.sha1 = master_ordered_commits_with_metadata_mview.sha1)))
+                  WHERE master_ordered_commits_with_metadata_mview.was_built
+                  ORDER BY master_ordered_commits_with_metadata_mview.id DESC) bar
+          WHERE (bar.timeframe_start IS NOT NULL)
+          GROUP BY bar.timeframe_start) blarg
+     JOIN public.ordered_master_commits x1 ON ((x1.id = blarg.first_commit_id)))
+     JOIN public.ordered_master_commits x2 ON ((x2.id = blarg.last_commit_id)))
+  ORDER BY blarg.timeframe_start DESC;
+
+
+ALTER TABLE public.master_unmitigated_unattributed_failed_commits_by_week OWNER TO postgres;
 
 --
 -- Name: match_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
@@ -5375,30 +5465,33 @@ COMMENT ON VIEW public.pr_merge_time_build_statuses IS 'TODO Should use builds_d
 -- Name: pr_merge_time_build_stats_by_master_commit; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.pr_merge_time_build_stats_by_master_commit WITH (security_barrier='false') AS
- SELECT master_ordered_commits_with_metadata.id AS commit_id,
-    master_ordered_commits_with_metadata.commit_number,
-    master_ordered_commits_with_metadata.sha1 AS master_commit,
-    master_ordered_commits_with_metadata.committer_date,
-    master_ordered_commits_with_metadata.github_pr_number,
+CREATE VIEW public.pr_merge_time_build_stats_by_master_commit AS
+ SELECT moc.id AS commit_id,
+    moc.commit_number,
+    moc.sha1 AS master_commit,
+    moc.committer_date,
+    moc.github_pr_number,
     pr_merge_time_heads_for_master_commits.pr_head_commit,
     foo.total_builds,
     foo.succeeded_count,
     foo.failed_count,
-    COALESCE(bar.foreshadowed_breakage_count, 0) AS foreshadowed_breakage_count
-   FROM (((public.master_ordered_commits_with_metadata
+    COALESCE(bar.foreshadowed_breakage_count, 0) AS foreshadowed_breakage_count,
+    created_pull_request_comment_revisions.all_no_fault_failures
+   FROM (((((public.master_ordered_commits_with_metadata_mview moc
      JOIN ( SELECT pr_merge_time_build_statuses.master_commit,
             count(pr_merge_time_build_statuses.global_build) AS total_builds,
             COALESCE(sum((pr_merge_time_build_statuses.succeeded)::integer), (0)::bigint) AS succeeded_count,
             COALESCE(sum(((NOT pr_merge_time_build_statuses.succeeded))::integer), (0)::bigint) AS failed_count
            FROM public.pr_merge_time_build_statuses
-          GROUP BY pr_merge_time_build_statuses.master_commit) foo ON ((foo.master_commit = master_ordered_commits_with_metadata.sha1)))
-     JOIN public.pr_merge_time_heads_for_master_commits ON ((pr_merge_time_heads_for_master_commits.master_commit = master_ordered_commits_with_metadata.sha1)))
+          GROUP BY pr_merge_time_build_statuses.master_commit) foo ON ((foo.master_commit = moc.sha1)))
+     JOIN public.pr_merge_time_heads_for_master_commits ON ((pr_merge_time_heads_for_master_commits.master_commit = moc.sha1)))
      LEFT JOIN ( SELECT code_breakage_failing_pr_jobs.master_commit_breakage_sha1,
             count(*) AS cause_count,
             (sum(((code_breakage_failing_pr_jobs.foreshadowed_broken_job_count > 0))::integer))::integer AS foreshadowed_breakage_count
            FROM public.code_breakage_failing_pr_jobs
-          GROUP BY code_breakage_failing_pr_jobs.master_commit_breakage_sha1) bar ON ((master_ordered_commits_with_metadata.sha1 = bar.master_commit_breakage_sha1)));
+          GROUP BY code_breakage_failing_pr_jobs.master_commit_breakage_sha1) bar ON ((moc.sha1 = bar.master_commit_breakage_sha1)))
+     LEFT JOIN public.latest_pr_comment_revision_for_sha1 ON ((pr_merge_time_heads_for_master_commits.pr_head_commit = latest_pr_comment_revision_for_sha1.sha1)))
+     LEFT JOIN public.created_pull_request_comment_revisions ON ((latest_pr_comment_revision_for_sha1.latest_comment_revision_id = created_pull_request_comment_revisions.id)));
 
 
 ALTER TABLE public.pr_merge_time_build_stats_by_master_commit OWNER TO postgres;
@@ -5424,7 +5517,8 @@ CREATE MATERIALIZED VIEW public.pr_merge_time_build_stats_by_master_commit_mview
     pr_merge_time_build_stats_by_master_commit.total_builds,
     pr_merge_time_build_stats_by_master_commit.succeeded_count,
     pr_merge_time_build_stats_by_master_commit.failed_count,
-    pr_merge_time_build_stats_by_master_commit.foreshadowed_breakage_count
+    pr_merge_time_build_stats_by_master_commit.foreshadowed_breakage_count,
+    pr_merge_time_build_stats_by_master_commit.all_no_fault_failures
    FROM public.pr_merge_time_build_stats_by_master_commit
   WITH NO DATA;
 
@@ -5435,17 +5529,19 @@ ALTER TABLE public.pr_merge_time_build_stats_by_master_commit_mview OWNER TO mat
 -- Name: pr_merge_time_failing_builds_by_week; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.pr_merge_time_failing_builds_by_week WITH (security_barrier='false') AS
- SELECT date_trunc('week'::text, pr_merge_time_build_stats_by_master_commit.committer_date) AS week,
+CREATE VIEW public.pr_merge_time_failing_builds_by_week AS
+ SELECT date_trunc('week'::text, mv.committer_date) AS week,
     count(*) AS total_pr_count,
-    sum(((pr_merge_time_build_stats_by_master_commit.failed_count > 0))::integer) AS failing_pr_count,
-    (sum(pr_merge_time_build_stats_by_master_commit.total_builds))::integer AS total_build_count,
-    (sum(pr_merge_time_build_stats_by_master_commit.failed_count))::integer AS total_failed_build_count,
-    sum(((pr_merge_time_build_stats_by_master_commit.foreshadowed_breakage_count > 0))::integer) AS foreshadowed_breakage_count,
-    array_agg(pr_merge_time_build_stats_by_master_commit.github_pr_number) AS pr_numbers
-   FROM public.pr_merge_time_build_stats_by_master_commit_mview pr_merge_time_build_stats_by_master_commit
-  GROUP BY (date_trunc('week'::text, pr_merge_time_build_stats_by_master_commit.committer_date))
-  ORDER BY (date_trunc('week'::text, pr_merge_time_build_stats_by_master_commit.committer_date)) DESC;
+    sum(((mv.failed_count > 0))::integer) AS failing_pr_count,
+    (sum(mv.total_builds))::integer AS total_build_count,
+    (sum(mv.failed_count))::integer AS total_failed_build_count,
+    sum(((mv.foreshadowed_breakage_count > 0))::integer) AS foreshadowed_breakage_count,
+    array_agg(mv.github_pr_number) AS pr_numbers,
+    count(mv.all_no_fault_failures) AS dr_ci_commented_count,
+    sum((mv.all_no_fault_failures)::integer) AS qualified_green_count
+   FROM public.pr_merge_time_build_stats_by_master_commit_mview mv
+  GROUP BY (date_trunc('week'::text, mv.committer_date))
+  ORDER BY (date_trunc('week'::text, mv.committer_date)) DESC;
 
 
 ALTER TABLE public.pr_merge_time_failing_builds_by_week OWNER TO postgres;
@@ -7061,10 +7157,10 @@ CREATE UNIQUE INDEX idx_patterns ON public.pattern_frequency_summary_mview USING
 
 
 --
--- Name: idx_pr_build_stats_by_pr_commit_id; Type: INDEX; Schema: public; Owner: materialized_view_updater
+-- Name: idx_pr_build_stats_by_pr_commit_id2; Type: INDEX; Schema: public; Owner: materialized_view_updater
 --
 
-CREATE UNIQUE INDEX idx_pr_build_stats_by_pr_commit_id ON public.pr_merge_time_build_stats_by_master_commit_mview USING btree (commit_id DESC NULLS LAST);
+CREATE UNIQUE INDEX idx_pr_build_stats_by_pr_commit_id2 ON public.pr_merge_time_build_stats_by_master_commit_mview USING btree (commit_id DESC NULLS LAST);
 
 
 --
@@ -8683,6 +8779,14 @@ GRANT ALL ON TABLE public.latest_pattern_scanned_for_build_step TO logan;
 
 
 --
+-- Name: TABLE latest_pr_comment_revision_for_sha1; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.latest_pr_comment_revision_for_sha1 TO logan;
+GRANT SELECT ON TABLE public.latest_pr_comment_revision_for_sha1 TO materialized_view_updater;
+
+
+--
 -- Name: TABLE master_contiguous_failures; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -8921,6 +9025,22 @@ GRANT ALL ON TABLE public.master_unmarked_breakage_regions_by_commit TO logan;
 
 
 --
+-- Name: TABLE master_unmitigated_unattributed_failed_commits_by_month; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_unmitigated_unattributed_failed_commits_by_month TO logan;
+GRANT SELECT ON TABLE public.master_unmitigated_unattributed_failed_commits_by_month TO materialized_view_updater;
+
+
+--
+-- Name: TABLE master_unmitigated_unattributed_failed_commits_by_week; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.master_unmitigated_unattributed_failed_commits_by_week TO logan;
+GRANT SELECT ON TABLE public.master_unmitigated_unattributed_failed_commits_by_week TO materialized_view_updater;
+
+
+--
 -- Name: SEQUENCE match_id_seq; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -9091,7 +9211,6 @@ GRANT SELECT ON TABLE public.pr_merge_time_build_stats_by_master_commit TO mater
 --
 
 GRANT SELECT ON TABLE public.pr_merge_time_build_stats_by_master_commit_mview TO logan;
-GRANT SELECT ON TABLE public.pr_merge_time_build_stats_by_master_commit_mview TO postgres;
 
 
 --

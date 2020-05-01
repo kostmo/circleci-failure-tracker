@@ -117,10 +117,14 @@ instance ToJSON DetectedBreakageModes where
   toJSON = genericToJSON JsonUtils.dropUnderscore
 
 instance FromRow DetectedBreakageModes where
-  fromRow =
-    DetectedBreakageModes
+  fromRow = DetectedBreakageModes
       <$> readMaybeLongitudinalCluster
       <*> readMaybeLateralCluster
+
+data RetriggerAction = RetriggerAction {
+    rerun_count    :: Int
+  , last_initiator :: Maybe Text
+  } deriving (Generic, FromRow, ToJSON)
 
 
 data SimpleBuildStatus = SimpleBuildStatus {
@@ -133,6 +137,7 @@ data SimpleBuildStatus = SimpleBuildStatus {
   , _is_isolated_failure             :: Bool
   , _universal_build                 :: DbHelpers.WithId Builds.UniversalBuild
 --  , _ci_provider         :: DbHelpers.WithId Builds.CiProvider
+  , _retrigger_action                :: RetriggerAction
   } deriving Generic
 
 instance ToJSON SimpleBuildStatus where
