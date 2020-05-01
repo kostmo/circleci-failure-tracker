@@ -152,6 +152,118 @@ function master_breakages_timeline_highchart(chart_id, data) {
 }
 
 
+
+// TODO Adapt this!
+function pr_qualified_green_merges_timeline_highchart(chart_id, data, stacking_type, y_label_prefix) {
+
+	const succeeding_pr_merges_points = [];
+	const failing_pr_merges_points = [];
+	const failing_pr_foreshadowing_breakage_points = [];
+
+	for (var datum of data) {
+
+		const week_val = Date.parse(datum["timestamp"]);
+
+		succeeding_pr_merges_points.push({x: week_val, y: datum["record"]["total_pr_count"] - datum["record"]["failing_pr_count"], pr_numbers: datum["record"]["pr_numbers"]});
+		failing_pr_merges_points.push({x: week_val, y: datum["record"]["failing_pr_count"] - datum["record"]["foreshadowed_breakage_count"], pr_numbers: datum["record"]["pr_numbers"]});
+		failing_pr_foreshadowing_breakage_points.push({x: week_val, y: datum["record"]["foreshadowed_breakage_count"], pr_numbers: datum["record"]["pr_numbers"]});
+	}
+
+	const series_list = [];
+
+	series_list.push({"name": "All builds succeeded", data: succeeding_pr_merges_points})
+	series_list.push({"name": "Some builds failed (benign master impact)", data: failing_pr_merges_points})
+	series_list.push({"name": "Some build failures foreshadowed master breakage", data: failing_pr_foreshadowing_breakage_points})
+
+
+	const foreshadowed_breakage_high_water_mark = Math.max(...(failing_pr_foreshadowing_breakage_points.map(x => x[1])))
+
+	const y_axis_plotlines = [];
+
+	if (stacking_type != "percent") {
+		y_axis_plotlines.push({
+			color: 'red', // Color value
+			dashStyle: 'longdashdot', // Style of the plot line. Default to solid
+			value: foreshadowed_breakage_high_water_mark, // Value of where the line will appear
+			width: 2 // Width of the line    
+		});
+	}
+
+	Highcharts.chart(chart_id, {
+		chart: {
+			type: 'area', // TODO use "step"
+		},
+		colors: ["#5cf180", "#f1f180", "#f15c80"],
+		title: {
+			text: 'PR Merges by week (' + y_label_prefix + ')',
+		},
+		subtitle: {
+			text: 'Showing only full weeks, starting on labeled day'
+		},
+		tooltip: {
+			formatter: function() {
+				const pull_request_numbers = this.point.pr_numbers;
+
+				return 'Count: <b>'+ Highcharts.numberFormat(this.y, 0) + '</b><br/>'+
+					'Week of: <b>' + moment(this.x).format('MM/DD') + '</b>';
+			},
+			useHTML: true,
+			style: {
+				pointerEvents: 'auto'
+			}
+		},
+		xAxis: {
+			type: 'datetime',
+			dateTimeLabelFormats: { // don't display the dummy year
+				month: '%e. %b',
+				year: '%b'
+			},
+			title: {
+				text: 'Date'
+			}
+		},
+		yAxis: {
+			title: {
+				text: y_label_prefix + ' by week'
+			},
+			min: 0,
+			plotLines: y_axis_plotlines,
+		},
+		plotOptions: {
+			line: {
+				marker: {
+					enabled: true
+				}
+			},
+			area: {
+			    stacking: stacking_type,
+			},
+
+
+			series: {
+				cursor: 'pointer',
+				point: {
+					events: {
+						click: function () {
+							const pull_request_numbers = this.pr_numbers;
+
+							const pr_params = pull_request_numbers.map(x => "pr=" + x)
+							location.href = "/pr-batch-details.html?" + pr_params.join("&");
+						},
+					},
+				},
+			},
+		},
+		credits: {
+			enabled: false
+		},
+		series: series_list,
+	});
+}
+
+
+
+
 function pr_merges_timeline_highchart(chart_id, data, stacking_type, y_label_prefix) {
 
 	const succeeding_pr_merges_points = [];
@@ -267,6 +379,9 @@ function render_master_commits_plots(weeks_count) {
 	getJsonWithThrobber("#scan-throbber2", "/api/master-pr-merge-time-weekly-failure-stats", {"weeks": weeks_count}, function (data) {
 		pr_merges_timeline_highchart("pr-merges-by-week-stacked", data, "normal", "count");
 		pr_merges_timeline_highchart("pr-merges-by-week-percent", data, "percent", "percent");
+
+//		pr_qualified_green_merges_timeline_highchart("pr-qualified-green-merges-by-week", data, "percent", "percent");
+
 	});
 
 	getJsonWithThrobber("#scan-throbber3", "/api/master-breakages-monthly-stats", {}, function (data) {

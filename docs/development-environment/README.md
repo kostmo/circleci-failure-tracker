@@ -20,6 +20,8 @@ The local Haskell installation and dependencies may occupy around 4GB on disk.
 ## Credentials
 
 The application makes authenticated connections with Postgres, GitHub, CircleCI, etc.
+
+Request access to the credentials from the project owner.
 Place the credentials directory as a sibling to this repo clone.
 
 

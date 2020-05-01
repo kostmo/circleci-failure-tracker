@@ -549,7 +549,6 @@ function getCellExtraOverlay(row_data, cell_value) {
 }
 
 
-
 function define_job_column(col) {
 
 	const col_dict = {
@@ -871,7 +870,11 @@ function define_pr_column() {
 			if (reverted_sha1 !== null) {
 				return "<img src='/images/revert.svg' style='width: 12px; text-align: middle'/> " + sha1_link(reverted_sha1);
 			} else if (pr_number !== null) {
-				return link("#" + pr_number, PULL_REQUEST_URL_PREFIX + pr_number);
+
+				const pr_link = link("#" + pr_number, PULL_REQUEST_URL_PREFIX + pr_number);
+
+				const maybe_img = row_data["maybe_all_no_fault_failures"] == null ? "" : (row_data["maybe_all_no_fault_failures"] ? "<img src='/images/build-status-indicators/green-dot.svg' style='width: 12px; text-align: middle' title='Merged with qualified green CI status'/>" : "<img src='/images/red-dot.svg' style='width: 12px; text-align: middle' title='Merged WITHOUT qualified green CI status'/>");
+				return pr_link + maybe_img;
 			} else {
 				return "N/A";
 			}
@@ -1202,6 +1205,7 @@ function gen_timeline_table(element_id, fetched_data) {
 		row_dict["downstream_commit_count"] = commit_obj.record.downstream_commit_count;
 		row_dict["reverted_sha1"] = commit_obj.record.reverted_sha1;
 		row_dict["required_commit_job_counts"] = commit_obj.record.required_commit_job_counts;
+		row_dict["maybe_all_no_fault_failures"] = commit_obj.record.maybe_all_no_fault_failures;
 
 		for (var job_name in builds_by_job_name) {
 			row_dict[job_name] = builds_by_job_name[job_name];

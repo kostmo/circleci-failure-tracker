@@ -6,27 +6,29 @@
 module Sql.Read.Commits where
 
 import           Control.Monad.IO.Class             (liftIO)
-import           Control.Monad.Trans.Except         (ExceptT (ExceptT),except, runExceptT)
+import           Control.Monad.Trans.Except         (ExceptT (ExceptT), except,
+                                                     runExceptT)
 import           Control.Monad.Trans.Reader         (ask)
 import           Data.Aeson
 import           Data.Either.Utils                  (maybeToEither)
+import           Data.Set                           (Set)
+import qualified Data.Set                           as Set
 import           Data.Text                          (Text)
 import qualified Data.Text                          as T
 import           Database.PostgreSQL.Simple
+import           Database.PostgreSQL.Simple.FromRow (field, fromRow)
 import           GHC.Generics
 import           GHC.Int                            (Int64)
 import qualified Safe
-import           Data.Set                             (Set)
-import qualified Data.Set                             as Set
 
-import qualified Pagination
-import qualified DbHelpers
-import qualified Commits
-import qualified JsonUtils
 import qualified BuildResults
+import qualified Builds
+import qualified Commits
+import qualified DbHelpers
+import qualified JsonUtils
+import qualified Pagination
 import qualified Sql.QueryUtils                     as Q
 import           Sql.Read.Types                     (DbIO, runQuery)
-import qualified Builds
 
 
 getNextMasterCommit ::
@@ -132,73 +134,38 @@ getMasterCommitIndex conn (Builds.RawCommit sha1) = do
     sql = "SELECT id FROM ordered_master_commits WHERE sha1 = ?"
 
 
--- | Returns results in descending order of commit ID
-getMasterCommits ::
-     Pagination.ParentOffsetMode
-  -> DbIO (Either Text (DbHelpers.InclusiveNumericBounds Int64, [BuildResults.IndexedRichCommit]))
-getMasterCommits parent_offset_mode = do
-  conn <- ask
-  liftIO $ case parent_offset_mode of
-    Pagination.CommitIndices bounds@(DbHelpers.InclusiveNumericBounds minbound maxbound) -> do
 
-      rows <- liftIO $ query conn sql_commit_id_bounds (minbound, maxbound)
-      let mapped_rows = map f rows
-      return $ pure (bounds, mapped_rows)
+data TempThing = TempThing Int64 BuildResults.CommitAndMetadata
 
-    Pagination.FixedAndOffset (Pagination.OffsetLimit offset_mode commit_count) -> runExceptT $ do
-      latest_id <- ExceptT $ case offset_mode of
 
-        Pagination.Count offset_count -> do
-          xs <- query conn sql_first_commit_id $ Only offset_count
-          return $ maybeToEither "No master commits!" $ Safe.headMay $ map (\(Only x) -> x) xs
+instance FromRow TempThing where
+  fromRow = TempThing <$> field <*> fromRow
 
-        Pagination.Commit (Builds.RawCommit sha1) -> do
-          xs <- query conn sql_associated_commit_id $ Only sha1
-          return $ maybeToEither (T.unwords ["No commit with sha1", sha1]) $
-            Safe.headMay $ map (\(Only x) -> x) xs
 
-      rows <- liftIO $ query conn sql_commit_id_and_offset (latest_id :: Int64, commit_count)
+instance FromRow BuildResults.CommitAndMetadata where
+  fromRow = do
+    commit_sha1 <- field
+    commit_number <- field
+    maybe_pr_number <- field
+    maybe_message <- field
+    maybe_tree_sha1 <- field
+    maybe_author_name <- field
+    maybe_author_email <- field
+    maybe_author_date <- field
+    maybe_committer_name <- field
+    maybe_committer_email <- field
+    maybe_committer_date <- field
+    was_built <- field
+    populated_config_yaml <- field
+    downstream_commit_count <- field
+    reverted_sha1 <- field
+    total_required_commit_job_count <- field
+    failed_or_incomplete_required_job_count <- field
+    failed_required_job_count <- field
+    disqualifying_jobs_array <- field
+    maybe_all_no_fault_failures <- field
 
-      let mapped_rows = map f rows
-          maybe_first_commit_index = DbHelpers.db_id <$> Safe.lastMay mapped_rows
-
-      first_commit_index <- except $ maybeToEither "No commits found!" maybe_first_commit_index
-
-      return (DbHelpers.InclusiveNumericBounds first_commit_index latest_id, mapped_rows)
-
-  where
-    f ( commit_id
-      , commit_sha1
-      , commit_number
-      , maybe_pr_number
-      , maybe_message
-      , maybe_tree_sha1
-      , maybe_author_name
-      , maybe_author_email
-      , maybe_author_date
-      , maybe_committer_name
-      , maybe_committer_email
-      , maybe_committer_date
-      , was_built
-      , populated_config_yaml
-      , downstream_commit_count
-      , reverted_sha1
-      , total_required_commit_job_count
-      , failed_or_incomplete_required_job_count
-      , failed_required_job_count
-      , disqualifying_jobs_array) =
-      DbHelpers.WithId commit_id $ BuildResults.CommitAndMetadata
-        wrapped_sha1
-        maybe_metadata
-        commit_number
-        maybe_pr_number
-        was_built
-        populated_config_yaml
-        downstream_commit_count
-        reverted_sha1
-        maybe_required_job_counts
-
-      where
+    let
         maybe_required_job_counts = BuildResults.RequiredJobCounts <$>
           total_required_commit_job_count <*>
           failed_or_incomplete_required_job_count <*>
@@ -216,45 +183,105 @@ getMasterCommits parent_offset_mode = do
           maybe_committer_email <*>
           maybe_committer_date
 
+        commit_metadata_obj = BuildResults.CommitAndMetadata
+          wrapped_sha1
+          maybe_metadata
+          commit_number
+          maybe_pr_number
+          was_built
+          populated_config_yaml
+          downstream_commit_count
+          reverted_sha1
+          maybe_required_job_counts
+          maybe_all_no_fault_failures
+
+    return commit_metadata_obj
+
+
+-- | Returns results in descending order of commit ID
+getMasterCommits ::
+     Pagination.ParentOffsetMode
+  -> DbIO (Either Text (DbHelpers.InclusiveNumericBounds Int64, [BuildResults.IndexedRichCommit]))
+getMasterCommits parent_offset_mode = do
+  conn <- ask
+  liftIO $ case parent_offset_mode of
+    Pagination.CommitIndices bounds@(DbHelpers.InclusiveNumericBounds minbound maxbound) -> do
+
+      rows <- liftIO $ query conn sql_commit_id_bounds
+        (minbound, maxbound)
+
+      let mapped_rows = map f rows
+      return $ pure (bounds, mapped_rows)
+
+    Pagination.FixedAndOffset (Pagination.OffsetLimit offset_mode commit_count) -> runExceptT $ do
+      latest_id <- ExceptT $ case offset_mode of
+
+        Pagination.Count offset_count -> do
+          xs <- query conn sql_first_commit_id $ Only offset_count
+          return $ maybeToEither "No master commits!" $
+            Safe.headMay $ map (\(Only x) -> x) xs
+
+        Pagination.Commit (Builds.RawCommit sha1) -> do
+          xs <- query conn sql_associated_commit_id $ Only sha1
+          return $ maybeToEither (T.unwords ["No commit with sha1", sha1]) $
+            Safe.headMay $ map (\(Only x) -> x) xs
+
+      rows <- liftIO $ query conn sql_commit_id_and_offset
+        (latest_id :: Int64, commit_count)
+
+      let mapped_rows = map f rows
+          maybe_first_commit_index = DbHelpers.db_id <$> Safe.lastMay mapped_rows
+
+      first_commit_index <- except $
+        maybeToEither "No commits found!" maybe_first_commit_index
+
+      return (DbHelpers.InclusiveNumericBounds first_commit_index latest_id, mapped_rows)
+
+  where
+    f (TempThing x y) = DbHelpers.WithId x y
+
     sql_first_commit_id = Q.join [
         "SELECT id"
       , "FROM ordered_master_commits"
       , "ORDER BY id DESC"
       , "LIMIT 1"
-      , "OFFSET ?;"
+      , "OFFSET ?"
       ]
 
     sql_associated_commit_id = Q.join [
         "SELECT id"
       , "FROM ordered_master_commits"
-      , "WHERE sha1 = ?;"
+      , "WHERE sha1 = ?"
       ]
 
     commits_query_prefix = Q.join [
         "SELECT"
       , Q.list [
-            "id"
-          , "sha1"
-          , "commit_number"
-          , "github_pr_number"
-          , "message"
-          , "tree_sha1"
-          , "author_name"
-          , "author_email"
-          , "author_date"
-          , "committer_name"
-          , "committer_email"
-          , "committer_date"
-          , "was_built"
-          , "populated_config_yaml"
-          , "downstream_commit_count"
-          , "reverted_sha1"
-          , "total_required_commit_job_count"
-          , "not_succeeded_required_job_count"
-          , "failed_required_job_count"
-          , "disqualifying_jobs_array"
+            "moc.id"
+          , "moc.sha1"
+          , "moc.commit_number"
+          , "moc.github_pr_number"
+          , "moc.message"
+          , "moc.tree_sha1"
+          , "moc.author_name"
+          , "moc.author_email"
+          , "moc.author_date"
+          , "moc.committer_name"
+          , "moc.committer_email"
+          , "moc.committer_date"
+          , "moc.was_built"
+          , "moc.populated_config_yaml"
+          , "moc.downstream_commit_count"
+          , "moc.reverted_sha1"
+          , "moc.total_required_commit_job_count"
+          , "moc.not_succeeded_required_job_count"
+          , "moc.failed_required_job_count"
+          , "moc.disqualifying_jobs_array"
+          , "pr_merge_time_build_stats_by_master_commit_mview.all_no_fault_failures"
           ]
-      , "FROM master_ordered_commits_with_metadata_mview"
+      , "FROM master_ordered_commits_with_metadata_mview moc"
+      , "LEFT JOIN pr_merge_time_build_stats_by_master_commit_mview"
+      , "ON pr_merge_time_build_stats_by_master_commit_mview.commit_id = moc.id"
       ]
 
     sql_commit_id_and_offset = Q.join [

@@ -55,3 +55,13 @@ The primary entities in the database schema include:
 
 The data is fairly well normalized. Historically, composing several views upon views in pursuit of preserving normalization has led to slow queries. To mitigate this, a number of materialized views ("mviews") were created.  These mviews are updated periodically by AWS Lambda functions
 
+## Updating materialized views
+
+### Refreshing
+
+All of the materialized views in this application support REFRESH CONCURRENTLY, as they have an index on a UNIQUE column.
+The views are refreshed periodically by [AWS Lambda functions](LAMBDA-FUNCTIONS.md).
+
+### Adding columns
+
+If a colummn is added to the underlying VIEW backing a MATERIALIZED VIEW,
