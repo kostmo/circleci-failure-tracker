@@ -71,6 +71,10 @@ getPRCommentPairsForHeadCommit commit_sha1 = do
   conn <- ask
   liftIO $ runExceptT $ do
     containing_pr_list <- lookupPullRequestsByHeadCommit conn commit_sha1
+
+    -- It's OK to do this in a loop rather than consolidate
+    -- into a single DB query, because it should be rare that
+    -- a given SHA1 is the head of multiple Pull Requests.
     for containing_pr_list $ \pr_number -> do
       maybe_previous_pr_comment <- liftIO $ flip runReaderT conn $
         ReadPullRequests.getPostedCommentForPR pr_number

@@ -696,7 +696,7 @@ genMatchedBuildSection
     console_log_link = M.link "full log" $
       LT.toStrict CommentRenderCommon.webserverBaseUrl <> "/api/view-log-full?build_id=" <> T.pack (show ubuild_id)
 
-    pattern_match_details_link = M.link "pattern match details" $
+    pattern_match_details_link = M.link "diagnosis details" $
       LT.toStrict CommentRenderCommon.webserverBaseUrl <> "/build-details.html?build_id=" <> T.pack (show ubuild_id)
 
     rerun_link = renderSingleJobRerunLink $ Builds.UniversalBuildId ubuild_id

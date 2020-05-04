@@ -477,8 +477,8 @@ fetchCommitPageInfo
       is_xla_job jobname = not $ null $
         T.breakOnAll "xla" $ T.toLower jobname
 
-  -- Partition builds between upstream and non-upstream breakages
-  let f = MyUtils.derivePair $
+      -- Partition builds between upstream and non-upstream breakages
+      f = MyUtils.derivePair $
         (`HashMap.lookup` pre_broken_jobs_map) . get_job_name
 
 
@@ -723,8 +723,6 @@ conditionallyPostIfNovelComment
     recreated_old_pr_comment_text = gen_comment count_modified_previous_comment
 
 
-
-
 postInitialComment ::
      OAuth2.AccessToken
   -> DbHelpers.OwnerAndRepo
@@ -920,12 +918,12 @@ readGitHubStatusesAndScanAndPostSummaryForCommit
 
   let has_any_comments = not $ null $ Maybe.mapMaybe sequenceA pr_comment_pairs
 
-  -- If we haven't posted a PR comment before for this commit,
-  -- do not act unless there exists a failed build.
-  -- If we *have* posted before, we must proceed to check
-  -- whether the post needs to be updated, even (especially)
-  -- if the GitHub notification was for a success.
-  let should_proceed = StatusUpdateTypes.hasAnyFailures github_statuses_bundle || has_any_comments
+      -- If we haven't posted a PR comment before for this commit,
+      -- do not act unless there exists a failed build.
+      -- If we *have* posted before, we must proceed to check
+      -- whether the post needs to be updated, even (especially)
+      -- if the GitHub notification was for a success.
+      should_proceed = StatusUpdateTypes.hasAnyFailures github_statuses_bundle || has_any_comments
 
   -- TODO: Wihtout this "force_scanning" override, which is
   -- conditioned on being a master commit at the call site,
@@ -957,7 +955,7 @@ handlePullRequestWebhook ::
      DbHelpers.DbConnectionData
   -> CircleApi.ThirdPartyAuth
   -> PullRequestWebhooks.GitHubPullRequestEvent
-  -> IO (Either LT.Text Int64)
+  -> IO (Either LT.Text SqlReadTypes.RecordCount)
 handlePullRequestWebhook
     db_connection_data
     third_party_auth
@@ -1008,7 +1006,7 @@ handlePullRequestWebhook
 
     else return 0
 
-  return $ Right insertion_count
+  return $ Right $ SqlReadTypes.NewRecordCount insertion_count
 
   where
     new_pr_head_commit = PullRequestWebhooks.sha $ PullRequestWebhooks.head pr_obj
