@@ -51,6 +51,8 @@ def parse_args():
 
     parser.add_argument('--no-force-ssl', dest='no_force_ssl', action="store_true", help='Do not force SSL redirection in args placed into Dockerrun.aws.json')
 
+    parser.add_argument('--port-override', dest='port_override', type=int, help='Override of local port')
+
     parser.add_argument('--entrypoint', dest='entrypoint_override', help='Entrypoint binary name (excluding leading path) for Dockerrun.aws.json')
 
 
@@ -99,7 +101,8 @@ if __name__ == "__main__":
             circleci_api_token,
             aws_sqs_queue_url,
             options.notification_ingester,
-            options.no_force_ssl)
+            options.no_force_ssl,
+            options.port_override)
 
         if options.prod_app:
             args_assembly.generate_dockerrun_aws_json(options.dockerrun_json, nondefault_cli_arglist, options.entrypoint_override)

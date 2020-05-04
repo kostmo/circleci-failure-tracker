@@ -37,7 +37,8 @@ def generate_app_nondefault_cli_arglist(
         circleci_api_token,
         aws_sqs_queue_url,
         is_notification_ingester,
-        no_force_ssl):
+        no_force_ssl,
+        port_override):
 
     arg_list = [
         "--github-client-id",
@@ -68,5 +69,9 @@ def generate_app_nondefault_cli_arglist(
 
     if no_force_ssl:
         arg_list.append("--no-force-ssl")
+
+
+    if port_override:
+        arg_list.extend(["--port", str(port_override)])
 
     return arg_list
