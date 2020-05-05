@@ -458,7 +458,7 @@ fetchCommitPageInfo
     validated_sha1 = runExceptT $ do
 
   liftIO $ D.debugStr "Fetching revision builds"
-  DbHelpers.BenchmarkedResponse _ revision_builds_with_timeouts <- ExceptT $
+  DbHelpers.BenchmarkedResponse revision_builds_fetch_time revision_builds_with_timeouts <- ExceptT $
     SqlRead.getRevisionBuilds validated_sha1
 
   let SqlRead.RevisionBuildsWithTimeouts timed_out_builds revision_builds = revision_builds_with_timeouts
@@ -466,8 +466,9 @@ fetchCommitPageInfo
   liftIO $ D.debugList [
       "Fetched"
     , show $ length revision_builds
-    , "revision builds:"
-    , show revision_builds
+    , "revision builds in"
+    , show revision_builds_fetch_time
+    , "seconds."
     ]
 
   let get_job_name = Builds.job_name . Builds.build_record . CommitBuilds._build . CommitBuilds._commit_build

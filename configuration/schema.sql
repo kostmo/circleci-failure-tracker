@@ -63,8 +63,8 @@ ALTER SCHEMA lambda_logging OWNER TO postgres;
 CREATE FUNCTION public.insert_derived_github_status_event_columns() RETURNS trigger
     LANGUAGE plpgsql
     AS $$BEGIN
-  INSERT INTO github_incoming_status_events_derived_circleci_columns(event_id, job_name_extracted, build_number_extracted)
-  VALUES(NEW.id,"substring"(NEW.context, 14), split_part("substring"(NEW.target_url, 41), '?'::text, 1)::integer);
+  INSERT INTO github_incoming_status_events_derived_circleci_columns(event_id, job_name_extracted, build_number_extracted, event_sha1, event_state, event_created_at)
+  VALUES(NEW.id,"substring"(NEW.context, 14), split_part("substring"(NEW.target_url, 41), '?'::text, 1)::integer, NEW.sha1, NEW.state, NEW.created_at);
   
   RETURN NULL;
 END;$$;
@@ -606,7 +606,12 @@ ALTER TABLE lambda_logging.materialized_view_refresh_event_stats OWNER TO postgr
 CREATE TABLE public.github_incoming_status_events_derived_circleci_columns (
     event_id integer NOT NULL,
     job_name_extracted text NOT NULL,
-    build_number_extracted integer
+    build_number_extracted integer,
+    event_sha1 character(40) NOT NULL,
+    event_created_at timestamp with time zone NOT NULL,
+    event_state text NOT NULL,
+    is_failure boolean GENERATED ALWAYS AS ((event_state = 'failure'::text)) STORED NOT NULL,
+    is_success boolean GENERATED ALWAYS AS ((event_state = 'success'::text)) STORED NOT NULL
 );
 
 
@@ -616,22 +621,23 @@ ALTER TABLE public.github_incoming_status_events_derived_circleci_columns OWNER 
 -- Name: TABLE github_incoming_status_events_derived_circleci_columns; Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON TABLE public.github_incoming_status_events_derived_circleci_columns IS 'TODO: Convert build_number_extracted and job_name_extracted to "derived columns" in Postgres 12';
+COMMENT ON TABLE public.github_incoming_status_events_derived_circleci_columns IS 'TODO: Convert build_number_extracted and job_name_extracted to "derived columns" in Postgres 12?
+
+Note that all columns prefixed with "event_" are copies from the "github_incoming_status_events" table.  They are duplicated here for more efficient GROUP BY queries that use columns from that table.';
 
 
 --
 -- Name: github_status_events_circleci; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.github_status_events_circleci WITH (security_barrier='false') AS
- SELECT github_incoming_status_events.sha1,
-    github_incoming_status_events.created_at,
+CREATE VIEW public.github_status_events_circleci AS
+ SELECT github_incoming_status_events_derived_circleci_columns.event_sha1 AS sha1,
+    github_incoming_status_events_derived_circleci_columns.event_created_at AS created_at,
     github_incoming_status_events_derived_circleci_columns.job_name_extracted,
     github_incoming_status_events_derived_circleci_columns.build_number_extracted,
-    github_incoming_status_events.state,
-    github_incoming_status_events.id
-   FROM (public.github_incoming_status_events
-     JOIN public.github_incoming_status_events_derived_circleci_columns ON ((github_incoming_status_events_derived_circleci_columns.event_id = github_incoming_status_events.id)));
+    github_incoming_status_events_derived_circleci_columns.event_state AS state,
+    github_incoming_status_events_derived_circleci_columns.event_id AS id
+   FROM public.github_incoming_status_events_derived_circleci_columns;
 
 
 ALTER TABLE public.github_status_events_circleci OWNER TO postgres;
@@ -3333,14 +3339,14 @@ COMMENT ON VIEW public.github_status_events_aggregate_circleci_failures IS 'NOTE
 --
 
 CREATE VIEW public.github_status_events_circleci_deduped_states AS
- SELECT (min(github_status_events_circleci.sha1))::character(40) AS sha1,
+ SELECT github_status_events_circleci.sha1,
     max(github_status_events_circleci.created_at) AS created_at,
     github_status_events_circleci.job_name_extracted,
     github_status_events_circleci.build_number_extracted,
     github_status_events_circleci.state,
     (count(*))::integer AS recurrence_count
    FROM public.github_status_events_circleci
-  GROUP BY github_status_events_circleci.job_name_extracted, github_status_events_circleci.build_number_extracted, github_status_events_circleci.state;
+  GROUP BY github_status_events_circleci.sha1, github_status_events_circleci.job_name_extracted, github_status_events_circleci.build_number_extracted, github_status_events_circleci.state;
 
 
 ALTER TABLE public.github_status_events_circleci_deduped_states OWNER TO postgres;
@@ -3349,7 +3355,7 @@ ALTER TABLE public.github_status_events_circleci_deduped_states OWNER TO postgre
 -- Name: github_status_events_state_counts; Type: VIEW; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.github_status_events_state_counts WITH (security_barrier='false') AS
+CREATE VIEW public.github_status_events_state_counts AS
  SELECT foo.sha1,
     foo.job_name,
     foo.failure_count,
@@ -3364,7 +3370,7 @@ CREATE VIEW public.github_status_events_state_counts WITH (security_barrier='fal
             sum(((g1.state = 'pending'::text))::integer) AS pending_count,
             sum(((g1.state = 'success'::text))::integer) AS success_count,
             sum(((g1.state = 'error'::text))::integer) AS error_count
-           FROM public.github_status_events_circleci g1
+           FROM public.github_status_events_circleci_deduped_states g1
           GROUP BY g1.sha1, g1.job_name_extracted) foo;
 
 
@@ -7031,20 +7037,6 @@ CREATE INDEX idx_build_queued_at ON public.universal_builds USING btree (x_queue
 
 
 --
--- Name: idx_circleci_derived_build_number; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX idx_circleci_derived_build_number ON public.github_incoming_status_events_derived_circleci_columns USING btree (build_number_extracted DESC NULLS LAST);
-
-
---
--- Name: idx_circleci_derived_job_name; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX idx_circleci_derived_job_name ON public.github_incoming_status_events_derived_circleci_columns USING btree (job_name_extracted);
-
-
---
 -- Name: idx_committer_date; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -7070,6 +7062,13 @@ CREATE INDEX idx_github_status_events_sha1_state ON public.github_incoming_statu
 --
 
 CREATE INDEX idx_is_timeout ON public.build_steps USING btree (is_timeout);
+
+
+--
+-- Name: idx_job_build_state_sha1; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_job_build_state_sha1 ON public.github_incoming_status_events_derived_circleci_columns USING btree (event_sha1, job_name_extracted, build_number_extracted, event_state);
 
 
 --
