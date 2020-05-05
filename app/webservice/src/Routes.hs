@@ -328,6 +328,9 @@ scottyApp
   get "/api/posted-comments-for-pr" $
     ReadPullRequests.apiPostedCommentsForPR <$> (Builds.PullRequestNumber <$> S.param "pr")
 
+  get "/api/all-posted-comments-for-pr" $
+    ReadPullRequests.apiAllPostedCommentsForPR <$> (Builds.PullRequestNumber <$> S.param "pr")
+
   -- TODO This endpoint not used yet
   get "/api/queue-insertions-for-commit" $
     ReadQueue.getQueueInsertionsForSha1 <$> (Builds.RawCommit <$> S.param "sha1")

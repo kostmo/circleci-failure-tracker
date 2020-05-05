@@ -155,8 +155,23 @@ prCommentSqlPrefix = Q.join [
     , "EXTRACT(EPOCH FROM queue_residency_duration)"
     , "EXTRACT(EPOCH FROM execution_duration)"
     ]
-  , "FROM lambda_logging.latest_pr_comment_revision_processing_stats"
   ]
+
+
+apiAllPostedCommentsForPR ::
+     Builds.PullRequestNumber
+  -> DbIO [PostedComments.PostedComment]
+apiAllPostedCommentsForPR (Builds.PullRequestNumber pr_number) = do
+  conn <- ask
+  liftIO $ query conn sql $ Only pr_number
+  where
+    sql = Q.join [
+        prCommentSqlPrefix
+      , "FROM lambda_logging.all_pr_comment_revision_processing_stats"
+      , "WHERE pr_number = ?"
+      , "ORDER BY updated_at DESC"
+      , "LIMIT 100"
+      ]
 
 
 apiPostedCommentsForPR ::
@@ -168,6 +183,7 @@ apiPostedCommentsForPR (Builds.PullRequestNumber pr_number) = do
   where
     sql = Q.join [
         prCommentSqlPrefix
+      , "FROM lambda_logging.latest_pr_comment_revision_processing_stats"
       , "WHERE pr_number = ?"
       , "ORDER BY updated_at DESC"
       ]
@@ -183,6 +199,7 @@ apiPostedPRComments count = do
   where
     sql = Q.join [
         prCommentSqlPrefix
+      , "FROM lambda_logging.latest_pr_comment_revision_processing_stats"
       , "ORDER BY updated_at DESC"
       , "LIMIT ?"
       ]
