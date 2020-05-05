@@ -2,13 +2,21 @@
 
 ## Haskell dependencies
 
-### OS preqrequisites
+### Prerequisites
+- [stack](https://docs.haskellstack.org/en/stable/README/#how-to-install)
+- [PCRE library headers](https://stackoverflow.com/a/22559967/105137)
+- LLVM 6.0
+- postgresql
 
-One must have the PCRE library headers installed. See https://stackoverflow.com/a/22559967/105137
+On MacOS, these can all be installed via:
+- `brew install pcre llvm@6 postgresql`
+- `curl -sSL https://get.haskellstack.org/ | sh`
 
+On Ubuntu (warning: untested):
+- `sudo apt-get install libpcre3-dev llvm-6.0 postgresql`
+- `curl -sSL https://get.haskellstack.org/ | sh`
 
 ### Compiling the code locally
-First [install `stack`](https://docs.haskellstack.org/en/stable/README/#how-to-install) to bootstrap your Haskell dev environment.
 
 Next, `cd` into the `app` directory of this repo, and run:
 
