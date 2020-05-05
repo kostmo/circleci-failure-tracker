@@ -140,12 +140,12 @@ sqlInsertProviderBuild = Q.join [
 storeCommitMetadata ::
      Connection
   -> [Commits.CommitMetadata]
-  -> IO (Either Text Int64)
+  -> IO (Either Text SqlReadTypes.RecordCount)
 storeCommitMetadata conn commit_list =
 
   catchViolation catcher $ do
     count <- executeMany conn insertion_sql $ map f commit_list
-    return $ Right count
+    return $ Right $ SqlReadTypes.NewRecordCount count
 
   where
     f (Commits.CommitMetadata (Builds.RawCommit sha1) message tree_sha1 author_name author_email author_date committer_name committer_email committer_date) = (sha1, message, tree_sha1, author_name, author_email, author_date, committer_name, committer_email, committer_date)
@@ -328,7 +328,7 @@ updateMergedPullRequestHeadCommits conn = do
 insertPullRequestHeads ::
      Bool -- ^ datasource was webhook notification
   -> [(Builds.PullRequestNumber, Builds.RawCommit)]
-  -> SqlReadTypes.DbIO Int64
+  -> SqlReadTypes.DbIO SqlReadTypes.RecordCount
 insertPullRequestHeads from_webhook retrieved_pr_heads = do
   conn <- ask
   liftIO $ do
@@ -340,7 +340,7 @@ insertPullRequestHeads from_webhook retrieved_pr_heads = do
       , "new rows into pull_request_heads table"
       ]
 
-    return inserted_count
+    return $ SqlReadTypes.NewRecordCount inserted_count
 
   where
     f (Builds.PullRequestNumber x, Builds.RawCommit y) = (x, y, from_webhook)
@@ -350,11 +350,11 @@ insertPullRequestHeads from_webhook retrieved_pr_heads = do
 storeCachedMergeBases ::
      Connection
   -> [MergeBase.CommitMergeBase]
-  -> IO (Either Text Int64)
+  -> IO (Either Text SqlReadTypes.RecordCount)
 storeCachedMergeBases conn merge_base_records =
   catchViolation catcher $ do
     count <- executeMany conn insertion_sql $ map f merge_base_records
-    return $ Right count
+    return $ Right $ SqlReadTypes.NewRecordCount count
 
   where
     f (MergeBase.CommitMergeBase (Builds.RawCommit branch_commit) (Builds.RawCommit master_commit) distance) = (branch_commit, master_commit, distance)
@@ -488,7 +488,7 @@ populateLatestMasterCommits ::
      Connection
   -> OAuth2.AccessToken
   -> DbHelpers.OwnerAndRepo
-  -> IO (Either Text (Int64, Int64))
+  -> IO (Either Text (SqlReadTypes.RecordCount, SqlReadTypes.RecordCount))
 populateLatestMasterCommits conn access_token owned_repo = do
 
   D.debugStr "Populating latest master commits..."
@@ -539,12 +539,12 @@ populateLatestMasterCommits conn access_token owned_repo = do
 storeMasterCommits ::
      Connection
   -> [Text]
-  -> IO (Either Text Int64)
+  -> IO (Either Text SqlReadTypes.RecordCount)
 storeMasterCommits conn commit_list =
 
   catchViolation catcher $ do
     count <- executeMany conn insertion_sql $ map Only commit_list
-    return $ Right count
+    return $ Right $ SqlReadTypes.NewRecordCount count
 
   where
     insertion_sql = Q.join [

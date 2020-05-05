@@ -380,7 +380,7 @@ function render_master_commits_plots(weeks_count) {
 		pr_merges_timeline_highchart("pr-merges-by-week-stacked", data, "normal", "count");
 		pr_merges_timeline_highchart("pr-merges-by-week-percent", data, "percent", "percent");
 
-//		pr_qualified_green_merges_timeline_highchart("pr-qualified-green-merges-by-week", data, "percent", "percent");
+		pr_qualified_green_merges_timeline_highchart("pr-qualified-green-merges-by-week", data, "normal", "count");
 
 	});
 

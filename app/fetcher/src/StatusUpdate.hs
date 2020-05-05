@@ -33,9 +33,7 @@ import qualified Data.Text.Lazy                as LT
 import qualified Data.Time.Clock               as Clock
 import           Data.Traversable              (for)
 import           Data.Tuple                    (swap)
---import           Database.PostgreSQL.Simple    (Connection, withTransaction)
 import           Database.PostgreSQL.Simple    (Connection)
-import           GHC.Int                       (Int64)
 import qualified GitHub.Data.Webhooks.Validate as GHValidate
 import qualified Network.OAuth.OAuth2          as OAuth2
 import qualified Network.URI                   as URI
@@ -1004,9 +1002,9 @@ handlePullRequestWebhook
 
       return pr_heads_insertion_count
 
-    else return 0
+    else return $ SqlReadTypes.NewRecordCount 0
 
-  return $ Right $ SqlReadTypes.NewRecordCount insertion_count
+  return $ Right insertion_count
 
   where
     new_pr_head_commit = PullRequestWebhooks.sha $ PullRequestWebhooks.head pr_obj
@@ -1019,7 +1017,7 @@ handlePushWebhook ::
      DbHelpers.DbConnectionData
   -> CircleApi.ThirdPartyAuth
   -> PushWebhooks.GitHubPushEvent
-  -> IO (Either LT.Text (Int64, Int64))
+  -> IO (Either LT.Text (SqlReadTypes.RecordCount, SqlReadTypes.RecordCount))
 handlePushWebhook
     db_connection_data
     third_party_auth
@@ -1049,7 +1047,7 @@ handlePushWebhook
           access_token
           owned_repo
   else
-    return $ Right mempty
+    return $ Right (SqlReadTypes.NewRecordCount 0, SqlReadTypes.NewRecordCount 0)
 
   where
     refname = LT.toStrict $ PushWebhooks.ref push_event
