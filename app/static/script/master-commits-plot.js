@@ -156,56 +156,47 @@ function master_breakages_timeline_highchart(chart_id, data) {
 // TODO Adapt this!
 function pr_qualified_green_merges_timeline_highchart(chart_id, data, stacking_type, y_label_prefix) {
 
-	const succeeding_pr_merges_points = [];
-	const failing_pr_merges_points = [];
-	const failing_pr_foreshadowing_breakage_points = [];
+	const total_pr_count_points = [];
+	const dr_ci_commented_count_points = [];
+	const qualified_green_count_points = [];
 
 	for (var datum of data) {
 
 		const week_val = Date.parse(datum["timestamp"]);
 
-		succeeding_pr_merges_points.push({x: week_val, y: datum["record"]["total_pr_count"] - datum["record"]["failing_pr_count"], pr_numbers: datum["record"]["pr_numbers"]});
-		failing_pr_merges_points.push({x: week_val, y: datum["record"]["failing_pr_count"] - datum["record"]["foreshadowed_breakage_count"], pr_numbers: datum["record"]["pr_numbers"]});
-		failing_pr_foreshadowing_breakage_points.push({x: week_val, y: datum["record"]["foreshadowed_breakage_count"], pr_numbers: datum["record"]["pr_numbers"]});
+		total_pr_count_points.push({x: week_val, y: datum["record"]["total_pr_count"], mydata: datum["record"]});
+		dr_ci_commented_count_points.push({x: week_val, y: datum["record"]["dr_ci_commented_count"], mydata: datum["record"]});
+		qualified_green_count_points.push({x: week_val, y: datum["record"]["qualified_green_count"], mydata: datum["record"]});
 	}
 
 	const series_list = [];
 
-	series_list.push({"name": "All builds succeeded", data: succeeding_pr_merges_points})
-	series_list.push({"name": "Some builds failed (benign master impact)", data: failing_pr_merges_points})
-	series_list.push({"name": "Some build failures foreshadowed master breakage", data: failing_pr_foreshadowing_breakage_points})
-
-
-	const foreshadowed_breakage_high_water_mark = Math.max(...(failing_pr_foreshadowing_breakage_points.map(x => x[1])))
-
-	const y_axis_plotlines = [];
-
-	if (stacking_type != "percent") {
-		y_axis_plotlines.push({
-			color: 'red', // Color value
-			dashStyle: 'longdashdot', // Style of the plot line. Default to solid
-			value: foreshadowed_breakage_high_water_mark, // Value of where the line will appear
-			width: 2 // Width of the line    
-		});
-	}
+	series_list.push({"name": "Total PR count", data: total_pr_count_points})
+	series_list.push({"name": "Dr. CI commented count", data: dr_ci_commented_count_points})
+	series_list.push({"name": "Qualified green at merge count", data: qualified_green_count_points})
 
 	Highcharts.chart(chart_id, {
 		chart: {
-			type: 'area', // TODO use "step"
+			type: 'line',
 		},
-		colors: ["#5cf180", "#f1f180", "#f15c80"],
 		title: {
-			text: 'PR Merges by week (' + y_label_prefix + ')',
+			text: 'Green PR Merges by week (' + y_label_prefix + ')',
 		},
 		subtitle: {
 			text: 'Showing only full weeks, starting on labeled day'
 		},
 		tooltip: {
 			formatter: function() {
-				const pull_request_numbers = this.point.pr_numbers;
 
-				return 'Count: <b>'+ Highcharts.numberFormat(this.y, 0) + '</b><br/>'+
-					'Week of: <b>' + moment(this.x).format('MM/DD') + '</b>';
+				const tooltip_lines = [
+					'Count: ' + render_tag("b", Highcharts.numberFormat(this.y, 0)),
+					'Week of: ' + render_tag("b", moment(this.x).format('MM/DD')),
+					'Commented fraction: ' + render_tag("b", (100 * this.point.mydata["dr_ci_commented_count"]/this.point.mydata["total_pr_count"]).toFixed(1) + "%"),
+					'Green commented fraction: ' + render_tag("b", (100 * this.point.mydata["qualified_green_count"]/this.point.mydata["dr_ci_commented_count"]).toFixed(1) + "%"),
+
+				];
+				return tooltip_lines.join("<br/>");
+					
 			},
 			useHTML: true,
 			style: {
@@ -227,7 +218,6 @@ function pr_qualified_green_merges_timeline_highchart(chart_id, data, stacking_t
 				text: y_label_prefix + ' by week'
 			},
 			min: 0,
-			plotLines: y_axis_plotlines,
 		},
 		plotOptions: {
 			line: {
@@ -238,21 +228,6 @@ function pr_qualified_green_merges_timeline_highchart(chart_id, data, stacking_t
 			area: {
 			    stacking: stacking_type,
 			},
-
-
-			series: {
-				cursor: 'pointer',
-				point: {
-					events: {
-						click: function () {
-							const pull_request_numbers = this.pr_numbers;
-
-							const pr_params = pull_request_numbers.map(x => "pr=" + x)
-							location.href = "/pr-batch-details.html?" + pr_params.join("&");
-						},
-					},
-				},
-			},
 		},
 		credits: {
 			enabled: false
@@ -260,8 +235,6 @@ function pr_qualified_green_merges_timeline_highchart(chart_id, data, stacking_t
 		series: series_list,
 	});
 }
-
-
 
 
 function pr_merges_timeline_highchart(chart_id, data, stacking_type, y_label_prefix) {
