@@ -132,9 +132,13 @@ table header_cols data_rows = NE.map delimitColumns all_table_rows
     all_table_rows = header_cols :| header_line : data_rows
 
 
-bulletize :: Int -> NonEmpty Text -> NonEmpty Text
-bulletize depth (x :| xs) =
-  (first_line_indentation <> "* " <> x) :| map (content_indentation <>) xs
+bullet :: Text -> Text
+bullet x = "* " <> x
+
+
+bulletizeList :: Int -> NonEmpty Text -> NonEmpty Text
+bulletizeList depth (x :| xs) =
+  (first_line_indentation <> bullet x) :| map (content_indentation <>) xs
   where
     first_line_depth = 4 * depth
     first_line_indentation = mconcat $ replicate first_line_depth " "
@@ -197,7 +201,7 @@ paragraphs = T.unlines . intersperse ""
 
 
 bulletTree :: Forest (NonEmpty Text) -> Text
-bulletTree = T.unlines . concatMap (NE.toList . uncurry bulletize) . flattenWithDepth 0
+bulletTree = T.unlines . concatMap (NE.toList . uncurry bulletizeList) . flattenWithDepth 0
 
 
 -- | Typically should call this with 0 as the first argument

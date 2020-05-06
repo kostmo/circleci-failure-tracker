@@ -110,7 +110,7 @@ genTimedOutSection
       , M.bold "timed out"
       ]
 
-    make_list_item = ("* " <>) . M.codeInline . UnmatchedBuilds._job_name
+    make_list_item = M.bullet . M.codeInline . UnmatchedBuilds._job_name
     jobs_list = map make_list_item timed_out_builds
 
 
@@ -326,9 +326,8 @@ genOtherProviderSection non_circle_items = Tr.Node
         failed_event_list = NE.toList nonempty_failed_event_list
         get_provider_string (DbHelpers.WithId _ (SqlReadTypes.CiProviderHostname hostname_string)) = hostname_string
 
-        mk_bullet x = T.unwords [
-            "*"
-          , M.bold "Failed:"
+        mk_bullet x = M.bullet $ T.unwords [
+            M.bold "Failed:"
           , M.link (M.codeInline $ LT.toStrict $ StatusEventQuery._context x) $ LT.toStrict $ StatusEventQuery._target_url x
           ]
 
@@ -382,7 +381,7 @@ genPatternMatchedSections pattern_matched_builds =
       confirmed_flaky_builds
         = pattern_matched_builds
 
-    StatusUpdateTypes.NewNonFlakyBuilds nonflaky_by_pattern nonflaky_by_empirical_confirmation = classified_nonflaky_builds
+    StatusUpdateTypes.NewNonFlakyFailures nonflaky_by_pattern nonflaky_by_empirical_confirmation = classified_nonflaky_builds
 
     all_nonflaky_builds = nonflaky_by_pattern ++ nonflaky_by_empirical_confirmation
 
@@ -445,7 +444,7 @@ genFlakySections
           , M.bold "confirmed as flaky"
           , "and can be ignored"
           ])
-        (map ((\x -> "* " <> M.codeInline x) . get_job_name) confirmed_flaky_builds)
+        (map (M.bullet . M.codeInline . get_job_name) confirmed_flaky_builds)
 
     total_tentative_flaky_count = StatusUpdateTypes.count tentative_flakies
 

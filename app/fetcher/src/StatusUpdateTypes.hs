@@ -88,8 +88,8 @@ data NonUpstreamBuildPartition a = NewNonUpstreamBuildPartition {
 
 data FlakyBuildPartition a = NewFlakyBuildPartition {
     tentatively_flaky_builds :: TentativeFlakyBuilds a
-  , nonflaky_builds          :: NonFlakyBuilds a
-  , confirmed_flaky_builds   :: [SqlReadTypes.StandardCommitBuildWrapper]
+  , nonflaky_builds          :: NonFlakyFailures a
+  , confirmed_flaky_builds   :: [SqlReadTypes.StandardCommitBuildWrapper] -- ^ these jobs have been verified as flaky by experiencing at least one success and one failure
   } deriving Show
 
 
@@ -99,9 +99,9 @@ data TentativeFlakyBuilds a = NewTentativeFlakyBuilds {
   } deriving Show
 
 
-data NonFlakyBuilds a = NewNonFlakyBuilds {
-    nonflaky_by_pattern                :: [a]
-  , nonflaky_by_empirical_confirmation :: [a]
+data NonFlakyFailures a = NewNonFlakyFailures {
+    nonflaky_by_pattern                :: [a] -- ^ the pattern that matched these jobs was not classified as "flaky"
+  , nonflaky_by_empirical_confirmation :: [a] -- ^ this job failed 2 or more times without succeeding.
   } deriving Show
 
 
@@ -114,7 +114,7 @@ instance Partition (TentativeFlakyBuilds a) where
         ]
 
 
-instance Partition (NonFlakyBuilds a) where
+instance Partition (NonFlakyFailures a) where
   count x = sum $ map (\f -> length $ f x) field_extractors
     where
       field_extractors = [
@@ -124,7 +124,7 @@ instance Partition (NonFlakyBuilds a) where
 
 
 partitionMatchedBuilds ::
-     [SqlReadTypes.StandardCommitBuildWrapper]
+     [SqlReadTypes.StandardCommitBuildWrapper] -- ^ these jobs have been verified as flaky by experiencing at least one success and one failure.
   -> [SqlReadTypes.CommitBuildWrapperTuple]
   -> FlakyBuildPartition SqlReadTypes.CommitBuildWrapperTuple
 partitionMatchedBuilds
@@ -139,7 +139,9 @@ partitionMatchedBuilds
   where
     tentative_flaky_builds_partition = NewTentativeFlakyBuilds rerun_was_triggered_breakages rerun_not_triggered_breakages
 
-    nonflaky_builds_partition = NewNonFlakyBuilds nonupstream_nonflaky_breakages negatively_confirmed_flaky_breakages
+    nonflaky_builds_partition = NewNonFlakyFailures
+      nonupstream_nonflaky_breakages
+      completed_rerun_flaky_breakages
 
 
     -- Best pattern match is clasified as flaky
@@ -150,6 +152,12 @@ partitionMatchedBuilds
       partition tentative_flakiness_predicate pattern_matched_builds
 
 
+    -- At this point, having completed a rerun is enough to know
+    -- that both the first run and the rerun have failed.
+    -- Why? Because we've already filtered out all jobs that have
+    -- had at least one success and one failure.
+    -- All of those reran jobs are therefore verified as flaky, and
+    -- have been excluded before reaching this point in the code.
     has_completed_rerun_predicate = SqlReadTypes.has_completed_rerun . CommitBuilds._supplemental . fst
 
     (completed_rerun_flaky_breakages, not_completed_rerun_flaky_breakages) =
@@ -160,8 +168,6 @@ partitionMatchedBuilds
 
     (rerun_was_triggered_breakages, rerun_not_triggered_breakages) =
       partition has_triggered_rerun_predicate not_completed_rerun_flaky_breakages
-
-    negatively_confirmed_flaky_breakages = completed_rerun_flaky_breakages
 
 
 data BuildSummaryStats = NewBuildSummaryStats {
