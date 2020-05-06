@@ -172,7 +172,7 @@ data NodeType =
 data BuildMembers =
     UnmatchedBuildMembers [UnmatchedBuilds.UnmatchedBuild]
   | TupleBuildMembers [SqlReadTypes.CommitBuildWrapperTuple]
-  | TentativeFlakyBuildMembers (StatusUpdateTypes.TentativeFlakyBuilds SqlReadTypes.CommitBuildWrapperTuple)
+  | TentativeFlakyBuildMembers [SqlReadTypes.CommitBuildWrapperTuple]
   | UpstreamBreakageMembers [(SqlReadTypes.StandardCommitBuildWrapper, SqlReadTypes.UpstreamBrokenJob)]
   | SpecialCasedMembers [SqlReadTypes.StandardCommitBuildWrapper]
   | RawGitHubEventMembers [StatusEventQuery.GitHubStatusEventGetter]
@@ -196,7 +196,7 @@ hasMembers (FailurePurpose x)                       = getFailureCount x > 0
 getFailureCount :: BuildMembers -> Int
 getFailureCount (UnmatchedBuildMembers x)      = length x
 getFailureCount (TupleBuildMembers x)          = length x
-getFailureCount (TentativeFlakyBuildMembers x) = StatusUpdateTypes.count x
+getFailureCount (TentativeFlakyBuildMembers x) = length x
 getFailureCount (UpstreamBreakageMembers x)    = length x
 getFailureCount (SpecialCasedMembers x)        = length x
 getFailureCount (RawGitHubEventMembers x)      = length x
@@ -242,7 +242,6 @@ genNewFailuresSections nonupstream_builds =
       , special_cased_nonupstream_section
       ]
 
-
     StatusUpdateTypes.NewNonUpstreamBuildPartition
       pattern_matched_builds
       unmatched_nonupstream_builds
@@ -262,9 +261,9 @@ genNewFailuresSections nonupstream_builds =
       ]
 
     pattern_unmatched_section = pure $ LeafNode $ NewFailureSection
-        (FailurePurpose $ UnmatchedBuildMembers unmatched_nonupstream_builds)
-        pattern_unmatched_header
-        (NE.toList $ genUnmatchedBuildsTable unmatched_nonupstream_builds)
+      (FailurePurpose $ UnmatchedBuildMembers unmatched_nonupstream_builds)
+      pattern_unmatched_header
+      (NE.toList $ genUnmatchedBuildsTable unmatched_nonupstream_builds)
 
 
 genCheckRunsSection ::
@@ -283,9 +282,8 @@ genCheckRunsSection failed_check_run_entries_excluding_facebook =
       ]
 
     failed_run_bullets = map gen_bullet failed_check_run_entries_excluding_facebook
-    gen_bullet x = T.unwords [
-        "*"
-      , M.bold "Failed:"
+    gen_bullet x = M.bullet $ T.unwords [
+        M.bold "Failed:"
       , M.link link_label $ GithubChecksApiFetch.html_url x
       ]
       where
@@ -434,7 +432,6 @@ genFlakySections
   where
     StatusUpdateTypes.NewTentativeFlakyBuilds tentative_flaky_triggered_reruns tentative_flaky_untriggered_reruns = tentative_flakies
 
-
     get_job_name = Builds.job_name . Builds.build_record . CommitBuilds._build . CommitBuilds._commit_build
 
     my_confirmed_flaky_section = pure $ LeafNode $ NewFailureSection
@@ -446,40 +443,43 @@ genFlakySections
           ])
         (map (M.bullet . M.codeInline . get_job_name) confirmed_flaky_builds)
 
-    total_tentative_flaky_count = StatusUpdateTypes.count tentative_flakies
+    my_tentative_flaky_section = Tr.Node (InteriorNode tentative_flakies_header)
+      [untriggered_subsection, triggered_subsection]
 
+    tentative_flakies_header = "Tentatively flaky failures"
 
-    my_tentative_flaky_section = pure $ LeafNode $ NewFailureSection
-        (FailurePurpose $ TentativeFlakyBuildMembers tentative_flakies)
-        tentative_flakies_header
-        (untriggered_subsection <> triggered_subsection)
+    untriggered_subsection = pure $ LeafNode $ NewFailureSection
+      (FailurePurpose $ TentativeFlakyBuildMembers tentative_flaky_untriggered_reruns)
+      untriggered_intro_text
+      (make_details_block tentative_flaky_untriggered_reruns)
 
-    tentative_flakies_header = M.heading 3 $ T.unwords [
-        ":snowflake:"
-      , MyUtils.pluralize total_tentative_flaky_count "tentatively flaky failure"
+    triggered_subsection = pure $ LeafNode $ NewFailureSection
+      (FailurePurpose $ TentativeFlakyBuildMembers tentative_flaky_triggered_reruns)
+      triggered_intro_text
+      (make_details_block tentative_flaky_triggered_reruns)
+
+    untriggered_intro_text = T.unlines [
+        M.heading 3 $ T.unwords [
+          ":snowflake:"
+        , MyUtils.pluralize (length tentative_flaky_untriggered_reruns) "failure"
+        , M.bold "tentatively classified as flaky"
+        ]
+      , M.colonize [
+          "but reruns have not yet been triggered to confirm"
+        ]
       ]
 
-    untriggered_subsection = if null tentative_flaky_untriggered_reruns
-      then mempty
-      else pure untriggered_intro_text
-        <> make_details_block tentative_flaky_untriggered_reruns
-
-    triggered_subsection = if null tentative_flaky_triggered_reruns
-      then mempty
-      else pure triggered_intro_text
-        <> make_details_block tentative_flaky_triggered_reruns
-
-    untriggered_intro_text = M.colonize [
-        MyUtils.pluralize (length tentative_flaky_untriggered_reruns) "failure"
-      , M.bold "tentatively classified as flaky"
-      , "but reruns have not yet been triggered to confirm"
-      ]
-
-    triggered_intro_text = M.colonize [
-        MyUtils.pluralize (length tentative_flaky_triggered_reruns) "failure"
-      , "tentatively classified as flaky and"
-      , M.bold "rerunning now"
-      , "to confirm"
+    triggered_intro_text = T.unlines [
+        M.heading 3 $ T.unwords [
+          ":snowflake:"
+        , MyUtils.pluralize (length tentative_flaky_triggered_reruns) "failure"
+        , "tentatively classified as flaky"
+        ]
+      , M.colonize [
+          "and"
+        , M.bold "rerunning now"
+        , "to confirm"
+        ]
       ]
 
     make_details_block x = concat $
@@ -996,7 +996,7 @@ genMetricsTree
     tentatively_flaky_builds_partition = StatusUpdateTypes.tentatively_flaky_builds $
       StatusUpdateTypes.pattern_matched_builds $ StatusUpdateTypes.my_nonupstream_builds toplevel_builds
 
-    tentatively_flaky_count = StatusUpdateTypes.count tentatively_flaky_builds_partition
+    tentatively_flaky_count = length $ StatusUpdateTypes.getAllTentativelyFlaky tentatively_flaky_builds_partition
 
     flaky_bullet_tree_inner_heading = pure $ T.unwords [
         bold_fraction tentatively_flaky_count total_failcount

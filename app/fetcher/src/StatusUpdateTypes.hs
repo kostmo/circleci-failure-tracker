@@ -6,7 +6,6 @@ import           Data.List            (partition)
 import           Data.List.NonEmpty   (NonEmpty)
 import           Data.Text            (Text)
 import qualified Data.Text.Lazy       as LT
-import qualified Data.Tree            as Tr
 
 import qualified Builds
 import qualified CommitBuilds
@@ -23,19 +22,6 @@ gitHubStatusFailureString = "failure"
 
 gitHubStatusSuccessString :: LT.Text
 gitHubStatusSuccessString = "success"
-
-
-class Partition a where
-  count :: a -> Int
-
-
-instance Partition [a] where
-  count = length
-
-
--- TODO use this
-class ToTree a where
-  toTree :: a -> Tr.Tree a
 
 
 data NonCircleCIItems = NewNonCircleCIItems {
@@ -99,28 +85,14 @@ data TentativeFlakyBuilds a = NewTentativeFlakyBuilds {
   } deriving Show
 
 
+getAllTentativelyFlaky :: (TentativeFlakyBuilds a) -> [a]
+getAllTentativelyFlaky (NewTentativeFlakyBuilds x y) = x ++ y
+
+
 data NonFlakyFailures a = NewNonFlakyFailures {
     nonflaky_by_pattern                :: [a] -- ^ the pattern that matched these jobs was not classified as "flaky"
   , nonflaky_by_empirical_confirmation :: [a] -- ^ this job failed 2 or more times without succeeding.
   } deriving Show
-
-
-instance Partition (TentativeFlakyBuilds a) where
-  count x = sum $ map (\f -> length $ f x) field_extractors
-    where
-      field_extractors = [
-          tentative_flaky_triggered_reruns
-        , tentative_flaky_untriggered_reruns
-        ]
-
-
-instance Partition (NonFlakyFailures a) where
-  count x = sum $ map (\f -> length $ f x) field_extractors
-    where
-      field_extractors = [
-          nonflaky_by_pattern
-        , nonflaky_by_empirical_confirmation
-        ]
 
 
 partitionMatchedBuilds ::
@@ -137,14 +109,16 @@ partitionMatchedBuilds
     confirmed_flaky_breakages
 
   where
-    tentative_flaky_builds_partition = NewTentativeFlakyBuilds rerun_was_triggered_breakages rerun_not_triggered_breakages
+    tentative_flaky_builds_partition = NewTentativeFlakyBuilds
+      rerun_was_triggered_breakages
+      rerun_not_triggered_breakages
 
     nonflaky_builds_partition = NewNonFlakyFailures
       nonupstream_nonflaky_breakages
       completed_rerun_flaky_breakages
 
 
-    -- Best pattern match is clasified as flaky
+    -- true when the "best pattern match" is clasified as flaky
     tentative_flakiness_predicate = CommitBuilds._is_flaky . CommitBuilds._failure_mode . CommitBuilds._commit_build . fst
 
 
