@@ -408,7 +408,7 @@ genPatternMatchedSections pattern_matched_builds =
         ]
 
     nonflaky_intro_text_pieces =
-        "The following build failures do not appear to be due to upstream breakages"
+        "The following CI failures do not appear to be due to upstream breakages"
        : discounted_flakiness_blurb
 
     non_upstream_nonflaky_intro_text = M.colonize nonflaky_intro_text_pieces
@@ -828,7 +828,7 @@ generateCommentMarkdown
       dr_ci_commit_details_url
 
     intro_section = T.unlines [
-        M.heading 2 ":pill: Build failures summary and remediations"
+        M.heading 2 ":pill: CI failures summary and remediations"
       , M.colonize [
           "As of commit"
         , T.take Constants.gitCommitPrefixLength sha1_text
@@ -938,7 +938,7 @@ genMetricsTree
         ]
       | otherwise = pure $ T.unwords [
           ":white_check_mark:"
-        , M.bold "None of the build failures appear to be your fault"
+        , M.bold "None of the CI failures appear to be your fault"
         , ":green_heart:"
         ]
 
