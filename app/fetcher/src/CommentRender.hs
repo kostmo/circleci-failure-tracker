@@ -101,7 +101,7 @@ genTimedOutSection ::
 genTimedOutSection
   timed_out_builds =
   pure $ LeafNode $ NewFailureSection
-    (UnmatchedBuildMembers timed_out_builds)
+    (FailurePurpose $ UnmatchedBuildMembers timed_out_builds)
     jobs_header
     jobs_list
   where
@@ -120,7 +120,7 @@ genSpecialCasedNonupstreamSection ::
 genSpecialCasedNonupstreamSection
   (StatusUpdateTypes.NewSpecialCasedBuilds xla_build_failures) =
   pure $ LeafNode $ NewFailureSection
-    (SpecialCasedMembers xla_build_failures)
+    (FailurePurpose $ SpecialCasedMembers xla_build_failures)
     (T.unlines [M.heading 3 "XLA failure", explanation_paragraph])
     xla_match_details_block
 
@@ -175,14 +175,25 @@ data BuildMembers =
   | TentativeFlakyBuildMembers (StatusUpdateTypes.TentativeFlakyBuilds SqlReadTypes.CommitBuildWrapperTuple)
   | UpstreamBreakageMembers [(SqlReadTypes.StandardCommitBuildWrapper, SqlReadTypes.UpstreamBrokenJob)]
   | SpecialCasedMembers [SqlReadTypes.StandardCommitBuildWrapper]
-  | ProvenNonFlakyMembers [SqlReadTypes.StandardCommitBuildWrapper]
   | RawGitHubEventMembers [StatusEventQuery.GitHubStatusEventGetter]
   | GitHubCheckRunMembers [GithubChecksApiFetch.GitHubCheckRunsEntry]
 
 
--- | Not all of the "members" represent failures.
+data InfoMembers = ProvenNonFlakyMembers [SqlReadTypes.StandardCommitBuildWrapper]
+
+
+data EntryPurpose =
+    InfoPurpose InfoMembers -- ^ represents informational content; non land-blocking
+  | FailurePurpose BuildMembers -- ^ all represent CI job failures
+
+
+-- | Used for culling the tree
+hasMembers :: EntryPurpose -> Bool
+hasMembers (InfoPurpose (ProvenNonFlakyMembers xs)) = not $ null xs
+hasMembers (FailurePurpose x)                       = getFailureCount x > 0
+
+
 getFailureCount :: BuildMembers -> Int
-getFailureCount (ProvenNonFlakyMembers _)      = 0 -- not failures
 getFailureCount (UnmatchedBuildMembers x)      = length x
 getFailureCount (TupleBuildMembers x)          = length x
 getFailureCount (TentativeFlakyBuildMembers x) = StatusUpdateTypes.count x
@@ -192,21 +203,15 @@ getFailureCount (RawGitHubEventMembers x)      = length x
 getFailureCount (GitHubCheckRunMembers x)      = length x
 
 
--- | Used for culling the tree
-hasMembers :: BuildMembers -> Bool
-hasMembers (ProvenNonFlakyMembers xs) = not $ null xs
-hasMembers x                          = getFailureCount x > 0
-
-
-countNonCircleCINonFacebookFailures :: BuildMembers -> Int
-countNonCircleCINonFacebookFailures (RawGitHubEventMembers x) = length x
-countNonCircleCINonFacebookFailures (GitHubCheckRunMembers x) = length x
+countNonCircleCINonFacebookFailures :: EntryPurpose -> Int
+countNonCircleCINonFacebookFailures (InfoPurpose _) = 0
+countNonCircleCINonFacebookFailures (FailurePurpose (RawGitHubEventMembers x)) = length x
+countNonCircleCINonFacebookFailures (FailurePurpose (GitHubCheckRunMembers x)) = length x
 countNonCircleCINonFacebookFailures _                         = 0
 
 
-
 data FailureSection = NewFailureSection {
-    build_members :: BuildMembers
+    build_members :: EntryPurpose
   , intro_blurb   :: Text
   , details_lines :: [Text]
   }
@@ -257,7 +262,7 @@ genNewFailuresSections nonupstream_builds =
       ]
 
     pattern_unmatched_section = pure $ LeafNode $ NewFailureSection
-        (UnmatchedBuildMembers unmatched_nonupstream_builds)
+        (FailurePurpose $ UnmatchedBuildMembers unmatched_nonupstream_builds)
         pattern_unmatched_header
         (NE.toList $ genUnmatchedBuildsTable unmatched_nonupstream_builds)
 
@@ -267,7 +272,7 @@ genCheckRunsSection ::
   -> Tr.Tree NodeType
 genCheckRunsSection failed_check_run_entries_excluding_facebook =
   pure $ LeafNode $ NewFailureSection
-    (GitHubCheckRunMembers failed_check_run_entries_excluding_facebook)
+    (FailurePurpose $ GitHubCheckRunMembers failed_check_run_entries_excluding_facebook)
     heading_text
     failed_run_bullets
   where
@@ -308,7 +313,7 @@ genOtherProviderSection non_circle_items = Tr.Node
     gen_provider_maybe (provider_info, nonempty_failed_event_list) =
 
       pure $ LeafNode $ NewFailureSection
-          (RawGitHubEventMembers failed_event_list)
+          (FailurePurpose $ RawGitHubEventMembers failed_event_list)
           heading_text
           reportable_event_bullets
       where
@@ -345,9 +350,10 @@ cullEmptySections x = x {
 
 
 genBuildFailuresSections ::
-     StatusUpdateTypes.CommitPageInfo
+     GadgitFetch.AncestryResult
+  -> StatusUpdateTypes.CommitPageInfo
   -> Tr.Tree NodeType
-genBuildFailuresSections commit_page_info =
+genBuildFailuresSections ancestry_result commit_page_info =
 
   cullEmptySections $
     Tr.Node (InteriorNode "All failures") my_nodes
@@ -357,7 +363,7 @@ genBuildFailuresSections commit_page_info =
 
     my_nodes = [
         genNewFailuresSections nonupstream_builds
-      , genUpstreamFailuresSection upstream_breakages
+      , genUpstreamFailuresSection ancestry_result upstream_breakages
       , genOtherProviderSection $ StatusUpdateTypes.non_circleci_items raw_github_statuses
       ]
 
@@ -381,7 +387,7 @@ genPatternMatchedSections pattern_matched_builds =
     all_nonflaky_builds = nonflaky_by_pattern ++ nonflaky_by_empirical_confirmation
 
     nonupstream_nonflaky_pattern_matched_section = pure $ LeafNode $ NewFailureSection
-        (TupleBuildMembers all_nonflaky_builds)
+        (FailurePurpose $ TupleBuildMembers all_nonflaky_builds)
         nonupstream_nonflaky_pattern_matched_header
         (pure non_upstream_nonflaky_intro_text
           <> nonflaky_matched_builds_details_block)
@@ -433,7 +439,7 @@ genFlakySections
     get_job_name = Builds.job_name . Builds.build_record . CommitBuilds._build . CommitBuilds._commit_build
 
     my_confirmed_flaky_section = pure $ LeafNode $ NewFailureSection
-        (ProvenNonFlakyMembers confirmed_flaky_builds)
+        (InfoPurpose $ ProvenNonFlakyMembers confirmed_flaky_builds)
         (M.colonize [
             MyUtils.pluralize (length confirmed_flaky_builds) "failure"
           , M.bold "confirmed as flaky"
@@ -445,7 +451,7 @@ genFlakySections
 
 
     my_tentative_flaky_section = pure $ LeafNode $ NewFailureSection
-        (TentativeFlakyBuildMembers tentative_flakies)
+        (FailurePurpose $ TentativeFlakyBuildMembers tentative_flakies)
         tentative_flakies_header
         (untriggered_subsection <> triggered_subsection)
 
@@ -558,22 +564,26 @@ formatBreakageTimeSpan
 
 
 genUpstreamFailuresSection ::
-     [(SqlReadTypes.StandardCommitBuildWrapper, SqlReadTypes.UpstreamBrokenJob)]
+     GadgitFetch.AncestryResult
+  -> [(SqlReadTypes.StandardCommitBuildWrapper, SqlReadTypes.UpstreamBrokenJob)]
   -> Tr.Tree NodeType
-genUpstreamFailuresSection upstream_breakages_x =
+genUpstreamFailuresSection
+    ancestry_result
+    upstream_breakages_x =
+
   Tr.Node (InteriorNode "Upstream failures") extant_children
   where
     extant_children = [my_ongoing_child, my_fixed_child]
 
     my_ongoing_child = Tr.Node (InteriorNode "Ongoing") $
       pure $ pure $ LeafNode $ NewFailureSection
-        (UpstreamBreakageMembers ongoing_upstream_breakages)
+        (FailurePurpose $ UpstreamBreakageMembers ongoing_upstream_breakages)
         ongoing_upstream_header
         ongoing_body_text
 
     my_fixed_child = Tr.Node (InteriorNode "Already fixed") $
       pure $ pure $ LeafNode $ NewFailureSection
-        (UpstreamBreakageMembers fixed_upstream_breakages)
+        (FailurePurpose $ UpstreamBreakageMembers fixed_upstream_breakages)
         fixed_upstream_header
         fixed_body_text
 
@@ -596,12 +606,14 @@ genUpstreamFailuresSection upstream_breakages_x =
     fixed_upstream_details_block = M.bulletTree $
       map render_upstream_matched_failure_item fixed_upstream_breakages
 
-    upstream_fixed_intro_text = M.colonize [
+    upstream_fixed_intro_sentence = M.sentence [
         "These were probably"
       , M.bold "caused by upstream breakages"
       , "that were"
       , M.bold "already fixed"
       ]
+
+    upstream_fixed_intro_text = T.unlines $ upstream_fixed_intro_sentence : CommentRebaseAdvice.genRebaseAdviceSection ancestry_result
 
     ongoing_body_text = pure upstream_ongoing_intro_text
       <> pure ongoing_upstream_details_block
@@ -838,7 +850,7 @@ generateMiddleSections ::
   -> Builds.RawCommit
   -> CommentRenderCommon.PrCommentPayload
 generateMiddleSections
-    ancestry_result
+    ancestry_response
     build_summary_stats
     commit_page_info
     commit =
@@ -864,7 +876,6 @@ generateMiddleSections
 
     (summary_header, summary_forrest, is_all_no_fault_failures, is_all_successful_circleci_builds) = genMetricsTree
       commit_page_info
-      ancestry_result
       build_summary_stats
       non_circleci_non_facebook_failure_count
       commit
@@ -873,19 +884,21 @@ generateMiddleSections
       then mempty
       else [M.bulletTree summary_forrest]
 
-    build_failures_table_sections = genBuildFailuresSections commit_page_info
+    build_failures_table_sections = genBuildFailuresSections
+      ancestry_result
+      commit_page_info
+
+    GadgitFetch.AncestryPropositionResponse _ ancestry_result = ancestry_response
 
 
 genMetricsTree ::
      StatusUpdateTypes.CommitPageInfo
-  -> GadgitFetch.AncestryPropositionResponse
   -> StatusUpdateTypes.BuildSummaryStats
   -> Int -- ^ non-CircleCI failure count
   -> Builds.RawCommit
   -> ([Text], Tr.Forest (NonEmpty Text), Bool, Bool)
 genMetricsTree
     x_commit_page_info
-    ancestry_response
     (StatusUpdateTypes.NewBuildSummaryStats pre_broken_info all_circleci_failures)
     non_circleci_non_facebook_failure_count
     (Builds.RawCommit commit_sha1_text) =
@@ -936,9 +949,6 @@ genMetricsTree
 
     flaky_bullet_tree = [flaky_bullet_tree_inner | tentatively_flaky_count > 0]
 
-
-    GadgitFetch.AncestryPropositionResponse _ ancestry_result = ancestry_response
-
     merge_base_commit = SqlUpdate.merge_base pre_broken_info
     Builds.RawCommit merge_base_sha1_text = merge_base_commit
 
@@ -964,10 +974,8 @@ genMetricsTree
       , formatBreakageTimeSpan $ toBreakageTimeSpan latest_upstream_breakage
       ]
 
-    rebase_advice_section = CommentRebaseAdvice.genRebaseAdviceSection ancestry_result
-
-    upstream_breakage_bullet_tree = pure $
-       upstream_brokenness_declaration :| rebase_advice_section
+    upstream_breakage_bullet_tree = pure $ pure
+       upstream_brokenness_declaration
 
 
     optional_qualified_possibly_asterisk = "possibly" <> M.linkWithTooltip

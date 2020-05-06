@@ -325,7 +325,7 @@ scottyApp
   get "/api/posted-pr-comments" $
     ReadPullRequests.apiPostedPRComments <$> S.param "count"
 
-  get "/api/posted-comments-for-pr" $
+  get "/api/latest-posted-comment-for-pr" $
     ReadPullRequests.apiPostedCommentsForPR <$> (Builds.PullRequestNumber <$> S.param "pr")
 
   get "/api/all-posted-comments-for-pr" $

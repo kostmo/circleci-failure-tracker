@@ -55,7 +55,7 @@ mainAppCode args = do
 
   when True $
     void $ TestHelpers.testWithAccessToken args $ TestDefs.testBotCommentGeneration args conn $
-      Builds.RawCommit "f6473a8cc05334f838acfe20f409678bd3f266f4"
+      Builds.RawCommit "9a8e77484696fef6af5abd94a0ccdfed2a87fc44"
 --      Builds.RawCommit "94524ddb4824d951a3f6cd4e11721e396afd219d"
 
 
