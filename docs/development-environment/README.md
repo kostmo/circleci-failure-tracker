@@ -82,7 +82,7 @@ Not long after the deployment, new comments should be present that are less than
 
 If the formatting/wording of the posted PR comments has changed, click through to verify that the comment as it appears on the PR is as expected.
 
-Also, monitor the [backend performance metrics]().
+Also, monitor the [backend performance metrics](https://github.com/kostmo/circleci-failure-tracker/tree/master/docs/operation#monitoring-performance).
 
 ## Testing
 
