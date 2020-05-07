@@ -7,7 +7,7 @@ Some of the interesting logic includes:
 
 Detailed documentation:
 
-* [COMMENT-POSTING.md](COMMENT-POSTING.md)
+* [Comment posting](pull-request-comments/README.md)
 * 
 
 ## Less interesting code

@@ -73,6 +73,16 @@ To redeploy *all* Elastic Beanstalk environments, including the frontend as well
 
 The whole process will take 5-10 minutes with a high-speed internet connection.
 
+#### Verifying deployment success
+
+After deplyment has completed, one should peruse the latest posted PR comments, viewable from this page:
+https://dr.pytorch.org/admin/comment-postings.html
+
+Not long after the deployment, new comments should be present that are less than a few minutes old.
+
+If the formatting/wording of the posted PR comments has changed, click through to verify that the comment as it appears on the PR is as expected.
+
+Also, monitor the [backend performance metrics]().
 
 ## Testing
 

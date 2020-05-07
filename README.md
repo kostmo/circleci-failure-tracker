@@ -13,7 +13,7 @@ to fix them.
 
 The Dr. CI project entails two distinct user-facing outputs:
 
-* Automatically-posted GitHub PR comments
+* [Automatically-posted GitHub PR comments](application-logic/pull-request-comments)
 * The Dr. CI website
 
 The latter has several distinct utilities:
