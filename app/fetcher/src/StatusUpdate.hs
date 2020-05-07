@@ -87,6 +87,10 @@ statementTimeoutSeconds :: Integer
 statementTimeoutSeconds = 120
 
 
+facebookGitHubToolsAppSlug :: Text
+facebookGitHubToolsAppSlug = "facebook-github-tools"
+
+
 viableBranchName :: Text
 viableBranchName = "viable/strict"
 
@@ -241,7 +245,7 @@ extractUniversalBuild
 
   case hostname_string of
 
-    "circleci.com"   -> do  -- TODO: Why can't we use the "circleciDomainString" varaible here?
+    "circleci.com"   -> do  -- TODO: Why can't we use the "circleciDomainString" variable here?
       circle_build <- getCircleciFailure commit status_object
       let uni_build = Builds.UniversalBuild
             (Builds.build_id circle_build)
@@ -258,7 +262,6 @@ extractUniversalBuild
   where
     SqlReadTypes.CiProviderHostname hostname_string = DbHelpers.record provider_with_id
     did_succeed = StatusEventQuery._state status_object == StatusUpdateTypes.gitHubStatusSuccessString
-
 
 
 getBuildsFromGithub ::
@@ -361,6 +364,7 @@ getBuildsFromGithub
     scannable_build_numbers
     circleci_failcount
     (StatusUpdateTypes.NewNonCircleCIItems nonempty_non_circleci_provided_failed_statuses $ filterCheckRuns check_runs)
+    succeeded_or_failed_statuses
 
   where
     get_provider_string (DbHelpers.WithId _ (SqlReadTypes.CiProviderHostname my_hostname_string)) = my_hostname_string
@@ -375,7 +379,7 @@ filterCheckRuns check_run_entries =
   where
     x_failed_runs = filter ((== StatusUpdateTypes.gitHubStatusFailureString) . LT.fromStrict . GithubChecksApiFetch.conclusion) check_run_entries
 
-    failed_check_run_entries_excluding_facebook = filter ((/= "facebook-github-tools") . GithubChecksApiData.slug . GithubChecksApiFetch.app) x_failed_runs
+    failed_check_run_entries_excluding_facebook = filter ((/= facebookGitHubToolsAppSlug) . GithubChecksApiData.slug . GithubChecksApiFetch.app) x_failed_runs
 
 
 scanAndPost ::
@@ -609,7 +613,6 @@ postCommitSummaryStatus
   where
     conn = ScanRecords.db_conn fetching_resources
     access_token = GitHubAuth.token $ ScanRecords.github_auth_token fetching_resources
-
 
 
 postCommitSummaryStatusInner ::
@@ -945,7 +948,13 @@ readGitHubStatusesAndScanAndPostSummaryForCommit
 
     NoScanLogs -> return []
 
-  else return []
+  else do
+    liftIO $ flip runReaderT conn $
+      SqlWrite.logIntentionallySkippedPosting
+        sqs_message_id
+        sha1
+        (length $ StatusUpdateTypes.raw_conclusive_statuses github_statuses_bundle)
+    return []
 
 
 -- | Blanks the Dr. CI comment if one exists on a PR that

@@ -17,6 +17,7 @@ Dr. CI will:
 * provide a single-click mechansism to rerun any suspected "flaky" jobs
     * indicate whether these reruns are "not yet triggered", "in progress", or "complete"
 * classify all CI job failures as either "newly introduced" in the PR or "not the user's fault"
+* indicate special cases of actions to perform when certain jobs fail, e.g. "XLA" jobs
 
 
 Application logic

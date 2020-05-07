@@ -39,11 +39,12 @@ data GitHubJobStatuses = NewGitHubJobStatuses {
     scannable_statuses        :: [Builds.UniversalBuildId]
   , circleci_failed_job_count :: Int
   , non_circleci_items        :: NonCircleCIItems
+  , raw_conclusive_statuses   :: [StatusEventQuery.GitHubStatusEventGetter]
   }
 
 
 hasAnyFailures :: GitHubJobStatuses -> Bool
-hasAnyFailures (NewGitHubJobStatuses _ circleci_failed_count non_circleci_items) =
+hasAnyFailures (NewGitHubJobStatuses _ circleci_failed_count non_circleci_items _) =
   circleci_failed_count > 0 || hasAnyNonCircleCIFailures non_circleci_items
 
 

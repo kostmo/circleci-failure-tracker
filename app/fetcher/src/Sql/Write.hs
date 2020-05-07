@@ -934,6 +934,30 @@ recordTimeoutIncident
       ]
 
 
+logIntentionallySkippedPosting ::
+     AmazonQueueData.SqsMessageId
+  -> Builds.RawCommit
+  -> Int
+  -> SqlReadTypes.DbIO ()
+logIntentionallySkippedPosting
+    (AmazonQueueData.NewSqsMessageId sqs_msg_id)
+    (Builds.RawCommit commit_sha1)
+    conclusive_job_status_count = do
+
+  conn <- ask
+  liftIO $ void $
+    execute conn sql (sqs_msg_id, commit_sha1, conclusive_job_status_count)
+  where
+    sql = Q.join [
+        "INSERT INTO lambda_logging.comment_post_intentional_skip"
+      , Q.insertionValues [
+          "sqs_message_id"
+        , "sha1"
+        , "conclusive_job_status_count"
+        ]
+      ]
+
+
 storeMatches ::
      ScanRecords.ScanId
   -> Builds.BuildStepId
