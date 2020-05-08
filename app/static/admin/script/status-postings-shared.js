@@ -18,7 +18,7 @@ function gen_comment_postings_table(element_id, data_url) {
 				}
 			},
 			{title: "Author", field: "github_user_login", sorter: "string", width: 120},
-			{title: "Body", field: "body", sorter: "string",
+			{title: "Body (click to render)", field: "body", sorter: "string",
 				headerFilter: "input",
 				tooltip: function(cell) {
 					return cell.getValue();

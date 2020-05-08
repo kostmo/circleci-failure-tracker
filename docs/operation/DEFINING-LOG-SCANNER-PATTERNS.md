@@ -1,5 +1,6 @@
-Each line of the console log for a failed CircleCI build is individually scanned for matches against a curated list of patterns.  These patterns may be literal strings or regular expressions, though creation of the latter is (currently) restricted.
+# Defining new patterns
 
+Each line of the console log for a failed CircleCI build is individually scanned for matches against a curated list of patterns.  These patterns may be literal strings or regular expressions, though creation of the latter is (currently) restricted.
 
 
 1. Visit a [Build Details page](https://dr.pytorch.org/build-details.html?build_id=82804195) on the Dr. CI website.
