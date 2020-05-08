@@ -1,0 +1,17 @@
+branch-defaults:
+  default:
+    environment: github-notification-processor
+    group_suffix: null
+global:
+  application_name: pytorch-circle-log-scanner
+  branch: null
+  default_ec2_keyname: kostmo-key
+  default_platform: Docker 18.06.1-ce
+  default_region: us-east-2
+  instance_profile: null
+  platform_name: null
+  platform_version: null
+  profile: eb-cli
+  repository: null
+  sc: null
+  workspace_type: Application

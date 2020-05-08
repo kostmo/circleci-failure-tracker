@@ -1,0 +1,20 @@
+branch-defaults:
+  default:
+    environment: pytorch-circle-log-scanner-dev
+environment-defaults:
+  pytorch-circle-log-scanner-dev:
+    branch: null
+    repository: null
+global:
+  application_name: pytorch-circle-log-scanner
+  default_ec2_keyname: kostmo-aws
+  default_platform: arn:aws:elasticbeanstalk:us-east-2::platform/Docker running on
+    64bit Amazon Linux/2.12.11
+  default_region: us-east-2
+  include_git_submodules: true
+  instance_profile: null
+  platform_name: null
+  platform_version: null
+  profile: eb-cli
+  sc: null
+  workspace_type: Application
