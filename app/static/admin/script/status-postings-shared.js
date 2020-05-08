@@ -23,6 +23,20 @@ function gen_comment_postings_table(element_id, data_url) {
 				tooltip: function(cell) {
 					return cell.getValue();
 				},
+				cellClick: function(e, cell) {
+					const cell_value = cell.getValue();
+
+					$.post( {
+						url: "https://api.github.com/markdown",
+						data: JSON.stringify({"text": cell_value, "mode": "gfm", "context": "pytorch/pytorch"}),
+						success: function( data ) {
+
+							const tab = window.open('about:blank', '_blank');
+							tab.document.write(data); // where 'html' is a variable containing your HTML
+							tab.document.close(); // to finish loading the page
+						}
+					});
+				},
 			},
 			{title: "Updated", field: "updated_at", width: 130, formatter: function(cell, formatterParams, onRendered) {
 					return moment(cell.getValue()).fromNow();

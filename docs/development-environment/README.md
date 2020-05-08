@@ -43,9 +43,9 @@ Access the server by visiting http://localhost:3001 in your browser.  Note that 
 The production deployment, in contrast, requires SSL: https://dr.pytorch.org
 
 
-## Deploying the application
+# Deploying the application
 
-### Docker base preparation
+## Docker base preparation
 
 First, a Docker image containing all of the library dependencies must be prepared.
 
@@ -57,12 +57,12 @@ Execute:
 This takes a while, but only needs to be run anytime a new third-party
 dependency (i.e. a new Haskell package or package version) is introduced.
 
-### Elastic Beanstalk deploment
+## Elastic Beanstalk deployment
 
-#### Prereqs
+### Prereqs
 Make sure the `awscli` utility is installed.
 
-#### Deployment
+### Deployment
 To redeploy the frontend only:
 
     ./redeploy-frontend.sh
@@ -73,7 +73,7 @@ To redeploy *all* Elastic Beanstalk environments, including the frontend as well
 
 The whole process will take 5-10 minutes with a high-speed internet connection.
 
-#### Verifying deployment success
+### Verifying deployment success
 
 After deplyment has completed, one should peruse the latest posted PR comments, viewable from this page:
 https://dr.pytorch.org/admin/comment-postings.html
