@@ -5,15 +5,14 @@
 ### Prerequisites
 - [stack](https://docs.haskellstack.org/en/stable/README/#how-to-install)
 - [PCRE library headers](https://stackoverflow.com/a/22559967/105137)
-- LLVM 6.0
 - postgresql
 
 On MacOS, these can all be installed via:
-- `brew install pcre llvm@6 postgresql`
+- `brew install pcre postgresql`
 - `curl -sSL https://get.haskellstack.org/ | sh`
 
 On Ubuntu (warning: untested):
-- `sudo apt-get install libpcre3-dev llvm-6.0 postgresql`
+- `sudo apt-get install libpcre3-dev postgresql`
 - `curl -sSL https://get.haskellstack.org/ | sh`
 
 ### Compiling the code locally
@@ -60,7 +59,12 @@ dependency (i.e. a new Haskell package or package version) is introduced.
 ## Elastic Beanstalk deployment
 
 ### Prereqs
-Make sure the `awscli` utility is installed.
+
+- Make sure the `awscli` utility is installed.
+- Install [docker](https://docs.docker.com/get-docker/).
+  - If running on MacOS, you will need to [provide more RAM to the container](https://docs.docker.com/docker-for-mac/#resources) (tested with 8GB).
+- Run `eb init` and provide it with your IAM access key and secret for the deployed organization (e.g. caffe2).
+- Ensure your Docker Hub account has permission to push the docker image.
 
 ### Deployment
 To redeploy the frontend only:
@@ -84,9 +88,11 @@ If the formatting/wording of the posted PR comments has changed, click through t
 
 Also, monitor the [backend performance metrics](https://github.com/kostmo/circleci-failure-tracker/tree/master/docs/operation#monitoring-performance).
 
+The caffe2 org frontend deployment logs can be found at https://fburl.com/s3v2tm13.
+
 ## Testing
 
-TravisCI is set up to automatically veryify that each push to GitHub can successfully compile.  Note that if one force-pushes to the repo shortly after a previous push, TravisCI may report failure on the overwritten commit.
+TravisCI is set up to automatically verify that each push to GitHub can successfully compile.  Note that if one force-pushes to the repo shortly after a previous push, TravisCI may report failure on the overwritten commit.
 
 Certain individual functions can be tested in isolation via the `./test-oneoff.sh` script inside the `app` directory.
 
@@ -98,7 +104,3 @@ Multiple Elastic Beanstalk workers (currently 4) service the SHA1 scanning queue
 To download all of the latest console logs for each of these workers, execute the script:
 
     ./tools/log-analysis/fetch_eb_worker_logs.py
-
-
-
-
