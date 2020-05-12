@@ -5,20 +5,22 @@
 
 module Sql.Read.PullRequests where
 
-import qualified AuthStages
-import qualified Builds
 import           Control.Monad.IO.Class     (liftIO)
 import           Control.Monad.Trans.Reader (ask)
 import           Data.Aeson
+import           Data.Either.Utils          (maybeToEither)
 import           Data.Text                  (Text)
 import qualified Data.Text.Lazy             as LT
 import           Data.Time                  (UTCTime)
 import           Database.PostgreSQL.Simple
 import           GHC.Generics
 import           GHC.Int                    (Int64)
+import qualified Safe
+
+import qualified AuthStages
+import qualified Builds
 import qualified JsonUtils
 import qualified PostedComments
-import qualified Safe
 import qualified Sql.QueryUtils             as Q
 import           Sql.Read.Types             (AuthDbIO, DbIO, runQuery)
 import qualified Sql.Read.Types             as SqlReadTypes
@@ -141,7 +143,8 @@ apiPrBatchList pr_numbers = do
 prCommentSqlPrefix = Q.join [
     "SELECT"
   , Q.list [
-      "pr_number"
+      "id"
+    , "pr_number"
     , "sha1"
     , "github_user_login"
     , "body"
@@ -339,6 +342,7 @@ getPostedCommentForPR (Builds.PullRequestNumber pr_number) = do
     sql = genPRPostedCommentQuery ["pr_number = ?"]
 
 
+-- | Not used
 getPostedCommentForSha1 ::
      Builds.RawCommit
   -> DbIO (Maybe PostedPRComment)
@@ -351,3 +355,18 @@ getPostedCommentForSha1 (Builds.RawCommit commit_sha1) = do
     sql = genPRPostedCommentQuery ["sha1 = ?"]
 
 
+getSinglePostedCommentMarkdown ::
+     PostedComments.CommentRevisionId
+  -> DbIO (Either Text Text)
+getSinglePostedCommentMarkdown (PostedComments.CommentRevisionId comment_id) = do
+  conn <- ask
+  liftIO $ do
+    xs <- query conn sql $ Only comment_id
+    return $ maybeToEither "No comment revision with this ID" $
+      Safe.headMay $ map (\(Only x) -> x) xs
+  where
+    sql = Q.join [
+        "SELECT body"
+      , "FROM created_pull_request_comment_revisions"
+      , "WHERE id = ?"
+      ]

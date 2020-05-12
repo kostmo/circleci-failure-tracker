@@ -4,19 +4,29 @@
 module PostedComments where
 
 import           Data.Aeson
-import           Data.Text                  (Text)
-import           Data.Time                  (UTCTime)
-import           Database.PostgreSQL.Simple (FromRow)
+import           Data.Text                            (Text)
+import           Data.Time                            (UTCTime)
+import           Database.PostgreSQL.Simple           (FromRow)
+import           Database.PostgreSQL.Simple.FromField (FromField, fromField)
 import           GHC.Generics
-import           GHC.Int                    (Int64)
+import           GHC.Int                              (Int64)
 
 import qualified AuthStages
 import qualified Builds
 import qualified JsonUtils
 
 
+newtype CommentRevisionId = CommentRevisionId Int64
+  deriving (Generic, ToJSON)
+
+-- TODO do error handling: http://hackage.haskell.org/package/postgresql-simple-0.6.2/docs/Database-PostgreSQL-Simple-FromField.html
+instance FromField CommentRevisionId where
+  fromField f mdata = CommentRevisionId <$> fromField f mdata
+
+
 data PostedComment = PostedComment {
-    _pr_number                      :: Builds.PullRequestNumber
+    _comment_revision_id            :: CommentRevisionId
+    ,  _pr_number                   :: Builds.PullRequestNumber
   , _sha1                           :: Builds.RawCommit
   , _github_user_login              :: AuthStages.Username
   , _body                           :: Text

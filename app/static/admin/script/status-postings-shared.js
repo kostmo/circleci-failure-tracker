@@ -1,3 +1,15 @@
+function get_rendered_markdown_html(raw_markdown, callback) {
+
+	$.post({
+		url: "https://api.github.com/markdown",
+		data: JSON.stringify({
+			"text": raw_markdown,
+			"mode": "gfm",
+			"context": "pytorch/pytorch",
+		}),
+		success: callback,
+	});
+}
 
 
 function gen_comment_postings_table(element_id, data_url) {
@@ -18,25 +30,39 @@ function gen_comment_postings_table(element_id, data_url) {
 				}
 			},
 			{title: "Author", field: "github_user_login", sorter: "string", width: 120},
+
+			{title: "View", field: "comment_revision_id", width: 70,
+				formatter: "link",
+				formatterParams: {
+					urlPrefix: "/render-pr-comment.html?comment_revision=",
+/*
+					url: function(x) {
+						const row_data = cell.getRow().getData();
+						const comment_revision_id = row_data["comment_revision_id"];
+						return  + comment_revision_id;
+					},
+*/
+				},
+			},
 			{title: "Body (click to render)", field: "body", sorter: "string",
 				headerFilter: "input",
 				tooltip: function(cell) {
 					return cell.getValue();
 				},
+/*
 				cellClick: function(e, cell) {
 					const cell_value = cell.getValue();
 
-					$.post( {
-						url: "https://api.github.com/markdown",
-						data: JSON.stringify({"text": cell_value, "mode": "gfm", "context": "pytorch/pytorch"}),
-						success: function( data ) {
 
-							const tab = window.open('about:blank', '_blank');
-							tab.document.write(data); // where 'html' is a variable containing your HTML
-							tab.document.close(); // to finish loading the page
-						}
+					get_rendered_markdown_html(cell_value, function( data ) {
+
+						const tab = window.open('about:blank', '_blank');
+						tab.document.write(data); // where 'html' is a variable containing your HTML
+						tab.document.close(); // to finish loading the page
 					});
+
 				},
+*/
 			},
 			{title: "Updated", field: "updated_at", width: 130, formatter: function(cell, formatterParams, onRendered) {
 					return moment(cell.getValue()).fromNow();
@@ -48,9 +74,6 @@ function gen_comment_postings_table(element_id, data_url) {
 				}
 			},
 */
-
-
-
 			{title: "Q time", field: "queue_residency_duration", sorter: "number", width: 90, formatter: function(cell, formatterParams, onRendered) {
 					const val = cell.getValue();
 					return val != null ? val.toFixed(1) + "s" : "N/A";

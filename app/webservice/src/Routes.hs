@@ -36,6 +36,7 @@ import qualified FrontendHelpers
 import qualified GitRev
 import qualified JsonUtils
 import qualified MatchOccurrences
+import qualified PostedComments
 import qualified Scanning
 import qualified ScanPatterns
 import qualified Sql.Read.Breakages              as ReadBreakages
@@ -324,6 +325,9 @@ scottyApp
 
   get "/api/posted-pr-comments" $
     ReadPullRequests.apiPostedPRComments <$> S.param "count"
+
+  get "/api/posted-comment-revision-body" $
+    fmap WebApi.toJsonEither . ReadPullRequests.getSinglePostedCommentMarkdown <$> (PostedComments.CommentRevisionId <$> S.param "comment_revision")
 
   get "/api/latest-posted-comment-for-pr" $
     ReadPullRequests.apiPostedCommentsForPR <$> (Builds.PullRequestNumber <$> S.param "pr")
