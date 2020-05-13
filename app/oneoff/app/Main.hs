@@ -24,6 +24,8 @@ myCliParser :: Parser TestHelpers.CommandLineArgs
 myCliParser = TestHelpers.NewCommandLineArgs
   <$> strOption   (long "db-hostname" <> value "localhost" <> metavar "DATABASE_HOSTNAME"
     <> help "Hostname of database")
+  <*> strOption   (long "db-username" <> value "logan" <> metavar "DATABASE_USERNAME"
+    <> help "Password for database user")
   <*> strOption   (long "db-password" <> value "logan01" <> metavar "DATABASE_PASSWORD"
     <> help "Password for database user")
    -- Note: this is not the production password; this default is only for local testing
@@ -106,7 +108,7 @@ mainAppCode args = do
     connection_data = DbHelpers.NewDbConnectionData {
         DbHelpers.dbHostname = TestHelpers.dbHostname args
       , DbHelpers.dbName = "loganci"
-      , DbHelpers.dbUsername = "logan"
+      , DbHelpers.dbUsername = TestHelpers.dbUsername args
       , DbHelpers.dbPassword = TestHelpers.dbPassword args
       }
 

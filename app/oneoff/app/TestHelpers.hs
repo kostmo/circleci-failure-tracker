@@ -16,6 +16,7 @@ import qualified Scanning
 
 data CommandLineArgs = NewCommandLineArgs {
     dbHostname          :: String
+  , dbUsername          :: String
   , dbPassword          :: String
   , circleciApiToken    :: String
   , rescanVisited       :: Bool
