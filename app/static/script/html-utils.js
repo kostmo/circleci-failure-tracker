@@ -1,4 +1,7 @@
-const PULL_REQUEST_URL_PREFIX = "https://github.com/pytorch/pytorch/pull/";
+const PYTORCH_PROJECT_REPO = "pytorch/pytorch";
+
+
+const PULL_REQUEST_URL_PREFIX = "https://github.com/" + PYTORCH_PROJECT_REPO + "/pull/";
 
 
 function pluralize(quantity, word) {

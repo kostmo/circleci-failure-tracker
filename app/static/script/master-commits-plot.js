@@ -347,7 +347,8 @@ function pr_merges_timeline_highchart(chart_id, data, stacking_type, y_label_pre
 
 function render_master_commits_plots(weeks_count) {
 
-	getJsonWithThrobber("#scan-throbber", "/api/master-commits-granular", {"weeks": weeks_count}, breakages_gantt_highchart)
+	// This query is really slow and not useful:
+//	getJsonWithThrobber("#scan-throbber", "/api/master-commits-granular", {"weeks": weeks_count}, breakages_gantt_highchart);
 
 	getJsonWithThrobber("#scan-throbber2", "/api/master-pr-merge-time-weekly-failure-stats", {"weeks": weeks_count}, function (data) {
 		pr_merges_timeline_highchart("pr-merges-by-week-stacked", data, "normal", "count");

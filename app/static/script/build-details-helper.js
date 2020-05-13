@@ -2,7 +2,7 @@
 function render_build_link_cell(universal_build_id, icon_url, provider_build_number) {
 
 	const url = "/build-details.html?build_id=" + universal_build_id;
-	return link('<img src="' + icon_url + '?s=16" style="vertical-align: middle"/>', "https://circleci.com/gh/pytorch/pytorch/" + provider_build_number) + ' ' + render_tag("span", link(provider_build_number, url), {"style": "vertical-align: middle"})
+	return link('<img src="' + icon_url + '?s=16" style="vertical-align: middle"/>', "https://circleci.com/gh/" + PYTORCH_PROJECT_REPO + "/" + provider_build_number) + ' ' + render_tag("span", link(provider_build_number, url), {"style": "vertical-align: middle"})
 }
 
 

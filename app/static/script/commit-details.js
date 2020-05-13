@@ -16,7 +16,7 @@ function gen_analysis_text(counts_obj) {
 
 function populate_commit_info(commit_sha1, data) {
 
-	const github_link = link("View on GitHub", "https://github.com/pytorch/pytorch/commits/" + commit_sha1);
+	const github_link = link("View on GitHub", "https://github.com/" + PYTORCH_PROJECT_REPO + "/commits/" + commit_sha1);
 	const counts_obj = data["payload"]["content"]["counts"];
 
 	const items = [
@@ -289,7 +289,7 @@ function main() {
 //	fetch_commit_info(commit_sha1);
 
 	// TODO Remove this, re-enable above
-	const github_link = link("View on GitHub", "https://github.com/pytorch/pytorch/commits/" + commit_sha1);
+	const github_link = link("View on GitHub", "https://github.com/" + PYTORCH_PROJECT_REPO + "/commits/" + commit_sha1);
         $("#commit-info-box").html(github_link);
 
 

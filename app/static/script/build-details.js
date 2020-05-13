@@ -190,14 +190,14 @@ function populate_build_info(universal_build_id, parent_data) {
 	const circleci_build_id = parent_data["umbrella_build"]["build_record"]["build_id"];
 
 	const logview_items = render_list([
-		"View log " + link("on CircleCI", "https://circleci.com/gh/pytorch/pytorch/" + circleci_build_id, true),
+		"View log " + link("on CircleCI", "https://circleci.com/gh/" + PYTORCH_PROJECT_REPO + "/" + circleci_build_id, true),
 	]);
 
 	const full_commit = data["build"]["vcs_revision"];
 	const short_commit = full_commit.substring(0, 7);
 
 	const local_link = link("View " + render_tag("code", short_commit) + " details", "/commit-details.html?sha1=" + full_commit);
-	const github_link = link("View " + render_tag("code", short_commit) + " on GitHub", "https://github.com/pytorch/pytorch/commit/" + full_commit);
+	const github_link = link("View " + render_tag("code", short_commit) + " on GitHub", "https://github.com/" + PYTORCH_PROJECT_REPO + "/commit/" + full_commit);
 	const commit_links = render_list([local_link, github_link]);
 
 	const breakage_cause_items = render_list(parent_data["known_failures"].map(render_known_failure));
@@ -251,7 +251,7 @@ function gen_status_notifications_table(element_id, data) {
 			{title: "Provider Build number", field: "build_number", 
 				formatter: "link",
 				formatterParams: {
-					urlPrefix: "https://circleci.com/gh/pytorch/pytorch/",
+					urlPrefix: "https://circleci.com/gh/" + PYTORCH_PROJECT_REPO + "/",
 				},
 			},
 			{title: "State", field: "state", sorter: "string"},

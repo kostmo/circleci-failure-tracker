@@ -8,7 +8,7 @@ function gen_pr_table(div_id, data) {
 			formatter: "link",
 			width: 75,
 			formatterParams: {
-				urlPrefix: "https://github.com/pytorch/pytorch/pull/"
+				urlPrefix: "https://github.com/" + PYTORCH_PROJECT_REPO + "/pull/"
 			}
 		},
 		{title: "Date", field: "committer_date", 

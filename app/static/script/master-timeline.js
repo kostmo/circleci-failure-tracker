@@ -481,7 +481,7 @@ function getCellForeground(cell, row_data, cell_value, commit_id, job_name) {
 		const failed_build_link = link(indicator, "/build-details.html?build_id=" + build_id);
 
 		const provider_build_number = cell_value["universal_build"]["record"]["provider_buildnum"];
-		const successful_build_link = link(indicator, "https://circleci.com/gh/pytorch/pytorch/" + provider_build_number);
+		const successful_build_link = link(indicator, "https://circleci.com/gh/" + PYTORCH_PROJECT_REPO + "/" + provider_build_number);
 
 		return is_success ? successful_build_link : failed_build_link;
 
@@ -514,7 +514,7 @@ function getCellForeground(cell, row_data, cell_value, commit_id, job_name) {
 				*/
 
 				const green_dot_img = '<img src="/images/build-status-indicators/green-dot-concentric.svg" style="width: 100%; top: 50%;"/>';
-				const success_link = link(green_dot_img, "https://circleci.com/gh/pytorch/pytorch/" + disjoint_status_obj["build_number_extracted"]);
+				const success_link = link(green_dot_img, "https://circleci.com/gh/" + PYTORCH_PROJECT_REPO + "/" + disjoint_status_obj["build_number_extracted"]);
 				return success_link;
 			} else {
 				return "";

@@ -12,7 +12,7 @@ function gen_good_commits_table(element_id, data_url) {
 			width: 75,
 			formatter: function(cell, formatterParams, onRendered) {
 				const pr_num = cell.getValue()
-				return pr_num == null ? "" : link(cell.getValue(), "https://github.com/pytorch/pytorch/pull/" + pr_num);
+				return pr_num == null ? "" : link(cell.getValue(), "https://github.com/" + PYTORCH_PROJECT_REPO + "/pull/" + pr_num);
 			},
 		},
 	];

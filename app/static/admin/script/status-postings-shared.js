@@ -5,7 +5,7 @@ function get_rendered_markdown_html(raw_markdown, callback) {
 		data: JSON.stringify({
 			"text": raw_markdown,
 			"mode": "gfm",
-			"context": "pytorch/pytorch",
+			"context": PYTORCH_PROJECT_REPO,
 		}),
 		success: callback,
 	});
