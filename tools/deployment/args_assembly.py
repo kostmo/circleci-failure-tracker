@@ -4,6 +4,7 @@ import base64
 
 
 WEBAPP_BINARY_NAME = "my-webapp"
+ONEOFF_BINARY_NAME = "scan-oneoff"
 
 
 WEBAPP_INTERNAL_PORT = 3001
@@ -38,34 +39,41 @@ def generate_app_nondefault_cli_arglist(
         aws_sqs_queue_url,
         is_notification_ingester,
         no_force_ssl,
-        port_override):
+        port_override,
+        run_oneoff = False):
 
     arg_list = [
-        "--github-client-id",
-        app_credentials_json["github-client-id"],
-        "--github-client-secret",
-        app_credentials_json["github-client-secret"],
-        "--github-webhook-secret",
-        app_credentials_json["github-webhook-secret"],
-        "--circleci-api-token",
-        circleci_api_token,
         "--db-hostname",
         db_credentials_json["db-hostname"],
         "--db-username",
         db_credentials_json["db-user"],
         "--db-password",
         db_credentials_json["db-password"],
+        "--github-app-rsa-pem",
+        base64.b64encode(github_app_pem_content.encode('ascii')).decode(),
+        "--aws-sqs-queue-url",
+        aws_sqs_queue_url,
+        "--circleci-api-token",
+        circleci_api_token,
+    ]
+
+    if run_oneoff:
+        return arg_list
+
+    arg_list += [
+        "--github-client-id",
+        app_credentials_json["github-client-id"],
+        "--github-client-secret",
+        app_credentials_json["github-client-secret"],
+        "--github-webhook-secret",
+        app_credentials_json["github-webhook-secret"],
         "--db-mview-username",
         db_mview_credentials_json["db-user"],
         "--db-mview-password",
         db_mview_credentials_json["db-password"],
         "--admin-password",
         app_credentials_json["admin-password"],
-        "--github-app-rsa-pem",
-        base64.b64encode(github_app_pem_content.encode('ascii')).decode(),
-        "--aws-sqs-queue-url",
-        aws_sqs_queue_url,
-    ]
+        ]
 
     if no_force_ssl:
         arg_list.append("--no-force-ssl")

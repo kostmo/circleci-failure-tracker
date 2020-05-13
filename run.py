@@ -8,6 +8,7 @@ import os
 import argparse
 import json
 import subprocess
+import sys
 
 import tools.deployment.args_assembly as args_assembly
 
@@ -57,6 +58,8 @@ def parse_args():
 
 
     parser.add_argument('--notification-ingester', dest='notification_ingester', action="store_true", help='Build for the notification ingester application')
+    parser.add_argument('--gitdir', dest='repo_gitdir', help='PyTorch git directory')
+    parser.add_argument('--oneoff', dest='run_oneoff', action='store_true', help='Run oneoff test suite')
 
 
     return parser.parse_args()
@@ -79,13 +82,15 @@ if __name__ == "__main__":
 
     options = parse_args()
 
+    if options.run_oneoff and options.repo_gitdir is None:
+        print("--gitdir must be defined to run oneoff unittests")
+        sys.exit(-1)
+
     using_prod_db = options.prod_app or options.prod_db
 
     app_credentials_json_path = os.path.join(options.credentials_json_basedir, gen_credentials_filename(False, options.prod_app))
     db_credentials_json_path = os.path.join(options.credentials_json_basedir, gen_credentials_filename(True, using_prod_db))
     db_mview_credentials_json_path = os.path.join(options.credentials_json_basedir, gen_credentials_filename(True, using_prod_db, "mview-refresher"))
-
-
 
     with open(app_credentials_json_path) as fh_app, open(db_credentials_json_path) as fh_db, open(db_mview_credentials_json_path) as fh_mview_db:
 
@@ -102,7 +107,8 @@ if __name__ == "__main__":
             aws_sqs_queue_url,
             options.notification_ingester,
             options.no_force_ssl,
-            options.port_override)
+            options.port_override,
+            run_oneoff=options.run_oneoff)
 
         if options.prod_app:
             args_assembly.generate_dockerrun_aws_json(options.dockerrun_json, nondefault_cli_arglist, options.entrypoint_override)
@@ -110,17 +116,22 @@ if __name__ == "__main__":
         else:
             os.system('find -name "*.tix" -delete')
 
-            binary_name = options.entrypoint_override if options.entrypoint_override else args_assembly.WEBAPP_BINARY_NAME
- 
+            default_binary_name = args_assembly.ONEOFF_BINARY_NAME if options.run_oneoff else args_assembly.WEBAPP_BINARY_NAME
+            binary_name = options.entrypoint_override if options.entrypoint_override else default_binary_name
+
             cli_args = [
                    "stack",
                    "run",
                    binary_name,
                    "--",
+               ] + ([
                    "--local",
                    "--data-path",
                    "static",
-               ] + nondefault_cli_arglist
+               ] if binary_name != args_assembly.ONEOFF_BINARY_NAME else [
+                   "--repo-git-dir",
+                   options.repo_gitdir,
+               ]) + nondefault_cli_arglist
 
             command_string = " ".join(cli_args)
             print("Executing command:", command_string)
