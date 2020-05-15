@@ -777,6 +777,8 @@ generateCommentFooter
       , M.sentence [
           "Please report bugs/suggestions on the"
         , M.htmlLink "GitHub issue tracker" drCiIssueTrackerUrl
+        , "or post in the (internal)"
+        , M.htmlLink "Dr. CI Users group" "https://fb.workplace.com/groups/488620375234384/"
         ]
       ] ++ [performance_link] ++ optional_suffix
 
