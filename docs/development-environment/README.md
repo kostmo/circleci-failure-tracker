@@ -93,6 +93,12 @@ The caffe2 org frontend deployment logs can be found at https://fburl.com/s3v2tm
 
 ## Testing
 
+### Manual tests
+
+It's important to do "hard browser refreshes" when verifying deployed changes to the website - that is, invalidate the cache with CMD+shift+R.
+
+### Continuous integration
+
 TravisCI is set up to automatically verify that each push to GitHub can successfully compile.  Note that if one force-pushes to the repo shortly after a previous push, TravisCI may report failure on the overwritten commit.
 
 Certain individual functions can be tested in isolation via the `./test-oneoff.sh` script inside the `app` directory.
