@@ -61,6 +61,7 @@ dependency (i.e. a new Haskell package or package version) is introduced.
 ### Prereqs
 
 - Make sure the `awscli` utility is installed.
+- Install Elastic Beanstalk (`eb`) CLI tool: https://docs.aws.amazon.com/elasticbeanstalk/latest/dg/eb-cli3-install.html
 - Install [docker](https://docs.docker.com/get-docker/).
   - If running on MacOS, you will need to [provide more RAM to the container](https://docs.docker.com/docker-for-mac/#resources) (tested with 8GB).
 - Run `eb init` and provide it with your IAM access key and secret for the deployed organization (e.g. caffe2).
