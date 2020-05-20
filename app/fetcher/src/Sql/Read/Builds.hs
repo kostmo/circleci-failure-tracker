@@ -408,7 +408,10 @@ apiUnmatchedCommitBuilds (Builds.RawCommit sha1) = do
       , "JOIN ci_providers"
       , "ON unattributed_failed_builds.provider = ci_providers.id"
       , "WHERE"
-      , "unattributed_failed_builds.vcs_revision = ?"
+      , Q.conjunction [
+          "unattributed_failed_builds.vcs_revision = ?"
+        , "NOT is_empirically_determined_flaky"
+        ]
       ]
 
 

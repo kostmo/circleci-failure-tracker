@@ -422,7 +422,6 @@ getFailedCircleCIJobNames ::
   -> DbIO (Either LT.Text [Text])
 getFailedCircleCIJobNames (Builds.RawCommit sha1) = do
   conn <- ask
-
   liftIO $ Right . map (\(Only x) -> x) <$> query conn sql query_parms
   where
     query_parms = (sha1, SqlReadTypes.circleCIProviderIndex)

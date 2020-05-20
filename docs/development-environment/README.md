@@ -91,11 +91,11 @@ Also, monitor the [backend performance metrics](https://github.com/kostmo/circle
 
 The caffe2 org frontend deployment logs can be found at https://fburl.com/s3v2tm13.
 
-## Testing
-
-### Manual tests
+### Website sanity check
 
 It's important to do "hard browser refreshes" when verifying deployed changes to the website - that is, invalidate the cache with CMD+shift+R.
+
+## Testing
 
 ### Continuous integration
 
