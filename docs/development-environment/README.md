@@ -89,6 +89,8 @@ If the formatting/wording of the posted PR comments has changed, click through t
 
 Also, monitor the [backend performance metrics](https://github.com/kostmo/circleci-failure-tracker/tree/master/docs/operation#monitoring-performance).
 
+To obtain console logs for the (4) Elastic Beanstalk workers without having to go through the AWS website, run the `tools/log-analysis/fetch_eb_worker_logs.py` script, which place one log file for each worker into the current directory.
+
 The caffe2 org frontend deployment logs can be found at https://fburl.com/s3v2tm13.
 
 ### Website sanity check
