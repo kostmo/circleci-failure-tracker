@@ -68,7 +68,9 @@ Weeks:
 </td></tr></table>
 
 <h2><a name="qualified-green-merges">Qualified green merges</a></h2>
-<p>These are PRs for which Dr. CI gave a "qualified" green score, meaning that the only CI failures were not the user's fault.</p>
+<p>These are PRs for which Dr. CI gave a "qualified" green score, meaning that all of the CI failures were not the user's fault.
+This may be due to jobs that were broken upstream or failures that are inferred as flaky.
+</p>
 
 <p>Ideally, the "Dr. CI commented or withheld" count should match the "Total PR count".
 A Dr. CI comment may be withheld if the PR author has opted-out of Dr. CI comments or if the PR did not ever experience a failed CI job.</p>
