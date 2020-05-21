@@ -323,6 +323,9 @@ scottyApp
   get "/api/code-breakage-mode-single" $
     ReadBreakages.apiCodeBreakagesModeSingle <$> S.param "cause_id"
 
+  get "/api/pr-comment-opt-out-stats" $
+    pure ReadPullRequests.allUserOptOutStats
+
   get "/api/posted-pr-comments" $
     ReadPullRequests.apiPostedPRComments <$> S.param "count"
 

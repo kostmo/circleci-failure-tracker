@@ -74,6 +74,33 @@ canPostPullRequestComments conn (AuthStages.Username author) = do
       ]
 
 
+data UserOptOutStats = UserOptOutStats {
+    username                       :: AuthStages.Username
+  , omitted_pr_count               :: Int
+  , blocked_comment_revision_count :: Int
+  , is_currently_disabled          :: Bool
+  } deriving (Generic, FromRow, ToJSON)
+
+
+allUserOptOutStats ::
+    DbIO [UserOptOutStats]
+allUserOptOutStats = do
+  conn <- ask
+  liftIO $ query_ conn sql
+  where
+    sql = Q.join [
+        "SELECT"
+      , Q.list [
+            "username"
+          , "pr_count::int"
+          , "blocked_comment_count::int"
+          , "is_currently_disabled"
+        ]
+      , "FROM opt_out_blocked_comment_postings_by_user"
+      , "WHERE is_currently_disabled"
+      ]
+
+
 userOptOutSettings ::
   AuthDbIO (Either Text (SqlReadTypes.UserWrapper (Maybe OptOutResponse)))
 userOptOutSettings = do

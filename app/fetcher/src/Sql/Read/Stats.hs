@@ -28,14 +28,15 @@ import qualified WeeklyStats
 
 
 data WeeklyFailingMergedPullRequests = WeeklyFailingMergedPullRequests {
-    _total_pr_count              :: Int
-  , _failing_pr_count            :: Int
-  , _total_build_count           :: Int
-  , _total_failed_build_count    :: Int
-  , _foreshadowed_breakage_count :: Int
-  , _pr_numbers                  :: PGArray Int
-  , _dr_ci_commented_count       :: Int
-  , _qualified_green_count       :: Int
+    _total_pr_count                             :: Int
+  , _failing_pr_count                           :: Int
+  , _total_build_count                          :: Int
+  , _total_failed_build_count                   :: Int
+  , _foreshadowed_breakage_count                :: Int
+  , _pr_numbers                                 :: PGArray Int
+  , _dr_ci_commented_count                      :: Int
+  , _intentionally_withheld_dr_ci_comment_count :: Int
+  , _qualified_green_count                      :: Int
   } deriving (Generic, FromRow)
 
 instance ToJSON WeeklyFailingMergedPullRequests where
@@ -63,6 +64,7 @@ getMergeTimeFailingPullRequestBuildsByWeek week_count = do
         , "foreshadowed_breakage_count"
         , "pr_numbers"
         , "dr_ci_commented_count"
+        , "intentionally_withheld_dr_ci_comment_count"
         , "qualified_green_count"
         ]
       , "FROM pr_merge_time_failing_builds_by_week"

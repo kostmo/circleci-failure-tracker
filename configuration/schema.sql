@@ -557,6 +557,21 @@ ALTER SEQUENCE lambda_logging.eb_worker_event_start_id_seq OWNED BY lambda_loggi
 
 
 --
+-- Name: intentionally_skipped_comment_posts_by_sha1; Type: VIEW; Schema: lambda_logging; Owner: postgres
+--
+
+CREATE VIEW lambda_logging.intentionally_skipped_comment_posts_by_sha1 AS
+ SELECT comment_post_intentional_skip.sha1,
+    count(*) AS comment_skip_count,
+    max(comment_post_intentional_skip.conclusive_job_status_count) AS max_conclusive_job_count,
+    max(comment_post_intentional_skip.inserted_at) AS latest_insertion
+   FROM lambda_logging.comment_post_intentional_skip
+  GROUP BY comment_post_intentional_skip.sha1;
+
+
+ALTER TABLE lambda_logging.intentionally_skipped_comment_posts_by_sha1 OWNER TO postgres;
+
+--
 -- Name: latest_created_pull_request_comment_revision; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -5094,6 +5109,61 @@ CREATE VIEW public.matches_with_log_metadata WITH (security_barrier='false') AS
 ALTER TABLE public.matches_with_log_metadata OWNER TO postgres;
 
 --
+-- Name: opt_out_blocked_comment_postings_by_pr; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.opt_out_blocked_comment_postings_by_pr AS
+ SELECT foo.pr_number,
+    foo.count,
+    foo.last_id,
+    blocked_pr_comment_postings.username,
+    blocked_pr_comment_postings.inserted_at
+   FROM (( SELECT blocked_pr_comment_postings_1.pr_number,
+            count(*) AS count,
+            max(blocked_pr_comment_postings_1.id) AS last_id
+           FROM public.blocked_pr_comment_postings blocked_pr_comment_postings_1
+          GROUP BY blocked_pr_comment_postings_1.pr_number) foo
+     JOIN public.blocked_pr_comment_postings ON ((foo.last_id = blocked_pr_comment_postings.id)))
+  ORDER BY foo.last_id DESC;
+
+
+ALTER TABLE public.opt_out_blocked_comment_postings_by_pr OWNER TO postgres;
+
+--
+-- Name: pr_comment_posting_opt_outs; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.pr_comment_posting_opt_outs (
+    username text NOT NULL,
+    modification_count integer DEFAULT 0 NOT NULL,
+    disabled boolean NOT NULL,
+    modified_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+ALTER TABLE public.pr_comment_posting_opt_outs OWNER TO postgres;
+
+--
+-- Name: opt_out_blocked_comment_postings_by_user; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW public.opt_out_blocked_comment_postings_by_user AS
+ SELECT foo.username,
+    foo.pr_count,
+    foo.blocked_comment_count,
+    COALESCE(pr_comment_posting_opt_outs.disabled, false) AS is_currently_disabled
+   FROM (( SELECT opt_out_blocked_comment_postings_by_pr.username,
+            count(*) AS pr_count,
+            sum(opt_out_blocked_comment_postings_by_pr.count) AS blocked_comment_count
+           FROM public.opt_out_blocked_comment_postings_by_pr
+          GROUP BY opt_out_blocked_comment_postings_by_pr.username) foo
+     LEFT JOIN public.pr_comment_posting_opt_outs ON ((pr_comment_posting_opt_outs.username = foo.username)))
+  ORDER BY foo.username;
+
+
+ALTER TABLE public.opt_out_blocked_comment_postings_by_user OWNER TO postgres;
+
+--
 -- Name: ordered_master_commits_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
 --
 
@@ -5334,20 +5404,6 @@ ALTER SEQUENCE public.pattern_step_applicability_id_seq OWNED BY public.pattern_
 
 
 --
--- Name: pr_comment_posting_opt_outs; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.pr_comment_posting_opt_outs (
-    username text NOT NULL,
-    modification_count integer DEFAULT 0 NOT NULL,
-    disabled boolean NOT NULL,
-    modified_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
-ALTER TABLE public.pr_comment_posting_opt_outs OWNER TO postgres;
-
---
 -- Name: pr_dependent_breakages_with_patterns; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -5542,8 +5598,11 @@ CREATE VIEW public.pr_merge_time_build_stats_by_master_commit AS
     foo.succeeded_count,
     foo.failed_count,
     COALESCE(bar.foreshadowed_breakage_count, 0) AS foreshadowed_breakage_count,
-    created_pull_request_comment_revisions.all_no_fault_failures
-   FROM (((((public.master_ordered_commits_with_metadata_mview moc
+    created_pull_request_comment_revisions.all_no_fault_failures,
+    (intentionally_skipped_comment_posts_by_sha1.sha1 IS NOT NULL) AS had_skip_due_to_all_green,
+    (opt_out_blocked_comment_postings_by_pr.pr_number IS NOT NULL) AS had_user_opt_out,
+    (created_pull_request_comment_revisions.all_no_fault_failures IS NOT NULL) AS had_dr_ci_comment
+   FROM (((((((public.master_ordered_commits_with_metadata_mview moc
      JOIN ( SELECT pr_merge_time_build_statuses.master_commit,
             count(pr_merge_time_build_statuses.global_build) AS total_builds,
             COALESCE(sum((pr_merge_time_build_statuses.succeeded)::integer), (0)::bigint) AS succeeded_count,
@@ -5557,7 +5616,9 @@ CREATE VIEW public.pr_merge_time_build_stats_by_master_commit AS
            FROM public.code_breakage_failing_pr_jobs
           GROUP BY code_breakage_failing_pr_jobs.master_commit_breakage_sha1) bar ON ((moc.sha1 = bar.master_commit_breakage_sha1)))
      LEFT JOIN public.latest_pr_comment_revision_for_sha1 ON ((pr_merge_time_heads_for_master_commits.pr_head_commit = latest_pr_comment_revision_for_sha1.sha1)))
-     LEFT JOIN public.created_pull_request_comment_revisions ON ((latest_pr_comment_revision_for_sha1.latest_comment_revision_id = created_pull_request_comment_revisions.id)));
+     LEFT JOIN public.created_pull_request_comment_revisions ON ((latest_pr_comment_revision_for_sha1.latest_comment_revision_id = created_pull_request_comment_revisions.id)))
+     LEFT JOIN lambda_logging.intentionally_skipped_comment_posts_by_sha1 ON ((intentionally_skipped_comment_posts_by_sha1.sha1 = pr_merge_time_heads_for_master_commits.pr_head_commit)))
+     LEFT JOIN public.opt_out_blocked_comment_postings_by_pr ON ((opt_out_blocked_comment_postings_by_pr.pr_number = moc.github_pr_number)));
 
 
 ALTER TABLE public.pr_merge_time_build_stats_by_master_commit OWNER TO postgres;
@@ -5584,7 +5645,10 @@ CREATE MATERIALIZED VIEW public.pr_merge_time_build_stats_by_master_commit_mview
     pr_merge_time_build_stats_by_master_commit.succeeded_count,
     pr_merge_time_build_stats_by_master_commit.failed_count,
     pr_merge_time_build_stats_by_master_commit.foreshadowed_breakage_count,
-    pr_merge_time_build_stats_by_master_commit.all_no_fault_failures
+    pr_merge_time_build_stats_by_master_commit.all_no_fault_failures,
+    pr_merge_time_build_stats_by_master_commit.had_skip_due_to_all_green,
+    pr_merge_time_build_stats_by_master_commit.had_user_opt_out,
+    pr_merge_time_build_stats_by_master_commit.had_dr_ci_comment
    FROM public.pr_merge_time_build_stats_by_master_commit
   WITH NO DATA;
 
@@ -5603,8 +5667,9 @@ CREATE VIEW public.pr_merge_time_failing_builds_by_week AS
     (sum(mv.failed_count))::integer AS total_failed_build_count,
     sum(((mv.foreshadowed_breakage_count > 0))::integer) AS foreshadowed_breakage_count,
     array_agg(mv.github_pr_number) AS pr_numbers,
-    count(mv.all_no_fault_failures) AS dr_ci_commented_count,
-    sum((mv.all_no_fault_failures)::integer) AS qualified_green_count
+    sum((mv.had_dr_ci_comment)::integer) AS dr_ci_commented_count,
+    sum((mv.all_no_fault_failures)::integer) AS qualified_green_count,
+    sum((((NOT mv.had_dr_ci_comment) AND (mv.had_user_opt_out OR mv.had_skip_due_to_all_green)))::integer) AS intentionally_withheld_dr_ci_comment_count
    FROM public.pr_merge_time_build_stats_by_master_commit_mview mv
   GROUP BY (date_trunc('week'::text, mv.committer_date))
   ORDER BY (date_trunc('week'::text, mv.committer_date)) DESC;
@@ -7218,10 +7283,10 @@ CREATE UNIQUE INDEX idx_patterns ON public.pattern_frequency_summary_mview USING
 
 
 --
--- Name: idx_pr_build_stats_by_pr_commit_id2; Type: INDEX; Schema: public; Owner: materialized_view_updater
+-- Name: idx_pr_build_stats_by_pr_commit_id3; Type: INDEX; Schema: public; Owner: materialized_view_updater
 --
 
-CREATE UNIQUE INDEX idx_pr_build_stats_by_pr_commit_id2 ON public.pr_merge_time_build_stats_by_master_commit_mview USING btree (commit_id DESC NULLS LAST);
+CREATE UNIQUE INDEX idx_pr_build_stats_by_pr_commit_id3 ON public.pr_merge_time_build_stats_by_master_commit_mview USING btree (commit_id DESC NULLS LAST);
 
 
 --
@@ -7907,6 +7972,13 @@ GRANT ALL ON TABLE lambda_logging.deduped_eb_worker_sha1_dequeue_event_durations
 --
 
 GRANT ALL ON SEQUENCE lambda_logging.eb_worker_event_start_id_seq TO logan;
+
+
+--
+-- Name: TABLE intentionally_skipped_comment_posts_by_sha1; Type: ACL; Schema: lambda_logging; Owner: postgres
+--
+
+GRANT ALL ON TABLE lambda_logging.intentionally_skipped_comment_posts_by_sha1 TO logan;
 
 
 --
@@ -9158,6 +9230,30 @@ GRANT ALL ON TABLE public.matches_with_log_metadata TO logan;
 
 
 --
+-- Name: TABLE opt_out_blocked_comment_postings_by_pr; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.opt_out_blocked_comment_postings_by_pr TO logan;
+GRANT SELECT ON TABLE public.opt_out_blocked_comment_postings_by_pr TO materialized_view_updater;
+
+
+--
+-- Name: TABLE pr_comment_posting_opt_outs; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.pr_comment_posting_opt_outs TO logan;
+GRANT SELECT ON TABLE public.pr_comment_posting_opt_outs TO materialized_view_updater;
+
+
+--
+-- Name: TABLE opt_out_blocked_comment_postings_by_user; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.opt_out_blocked_comment_postings_by_user TO logan;
+GRANT SELECT ON TABLE public.opt_out_blocked_comment_postings_by_user TO materialized_view_updater;
+
+
+--
 -- Name: SEQUENCE ordered_master_commits_id_seq; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -9228,14 +9324,6 @@ GRANT ALL ON SEQUENCE public.pattern_id_seq TO logan;
 --
 
 GRANT ALL ON SEQUENCE public.pattern_step_applicability_id_seq TO logan;
-
-
---
--- Name: TABLE pr_comment_posting_opt_outs; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.pr_comment_posting_opt_outs TO logan;
-GRANT SELECT ON TABLE public.pr_comment_posting_opt_outs TO materialized_view_updater;
 
 
 --

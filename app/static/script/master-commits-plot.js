@@ -152,13 +152,12 @@ function master_breakages_timeline_highchart(chart_id, data) {
 }
 
 
-
-// TODO Adapt this!
 function pr_qualified_green_merges_timeline_highchart(chart_id, data, stacking_type, y_label_prefix) {
 
 	const total_pr_count_points = [];
 	const dr_ci_commented_count_points = [];
 	const qualified_green_count_points = [];
+	const expected_witheld_comment_count_points = [];
 
 	for (var datum of data) {
 
@@ -167,13 +166,17 @@ function pr_qualified_green_merges_timeline_highchart(chart_id, data, stacking_t
 		total_pr_count_points.push({x: week_val, y: datum["record"]["total_pr_count"], mydata: datum["record"]});
 		dr_ci_commented_count_points.push({x: week_val, y: datum["record"]["dr_ci_commented_count"], mydata: datum["record"]});
 		qualified_green_count_points.push({x: week_val, y: datum["record"]["qualified_green_count"], mydata: datum["record"]});
+
+		const dr_ci_commented_and_expected_withheld_count = datum["record"]["dr_ci_commented_count"] + datum["record"]["intentionally_withheld_dr_ci_comment_count"];
+		expected_witheld_comment_count_points.push({x: week_val, y: dr_ci_commented_and_expected_withheld_count, mydata: datum["record"]});
 	}
 
 	const series_list = [];
 
-	series_list.push({"name": "Total PR count", data: total_pr_count_points})
-	series_list.push({"name": "Dr. CI commented count", data: dr_ci_commented_count_points})
-	series_list.push({"name": "Qualified green at merge count", data: qualified_green_count_points})
+	series_list.push({"name": "Total PR count", data: total_pr_count_points});
+	series_list.push({"name": "Dr. CI commented", data: dr_ci_commented_count_points});
+	series_list.push({"name": "Qualified green at merge", data: qualified_green_count_points});
+	series_list.push({"name": "Dr. CI commented or withheld", data: expected_witheld_comment_count_points});
 
 	Highcharts.chart(chart_id, {
 		chart: {
